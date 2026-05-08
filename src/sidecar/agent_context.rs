@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 use crate::error::Result;
+use crate::model::DiffFile;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedAgentContext {
@@ -71,6 +72,13 @@ pub enum DiagnosticCode {
     InvalidRange,
     MissingAnnotationSummary,
     MissingFilePath,
+    StaleFilePath,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OrderedDiffFiles {
+    pub files: Vec<DiffFile>,
+    pub diagnostics: Vec<SidecarDiagnostic>,
 }
 
 pub fn parse_agent_context(json: &str) -> Result<ParsedAgentContext> {
@@ -93,6 +101,54 @@ pub fn parse_agent_context(json: &str) -> Result<ParsedAgentContext> {
         },
         diagnostics,
     })
+}
+
+pub fn apply_file_order(files: Vec<DiffFile>, context: &AgentContext) -> OrderedDiffFiles {
+    let mut pending = files.into_iter().map(Some).collect::<Vec<_>>();
+    let mut ordered = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    for (file_index, sidecar_file) in context.files.iter().enumerate() {
+        if sidecar_file.path.is_empty() {
+            continue;
+        }
+
+        if let Some(position) = pending.iter().position(|file| {
+            file.as_ref()
+                .is_some_and(|file| matches_sidecar_file(file, sidecar_file))
+        }) {
+            ordered.push(pending[position].take().expect("matched file is present"));
+        } else {
+            diagnostics.push(SidecarDiagnostic {
+                level: DiagnosticLevel::Warning,
+                code: DiagnosticCode::StaleFilePath,
+                path: format!("files[{file_index}].path"),
+                message: format!(
+                    "sidecar file path does not match any diff file: {}",
+                    sidecar_file.path
+                ),
+            });
+        }
+    }
+
+    ordered.extend(pending.into_iter().flatten());
+
+    OrderedDiffFiles {
+        files: ordered,
+        diagnostics,
+    }
+}
+
+fn matches_sidecar_file(file: &DiffFile, sidecar_file: &AgentFileContext) -> bool {
+    matches_diff_path(file, &sidecar_file.path)
+        || sidecar_file
+            .old_path
+            .as_deref()
+            .is_some_and(|old_path| matches_diff_path(file, old_path))
+}
+
+fn matches_diff_path(file: &DiffFile, path: &str) -> bool {
+    file.new_path.as_deref() == Some(path) || file.old_path.as_deref() == Some(path)
 }
 
 fn normalize_file(

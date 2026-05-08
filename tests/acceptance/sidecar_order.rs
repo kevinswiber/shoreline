@@ -1,4 +1,8 @@
-use shore::sidecar::agent_context::{DiagnosticCode, DiagnosticLevel, Range, parse_agent_context};
+use shore::model::{DiffFile, FileId, FileStatus};
+use shore::sidecar::agent_context::{
+    AgentContext, AgentFileContext, DiagnosticCode, DiagnosticLevel, Range, apply_file_order,
+    parse_agent_context,
+};
 
 #[test]
 fn hunk_compatible_agent_context_parses_file_order_and_annotations() {
@@ -105,4 +109,93 @@ fn invalid_sidecar_entries_return_recoverable_diagnostics() {
             ),
         ]
     );
+}
+
+#[test]
+fn sidecar_order_reorders_matching_files_and_warns_for_stale_paths() {
+    let files = vec![
+        modified_file("src/a.rs"),
+        modified_file("src/b.rs"),
+        renamed_file("src/old_c.rs", "src/c.rs"),
+        modified_file("src/d.rs"),
+    ];
+    let context = AgentContext {
+        schema: Some("shore.agent-context".to_owned()),
+        version: 1,
+        summary: None,
+        ownership: None,
+        files: vec![
+            sidecar_file("src/context-c.rs", Some("src/old_c.rs")),
+            sidecar_file("src/a.rs", None),
+            sidecar_file("src/stale.rs", None),
+        ],
+    };
+
+    let ordered = apply_file_order(files, &context);
+
+    let paths = ordered
+        .files
+        .iter()
+        .map(|file| {
+            file.new_path
+                .as_deref()
+                .or(file.old_path.as_deref())
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(paths, vec!["src/c.rs", "src/a.rs", "src/b.rs", "src/d.rs"]);
+    assert_eq!(ordered.diagnostics.len(), 1);
+    assert_eq!(ordered.diagnostics[0].level, DiagnosticLevel::Warning);
+    assert_eq!(ordered.diagnostics[0].code, DiagnosticCode::StaleFilePath);
+    assert_eq!(ordered.diagnostics[0].path, "files[2].path");
+    assert!(ordered.diagnostics[0].message.contains("src/stale.rs"));
+}
+
+fn sidecar_file(path: &str, old_path: Option<&str>) -> AgentFileContext {
+    AgentFileContext {
+        path: path.to_owned(),
+        old_path: old_path.map(str::to_owned),
+        summary: None,
+        annotations: Vec::new(),
+    }
+}
+
+fn modified_file(path: &str) -> DiffFile {
+    DiffFile {
+        id: FileId::new(path),
+        status: FileStatus::Modified,
+        old_path: Some(path.to_owned()),
+        new_path: Some(path.to_owned()),
+        old_mode: None,
+        new_mode: None,
+        old_oid: None,
+        new_oid: None,
+        similarity: None,
+        is_binary: false,
+        is_submodule: false,
+        is_mode_only: false,
+        synthetic: false,
+        metadata_rows: Vec::new(),
+        hunks: Vec::new(),
+    }
+}
+
+fn renamed_file(old_path: &str, new_path: &str) -> DiffFile {
+    DiffFile {
+        id: FileId::new(new_path),
+        status: FileStatus::Renamed,
+        old_path: Some(old_path.to_owned()),
+        new_path: Some(new_path.to_owned()),
+        old_mode: None,
+        new_mode: None,
+        old_oid: None,
+        new_oid: None,
+        similarity: Some(92),
+        is_binary: false,
+        is_submodule: false,
+        is_mode_only: false,
+        synthetic: false,
+        metadata_rows: Vec::new(),
+        hunks: Vec::new(),
+    }
 }
