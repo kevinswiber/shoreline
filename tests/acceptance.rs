@@ -1,3 +1,5 @@
+#[path = "acceptance/geometry.rs"]
+mod geometry;
 #[path = "acceptance/git_ingestion.rs"]
 mod git_ingestion;
 #[path = "acceptance/serialization.rs"]
