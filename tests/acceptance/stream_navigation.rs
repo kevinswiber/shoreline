@@ -1,11 +1,13 @@
 use shore::model::{
     Anchor, Annotation, AnnotationId, AnnotationSource, DiffFile, DiffRow, DiffRowKind,
     DiffSnapshot, FileId, FileMetadataKind, FileMetadataRow, FileStatus, HunkId, LineRange,
-    ResolutionStatus, ReviewHunk, ReviewId, ReviewRowKind, ReviewStream, RowId, Side, SnapshotId,
+    ResolutionStatus, ReviewHunk, ReviewId, ReviewRow, ReviewRowKind, ReviewStream, RowId, Side,
+    SnapshotId,
 };
 use shore::sidecar::agent_context::{
     AgentContext, AgentFileContext, DiagnosticCode, DiagnosticLevel,
 };
+use shore::stream::{NavigationCommand, RevealTarget};
 
 #[test]
 fn review_stream_emits_deterministic_rows_for_diff_metadata_and_annotations() {
@@ -185,6 +187,131 @@ fn review_stream_from_sidecar_applies_order_and_dedupes_stale_path_diagnostics()
     assert_eq!(built.diagnostics[0].path, "files[1].path");
 }
 
+#[test]
+fn navigation_moves_between_full_hunk_headers_and_clamps_at_edges() {
+    let stream = navigation_stream();
+
+    let next = stream.navigate(
+        &shore::model::CursorState::at_row(RowId::new("row:0001")),
+        NavigationCommand::NextHunk,
+    );
+    assert_eq!(
+        next.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0005"))
+    );
+    assert_eq!(
+        next.reveal,
+        Some(RevealTarget::Row {
+            row_id: RowId::new("row:0005")
+        })
+    );
+    assert!(!next.clamped);
+
+    let previous = stream.navigate(&next.cursor, NavigationCommand::PreviousHunk);
+    assert_eq!(
+        previous.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0001"))
+    );
+    assert_eq!(
+        previous.reveal,
+        Some(RevealTarget::Row {
+            row_id: RowId::new("row:0001")
+        })
+    );
+    assert!(!previous.clamped);
+
+    let clamped_previous = stream.navigate(&previous.cursor, NavigationCommand::PreviousHunk);
+    assert_eq!(clamped_previous.cursor, previous.cursor);
+    assert!(clamped_previous.clamped);
+
+    let clamped_next = stream.navigate(
+        &shore::model::CursorState::at_row(RowId::new("row:0012")),
+        NavigationCommand::NextHunk,
+    );
+    assert_eq!(
+        clamped_next.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0012"))
+    );
+    assert!(clamped_next.clamped);
+}
+
+#[test]
+fn annotated_navigation_targets_annotation_rows_from_unannotated_hunks() {
+    let stream = navigation_stream();
+
+    let next = stream.navigate(
+        &shore::model::CursorState::at_row(RowId::new("row:0007")),
+        NavigationCommand::NextAnnotatedHunk,
+    );
+    assert_eq!(
+        next.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0011"))
+    );
+    assert_eq!(
+        next.reveal,
+        Some(RevealTarget::Row {
+            row_id: RowId::new("row:0011")
+        })
+    );
+    assert!(is_annotation_row(row_by_id(&stream, "row:0011")));
+    assert!(!next.clamped);
+
+    let previous = stream.navigate(
+        &shore::model::CursorState::at_row(RowId::new("row:0007")),
+        NavigationCommand::PreviousAnnotatedHunk,
+    );
+    assert_eq!(
+        previous.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0004"))
+    );
+    assert!(is_annotation_row(row_by_id(&stream, "row:0004")));
+    assert!(!previous.clamped);
+}
+
+#[test]
+fn annotated_navigation_clamps_to_last_annotation_when_current_hunk_is_past_it() {
+    let stream = navigation_stream();
+
+    let before_first_annotation = stream.navigate(
+        &shore::model::CursorState::at_row(RowId::new("row:0001")),
+        NavigationCommand::PreviousAnnotatedHunk,
+    );
+    assert_eq!(
+        before_first_annotation.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0004"))
+    );
+    assert!(before_first_annotation.clamped);
+
+    let from_unannotated_tail = stream.navigate(
+        &shore::model::CursorState::at_row(RowId::new("row:0012")),
+        NavigationCommand::NextAnnotatedHunk,
+    );
+    assert_eq!(
+        from_unannotated_tail.cursor,
+        shore::model::CursorState::at_row(RowId::new("row:0011"))
+    );
+    assert!(from_unannotated_tail.clamped);
+
+    let from_last_annotation = stream.navigate(
+        &from_unannotated_tail.cursor,
+        NavigationCommand::NextAnnotatedHunk,
+    );
+    assert_eq!(from_last_annotation.cursor, from_unannotated_tail.cursor);
+    assert_eq!(from_last_annotation.reveal, from_unannotated_tail.reveal);
+    assert!(from_last_annotation.clamped);
+}
+
+#[test]
+fn cursor_state_round_trips_through_json() {
+    let cursor = shore::model::CursorState::at_row(RowId::new("row:0011"));
+
+    let json = serde_json::to_string(&cursor).expect("cursor serializes");
+    let decoded: shore::model::CursorState =
+        serde_json::from_str(&json).expect("cursor deserializes");
+
+    assert_eq!(decoded, cursor);
+}
+
 fn text_file(hunk: ReviewHunk) -> DiffFile {
     DiffFile {
         id: FileId::new("src/lib.rs"),
@@ -203,6 +330,99 @@ fn text_file(hunk: ReviewHunk) -> DiffFile {
         metadata_rows: Vec::new(),
         hunks: vec![hunk],
     }
+}
+
+fn navigation_stream() -> ReviewStream {
+    let first = navigation_hunk("src/lib.rs:10:10", 10, "first annotated");
+    let second = navigation_hunk("src/lib.rs:20:20", 20, "middle unannotated");
+    let third = navigation_hunk("src/lib.rs:30:30", 30, "last annotated");
+    let fourth = navigation_hunk("src/lib.rs:40:40", 40, "tail unannotated");
+    let annotations = vec![
+        hunk_annotation("annotation-first", &first, 11),
+        hunk_annotation("annotation-last", &third, 31),
+    ];
+    let snapshot = DiffSnapshot::new(
+        ReviewId::new("review-1"),
+        SnapshotId::new("snapshot-1"),
+        vec![DiffFile {
+            id: FileId::new("src/lib.rs"),
+            status: FileStatus::Modified,
+            old_path: Some("src/lib.rs".to_owned()),
+            new_path: Some("src/lib.rs".to_owned()),
+            old_mode: None,
+            new_mode: None,
+            old_oid: None,
+            new_oid: None,
+            similarity: None,
+            is_binary: false,
+            is_submodule: false,
+            is_mode_only: false,
+            synthetic: false,
+            metadata_rows: Vec::new(),
+            hunks: vec![first, second, third, fourth],
+        }],
+    );
+
+    ReviewStream::from_snapshot_and_annotations(&snapshot, &annotations)
+}
+
+fn navigation_hunk(id: &str, start: u32, added_text: &str) -> ReviewHunk {
+    ReviewHunk {
+        id: HunkId::new(id),
+        header: format!("@@ -{start},1 +{start},2 @@"),
+        old_start: start,
+        old_lines: 1,
+        new_start: start,
+        new_lines: 2,
+        rows: vec![
+            DiffRow {
+                kind: DiffRowKind::Context,
+                old_line: Some(start),
+                new_line: Some(start),
+                text: format!("context {start}"),
+            },
+            DiffRow {
+                kind: DiffRowKind::Added,
+                old_line: None,
+                new_line: Some(start + 1),
+                text: added_text.to_owned(),
+            },
+        ],
+    }
+}
+
+fn hunk_annotation(id: &str, hunk: &ReviewHunk, line: u32) -> Annotation {
+    Annotation {
+        id: AnnotationId::new(id),
+        anchor: Anchor {
+            file_id: FileId::new("src/lib.rs"),
+            side: Side::New,
+            line_range: LineRange::new(line, line),
+            hunk_signature: hunk.signature(),
+            target_text_hash: "sha256:target".to_owned(),
+            status: ResolutionStatus::Exact,
+        },
+        source: AnnotationSource::Sidecar,
+        summary: id.to_owned(),
+        rationale: None,
+        tags: Vec::new(),
+        confidence: None,
+        external_source: None,
+        author: None,
+        created_at: None,
+    }
+}
+
+fn row_by_id<'a>(stream: &'a ReviewStream, row_id: &str) -> &'a ReviewRow {
+    stream
+        .rows
+        .iter()
+        .find(|row| row.id == RowId::new(row_id))
+        .expect("row exists")
+}
+
+fn is_annotation_row(row: &ReviewRow) -> bool {
+    matches!(row.kind, ReviewRowKind::Annotation { .. })
 }
 
 fn modified_file(path: &str) -> DiffFile {
