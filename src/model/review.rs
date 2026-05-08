@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{DiffFile, ReviewId, SnapshotId};
+use super::{DiffFile, ReviewId, ReviewRow, SnapshotId};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Review {
@@ -35,10 +35,16 @@ impl DiffSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReviewStream {
     pub review_id: ReviewId,
+    pub snapshot_id: SnapshotId,
+    pub rows: Vec<ReviewRow>,
 }
 
 impl ReviewStream {
     pub fn empty(review_id: ReviewId) -> Self {
-        Self { review_id }
+        Self {
+            review_id,
+            snapshot_id: SnapshotId::new("empty"),
+            rows: Vec::new(),
+        }
     }
 }

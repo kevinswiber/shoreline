@@ -4,5 +4,7 @@ mod git_ingestion;
 mod serialization;
 #[path = "acceptance/sidecar_order.rs"]
 mod sidecar_order;
+#[path = "acceptance/stream_navigation.rs"]
+mod stream_navigation;
 #[path = "support/mod.rs"]
 mod support;

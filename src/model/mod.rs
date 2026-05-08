@@ -13,4 +13,4 @@ pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;
 pub use ids::{AnnotationId, FileId, HunkId, ReviewId, RowId, SnapshotId};
 pub use review::{DiffSnapshot, Review, ReviewStream};
-pub use row::{DiffRow, DiffRowKind, FileMetadataKind, FileMetadataRow, ReviewRow};
+pub use row::{DiffRow, DiffRowKind, FileMetadataKind, FileMetadataRow, ReviewRow, ReviewRowKind};

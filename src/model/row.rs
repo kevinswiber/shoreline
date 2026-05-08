@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{RowId, Side};
+use super::{AnnotationId, FileId, FileStatus, HunkId, RowId, Side};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,4 +45,34 @@ pub struct FileMetadataRow {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReviewRow {
     pub id: RowId,
+    pub ordinal: usize,
+    pub file_id: Option<FileId>,
+    pub hunk_id: Option<HunkId>,
+    pub kind: ReviewRowKind,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewRowKind {
+    FileHeader {
+        path: String,
+        status: FileStatus,
+    },
+    HunkHeader {
+        header: String,
+    },
+    Diff {
+        row: DiffRow,
+    },
+    Metadata {
+        metadata: FileMetadataRow,
+    },
+    Annotation {
+        annotation_id: AnnotationId,
+        target_row_id: RowId,
+        summary: String,
+    },
+    EmptyState {
+        message: String,
+    },
 }
