@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "summary": "Invalid parser fixture",
+  "files": [
+    {
+      "path": "src/lib.rs",
+      "annotations": [
+        {
+          "newRange": [0, 2],
+          "summary": "Zero is not a valid 1-based range start"
+        },
+        {
+          "oldRange": [9, 3],
+          "summary": "End before start is invalid"
+        },
+        {
+          "newRange": [4, 4],
+          "rationale": "Missing summary should be recoverable"
+        }
+      ]
+    },
+    {
+      "summary": "Missing path should be a diagnostic",
+      "annotations": []
+    }
+  ]
+}

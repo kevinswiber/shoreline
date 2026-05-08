@@ -5,6 +5,9 @@ pub enum ShoreError {
     #[error("{0}")]
     Message(String),
 
+    #[error("json parse failed: {0}")]
+    Json(#[from] serde_json::Error),
+
     #[error(
         "git command failed: {command}\nstatus: {status}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     )]
