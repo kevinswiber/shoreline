@@ -1,7 +1,10 @@
 use serde::Deserialize;
 
 use crate::error::Result;
-use crate::model::DiffFile;
+use crate::model::{
+    Anchor, Annotation, AnnotationId, DiffFile, DiffRow, LineRange, ResolutionStatus, Side,
+    hash_normalized_lines,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedAgentContext {
@@ -73,12 +76,25 @@ pub enum DiagnosticCode {
     MissingAnnotationSummary,
     MissingFilePath,
     StaleFilePath,
+    UnresolvedAnnotation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OrderedDiffFiles {
     pub files: Vec<DiffFile>,
     pub diagnostics: Vec<SidecarDiagnostic>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedSidecarAnnotations {
+    pub annotations: Vec<Annotation>,
+    pub diagnostics: Vec<SidecarDiagnostic>,
+}
+
+impl From<Range> for LineRange {
+    fn from(range: Range) -> Self {
+        Self::new(range.start, range.end)
+    }
 }
 
 pub fn parse_agent_context(json: &str) -> Result<ParsedAgentContext> {
@@ -136,6 +152,184 @@ pub fn apply_file_order(files: Vec<DiffFile>, context: &AgentContext) -> Ordered
     OrderedDiffFiles {
         files: ordered,
         diagnostics,
+    }
+}
+
+pub fn resolve_annotations(
+    files: &[DiffFile],
+    context: &AgentContext,
+) -> ResolvedSidecarAnnotations {
+    let mut annotations = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    for (file_index, sidecar_file) in context.files.iter().enumerate() {
+        if sidecar_file.path.is_empty() {
+            continue;
+        }
+
+        let Some(file) = files
+            .iter()
+            .find(|file| matches_sidecar_file(file, sidecar_file))
+        else {
+            diagnostics.push(SidecarDiagnostic {
+                level: DiagnosticLevel::Warning,
+                code: DiagnosticCode::StaleFilePath,
+                path: format!("files[{file_index}].path"),
+                message: format!(
+                    "sidecar file path does not match any diff file: {}",
+                    sidecar_file.path
+                ),
+            });
+            continue;
+        };
+
+        for (annotation_index, sidecar_annotation) in sidecar_file.annotations.iter().enumerate() {
+            let ranges = [
+                (Side::Old, sidecar_annotation.old_range),
+                (Side::New, sidecar_annotation.new_range),
+            ];
+            let range_count = ranges.iter().filter(|(_, range)| range.is_some()).count();
+
+            if range_count == 0 {
+                diagnostics.push(unresolved_annotation_diagnostic(
+                    file_index,
+                    annotation_index,
+                    None,
+                ));
+                continue;
+            }
+
+            for (side, range) in ranges
+                .into_iter()
+                .filter_map(|(side, range)| range.map(|range| (side, range)))
+            {
+                if let Some(anchor) = resolve_anchor(file, side, range) {
+                    annotations.push(model_annotation(
+                        sidecar_annotation,
+                        file_index,
+                        annotation_index,
+                        side,
+                        range_count > 1,
+                        anchor,
+                    ));
+                } else {
+                    diagnostics.push(unresolved_annotation_diagnostic(
+                        file_index,
+                        annotation_index,
+                        Some(side),
+                    ));
+                }
+            }
+        }
+    }
+
+    ResolvedSidecarAnnotations {
+        annotations,
+        diagnostics,
+    }
+}
+
+fn resolve_anchor(file: &DiffFile, side: Side, range: Range) -> Option<Anchor> {
+    file.hunks.iter().find_map(|hunk| {
+        let rows = rows_for_range(&hunk.rows, side, range)?;
+        Some(Anchor {
+            file_id: file.id.clone(),
+            side,
+            line_range: range.into(),
+            hunk_signature: hunk.signature(),
+            target_text_hash: hash_normalized_lines(rows.iter().map(|row| row.text.as_str())),
+            status: ResolutionStatus::Exact,
+        })
+    })
+}
+
+fn rows_for_range(rows: &[DiffRow], side: Side, range: Range) -> Option<Vec<&DiffRow>> {
+    if range.start == 0 || range.end < range.start {
+        return None;
+    }
+
+    let rows = rows
+        .iter()
+        .filter(|row| {
+            row.line_on_side(side)
+                .is_some_and(|line| range.start <= line && line <= range.end)
+        })
+        .collect::<Vec<_>>();
+    let lines = rows
+        .iter()
+        .filter_map(|row| row.line_on_side(side))
+        .collect::<Vec<_>>();
+    if lines == (range.start..=range.end).collect::<Vec<_>>() {
+        Some(rows)
+    } else {
+        None
+    }
+}
+
+fn model_annotation(
+    sidecar_annotation: &AgentAnnotation,
+    file_index: usize,
+    annotation_index: usize,
+    side: Side,
+    multi_side: bool,
+    anchor: Anchor,
+) -> Annotation {
+    Annotation {
+        id: model_annotation_id(
+            sidecar_annotation,
+            file_index,
+            annotation_index,
+            side,
+            multi_side,
+        ),
+        anchor,
+        source: crate::model::AnnotationSource::Sidecar,
+        summary: sidecar_annotation.summary.clone().unwrap_or_default(),
+        rationale: sidecar_annotation.rationale.clone(),
+        tags: sidecar_annotation.tags.clone(),
+        confidence: sidecar_annotation.confidence.clone(),
+        external_source: sidecar_annotation.source.clone(),
+        author: sidecar_annotation.author.clone(),
+        created_at: sidecar_annotation.created_at.clone(),
+    }
+}
+
+fn model_annotation_id(
+    sidecar_annotation: &AgentAnnotation,
+    file_index: usize,
+    annotation_index: usize,
+    side: Side,
+    multi_side: bool,
+) -> AnnotationId {
+    let mut id = sidecar_annotation
+        .id
+        .clone()
+        .unwrap_or_else(|| format!("sidecar:{file_index}:{annotation_index}"));
+    if multi_side {
+        id.push(':');
+        id.push_str(match side {
+            Side::Old => "old",
+            Side::New => "new",
+        });
+    }
+    AnnotationId::new(id)
+}
+
+fn unresolved_annotation_diagnostic(
+    file_index: usize,
+    annotation_index: usize,
+    side: Option<Side>,
+) -> SidecarDiagnostic {
+    let range_field = match side {
+        Some(Side::Old) => ".oldRange",
+        Some(Side::New) => ".newRange",
+        None => "",
+    };
+    SidecarDiagnostic {
+        level: DiagnosticLevel::Warning,
+        code: DiagnosticCode::UnresolvedAnnotation,
+        path: format!("files[{file_index}].annotations[{annotation_index}]{range_field}"),
+        message: "annotation range does not resolve to diff rows".to_owned(),
     }
 }
 

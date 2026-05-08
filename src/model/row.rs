@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::RowId;
+use super::{RowId, Side};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -16,6 +16,15 @@ pub struct DiffRow {
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
     pub text: String,
+}
+
+impl DiffRow {
+    pub fn line_on_side(&self, side: Side) -> Option<u32> {
+        match side {
+            Side::Old => self.old_line,
+            Side::New => self.new_line,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
