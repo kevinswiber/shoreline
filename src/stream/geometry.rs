@@ -66,7 +66,7 @@ pub struct RevealPosition {
     pub contains_target: bool,
 }
 
-pub fn layout_stream(stream: &ReviewStream, viewport: ViewportSpec) -> LayoutSnapshot {
+fn layout_stream(stream: &ReviewStream, viewport: ViewportSpec) -> LayoutSnapshot {
     let row_spans = stream
         .rows
         .iter()

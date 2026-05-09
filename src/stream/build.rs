@@ -2,11 +2,9 @@ use crate::model::{
     Annotation, DiffFile, DiffRow, DiffSnapshot, FileId, HunkId, ReviewRow, ReviewRowKind,
     ReviewStream, RowId,
 };
-use crate::sidecar::agent_context::{
-    AgentContext, SidecarDiagnostic, apply_file_order, resolve_annotations,
-};
+use crate::sidecar::{AgentContext, SidecarDiagnostic, apply_file_order, resolve_annotations};
 
-pub fn build_review_stream(snapshot: &DiffSnapshot, annotations: &[Annotation]) -> ReviewStream {
+fn build_review_stream(snapshot: &DiffSnapshot, annotations: &[Annotation]) -> ReviewStream {
     let builder = StreamBuilder::new(snapshot, annotations);
     builder.build()
 }
@@ -33,7 +31,7 @@ pub struct BuiltReviewStream {
     pub diagnostics: Vec<SidecarDiagnostic>,
 }
 
-pub fn build_review_stream_from_sidecar(
+fn build_review_stream_from_sidecar(
     snapshot: &DiffSnapshot,
     context: &AgentContext,
 ) -> BuiltReviewStream {

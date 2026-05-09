@@ -4,9 +4,7 @@ use shore::model::{
     ResolutionStatus, ReviewHunk, ReviewId, ReviewRow, ReviewRowKind, ReviewStream, RowId, Side,
     SnapshotId,
 };
-use shore::sidecar::agent_context::{
-    AgentContext, AgentFileContext, DiagnosticCode, DiagnosticLevel,
-};
+use shore::sidecar::{AgentContext, AgentFileContext, DiagnosticCode, DiagnosticLevel};
 use shore::stream::{NavigationCommand, RevealTarget};
 
 #[test]

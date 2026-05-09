@@ -20,7 +20,7 @@ impl ReviewHunk {
     }
 }
 
-pub fn hunk_signature(hunk: &ReviewHunk) -> String {
+fn hunk_signature(hunk: &ReviewHunk) -> String {
     let mut payload = String::new();
     push_normalized_line(&mut payload, &hunk_header_range(&hunk.header));
     for row in &hunk.rows {

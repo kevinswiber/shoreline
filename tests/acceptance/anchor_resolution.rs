@@ -3,9 +3,7 @@ use shore::model::{
     Annotation, DiffFile, DiffRow, DiffRowKind, FileId, FileStatus, HunkId, ResolutionStatus,
     ReviewHunk, re_resolve_annotations,
 };
-use shore::sidecar::agent_context::{
-    AgentAnnotation, AgentContext, AgentFileContext, Range, resolve_annotations,
-};
+use shore::sidecar::{AgentAnnotation, AgentContext, AgentFileContext, Range, resolve_annotations};
 
 use crate::support::git_repo::GitRepo;
 

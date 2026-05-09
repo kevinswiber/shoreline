@@ -2,7 +2,7 @@ use shore::model::{
     AnnotationSource, DiffFile, DiffRow, DiffRowKind, FileId, FileStatus, HunkId, LineRange,
     ResolutionStatus, ReviewHunk, Side,
 };
-use shore::sidecar::agent_context::{
+use shore::sidecar::{
     AgentAnnotation, AgentContext, AgentFileContext, DiagnosticCode, DiagnosticLevel, Range,
     apply_file_order, parse_agent_context, resolve_annotations,
 };

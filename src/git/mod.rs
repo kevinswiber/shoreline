@@ -1,5 +1,5 @@
 mod command;
-pub mod ingest;
+mod ingest;
 mod patch;
 mod raw;
 

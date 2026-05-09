@@ -1,6 +1,6 @@
 use shore::git::ingest_tracked_diff;
 use shore::model::{Annotation, CursorState, DiffSnapshot, ReviewRowKind, ReviewStream, RowId};
-use shore::sidecar::agent_context::{
+use shore::sidecar::{
     AgentAnnotation, AgentContext, AgentFileContext, Range, apply_file_order, resolve_annotations,
 };
 use shore::stream::{LayoutSnapshot, NavigationCommand, ViewportSpec};

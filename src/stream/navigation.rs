@@ -24,7 +24,7 @@ pub enum RevealTarget {
     Row { row_id: RowId },
 }
 
-pub fn navigate_review_stream(
+fn navigate_review_stream(
     stream: &ReviewStream,
     cursor: &CursorState,
     command: NavigationCommand,
