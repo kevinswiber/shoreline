@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use shore::dump::DumpDocument;
 use shore::sidecar::{parse_hunk_agent_context, parse_review_notes_sidecar};
+use shore::stream::ViewportSpec;
 
 #[cfg_attr(not(test), allow(dead_code))]
 mod tui;
@@ -20,10 +21,23 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Dump(DumpArgs),
+    Show(ShowArgs),
 }
 
 #[derive(Debug, Args)]
 struct DumpArgs {
+    #[command(flatten)]
+    input: ReviewInputArgs,
+
+    #[arg(long, conflicts_with = "compact")]
+    pretty: bool,
+
+    #[arg(long)]
+    compact: bool,
+}
+
+#[derive(Clone, Debug, Args)]
+struct ReviewInputArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
@@ -32,12 +46,12 @@ struct DumpArgs {
 
     #[arg(long, conflicts_with = "review_notes")]
     legacy_hunk_agent_context: Option<PathBuf>,
+}
 
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    #[arg(long)]
-    compact: bool,
+#[derive(Debug, Args)]
+struct ShowArgs {
+    #[command(flatten)]
+    input: ReviewInputArgs,
 }
 
 fn main() -> ExitCode {
@@ -53,10 +67,37 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Dump(args) => dump(args),
+        Command::Show(args) => show(args),
     }
 }
 
 fn dump(args: DumpArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let document = document_for_dump(&args)?;
+    let json = if should_pretty_print(&args) {
+        serde_json::to_string_pretty(&document)?
+    } else {
+        serde_json::to_string(&document)?
+    };
+    println!("{json}");
+    Ok(())
+}
+
+fn show(args: ShowArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let document = document_for_show(&args)?;
+    let viewport = ViewportSpec::new(80, 24);
+    let app = tui::app::TuiApp::new(document, viewport);
+    tui::terminal::run(app)
+}
+
+fn document_for_dump(args: &DumpArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+    load_dump_document(&args.input)
+}
+
+fn document_for_show(args: &ShowArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+    load_dump_document(&args.input)
+}
+
+fn load_dump_document(args: &ReviewInputArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
     let document = match (&args.review_notes, &args.legacy_hunk_agent_context) {
         (Some(review_notes), None) => {
             let json = fs::read_to_string(review_notes)?;
@@ -71,15 +112,134 @@ fn dump(args: DumpArgs) -> Result<(), Box<dyn std::error::Error>> {
         (None, None) => DumpDocument::from_repo(&args.repo)?,
         (Some(_), Some(_)) => unreachable!("clap rejects mutually exclusive sidecar flags"),
     };
-    let json = if should_pretty_print(&args) {
-        serde_json::to_string_pretty(&document)?
-    } else {
-        serde_json::to_string(&document)?
-    };
-    println!("{json}");
-    Ok(())
+    Ok(document)
 }
 
 fn should_pretty_print(args: &DumpArgs) -> bool {
     args.pretty || (!args.compact && std::io::stdout().is_terminal())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+
+    use super::{DumpArgs, ReviewInputArgs, ShowArgs, document_for_dump, document_for_show};
+
+    #[test]
+    fn dump_and_show_use_the_same_review_notes_loader() {
+        let repo = dump_repo();
+        let sidecar_dir = tempfile::tempdir().expect("create sidecar tempdir");
+        let sidecar_path = sidecar_dir.path().join("review-notes.json");
+        fs::write(&sidecar_path, native_review_notes_json()).expect("write review notes");
+        let input = ReviewInputArgs {
+            repo: repo.path().to_owned(),
+            review_notes: Some(sidecar_path),
+            legacy_hunk_agent_context: None,
+        };
+
+        let dump_document = document_for_dump(&DumpArgs {
+            input: input.clone(),
+            pretty: false,
+            compact: true,
+        })
+        .expect("dump document builds");
+        let show_document = document_for_show(&ShowArgs { input }).expect("show document builds");
+
+        assert_eq!(show_document, dump_document);
+    }
+
+    fn dump_repo() -> GitRepo {
+        let repo = GitRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+        repo.commit_all("base");
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+        repo
+    }
+
+    fn native_review_notes_json() -> &'static str {
+        r#"{
+  "schema": "shore.review-notes",
+  "version": 1,
+  "summary": "CLI review notes",
+  "files": [
+    {
+      "path": "src/lib.rs",
+      "notes": [
+        {
+          "id": "note:lib",
+          "title": "Review lib",
+          "body": "Review this change.",
+          "target": {
+            "side": "new",
+            "startLine": 1,
+            "endLine": 1
+          },
+          "author": "human reviewer",
+          "source": "reviewer"
+        }
+      ]
+    }
+  ]
+}"#
+    }
+
+    struct GitRepo {
+        root: tempfile::TempDir,
+    }
+
+    impl GitRepo {
+        fn new() -> Self {
+            let repo = Self {
+                root: tempfile::tempdir().expect("create temp git repository directory"),
+            };
+            repo.git(["init"]);
+            repo.git(["config", "user.name", "Shore Tests"]);
+            repo.git(["config", "user.email", "shore-tests@example.com"]);
+            repo.git(["config", "commit.gpgsign", "false"]);
+            repo
+        }
+
+        fn path(&self) -> &Path {
+            self.root.path()
+        }
+
+        fn write(&self, path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
+            let path = self.root.path().join(path);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create parent directories");
+            }
+            fs::write(path, contents).expect("write test repository file");
+        }
+
+        fn commit_all(&self, message: &str) {
+            self.git(["add", "--all"]);
+            self.git(["commit", "-m", message]);
+        }
+
+        fn git<I, S>(&self, args: I)
+        where
+            I: IntoIterator<Item = S>,
+            S: AsRef<OsStr>,
+        {
+            let args = args
+                .into_iter()
+                .map(|arg| arg.as_ref().to_owned())
+                .collect::<Vec<_>>();
+            let output = Command::new("git")
+                .args(&args)
+                .current_dir(self.root.path())
+                .output()
+                .unwrap_or_else(|error| panic!("run git {:?}: {error}", args));
+            assert!(
+                output.status.success(),
+                "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+                args,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
 }

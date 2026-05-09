@@ -20,6 +20,11 @@ pub(crate) fn run(mut app: TuiApp) -> TerminalResult<()> {
     let _guard = TerminalGuard::enter()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
+    let initial_size = terminal.size()?;
+    app.handle_action(TuiAction::Resize(ViewportSpec::new(
+        initial_size.width as usize,
+        initial_size.height as usize,
+    )));
 
     while !app.should_quit() {
         terminal.draw(|frame| render(frame, &app))?;
