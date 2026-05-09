@@ -51,6 +51,7 @@ impl TuiApp {
         &self.document
     }
 
+    #[cfg(test)]
     pub(crate) fn layout(&self) -> &LayoutSnapshot {
         &self.layout
     }
@@ -59,6 +60,7 @@ impl TuiApp {
         self.scroll_top
     }
 
+    #[cfg(test)]
     pub(crate) fn viewport(&self) -> ViewportSpec {
         self.viewport
     }
@@ -67,6 +69,7 @@ impl TuiApp {
         self.should_quit
     }
 
+    #[cfg(test)]
     pub(crate) fn current_row_is_visible(&self) -> bool {
         let Some(row_id) = self.cursor.row_id.as_ref() else {
             return true;

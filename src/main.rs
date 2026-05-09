@@ -8,7 +8,6 @@ use shore::dump::DumpDocument;
 use shore::sidecar::{parse_hunk_agent_context, parse_review_notes_sidecar};
 use shore::stream::ViewportSpec;
 
-#[cfg_attr(not(test), allow(dead_code))]
 mod tui;
 
 #[derive(Debug, Parser)]
