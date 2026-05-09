@@ -8,11 +8,17 @@ use shore::dump::DumpDocument;
 use shore::sidecar::{parse_hunk_agent_context, parse_review_notes_sidecar};
 use shore::stream::ViewportSpec;
 
+mod cli_tracing;
 mod tui;
+
+use cli_tracing::TracingArgs;
 
 #[derive(Debug, Parser)]
 #[command(name = "shore", version, about = "Inspect review streams")]
 struct Cli {
+    #[command(flatten)]
+    tracing: TracingArgs,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -64,9 +70,26 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    match Cli::parse().command {
-        Command::Dump(args) => dump(args),
-        Command::Show(args) => show(args),
+    let cli = Cli::parse();
+
+    if matches!(cli.command, Command::Show(_))
+        && cli_tracing::tracing_enabled(&cli.tracing)
+        && cli.tracing.log_file.is_none()
+    {
+        return Err("shore show requires --log-file when tracing is enabled".into());
+    }
+
+    cli_tracing::init_tracing(&cli.tracing)?;
+
+    match cli.command {
+        Command::Dump(args) => {
+            tracing::debug!(command = "dump", "command_start");
+            dump(args)
+        }
+        Command::Show(args) => {
+            tracing::debug!(command = "show", "command_start");
+            show(args)
+        }
     }
 }
 

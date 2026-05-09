@@ -4,3 +4,6 @@ pub mod git;
 pub mod model;
 pub mod sidecar;
 pub mod stream;
+
+#[cfg(test)]
+mod test_tracing;

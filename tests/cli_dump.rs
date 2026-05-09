@@ -280,6 +280,8 @@ where
 {
     Command::new(env!("CARGO_BIN_EXE_shore"))
         .args(args)
+        .env_remove("SHORE_LOG")
+        .env_remove("RUST_LOG")
         .current_dir(cwd)
         .output()
         .expect("run shore binary")
