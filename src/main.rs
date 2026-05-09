@@ -1,9 +1,11 @@
+use std::fs;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use shore::dump::DumpDocument;
+use shore::sidecar::parse_review_notes_sidecar;
 
 #[derive(Debug, Parser)]
 #[command(name = "shore", version, about = "Inspect review streams")]
@@ -21,6 +23,9 @@ enum Command {
 struct DumpArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
+
+    #[arg(long)]
+    review_notes: Option<PathBuf>,
 
     #[arg(long, conflicts_with = "compact")]
     pretty: bool,
@@ -46,7 +51,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn dump(args: DumpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let document = DumpDocument::from_repo(&args.repo)?;
+    let document = if let Some(review_notes) = &args.review_notes {
+        let json = fs::read_to_string(review_notes)?;
+        let parsed = parse_review_notes_sidecar(&json)?;
+        DumpDocument::from_parsed_review_notes(&args.repo, parsed)?
+    } else {
+        DumpDocument::from_repo(&args.repo)?
+    };
     let json = if should_pretty_print(&args) {
         serde_json::to_string_pretty(&document)?
     } else {
