@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::model::{
@@ -48,12 +48,13 @@ pub struct ReviewNoteTarget {
     pub end_line: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DiagnosticLevel {
     Warning,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReviewNotesDiagnostic {
     pub level: DiagnosticLevel,
     pub code: ReviewNotesDiagnosticCode,
@@ -61,7 +62,8 @@ pub struct ReviewNotesDiagnostic {
     pub message: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReviewNotesDiagnosticCode {
     InvalidSchema,
     InvalidRange,
