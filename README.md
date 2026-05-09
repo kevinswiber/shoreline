@@ -101,8 +101,28 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 ## Current CLI
 
-The current executable surface is `shore dump`. It is a JSON contract over the headless model and
-exists before the TUI so other frontends can consume the same review stream.
+The current executable surfaces are `shore show` and `shore dump`.
+
+`shore show` opens the first read-only terminal review view over the same headless review stream
+used by the JSON dump command:
+
+```bash
+shore show [--repo <path>] [--review-notes <path> | --legacy-hunk-agent-context <path>]
+```
+
+Behavior:
+
+- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
+- `--review-notes <path>` loads Shore-native `review-notes.json`.
+- `--legacy-hunk-agent-context <path>` imports a Hunk-compatible `agent-context.json` through the
+  explicit legacy adapter.
+- The view is read-only: it renders the working-tree diff, resolved review notes, and recoverable
+  diagnostics, but it does not mutate notes or write session state.
+- Keybindings are intentionally small: `q`/Esc/Ctrl+C quits, `j`/`k` or Up/Down moves by row, `[` and
+  `]` move through hunks, and `{` and `}` move through hunks with review notes.
+
+`shore dump` remains the JSON contract over the headless model so other frontends and tests can
+consume the same review stream:
 
 ```bash
 shore dump [--repo <path>] [--review-notes <path> | --legacy-hunk-agent-context <path>] [--pretty | --compact]
@@ -132,7 +152,7 @@ Defer:
 - daemon and multi-session brokering
 - external IPC protocol
 - live comment mutation
-- stash/show/pager/difftool modes
+- stash/pager/difftool modes and any write-capable evolution of `shore show`
 - full config layering
 - menus and extensive chrome
 - syntax highlighting
