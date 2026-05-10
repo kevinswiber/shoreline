@@ -57,7 +57,8 @@ pub struct ProjectionDiagnostic {
 struct StateReducer {
     review_id: ReviewId,
     work_unit_id: WorkUnitId,
-    unsuperseded_revision_ids: BTreeSet<RevisionId>,
+    published_revision_ids: BTreeSet<RevisionId>,
+    superseded_revision_ids: BTreeSet<RevisionId>,
     snapshots_by_revision_id: BTreeMap<RevisionId, SnapshotId>,
     sidecar_count: usize,
 }
@@ -67,7 +68,8 @@ impl Default for StateReducer {
         Self {
             review_id: ReviewId::new("review:default"),
             work_unit_id: WorkUnitId::new("work:default"),
-            unsuperseded_revision_ids: BTreeSet::new(),
+            published_revision_ids: BTreeSet::new(),
+            superseded_revision_ids: BTreeSet::new(),
             snapshots_by_revision_id: BTreeMap::new(),
             sidecar_count: 0,
         }
@@ -109,9 +111,9 @@ impl StateReducer {
 
     fn apply_revision_published(&mut self, event: &ShoreEvent) -> Result<()> {
         let payload: RevisionPublishedPayload = serde_json::from_value(event.payload.clone())?;
-        self.unsuperseded_revision_ids.insert(payload.revision_id);
+        self.published_revision_ids.insert(payload.revision_id);
         for revision_id in payload.supersedes_revision_ids {
-            self.unsuperseded_revision_ids.remove(&revision_id);
+            self.superseded_revision_ids.insert(revision_id);
         }
         Ok(())
     }
@@ -125,9 +127,14 @@ impl StateReducer {
 
     fn finish(self, event_count: usize) -> Result<SessionState> {
         let mut diagnostics = Vec::new();
-        let current_revision_id = match self.unsuperseded_revision_ids.len() {
+        let unsuperseded_revision_ids = self
+            .published_revision_ids
+            .difference(&self.superseded_revision_ids)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let current_revision_id = match unsuperseded_revision_ids.len() {
             0 => None,
-            1 => self.unsuperseded_revision_ids.iter().next().cloned(),
+            1 => unsuperseded_revision_ids.iter().next().cloned(),
             _ => {
                 diagnostics.push(ProjectionDiagnostic {
                     code: "ambiguous_current_revision".to_owned(),

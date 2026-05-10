@@ -1,5 +1,10 @@
 use shore::git::{git_worktree_root, ingest_tracked_diff};
-use shore::session::{capture_worktree_fingerprint, ensure_shore_ignored, shore_dir_for_repo};
+use shore::session::{
+    EventType, PublishOptions, RevisionPublishedPayload, SessionState,
+    capture_worktree_fingerprint, ensure_shore_ignored, publish_worktree_review,
+    shore_dir_for_repo,
+};
+use shore::storage::EventStore;
 
 use crate::support::git_repo::GitRepo;
 
@@ -134,10 +139,110 @@ fn git_ingestion_uses_content_derived_snapshot_id() {
     assert_eq!(snapshot.snapshot_id, fingerprint.snapshot_id);
 }
 
+#[test]
+fn first_publish_creates_shore_store_events_artifacts_and_state() {
+    let repo = modified_repo();
+
+    let result =
+        publish_worktree_review(PublishOptions::new(repo.path())).expect("publish succeeds");
+
+    assert_eq!(result.review_id.as_str(), "review:default");
+    assert_eq!(result.work_unit_id.as_str(), "work:default");
+    assert!(repo.path().join(".shore/events").is_dir());
+    assert!(repo.path().join(".shore/artifacts/revisions").is_dir());
+    assert!(repo.path().join(".shore/artifacts/snapshots").is_dir());
+    assert!(repo.path().join(".shore/state.json").is_file());
+    assert!(
+        repo.read(".gitignore")
+            .lines()
+            .any(|line| line == ".shore/")
+    );
+    assert_eq!(result.events_created_by_type["review_initialized"], 1);
+    assert_eq!(result.events_created_by_type["revision_published"], 1);
+    assert_eq!(result.events_created_by_type["snapshot_observed"], 1);
+
+    let state: SessionState =
+        serde_json::from_str(&repo.read(".shore/state.json")).expect("state decodes");
+    assert_eq!(state.current_revision_id, Some(result.revision_id));
+    assert_eq!(state.current_snapshot_id, Some(result.snapshot_id));
+    assert_eq!(state.event_count, 3);
+}
+
+#[test]
+fn publishing_unchanged_worktree_is_idempotent() {
+    let repo = modified_repo();
+
+    let first = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let second = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+
+    assert_eq!(first.revision_id, second.revision_id);
+    assert_eq!(second.events_created, 0);
+    assert!(second.events_existing >= 3);
+}
+
+#[test]
+fn publishing_changed_worktree_supersedes_previous_revision() {
+    let repo = modified_repo();
+    let first = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+
+    let second = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let event = revision_event_for(&repo, &second.revision_id);
+    let state: SessionState =
+        serde_json::from_str(&repo.read(".shore/state.json")).expect("state decodes");
+
+    assert_ne!(first.revision_id, second.revision_id);
+    assert!(event.supersedes_revision_ids.contains(&first.revision_id));
+    assert_eq!(state.current_revision_id, Some(second.revision_id));
+    assert!(state.diagnostics.is_empty());
+}
+
+#[test]
+fn publish_writer_identity_prefers_git_config_email() {
+    let repo = modified_repo();
+
+    let result = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let store = EventStore::open(repo.path().join(".shore"));
+    let events = store.list_events().expect("events list");
+    let event = events
+        .iter()
+        .find(|event| {
+            event.event_type == EventType::RevisionPublished
+                && event.payload["revisionId"] == result.revision_id.as_str()
+        })
+        .expect("revision event exists");
+
+    assert_eq!(
+        event.writer.actor_id.as_str(),
+        "actor:git-email:shore-tests@example.com"
+    );
+}
+
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo
+}
+
+fn revision_event_for(
+    repo: &GitRepo,
+    revision_id: &shore::model::RevisionId,
+) -> RevisionPublishedPayload {
+    let store = EventStore::open(repo.path().join(".shore"));
+    store
+        .list_events()
+        .expect("events list")
+        .into_iter()
+        .find_map(|event| {
+            if event.event_type == EventType::RevisionPublished
+                && event.payload["revisionId"] == revision_id.as_str()
+            {
+                Some(serde_json::from_value(event.payload).expect("revision payload decodes"))
+            } else {
+                None
+            }
+        })
+        .expect("revision event exists")
 }
