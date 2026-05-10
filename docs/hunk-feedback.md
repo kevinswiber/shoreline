@@ -218,6 +218,49 @@ with a clear structured error instead of blocking. Machine-readable commands suc
 future session/comment listing commands, and review mailbox checks should work through ordinary
 stdout/stderr pipes.
 
+## 14. Review-level feedback is forced onto arbitrary diff lines
+
+**Severity: moderate (modeling gap)**
+
+Hunk's review surface requires a line anchor even when the reviewer wants to leave feedback about
+the whole review, the full patch, the current checkpoint, or a workflow issue outside a specific
+changed line. The workaround is to choose an arbitrary diff line and attach the note there, which
+makes the comment look more local and code-specific than it really is.
+
+This came up in Shore's implementation/review loop when the reviewer needed to communicate
+phase-level approval, process concerns, or architectural follow-ups. Those comments are about the
+review object or work unit, not about a single line in the diff.
+
+**For shore:** support note targets beyond diff rows. A note should be able to target the whole
+review, a work unit, a revision, a file, a hunk, a diff row, or a precise source range. Diff-line
+anchors should be one target type, not the only way to record review feedback.
+
+## 15. Impacted no-diff lines cannot be brought into review context
+
+**Severity: moderate (context gap)**
+
+Some useful review comments refer to source lines that are not themselves part of the diff but are
+impacted by the change. Hunk makes those hard to discuss because comments can only attach to lines
+inside the current diff. The reviewer can describe the outside line in prose, but the tool cannot
+show that context as a first-class note target.
+
+**For shore:** allow no-diff context hunks to be pulled into the review stream when a note needs
+them. These hunks should be clearly marked as context rather than changed code, but they should
+still provide stable anchors for review notes.
+
+## 16. Notes need first-class references, not only anchors
+
+**Severity: moderate (future schema gap)**
+
+Review notes often need to point at related evidence: commits, file paths, line ranges, character
+ranges, hunks, prior notes, events, or external artifacts. A single diff anchor is not enough for
+that job, especially when the note is review-level or references code outside the current diff.
+
+**For shore:** design note metadata with a references list in addition to the primary target.
+References should support commit IDs, file paths, line and character ranges, hunk IDs, event IDs,
+review artifacts, and URLs where appropriate. That gives agents and humans a way to preserve the
+evidence trail without overloading the primary anchor.
+
 ## General observations
 
 ### Three independent stateholders, no atomic handoff
