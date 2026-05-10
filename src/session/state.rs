@@ -22,6 +22,7 @@ pub struct SessionState {
     pub current_snapshot_id: Option<SnapshotId>,
     pub event_count: usize,
     pub sidecar_count: usize,
+    pub note_count: usize,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
@@ -61,6 +62,7 @@ struct StateReducer {
     superseded_revision_ids: BTreeSet<RevisionId>,
     snapshots_by_revision_id: BTreeMap<RevisionId, SnapshotId>,
     sidecar_count: usize,
+    note_count: usize,
 }
 
 impl Default for StateReducer {
@@ -72,6 +74,7 @@ impl Default for StateReducer {
             superseded_revision_ids: BTreeSet::new(),
             snapshots_by_revision_id: BTreeMap::new(),
             sidecar_count: 0,
+            note_count: 0,
         }
     }
 }
@@ -94,6 +97,9 @@ impl StateReducer {
             EventType::SnapshotObserved => self.apply_snapshot_observed(event)?,
             EventType::SidecarObserved => {
                 self.sidecar_count += 1;
+            }
+            EventType::ReviewNoteImported => {
+                self.note_count += 1;
             }
         }
 
@@ -157,6 +163,7 @@ impl StateReducer {
             current_snapshot_id,
             event_count,
             sidecar_count: self.sidecar_count,
+            note_count: self.note_count,
             diagnostics,
         })
     }
@@ -165,11 +172,12 @@ impl StateReducer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ReviewId, RevisionId, SnapshotId, WorkUnitId};
+    use crate::model::{ReviewId, RevisionId, Side, SnapshotId, WorkUnitId};
     use crate::session::{
         EventTarget, EventType, ReviewInitializedPayload, RevisionPublishedPayload, ShoreEvent,
         SidecarObservedPayload, SidecarSource, SnapshotObservedPayload, Writer,
     };
+    use crate::session::event::{ImportedNoteTarget, ReviewNoteImportedPayload};
 
     #[test]
     fn projection_tracks_current_revision_snapshot_and_sidecar_count_without_event_history() {
@@ -201,7 +209,24 @@ mod tests {
         );
         assert_eq!(projection.event_count, 4);
         assert_eq!(projection.sidecar_count, 1);
+        assert_eq!(projection.note_count, 0);
         assert!(json.get("events").is_none());
+    }
+
+    #[test]
+    fn projection_tracks_note_count_without_embedded_note_history() {
+        let events = vec![
+            review_initialized("review:default", "work:default"),
+            review_note_imported("note:abc"),
+            review_note_imported("note:def"),
+        ];
+
+        let projection = SessionState::from_events(&events).expect("projection builds");
+        let json = serde_json::to_value(&projection).expect("projection serializes");
+
+        assert_eq!(projection.note_count, 2);
+        assert_eq!(json["noteCount"], 2);
+        assert!(json.get("notes").is_none());
     }
 
     #[test]
@@ -340,6 +365,38 @@ mod tests {
             "2026-05-09T20:42:45Z",
         )
         .expect("sidecar observed event builds")
+    }
+
+    fn review_note_imported(note_id: &str) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ReviewNoteImported,
+            format!("review_note_imported:review_notes:work:default:{note_id}"),
+            target("review:default", "work:default"),
+            Writer::shore_local_author("0.1.0"),
+            ReviewNoteImportedPayload {
+                sidecar_source: SidecarSource::ReviewNotes,
+                note_id: note_id.to_owned(),
+                file_path: "src/lib.rs".to_owned(),
+                file_old_path: None,
+                target: Some(ImportedNoteTarget {
+                    side: Side::New,
+                    start_line: 1,
+                    end_line: 1,
+                }),
+                title: "Imported note".to_owned(),
+                body: Some("Body".to_owned()),
+                body_artifact_path: None,
+                body_byte_size: None,
+                tags: vec![],
+                confidence: None,
+                external_source: Some("external".to_owned()),
+                author: Some("reviewer".to_owned()),
+                created_at: Some("2026-05-10T00:00:00Z".to_owned()),
+                sidecar_content_hash: "sha256:sidecar".to_owned(),
+            },
+            "2026-05-09T20:42:45Z",
+        )
+        .expect("review note imported event builds")
     }
 
     fn target(review_id: &str, work_unit_id: &str) -> EventTarget {

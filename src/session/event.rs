@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::{ActorId, EventId, ReviewId, RevisionId, SnapshotId, WorkUnitId};
+use crate::model::{ActorId, EventId, ReviewId, RevisionId, Side, SnapshotId, WorkUnitId};
 
 const EVENT_SCHEMA: &str = "shore.event";
 const EVENT_VERSION: u32 = 1;
@@ -94,6 +94,7 @@ pub enum EventType {
     RevisionPublished,
     SnapshotObserved,
     SidecarObserved,
+    ReviewNoteImported,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -212,6 +213,40 @@ impl EventPayload for SidecarObservedPayload {
 pub enum SidecarSource {
     ReviewNotes,
     LegacyHunkAgentContext,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewNoteImportedPayload {
+    pub sidecar_source: SidecarSource,
+    pub note_id: String,
+    pub file_path: String,
+    pub file_old_path: Option<String>,
+    pub target: Option<ImportedNoteTarget>,
+    pub title: String,
+    pub body: Option<String>,
+    pub body_artifact_path: Option<String>,
+    pub body_byte_size: Option<usize>,
+    pub tags: Vec<String>,
+    pub confidence: Option<String>,
+    pub external_source: Option<String>,
+    pub author: Option<String>,
+    pub created_at: Option<String>,
+    pub sidecar_content_hash: String,
+}
+
+impl EventPayload for ReviewNoteImportedPayload {
+    fn event_type(&self) -> EventType {
+        EventType::ReviewNoteImported
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedNoteTarget {
+    pub side: Side,
+    pub start_line: u32,
+    pub end_line: u32,
 }
 
 #[cfg(test)]
@@ -365,6 +400,89 @@ mod tests {
     #[test]
     fn event_envelope_round_trips_through_serde() {
         let event = valid_revision_published_event();
+
+        let json = serde_json::to_string(&event).expect("event serializes");
+        let decoded: ShoreEvent = serde_json::from_str(&json).expect("event deserializes");
+
+        assert_eq!(decoded, event);
+    }
+
+    #[test]
+    fn review_note_imported_event_serializes_with_payload_hash() {
+        let event = ShoreEvent::new(
+            EventType::ReviewNoteImported,
+            "review_note_imported:review_notes:work:default:note:abc",
+            EventTarget::new(
+                ReviewId::new("review:default"),
+                WorkUnitId::new("work:default"),
+            ),
+            Writer::shore_local_author("0.1.0"),
+            ReviewNoteImportedPayload {
+                sidecar_source: SidecarSource::ReviewNotes,
+                note_id: "note:abc".to_owned(),
+                file_path: "src/lib.rs".to_owned(),
+                file_old_path: None,
+                target: Some(ImportedNoteTarget {
+                    side: Side::New,
+                    start_line: 1,
+                    end_line: 1,
+                }),
+                title: "Changed return value".to_owned(),
+                body: Some("Body".to_owned()),
+                body_artifact_path: None,
+                body_byte_size: None,
+                tags: vec!["parser".to_owned()],
+                confidence: Some("high".to_owned()),
+                external_source: Some("external".to_owned()),
+                author: Some("reviewer".to_owned()),
+                created_at: Some("2026-05-10T00:00:00Z".to_owned()),
+                sidecar_content_hash: "sha256:sidecar".to_owned(),
+            },
+            FixedClock::at("2026-05-10T00:00:00Z"),
+        )
+        .expect("event builds");
+
+        let json = serde_json::to_value(&event).expect("event serializes");
+
+        assert_eq!(json["eventType"], "review_note_imported");
+        assert_eq!(json["payload"]["noteId"], "note:abc");
+        assert!(json["payloadHash"].as_str().unwrap().starts_with("sha256:"));
+    }
+
+    #[test]
+    fn review_note_imported_event_round_trips_through_serde() {
+        let event = ShoreEvent::new(
+            EventType::ReviewNoteImported,
+            "review_note_imported:review_notes:work:default:note:abc",
+            EventTarget::new(
+                ReviewId::new("review:default"),
+                WorkUnitId::new("work:default"),
+            ),
+            Writer::shore_local_author("0.1.0"),
+            ReviewNoteImportedPayload {
+                sidecar_source: SidecarSource::ReviewNotes,
+                note_id: "note:abc".to_owned(),
+                file_path: "src/lib.rs".to_owned(),
+                file_old_path: None,
+                target: Some(ImportedNoteTarget {
+                    side: Side::New,
+                    start_line: 1,
+                    end_line: 3,
+                }),
+                title: "Changed return value".to_owned(),
+                body: Some("Body".to_owned()),
+                body_artifact_path: None,
+                body_byte_size: None,
+                tags: vec!["parser".to_owned()],
+                confidence: Some("high".to_owned()),
+                external_source: Some("external".to_owned()),
+                author: Some("reviewer".to_owned()),
+                created_at: Some("2026-05-10T00:00:00Z".to_owned()),
+                sidecar_content_hash: "sha256:sidecar".to_owned(),
+            },
+            FixedClock::at("2026-05-10T00:00:00Z"),
+        )
+        .expect("event builds");
 
         let json = serde_json::to_string(&event).expect("event serializes");
         let decoded: ShoreEvent = serde_json::from_str(&json).expect("event deserializes");

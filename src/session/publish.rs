@@ -547,6 +547,7 @@ fn event_type_key(event_type: EventType) -> &'static str {
         EventType::RevisionPublished => "revision_published",
         EventType::SnapshotObserved => "snapshot_observed",
         EventType::SidecarObserved => "sidecar_observed",
+        EventType::ReviewNoteImported => "review_note_imported",
     }
 }
 
@@ -554,5 +555,19 @@ fn event_type_sidecar_source_key(source: SidecarSource) -> &'static str {
     match source {
         SidecarSource::ReviewNotes => "review_notes",
         SidecarSource::LegacyHunkAgentContext => "legacy_hunk_agent_context",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::event_type_key;
+    use crate::session::EventType;
+
+    #[test]
+    fn event_type_key_includes_review_note_imported() {
+        assert_eq!(
+            event_type_key(EventType::ReviewNoteImported),
+            "review_note_imported"
+        );
     }
 }
