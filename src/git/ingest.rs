@@ -1,17 +1,44 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::git::command::{run_git, run_git_allowing_statuses};
+use crate::git::command::{git_worktree_root, run_git, run_git_allowing_statuses};
 use crate::git::patch::{PatchFile, parse_patch};
 use crate::git::raw::{RawFile, parse_raw};
 use crate::model::{DiffFile, DiffSnapshot, FileId, FileMetadataKind, FileMetadataRow, ReviewId};
 use crate::session::worktree_fingerprint_for_files;
 
+#[derive(Clone, Debug, Default)]
+pub struct IngestOptions {
+    helper_paths: Vec<PathBuf>,
+}
+
+impl IngestOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn exclude_helper_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.helper_paths.push(path.as_ref().to_path_buf());
+        self
+    }
+}
+
 pub fn ingest_tracked_diff(repo: impl AsRef<Path>) -> Result<DiffSnapshot> {
+    ingest_tracked_diff_with_options(repo, IngestOptions::new())
+}
+
+pub fn ingest_tracked_diff_with_options(
+    repo: impl AsRef<Path>,
+    options: IngestOptions,
+) -> Result<DiffSnapshot> {
     let repo = repo.as_ref();
-    let files = capture_worktree_diff_files(repo)?;
+    let files = filter_helper_paths(
+        capture_worktree_diff_files(repo)?,
+        repo,
+        &options.helper_paths,
+    )?;
     let fingerprint = worktree_fingerprint_for_files(repo, &files)?;
 
     Ok(DiffSnapshot::new(
@@ -19,6 +46,54 @@ pub fn ingest_tracked_diff(repo: impl AsRef<Path>) -> Result<DiffSnapshot> {
         fingerprint.snapshot_id,
         files,
     ))
+}
+
+fn filter_helper_paths(
+    files: Vec<DiffFile>,
+    repo: &Path,
+    helper_paths: &[PathBuf],
+) -> Result<Vec<DiffFile>> {
+    let excluded_paths = excluded_git_paths(repo, helper_paths)?;
+    if excluded_paths.is_empty() {
+        return Ok(files);
+    }
+
+    Ok(files
+        .into_iter()
+        .filter(|file| {
+            !file
+                .old_path
+                .as_deref()
+                .is_some_and(|path| excluded_paths.contains(path))
+                && !file
+                    .new_path
+                    .as_deref()
+                    .is_some_and(|path| excluded_paths.contains(path))
+        })
+        .collect())
+}
+
+fn excluded_git_paths(repo: &Path, helper_paths: &[PathBuf]) -> Result<BTreeSet<String>> {
+    let worktree_root = git_worktree_root(repo)?;
+    let worktree_root = worktree_root.canonicalize().map_err(|error| {
+        ShoreError::Message(format!(
+            "canonicalize git worktree root {}: {error}",
+            worktree_root.display()
+        ))
+    })?;
+    let paths = helper_paths
+        .iter()
+        .filter_map(|path| {
+            let helper_path = path.canonicalize().ok()?;
+            let relative = helper_path.strip_prefix(&worktree_root).ok()?;
+            Some(
+                relative
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/"),
+            )
+        })
+        .collect();
+    Ok(paths)
 }
 
 pub(crate) fn capture_worktree_diff_files(repo: &Path) -> Result<Vec<DiffFile>> {

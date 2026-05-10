@@ -1,9 +1,9 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::git::ingest_tracked_diff;
+use crate::git::{IngestOptions, ingest_tracked_diff_with_options};
 use crate::model::{DiffSnapshot, ReviewNote, ReviewStream};
 use crate::sidecar::{
     ParsedReviewNotes, ReviewNotesDiagnostic, apply_file_order, parse_hunk_agent_context,
@@ -21,6 +21,30 @@ pub struct DumpDocument {
     pub snapshot: DiffSnapshot,
     pub notes: Vec<ReviewNote>,
     pub stream: ReviewStream,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DumpOptions {
+    helper_paths: Vec<PathBuf>,
+}
+
+impl DumpOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn exclude_helper_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.helper_paths.push(path.as_ref().to_path_buf());
+        self
+    }
+
+    fn ingest_options(&self) -> IngestOptions {
+        self.helper_paths
+            .iter()
+            .fold(IngestOptions::new(), |options, path| {
+                options.exclude_helper_path(path)
+            })
+    }
 }
 
 impl DumpDocument {
@@ -45,7 +69,11 @@ impl DumpDocument {
     }
 
     pub fn from_repo(repo: impl AsRef<Path>) -> Result<Self> {
-        let snapshot = ingest_tracked_diff(repo)?;
+        Self::from_repo_with_options(repo, DumpOptions::new())
+    }
+
+    pub fn from_repo_with_options(repo: impl AsRef<Path>, options: DumpOptions) -> Result<Self> {
+        let snapshot = ingest_tracked_diff_with_options(repo, options.ingest_options())?;
         let notes = Vec::new();
         let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &notes);
         Ok(Self::new(
@@ -63,37 +91,69 @@ impl DumpDocument {
         repo: impl AsRef<Path>,
         parsed: ParsedReviewNotes,
     ) -> Result<Self> {
-        Self::from_parsed_notes(repo, parsed, DumpInputSource::ReviewNotes)
+        Self::from_parsed_notes(
+            repo,
+            parsed,
+            DumpInputSource::ReviewNotes,
+            DumpOptions::new(),
+        )
     }
 
     pub fn from_review_notes_file(repo: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<Self> {
+        Self::from_review_notes_file_with_options(repo, path, DumpOptions::new())
+    }
+
+    pub fn from_review_notes_file_with_options(
+        repo: impl AsRef<Path>,
+        path: impl AsRef<Path>,
+        options: DumpOptions,
+    ) -> Result<Self> {
         let input = read_review_notes_sidecar_file(path.as_ref())?;
         let parsed = parse_review_notes_sidecar(&input.text)?;
-        Self::from_parsed_review_notes(repo, parsed)
+        Self::from_parsed_notes(repo, parsed, DumpInputSource::ReviewNotes, options)
     }
 
     pub fn from_legacy_hunk_agent_context(
         repo: impl AsRef<Path>,
         parsed: ParsedReviewNotes,
     ) -> Result<Self> {
-        Self::from_parsed_notes(repo, parsed, DumpInputSource::LegacyHunkAgentContext)
+        Self::from_parsed_notes(
+            repo,
+            parsed,
+            DumpInputSource::LegacyHunkAgentContext,
+            DumpOptions::new(),
+        )
     }
 
     pub fn from_legacy_hunk_agent_context_file(
         repo: impl AsRef<Path>,
         path: impl AsRef<Path>,
     ) -> Result<Self> {
+        Self::from_legacy_hunk_agent_context_file_with_options(repo, path, DumpOptions::new())
+    }
+
+    pub fn from_legacy_hunk_agent_context_file_with_options(
+        repo: impl AsRef<Path>,
+        path: impl AsRef<Path>,
+        options: DumpOptions,
+    ) -> Result<Self> {
         let input = read_legacy_hunk_agent_context_file(path.as_ref())?;
         let parsed = parse_hunk_agent_context(&input.text)?;
-        Self::from_legacy_hunk_agent_context(repo, parsed)
+        Self::from_parsed_notes(
+            repo,
+            parsed,
+            DumpInputSource::LegacyHunkAgentContext,
+            options,
+        )
     }
 
     fn from_parsed_notes(
         repo: impl AsRef<Path>,
         parsed: ParsedReviewNotes,
         source: DumpInputSource,
+        options: DumpOptions,
     ) -> Result<Self> {
-        let snapshot = ingest_tracked_diff(repo)?;
+        let snapshot = ingest_tracked_diff_with_options(repo, options.ingest_options())?;
         let ordered = apply_file_order(snapshot.files, &parsed.sidecar);
         let ordered_snapshot =
             DiffSnapshot::new(snapshot.review_id, snapshot.snapshot_id, ordered.files);

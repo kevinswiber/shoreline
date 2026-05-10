@@ -140,6 +140,33 @@ fn dump_cli_loads_native_review_notes() {
 }
 
 #[test]
+fn dump_cli_excludes_explicit_in_repo_review_notes_from_stream() {
+    let repo = dump_repo();
+    let sidecar_path = repo.path().join("review-notes.json");
+    fs::write(&sidecar_path, native_review_notes_json()).expect("write review notes");
+
+    let output = shore([
+        "dump",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--review-notes",
+        sidecar_path.to_str().unwrap(),
+        "--pretty",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    let json = parse_json(&stdout);
+    let paths = snapshot_paths(&json);
+    assert!(!paths.iter().any(|path| path == "review-notes.json"));
+    assert!(paths.iter().any(|path| path == "src/untracked.rs"));
+}
+
+#[test]
 fn dump_cli_includes_recoverable_review_notes_diagnostics() {
     let repo = dump_repo();
     let sidecar_dir = tempfile::tempdir().expect("create sidecar tempdir");
@@ -235,6 +262,62 @@ fn dump_cli_imports_legacy_hunk_agent_context() {
     assert_eq!(json["notes"][0]["title"], "Legacy summary");
     assert_eq!(json["notes"][0]["body"], "Legacy rationale");
     assert!(has_note_row(&json));
+}
+
+#[test]
+fn dump_cli_excludes_explicit_in_repo_legacy_hunk_context_from_stream() {
+    let repo = dump_repo();
+    let sidecar_path = repo.path().join("agent-context.json");
+    fs::write(&sidecar_path, legacy_hunk_agent_context_json()).expect("write Hunk context");
+
+    let output = shore([
+        "dump",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--legacy-hunk-agent-context",
+        sidecar_path.to_str().unwrap(),
+        "--pretty",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    let json = parse_json(&stdout);
+    let paths = snapshot_paths(&json);
+    assert!(!paths.iter().any(|path| path == "agent-context.json"));
+    assert!(paths.iter().any(|path| path == "src/untracked.rs"));
+}
+
+#[test]
+fn dump_cli_excludes_explicit_in_repo_log_file_from_stream() {
+    let repo = dump_repo();
+    let log_path = repo.path().join("shore.log");
+
+    let output = shore([
+        "--log",
+        "shore=debug",
+        "--log-file",
+        log_path.to_str().unwrap(),
+        "dump",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--pretty",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(log_path.exists());
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    let json = parse_json(&stdout);
+    let paths = snapshot_paths(&json);
+    assert!(!paths.iter().any(|path| path == "shore.log"));
+    assert!(paths.iter().any(|path| path == "src/untracked.rs"));
 }
 
 #[test]
@@ -350,6 +433,21 @@ fn file_header_paths(json: &Value) -> Vec<String> {
                 .get("path")?
                 .as_str()
                 .map(str::to_owned)
+        })
+        .collect()
+}
+
+fn snapshot_paths(json: &Value) -> Vec<String> {
+    json["snapshot"]["files"]
+        .as_array()
+        .expect("snapshot files are an array")
+        .iter()
+        .map(|file| {
+            file["new_path"]
+                .as_str()
+                .or_else(|| file["old_path"].as_str())
+                .expect("file has a path")
+                .to_owned()
         })
         .collect()
 }

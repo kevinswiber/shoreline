@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand};
-use shore::dump::DumpDocument;
+use shore::dump::{DumpDocument, DumpOptions};
 use shore::session::{PublishOptions, PublishResult, publish_worktree_review};
 use shore::stream::ViewportSpec;
 
@@ -143,18 +143,22 @@ fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::E
     match cli.command {
         Command::Dump(args) => {
             tracing::debug!(command = "dump", "command_start");
-            dump(args, stdout)
+            dump(args, &cli.tracing, stdout)
         }
         Command::Review(args) => review(args, stdout),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
-            show(args)
+            show(args, &cli.tracing)
         }
     }
 }
 
-fn dump(args: DumpArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
-    let document = document_for_dump(&args)?;
+fn dump(
+    args: DumpArgs,
+    tracing: &TracingArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let document = document_for_dump(&args, tracing)?;
     let json = if should_pretty_print(&args) {
         serde_json::to_string_pretty(&document)?
     } else {
@@ -164,8 +168,8 @@ fn dump(args: DumpArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn show(args: ShowArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let document = document_for_show(&args)?;
+fn show(args: ShowArgs, tracing: &TracingArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let document = document_for_show(&args, tracing)?;
     let viewport = ViewportSpec::new(80, 24);
     let app = tui::app::TuiApp::new(document, viewport);
     tui::terminal::run(app)
@@ -190,26 +194,53 @@ fn review_publish(
     Ok(())
 }
 
-fn document_for_dump(args: &DumpArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
-    load_dump_document(&args.input)
+fn document_for_dump(
+    args: &DumpArgs,
+    tracing: &TracingArgs,
+) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+    load_dump_document(&args.input, dump_options(&args.input, tracing))
 }
 
-fn document_for_show(args: &ShowArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
-    load_dump_document(&args.input)
+fn document_for_show(
+    args: &ShowArgs,
+    tracing: &TracingArgs,
+) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+    load_dump_document(&args.input, dump_options(&args.input, tracing))
 }
 
-fn load_dump_document(args: &ReviewInputArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+fn load_dump_document(
+    args: &ReviewInputArgs,
+    options: DumpOptions,
+) -> Result<DumpDocument, Box<dyn std::error::Error>> {
     let document = match (&args.review_notes, &args.legacy_hunk_agent_context) {
         (Some(review_notes), None) => {
-            DumpDocument::from_review_notes_file(&args.repo, review_notes)?
+            DumpDocument::from_review_notes_file_with_options(&args.repo, review_notes, options)?
         }
         (None, Some(agent_context)) => {
-            DumpDocument::from_legacy_hunk_agent_context_file(&args.repo, agent_context)?
+            DumpDocument::from_legacy_hunk_agent_context_file_with_options(
+                &args.repo,
+                agent_context,
+                options,
+            )?
         }
-        (None, None) => DumpDocument::from_repo(&args.repo)?,
+        (None, None) => DumpDocument::from_repo_with_options(&args.repo, options)?,
         (Some(_), Some(_)) => unreachable!("clap rejects mutually exclusive sidecar flags"),
     };
     Ok(document)
+}
+
+fn dump_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> DumpOptions {
+    let mut options = DumpOptions::new();
+    if let Some(review_notes) = &args.review_notes {
+        options = options.exclude_helper_path(review_notes);
+    }
+    if let Some(agent_context) = &args.legacy_hunk_agent_context {
+        options = options.exclude_helper_path(agent_context);
+    }
+    if let Some(log_file) = &tracing.log_file {
+        options = options.exclude_helper_path(log_file);
+    }
+    options
 }
 
 fn publish_options(args: &ReviewInputArgs) -> PublishOptions {
@@ -252,6 +283,7 @@ mod tests {
     use std::path::Path;
     use std::process::{Command, ExitCode};
 
+    use super::cli_tracing::{LogFormatArg, TracingArgs};
     use super::{
         DumpArgs, ReviewInputArgs, ShowArgs, document_for_dump, document_for_show, run_with_io,
     };
@@ -335,15 +367,54 @@ mod tests {
             legacy_hunk_agent_context: None,
         };
 
-        let dump_document = document_for_dump(&DumpArgs {
-            input: input.clone(),
-            pretty: false,
-            compact: true,
-        })
+        let tracing = tracing_args(None);
+        let dump_document = document_for_dump(
+            &DumpArgs {
+                input: input.clone(),
+                pretty: false,
+                compact: true,
+            },
+            &tracing,
+        )
         .expect("dump document builds");
-        let show_document = document_for_show(&ShowArgs { input }).expect("show document builds");
+        let show_document =
+            document_for_show(&ShowArgs { input }, &tracing).expect("show document builds");
 
         assert_eq!(show_document, dump_document);
+    }
+
+    #[test]
+    fn dump_and_show_use_the_same_filtered_review_notes_loader() {
+        let repo = dump_repo();
+        let sidecar_path = repo.path().join("review-notes.json");
+        fs::write(&sidecar_path, native_review_notes_json()).expect("write review notes");
+        let input = ReviewInputArgs {
+            repo: repo.path().to_owned(),
+            review_notes: Some(sidecar_path),
+            legacy_hunk_agent_context: None,
+        };
+        let tracing = tracing_args(None);
+
+        let dump_document = document_for_dump(
+            &DumpArgs {
+                input: input.clone(),
+                pretty: false,
+                compact: true,
+            },
+            &tracing,
+        )
+        .expect("dump document builds");
+        let show_document =
+            document_for_show(&ShowArgs { input }, &tracing).expect("show document builds");
+
+        assert_eq!(show_document, dump_document);
+        assert!(
+            dump_document
+                .snapshot
+                .files
+                .iter()
+                .all(|file| file.new_path.as_deref() != Some("review-notes.json"))
+        );
     }
 
     #[test]
@@ -355,9 +426,33 @@ mod tests {
             legacy_hunk_agent_context: None,
         };
 
-        document_for_show(&ShowArgs { input }).expect("show document builds");
+        document_for_show(&ShowArgs { input }, &tracing_args(None)).expect("show document builds");
 
         assert!(!repo.path().join(".shore").exists());
+    }
+
+    #[test]
+    fn show_loader_with_in_repo_sidecar_does_not_create_shore_state() {
+        let repo = dump_repo();
+        let sidecar_path = repo.path().join("review-notes.json");
+        fs::write(&sidecar_path, native_review_notes_json()).expect("write review notes");
+        let input = ReviewInputArgs {
+            repo: repo.path().to_owned(),
+            review_notes: Some(sidecar_path),
+            legacy_hunk_agent_context: None,
+        };
+
+        document_for_show(&ShowArgs { input }, &tracing_args(None)).expect("show document builds");
+
+        assert!(!repo.path().join(".shore").exists());
+    }
+
+    fn tracing_args(log_file: Option<std::path::PathBuf>) -> TracingArgs {
+        TracingArgs {
+            log: None,
+            log_format: LogFormatArg::Compact,
+            log_file,
+        }
     }
 
     fn dump_repo() -> GitRepo {
