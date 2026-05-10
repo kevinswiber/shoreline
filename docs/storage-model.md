@@ -51,6 +51,15 @@ Event creation should be exclusive. If the file already exists for the same idem
 write is idempotent. If the filename exists with conflicting content, that is a corruption or
 conflict error, not a merge.
 
+Same-key retry checks should compare the canonical event payload hash, not the full event bytes.
+Envelope fields such as `occurredAt` may differ across attempts while the durable fact is still the
+same. A matching `payloadHash` is idempotent; a different `payloadHash` is a conflict.
+
+Any hash that contributes to durable identity should use Shore's canonical JSON path, with object
+keys sorted recursively before hashing. Do not rely on incidental serde_json map ordering or local
+construction order for event payload hashes, revision fingerprints, snapshot fingerprints, or future
+content-derived IDs.
+
 Do not add a global sequence number until Shore has a concrete allocator that does not create a
 shared mutable counter. Deterministic event ordering can start from event metadata and filenames.
 
@@ -95,6 +104,17 @@ a deliberate defense against metadata clobbering:
 Shared JSON files are acceptable only for rebuildable projections or configuration whose merge rules
 are explicit and tested.
 
+## Projection Ordering
+
+Event filenames are derived from idempotency-key hashes. Listing event files therefore does not imply
+causal publication order.
+
+Reducers should be order-independent unless the model has introduced an explicit ordering primitive
+for the events they consume. A projection may collect facts and derive state at the end, but it
+should not depend on "apply this event before that event" just because one filename sorts earlier.
+If a future feature needs causal order, add the ordering mechanism first and test the projection
+against shuffled event input.
+
 ## Storage API Shape
 
 Keep the primitive storage API bytes-shaped first, with JSON as a convenience layer:
@@ -134,6 +154,10 @@ inside workflow logic.
 A small boundary such as `run_with_io(args, stdout: &mut dyn Write, stderr: &mut dyn Write)` is
 enough. This is not a multi-channel delivery framework; it is a testability and side-effect
 boundary.
+
+Machine-readable commands should work through ordinary pipes without terminal allocation. Formatting
+should be explicit for automation-oriented JSON output; do not make command semantics depend on
+ambient process TTY state unless the command is inherently interactive and fails clearly without one.
 
 ## Notifications And Delivery
 
