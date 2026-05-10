@@ -4,6 +4,7 @@ pub mod git;
 pub mod model;
 pub mod session;
 pub mod sidecar;
+pub mod storage;
 pub mod stream;
 
 mod canonical_hash;
