@@ -1,8 +1,9 @@
 use std::fs;
-use std::io::IsTerminal;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand};
 use shore::dump::DumpDocument;
 use shore::sidecar::{parse_hunk_agent_context, parse_review_notes_sidecar};
@@ -60,18 +61,43 @@ struct ShowArgs {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let mut stdout = std::io::stdout().lock();
+    let mut stderr = std::io::stderr().lock();
+    run_with_io(std::env::args_os(), &mut stdout, &mut stderr)
+}
+
+fn run_with_io<I, S>(args: I, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode
+where
+    I: IntoIterator<Item = S>,
+    S: Into<std::ffi::OsString> + Clone,
+{
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        Err(error) => {
+            let exit = if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) {
+                let _ = writeln!(stdout, "{error}");
+                ExitCode::SUCCESS
+            } else {
+                let _ = writeln!(stderr, "{error}");
+                ExitCode::FAILURE
+            };
+            return exit;
+        }
+    };
+
+    match run_cli(cli, stdout) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
+            let _ = writeln!(stderr, "{error}");
             ExitCode::FAILURE
         }
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-
+fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
     if matches!(cli.command, Command::Show(_))
         && cli_tracing::tracing_enabled(&cli.tracing)
         && cli.tracing.log_file.is_none()
@@ -84,7 +110,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Command::Dump(args) => {
             tracing::debug!(command = "dump", "command_start");
-            dump(args)
+            dump(args, stdout)
         }
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
@@ -93,14 +119,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn dump(args: DumpArgs) -> Result<(), Box<dyn std::error::Error>> {
+fn dump(args: DumpArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
     let document = document_for_dump(&args)?;
     let json = if should_pretty_print(&args) {
         serde_json::to_string_pretty(&document)?
     } else {
         serde_json::to_string(&document)?
     };
-    println!("{json}");
+    writeln!(stdout, "{json}")?;
     Ok(())
 }
 
@@ -138,7 +164,7 @@ fn load_dump_document(args: &ReviewInputArgs) -> Result<DumpDocument, Box<dyn st
 }
 
 fn should_pretty_print(args: &DumpArgs) -> bool {
-    args.pretty || (!args.compact && std::io::stdout().is_terminal())
+    args.pretty && !args.compact
 }
 
 #[cfg(test)]
@@ -146,9 +172,78 @@ mod tests {
     use std::ffi::OsStr;
     use std::fs;
     use std::path::Path;
-    use std::process::Command;
+    use std::process::{Command, ExitCode};
 
-    use super::{DumpArgs, ReviewInputArgs, ShowArgs, document_for_dump, document_for_show};
+    use super::{
+        DumpArgs, ReviewInputArgs, ShowArgs, document_for_dump, document_for_show, run_with_io,
+    };
+
+    #[test]
+    fn dump_writes_json_to_supplied_stdout() {
+        let repo = dump_repo();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit = run_with_io(
+            [
+                "shore",
+                "--log",
+                "off",
+                "dump",
+                "--repo",
+                repo.path().to_str().unwrap(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+        assert!(
+            String::from_utf8(stdout)
+                .unwrap()
+                .starts_with("{\"schema\":\"shore.dump\"")
+        );
+    }
+
+    #[test]
+    fn help_writes_to_supplied_stdout_with_success() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit = run_with_io(["shore", "--help"], &mut stdout, &mut stderr);
+
+        assert_eq!(exit, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+        assert!(
+            String::from_utf8(stdout)
+                .unwrap()
+                .contains("Usage: shore [OPTIONS] <COMMAND>")
+        );
+    }
+
+    #[test]
+    fn error_path_writes_to_supplied_stderr() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit = run_with_io(
+            [
+                "shore",
+                "--log",
+                "off",
+                "dump",
+                "--repo",
+                "/definitely/missing",
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+        assert!(!stderr.is_empty());
+    }
 
     #[test]
     fn dump_and_show_use_the_same_review_notes_loader() {

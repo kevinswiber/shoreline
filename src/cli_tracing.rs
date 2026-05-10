@@ -71,18 +71,35 @@ pub(crate) fn init_tracing_with_writer(
 }
 
 fn resolve_log_filter(args: &TracingArgs) -> Option<String> {
-    if let Some(filter) = non_empty(args.log.as_deref()) {
-        return Some(filter.to_owned());
+    if let Some(filter) = args.log.as_deref() {
+        return active_filter(filter);
     }
 
-    ["SHORE_LOG", "RUST_LOG"]
-        .into_iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .find_map(|value| non_empty(Some(&value)).map(str::to_owned))
+    if let Ok(filter) = std::env::var("SHORE_LOG") {
+        if is_off(&filter) {
+            return None;
+        }
+        if let Some(filter) = active_filter(&filter) {
+            return Some(filter);
+        }
+    }
+
+    std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|filter| active_filter(&filter))
 }
 
-fn non_empty(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
+fn active_filter(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("off") {
+        None
+    } else {
+        Some(value.to_owned())
+    }
+}
+
+fn is_off(value: &str) -> bool {
+    value.trim().eq_ignore_ascii_case("off")
 }
 
 fn writer(log_file: Option<&PathBuf>) -> io::Result<(BoxMakeWriter, bool)> {
