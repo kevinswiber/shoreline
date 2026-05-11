@@ -327,8 +327,8 @@ fn diagnostic_code(code: &ReviewNotesDiagnosticCode) -> &'static str {
 fn verdict_decision_name(decision: VerdictDecision) -> &'static str {
     match decision {
         VerdictDecision::Pass => "pass",
-        VerdictDecision::PassMinorNit => "pass_minor_nit",
-        VerdictDecision::RequestChanges => "request_changes",
+        VerdictDecision::PassMinorNit => "pass-minor-nit",
+        VerdictDecision::RequestChanges => "request-changes",
     }
 }
 
@@ -429,6 +429,34 @@ mod tests {
         assert!(
             text.contains("acks: 1/1"),
             "ack ratio missing; got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn render_frame_shows_kebab_case_verdict_label_for_pass_minor_nit() {
+        let document = sample_document_with_verdict(VerdictDecision::PassMinorNit, 1, 1);
+        let app = TuiApp::new(document, ViewportSpec::new(100, 20));
+
+        let buffer = render_to_buffer(&app, 100, 20);
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("verdict: pass-minor-nit"),
+            "expected kebab-case verdict label; got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn render_frame_shows_kebab_case_verdict_label_for_request_changes() {
+        let document = sample_document_with_verdict(VerdictDecision::RequestChanges, 1, 1);
+        let app = TuiApp::new(document, ViewportSpec::new(100, 20));
+
+        let buffer = render_to_buffer(&app, 100, 20);
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("verdict: request-changes"),
+            "expected kebab-case verdict label; got:\n{text}"
         );
     }
 
