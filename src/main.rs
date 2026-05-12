@@ -192,6 +192,7 @@ struct CaptureReviewUnitDocument {
     target: ReviewEndpoint,
     revision_id: String,
     snapshot_id: String,
+    snapshot_artifact_content_hash: String,
 }
 
 #[derive(serde::Serialize)]
@@ -585,6 +586,7 @@ impl From<CaptureResult> for CaptureDocument {
                 target: result.target,
                 revision_id: result.revision_id.as_str().to_owned(),
                 snapshot_id: result.snapshot_id.as_str().to_owned(),
+                snapshot_artifact_content_hash: result.snapshot_artifact_content_hash,
             },
             events_created: result.events_created,
             events_existing: result.events_existing,

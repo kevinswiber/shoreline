@@ -640,6 +640,7 @@ mod tests {
                 },
                 revision_id,
                 snapshot_id,
+                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             "2026-05-12T00:00:00Z",
         )

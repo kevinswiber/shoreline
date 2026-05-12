@@ -37,12 +37,17 @@ ReviewUnit capture should follow the same authority split:
 - a ReviewUnit is the base endpoint, target endpoint, and captured diff snapshot
 - V1 captures the local Git worktree from `HEAD` to the working tree
 - full captured snapshots live as Shore-owned immutable artifacts under `artifacts/snapshots/`
+- `review_unit_captured` events bind to the internal snapshot artifact's canonical `contentHash`
 - bounded `state.json` may summarize ReviewUnit count and current unambiguous ReviewUnit ID, but it
   is not the source of ReviewUnit identity or snapshot content
 
 `shore review capture` returns `shore.review-capture` JSON as the command-output contract. The
-command reports ReviewUnit, revision, and snapshot IDs without making snapshot artifact paths a
-user-facing API.
+command reports ReviewUnit, revision, and snapshot IDs plus the snapshot artifact content hash,
+without making snapshot artifact paths a user-facing API.
+
+`SnapshotArtifact.contentHash` is a canonical hash of the artifact body excluding the
+self-referential `contentHash` field. It covers the source, endpoints, ReviewUnit identity, and
+captured snapshot rows; it is not a raw JSON file checksum.
 
 Imported review notes should follow the same split:
 

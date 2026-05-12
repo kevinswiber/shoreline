@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::canonical_hash::sha256_json_hex;
+use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::{Result, ShoreError};
 use crate::git::git_worktree_root;
 use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, SnapshotId};
@@ -38,16 +38,18 @@ pub fn write_snapshot_artifact(
         )));
     }
 
-    let artifact = SnapshotArtifact {
+    let mut artifact = SnapshotArtifact {
         schema: SNAPSHOT_ARTIFACT_SCHEMA.to_owned(),
         version: SNAPSHOT_ARTIFACT_VERSION,
         review_unit_id: fingerprint.review_unit_id.clone(),
         source: fingerprint.source.clone(),
         base: fingerprint.base.clone(),
         target: fingerprint.target.clone(),
-        content_hash: format!("sha256:{}", sha256_json_hex(&snapshot)?),
+        content_hash: String::new(),
         snapshot,
     };
+    artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
+
     let worktree_root = git_worktree_root(repo.as_ref())?;
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
@@ -77,7 +79,38 @@ pub fn read_snapshot_artifact(
     let worktree_root = git_worktree_root(repo.as_ref())?;
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.read_json(&snapshot_artifact_path(&shore_dir, snapshot_id))
+    let artifact: SnapshotArtifact =
+        storage.read_json(&snapshot_artifact_path(&shore_dir, snapshot_id))?;
+    validate_snapshot_artifact_content_hash(&artifact)?;
+    Ok(artifact)
+}
+
+fn validate_snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<()> {
+    let expected = snapshot_artifact_content_hash(artifact)?;
+    if artifact.content_hash == expected {
+        return Ok(());
+    }
+
+    Err(ShoreError::Message(format!(
+        "snapshot artifact content hash mismatch for {}",
+        artifact.snapshot.snapshot_id.as_str()
+    )))
+}
+
+fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String> {
+    let mut material = serde_json::to_value(artifact)?;
+    let Some(object) = material.as_object_mut() else {
+        return Err(ShoreError::Message(
+            "snapshot artifact hash material must be an object".to_owned(),
+        ));
+    };
+    if object.remove("contentHash").is_none() {
+        return Err(ShoreError::Message(
+            "snapshot artifact hash material is missing contentHash".to_owned(),
+        ));
+    }
+
+    sha256_json_prefixed(&material)
 }
 
 fn snapshot_artifact_path(shore_dir: &Path, snapshot_id: &SnapshotId) -> PathBuf {
@@ -101,7 +134,7 @@ mod tests {
 
     use super::*;
     use crate::git::capture_worktree_diff_files;
-    use crate::model::{DiffSnapshot, ReviewId};
+    use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewId};
     use crate::session::{compute_review_unit_fingerprint, read_snapshot_artifact};
 
     #[test]
@@ -136,6 +169,57 @@ mod tests {
         );
         assert!(format!("{:?}", stored.snapshot).contains("2"));
         assert!(!format!("{:?}", stored.snapshot).contains("99"));
+    }
+
+    #[test]
+    fn read_snapshot_artifact_rejects_tampered_content() {
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+        let path =
+            snapshot_artifact_path(&repo.path().join(".shore"), &artifact.snapshot.snapshot_id);
+
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        json["target"]["worktreeRoot"] = serde_json::json!("/other/repo");
+        fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+        let error = read_snapshot_artifact(repo.path(), &artifact.snapshot.snapshot_id)
+            .expect_err("tampered artifact should be rejected");
+
+        assert!(error.to_string().contains("content hash"));
+    }
+
+    #[test]
+    fn snapshot_artifact_hash_covers_metadata_and_snapshot_rows() {
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+        let mut changed = artifact.clone();
+        changed.target = ReviewEndpoint::GitWorkingTree {
+            worktree_root: "/other/repo".to_owned(),
+        };
+
+        assert_ne!(
+            snapshot_artifact_content_hash(&artifact).unwrap(),
+            snapshot_artifact_content_hash(&changed).unwrap()
+        );
+    }
+
+    #[test]
+    fn snapshot_artifact_hash_is_stable_across_json_round_trip() {
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+        let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.snapshot_id).unwrap();
+        let reparsed: SnapshotArtifact =
+            serde_json::from_str(&serde_json::to_string_pretty(&stored).unwrap()).unwrap();
+
+        assert_eq!(
+            stored.content_hash,
+            snapshot_artifact_content_hash(&stored).unwrap()
+        );
+        assert_eq!(
+            stored.content_hash,
+            snapshot_artifact_content_hash(&reparsed).unwrap()
+        );
     }
 
     fn write_current_snapshot_artifact(repo: &TestRepo) -> SnapshotArtifact {

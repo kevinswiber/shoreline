@@ -253,6 +253,7 @@ pub struct ReviewUnitCapturedPayload {
     pub target: ReviewEndpoint,
     pub revision_id: RevisionId,
     pub snapshot_id: SnapshotId,
+    pub snapshot_artifact_content_hash: String,
 }
 
 impl EventPayload for ReviewUnitCapturedPayload {
@@ -687,6 +688,7 @@ mod tests {
             },
             revision_id: RevisionId::new("rev:git:sha256:def"),
             snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
+            snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
         };
 
         let event = ShoreEvent::new(
@@ -708,6 +710,53 @@ mod tests {
         assert!(json["target"].get("workUnitId").is_none());
         assert_eq!(json["payload"]["base"]["commitOid"], "abc");
         assert_eq!(json["payload"]["target"]["worktreeRoot"], "/repo");
+        assert_eq!(
+            json["payload"]["snapshotArtifactContentHash"],
+            "sha256:artifact"
+        );
+    }
+
+    #[test]
+    fn review_unit_captured_payload_hash_changes_with_artifact_binding() {
+        let first = review_unit_captured_event_with_artifact_hash("sha256:first");
+        let second = review_unit_captured_event_with_artifact_hash("sha256:second");
+
+        assert_ne!(first.payload_hash, second.payload_hash);
+    }
+
+    fn review_unit_captured_event_with_artifact_hash(
+        snapshot_artifact_content_hash: &str,
+    ) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ReviewUnitCaptured,
+            format!("review_unit_captured:review-unit:sha256:abc:{snapshot_artifact_content_hash}"),
+            EventTarget::for_review_unit(
+                ReviewId::new("review:default"),
+                ReviewUnitId::new("review-unit:sha256:abc"),
+                RevisionId::new("rev:git:sha256:def"),
+                SnapshotId::new("snap:git:sha256:ghi"),
+            ),
+            Writer::shore_local_author("test"),
+            ReviewUnitCapturedPayload {
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+                source: ReviewUnitSource::GitWorktree {
+                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                    include_untracked: true,
+                },
+                base: ReviewEndpoint::GitCommit {
+                    commit_oid: "abc".to_owned(),
+                    tree_oid: "def".to_owned(),
+                },
+                target: ReviewEndpoint::GitWorkingTree {
+                    worktree_root: "/repo".to_owned(),
+                },
+                revision_id: RevisionId::new("rev:git:sha256:def"),
+                snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
+                snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
+            },
+            FixedClock::at("2026-05-12T00:00:00Z"),
+        )
+        .expect("review unit captured event builds")
     }
 
     #[test]

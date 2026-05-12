@@ -43,6 +43,12 @@ fn review_capture_creates_review_unit_from_subdir() {
     );
     assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
     assert_eq!(json["reviewUnit"]["target"]["kind"], "git_working_tree");
+    assert!(
+        json["reviewUnit"]["snapshotArtifactContentHash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
     assert!(json.get("statePath").is_none());
     assert!(json.get("snapshotArtifactPath").is_none());
     assert_eq!(json["eventsCreatedByType"]["review_unit_captured"], 1);

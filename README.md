@@ -212,15 +212,17 @@ Behavior:
 - `.shore/events/` stores immutable local event files. `.shore/state.json` is a rebuildable
   projection, not the authority.
 - Full captured snapshots are Shore-owned immutable artifacts under `.shore/artifacts/snapshots/`.
-  The output exposes ReviewUnit, revision, and snapshot IDs, but does not expose artifact paths as
-  user-facing API.
+  The `review_unit_captured` event binds to the snapshot artifact's canonical content hash, so
+  replay can detect changed artifact facts. The output exposes ReviewUnit, revision, and snapshot
+  IDs plus that content hash, but does not expose artifact paths as user-facing API.
 - `--log-file <path>` is command-helper plumbing and is excluded from the captured snapshot and
   content-derived ReviewUnit fingerprint for that command. Other unrelated tracked and untracked
   files remain part of the capture unless the caller keeps them out of the worktree.
 - Sidecar inputs are not part of the capture contract. Native `review-notes.json` and legacy Hunk
   `agent-context.json` remain optional import/transport adapters for read/import commands.
 - Output is compact `shore.review-capture` JSON. Command output documents are the external contract
-  for automation; `.shore/state.json` is only a rebuildable projection.
+  for automation; `.shore/state.json` is only a rebuildable projection, and artifact paths remain
+  Shore-owned storage details.
 
 `shore review capture` does not add a daemon, delivery queue, acknowledgement flow, intervention
 runtime, async or remote storage backend, or note mutation. `.shore/events/` is the local

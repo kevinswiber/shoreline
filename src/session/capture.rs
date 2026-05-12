@@ -46,6 +46,7 @@ pub struct CaptureResult {
     pub source: ReviewUnitSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
+    pub snapshot_artifact_content_hash: String,
     pub events_created: usize,
     pub events_existing: usize,
     pub events_created_by_type: BTreeMap<String, usize>,
@@ -71,7 +72,8 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
         super::fingerprint::review_unit_fingerprint_for_files(&worktree_root, &files)?;
     let review_id = ReviewId::new("review:default");
     let snapshot = DiffSnapshot::new(review_id.clone(), fingerprint.snapshot_id.clone(), files);
-    super::snapshot_artifact::write_snapshot_artifact(&worktree_root, &fingerprint, snapshot)?;
+    let artifact =
+        super::snapshot_artifact::write_snapshot_artifact(&worktree_root, &fingerprint, snapshot)?;
 
     let event_store = EventStore::open(&shore_dir);
     let mut recorder = CaptureRecorder::default();
@@ -96,6 +98,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
                 target: fingerprint.target.clone(),
                 revision_id: fingerprint.revision_id.clone(),
                 snapshot_id: fingerprint.snapshot_id.clone(),
+                snapshot_artifact_content_hash: artifact.content_hash.clone(),
             },
             occurred_at,
         )?,
@@ -116,6 +119,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
         source: fingerprint.source,
         base: fingerprint.base,
         target: fingerprint.target,
+        snapshot_artifact_content_hash: artifact.content_hash,
         events_created: recorder.events_created,
         events_existing: recorder.events_existing,
         events_created_by_type: recorder.events_created_by_type,
@@ -168,7 +172,10 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use crate::session::{CaptureOptions, capture_worktree_review, read_snapshot_artifact};
+    use crate::session::{
+        CaptureOptions, EventType, capture_worktree_review, read_snapshot_artifact,
+    };
+    use crate::storage::EventStore;
 
     #[test]
     fn capture_worktree_review_writes_event_artifact_and_state() {
@@ -206,6 +213,26 @@ mod tests {
             !result
                 .events_created_by_type
                 .contains_key("sidecar_observed")
+        );
+    }
+
+    #[test]
+    fn capture_worktree_review_binds_event_to_snapshot_artifact_hash() {
+        let repo = modified_repo();
+
+        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
+        let event_store = EventStore::open(repo.path().join(".shore"));
+        let events = event_store.list_events().unwrap();
+        let event = events
+            .iter()
+            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .unwrap();
+
+        assert_eq!(result.snapshot_artifact_content_hash, artifact.content_hash);
+        assert_eq!(
+            event.payload["snapshotArtifactContentHash"],
+            artifact.content_hash
         );
     }
 
