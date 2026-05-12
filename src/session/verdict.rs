@@ -15,9 +15,10 @@ use crate::session::event::{
 };
 use crate::session::{
     ProjectionDiagnostic, SessionState, ShoreEvent, current_timestamp, ensure_shore_ignored,
-    ensure_store_dirs, read_review_artifacts, reviewer_from_git_config, writer_from_git_config,
+    ensure_store_dirs, read_review_artifacts, reviewer_from_git_config, sweep_stale_temp_files,
+    writer_from_git_config,
 };
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
+use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublishVerdictOptions {
@@ -144,7 +145,7 @@ pub fn publish_verdict(options: PublishVerdictOptions) -> Result<PublishVerdictR
 
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.sweep_temp_files(&shore_dir, TempSweepAge::zero())?;
+    sweep_stale_temp_files(&storage, &shore_dir)?;
     ensure_store_dirs(&shore_dir)?;
     ensure_shore_ignored(&worktree_root)?;
 
@@ -256,7 +257,7 @@ pub fn acknowledge_review(options: AcknowledgeReviewOptions) -> Result<Acknowled
 
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.sweep_temp_files(&shore_dir, TempSweepAge::zero())?;
+    sweep_stale_temp_files(&storage, &shore_dir)?;
     ensure_store_dirs(&shore_dir)?;
     ensure_shore_ignored(&worktree_root)?;
 

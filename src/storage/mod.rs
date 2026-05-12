@@ -32,8 +32,13 @@ pub enum CreateFileOutcome {
 pub struct TempSweepAge(Duration);
 
 impl TempSweepAge {
+    #[allow(dead_code)]
     pub fn zero() -> Self {
         Self(Duration::ZERO)
+    }
+
+    pub fn workflow_startup() -> Self {
+        Self(Duration::from_secs(60))
     }
 
     #[cfg(test)]
@@ -344,6 +349,23 @@ mod tests {
             .sweep_temp_files(root.path(), TempSweepAge::zero())
             .unwrap();
         assert!(!fresh.exists());
+    }
+
+    #[test]
+    fn fresh_temp_files_are_preserved_by_workflow_startup_sweep() {
+        let root = tempfile::tempdir().unwrap();
+        let fresh = root.path().join(".shore-write.fresh.tmp");
+        std::fs::write(&fresh, b"partial").unwrap();
+
+        let storage = LocalStorage::new(root.path());
+        storage
+            .sweep_temp_files(root.path(), TempSweepAge::workflow_startup())
+            .unwrap();
+
+        assert!(
+            fresh.exists(),
+            "workflow startup sweep must not remove fresh in-flight temp files"
+        );
     }
 
     #[test]

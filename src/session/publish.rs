@@ -11,14 +11,14 @@ use crate::session::{
     EventTarget, EventType, ProjectionDiagnostic, ReviewInitializedPayload,
     RevisionPublishedPayload, SessionState, ShoreEvent, SidecarObservedPayload, SidecarSource,
     SnapshotObservedPayload, current_timestamp, ensure_shore_ignored, ensure_store_dirs,
-    worktree_fingerprint_for_files, writer_from_git_config,
+    sweep_stale_temp_files, worktree_fingerprint_for_files, writer_from_git_config,
 };
 use crate::sidecar::{
     DiagnosticLevel, ParsedReviewNotes, ReviewNotesDiagnosticCode, parse_hunk_agent_context,
     parse_review_notes_sidecar, read_legacy_hunk_agent_context_file,
     read_review_notes_sidecar_file,
 };
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
+use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublishOptions {
@@ -92,7 +92,7 @@ pub fn publish_worktree_review(options: PublishOptions) -> Result<PublishResult>
     let worktree_root = git_worktree_root(&options.repo)?;
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.sweep_temp_files(&shore_dir, TempSweepAge::zero())?;
+    sweep_stale_temp_files(&storage, &shore_dir)?;
     ensure_store_dirs(&shore_dir)?;
     ensure_shore_ignored(&worktree_root)?;
 
@@ -214,7 +214,7 @@ pub fn rebuild_state(repo: impl AsRef<Path>) -> Result<SessionState> {
     let worktree_root = git_worktree_root(repo.as_ref())?;
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.sweep_temp_files(&shore_dir, TempSweepAge::zero())?;
+    sweep_stale_temp_files(&storage, &shore_dir)?;
 
     let span = tracing::info_span!("session.rebuild_state", repo = %worktree_root.display());
     let _entered = span.enter();

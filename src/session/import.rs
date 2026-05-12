@@ -13,10 +13,10 @@ use crate::session::event::{
 };
 use crate::session::{
     ProjectionDiagnostic, SessionState, current_timestamp, ensure_shore_ignored, ensure_store_dirs,
-    writer_from_git_config,
+    sweep_stale_temp_files, writer_from_git_config,
 };
 use crate::sidecar::{ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar};
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
+use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NoteImportRecord {
@@ -73,7 +73,7 @@ pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
 
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.sweep_temp_files(&shore_dir, TempSweepAge::zero())?;
+    sweep_stale_temp_files(&storage, &shore_dir)?;
     ensure_store_dirs(&shore_dir)?;
     ensure_shore_ignored(&worktree_root)?;
 

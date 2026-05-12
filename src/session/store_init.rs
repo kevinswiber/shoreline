@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
 use crate::git::git_worktree_root;
+use crate::storage::{LocalStorage, TempSweepAge};
 
 pub fn shore_dir_for_repo(repo: &Path) -> Result<PathBuf> {
     Ok(git_worktree_root(repo)?.join(".shore"))
@@ -18,6 +19,10 @@ pub(crate) fn ensure_store_dirs(shore_dir: &Path) -> Result<()> {
         fs::create_dir_all(&dir).map_err(|error| io_error("create directory", &dir, error))?;
     }
     Ok(())
+}
+
+pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, shore_dir: &Path) -> Result<()> {
+    storage.sweep_temp_files(shore_dir, TempSweepAge::workflow_startup())
 }
 
 pub fn ensure_shore_ignored(worktree_root: &Path) -> Result<()> {

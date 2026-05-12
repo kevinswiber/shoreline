@@ -8,9 +8,10 @@ use crate::model::{
 };
 use crate::session::{
     EventTarget, EventType, ProjectionDiagnostic, ReviewUnitCapturedPayload, SessionState,
-    ShoreEvent, current_timestamp, ensure_shore_ignored, ensure_store_dirs, writer_from_git_config,
+    ShoreEvent, current_timestamp, ensure_shore_ignored, ensure_store_dirs, sweep_stale_temp_files,
+    writer_from_git_config,
 };
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
+use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptureOptions {
@@ -61,7 +62,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
     let worktree_root = git_worktree_root(&options.repo)?;
     let shore_dir = worktree_root.join(".shore");
     let storage = LocalStorage::new(&shore_dir);
-    storage.sweep_temp_files(&shore_dir, TempSweepAge::zero())?;
+    sweep_stale_temp_files(&storage, &shore_dir)?;
     ensure_store_dirs(&shore_dir)?;
     ensure_shore_ignored(&worktree_root)?;
 
@@ -233,6 +234,24 @@ mod tests {
         assert_eq!(
             event.payload["snapshotArtifactContentHash"],
             artifact.content_hash
+        );
+    }
+
+    #[test]
+    fn capture_worktree_review_preserves_fresh_shore_temp_files() {
+        let repo = modified_repo();
+        let temp_path = repo.path().join(".shore/events/.shore-write.inflight.tmp");
+
+        fs::create_dir_all(temp_path.parent().unwrap()).unwrap();
+        fs::write(&temp_path, b"in flight").unwrap();
+
+        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+        assert_eq!(
+            fs::read(&temp_path).unwrap(),
+            b"in flight",
+            "capture startup must not remove fresh temp files from another in-flight writer"
         );
     }
 
