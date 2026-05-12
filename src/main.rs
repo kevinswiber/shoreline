@@ -1,17 +1,23 @@
-use std::io::Write;
+use std::collections::BTreeMap;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use shore::dump::{DumpDocument, DumpOptions};
-use shore::model::{AcknowledgementId, ActorId, ReviewArtifactId, ReviewEndpoint, RevisionId};
+use shore::model::{
+    AcknowledgementId, ActorId, ObservationId, ReviewArtifactId, ReviewEndpoint, ReviewTargetRef,
+    ReviewUnitId, RevisionId, Side,
+};
 use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
 use shore::session::{
     AcknowledgeReviewOptions, AcknowledgeReviewResult, CaptureOptions, CaptureResult,
-    ImportNotesOptions, ImportNotesResult, ProjectionDiagnostic, PublishOptions, PublishResult,
-    PublishVerdictOptions, PublishVerdictResult, acknowledge_review, capture_worktree_review,
-    import_notes, publish_verdict, publish_worktree_review,
+    ImportNotesOptions, ImportNotesResult, ObservationAddOptions, ObservationAddResult,
+    ObservationListOptions, ObservationListResult, ObservationTargetSelector, ObservationView,
+    ProjectionDiagnostic, PublishOptions, PublishResult, PublishVerdictOptions,
+    PublishVerdictResult, acknowledge_review, capture_worktree_review, import_notes,
+    list_observations, publish_verdict, publish_worktree_review, record_observation,
 };
 use shore::stream::ViewportSpec;
 
@@ -88,6 +94,7 @@ enum NotesCommand {
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
     Capture(CaptureArgs),
+    Observation(ObservationArgs),
     Publish(PublishArgs),
     Verdict(VerdictArgs),
     Ack(AckArgs),
@@ -97,6 +104,90 @@ enum ReviewCommand {
 struct CaptureArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct ObservationArgs {
+    #[command(subcommand)]
+    command: ObservationCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ObservationCommand {
+    Add(ObservationAddArgs),
+    List(ObservationListArgs),
+}
+
+#[derive(Debug, Args)]
+struct ObservationAddArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    review_unit: Option<String>,
+
+    #[arg(long)]
+    track: String,
+
+    #[arg(long)]
+    title: String,
+
+    #[arg(long, group = "observation_body")]
+    body: Option<String>,
+
+    #[arg(long, group = "observation_body")]
+    body_file: Option<PathBuf>,
+
+    #[arg(long, group = "observation_body")]
+    body_stdin: bool,
+
+    #[arg(long)]
+    file: Option<String>,
+
+    #[arg(long, value_enum, default_value = "new")]
+    side: SideArg,
+
+    #[arg(long)]
+    start_line: Option<u32>,
+
+    #[arg(long)]
+    end_line: Option<u32>,
+
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+
+    #[arg(long, value_enum)]
+    confidence: Option<ConfidenceArg>,
+
+    #[arg(long = "supersedes")]
+    supersedes: Vec<String>,
+
+    #[arg(long)]
+    idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct ObservationListArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    review_unit: Option<String>,
+
+    #[arg(long)]
+    track: Option<String>,
+
+    #[arg(long)]
+    file: Option<String>,
+
+    #[arg(long)]
+    include_body: bool,
+
+    #[arg(long, conflicts_with = "compact")]
+    pretty: bool,
+
+    #[arg(long)]
+    compact: bool,
 }
 
 #[derive(Debug, Args)]
@@ -197,6 +288,65 @@ struct CaptureReviewUnitDocument {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ObservationAddDocument {
+    schema: &'static str,
+    version: u32,
+    review_unit_id: String,
+    observation_id: String,
+    event_id: String,
+    track_id: String,
+    target: ReviewTargetRef,
+    body_content_hash: Option<String>,
+    events_created: usize,
+    events_existing: usize,
+    events_created_by_type: BTreeMap<String, usize>,
+    diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ObservationListDocument {
+    schema: &'static str,
+    version: u32,
+    review_unit_id: String,
+    filters: ObservationListFiltersDocument,
+    observations: Vec<ObservationViewDocument>,
+    diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ObservationListFiltersDocument {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+    include_body: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ObservationViewDocument {
+    id: String,
+    event_id: String,
+    track_id: String,
+    target: ReviewTargetRef,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence: Option<String>,
+    status: shore::session::ObservationStatus,
+    supersedes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_content_hash: Option<String>,
+    created_at: String,
+    writer: shore::session::Writer,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NotesApplyDocument {
     schema: &'static str,
     version: u32,
@@ -244,6 +394,21 @@ enum NextActionArg {
     Address,
     Defer,
     Obsolete,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum SideArg {
+    Old,
+    New,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum ConfidenceArg {
+    Low,
+    Medium,
+    High,
 }
 
 fn main() -> ExitCode {
@@ -352,6 +517,7 @@ fn review(
             tracing::debug!(command = "review.capture", "command_start");
             review_capture(args, tracing, stdout)
         }
+        ReviewCommand::Observation(args) => review_observation(args, stdout),
         ReviewCommand::Publish(args) => {
             tracing::debug!(command = "review.publish", "command_start");
             review_publish(args, tracing, stdout)
@@ -375,6 +541,48 @@ fn review_capture(
     let result = capture_worktree_review(capture_options(&args, tracing));
     let document = CaptureDocument::from(result?);
     writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
+    Ok(())
+}
+
+fn review_observation(
+    args: ObservationArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match args.command {
+        ObservationCommand::Add(args) => {
+            tracing::debug!(command = "review.observation.add", "command_start");
+            review_observation_add(args, stdout)
+        }
+        ObservationCommand::List(args) => {
+            tracing::debug!(command = "review.observation.list", "command_start");
+            review_observation_list(args, stdout)
+        }
+    }
+}
+
+fn review_observation_add(
+    args: ObservationAddArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result = record_observation(observation_add_options(args)?)?;
+    let document = ObservationAddDocument::from(result);
+    writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
+    Ok(())
+}
+
+fn review_observation_list(
+    args: ObservationListArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pretty = args.pretty && !args.compact;
+    let result = list_observations(observation_list_options(args));
+    let document = ObservationListDocument::from(result?);
+    let json = if pretty {
+        serde_json::to_string_pretty(&document)?
+    } else {
+        serde_json::to_string(&document)?
+    };
+    writeln!(stdout, "{json}")?;
     Ok(())
 }
 
@@ -479,6 +687,82 @@ fn capture_options(args: &CaptureArgs, tracing: &TracingArgs) -> CaptureOptions 
         options = options.with_excluded_helper_path(log_file);
     }
     options
+}
+
+fn observation_add_options(
+    args: ObservationAddArgs,
+) -> Result<ObservationAddOptions, Box<dyn std::error::Error>> {
+    let target = observation_target(&args);
+    let body = read_observation_body(&args)?;
+    let mut options = ObservationAddOptions::new(&args.repo)
+        .with_track(args.track)
+        .with_title(args.title)
+        .with_target(target);
+
+    if let Some(review_unit) = args.review_unit {
+        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(body) = body {
+        options = options.with_body(body);
+    }
+    for tag in args.tags {
+        options = options.with_tag(tag);
+    }
+    if let Some(confidence) = args.confidence {
+        options = options.with_confidence(confidence.as_str());
+    }
+    for supersedes in args.supersedes {
+        options = options.superseding(ObservationId::new(supersedes));
+    }
+    if let Some(idempotency_key) = args.idempotency_key {
+        options = options.with_idempotency_key(idempotency_key);
+    }
+
+    Ok(options)
+}
+
+fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions {
+    let mut options = ObservationListOptions::new(&args.repo).with_include_body(args.include_body);
+    if let Some(review_unit) = args.review_unit {
+        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(track) = args.track {
+        options = options.with_track(track);
+    }
+    if let Some(file) = args.file {
+        options = options.with_file(file);
+    }
+    options
+}
+
+fn observation_target(args: &ObservationAddArgs) -> ObservationTargetSelector {
+    match (&args.file, args.start_line) {
+        (Some(file), Some(start_line)) => ObservationTargetSelector::range(
+            file.clone(),
+            args.side.into(),
+            start_line,
+            args.end_line,
+        ),
+        (Some(file), None) => ObservationTargetSelector::file(file.clone()),
+        (None, _) => ObservationTargetSelector::review_unit(),
+    }
+}
+
+fn read_observation_body(
+    args: &ObservationAddArgs,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if let Some(body) = &args.body {
+        return Ok(Some(body.clone()));
+    }
+    if let Some(path) = &args.body_file {
+        return Ok(Some(std::fs::read_to_string(path)?));
+    }
+    if args.body_stdin {
+        let mut body = String::new();
+        std::io::stdin().read_to_string(&mut body)?;
+        return Ok(Some(body));
+    }
+    Ok(None)
 }
 
 fn notes_apply_options(
@@ -596,6 +880,73 @@ impl From<CaptureResult> for CaptureDocument {
     }
 }
 
+impl From<ObservationAddResult> for ObservationAddDocument {
+    fn from(result: ObservationAddResult) -> Self {
+        Self {
+            schema: "shore.review-observation-add",
+            version: 1,
+            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            observation_id: result.observation_id.as_str().to_owned(),
+            event_id: result.event_id.as_str().to_owned(),
+            track_id: result.track_id.as_str().to_owned(),
+            target: result.target,
+            body_content_hash: result.body_content_hash,
+            events_created: result.events_created,
+            events_existing: result.events_existing,
+            events_created_by_type: result.events_created_by_type,
+            diagnostics: result.diagnostics,
+        }
+    }
+}
+
+impl From<ObservationListResult> for ObservationListDocument {
+    fn from(result: ObservationListResult) -> Self {
+        Self {
+            schema: "shore.review-observation-list",
+            version: 1,
+            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            filters: ObservationListFiltersDocument {
+                track_id: result
+                    .filters
+                    .track_id
+                    .map(|track_id| track_id.as_str().to_owned()),
+                file: result.filters.file,
+                include_body: result.filters.include_body,
+            },
+            observations: result
+                .observations
+                .into_iter()
+                .map(ObservationViewDocument::from)
+                .collect(),
+            diagnostics: result.diagnostics,
+        }
+    }
+}
+
+impl From<ObservationView> for ObservationViewDocument {
+    fn from(view: ObservationView) -> Self {
+        Self {
+            id: view.id.as_str().to_owned(),
+            event_id: view.event_id.as_str().to_owned(),
+            track_id: view.track_id.as_str().to_owned(),
+            target: view.target,
+            title: view.title,
+            body: view.body,
+            tags: view.tags,
+            confidence: view.confidence,
+            status: view.status,
+            supersedes: view
+                .supersedes
+                .into_iter()
+                .map(|observation_id| observation_id.as_str().to_owned())
+                .collect(),
+            body_content_hash: view.body_content_hash,
+            created_at: view.created_at,
+            writer: view.writer,
+        }
+    }
+}
+
 impl From<ImportNotesResult> for NotesApplyDocument {
     fn from(result: ImportNotesResult) -> Self {
         Self {
@@ -653,6 +1004,25 @@ impl From<NextActionArg> for AcknowledgementNextAction {
             NextActionArg::Address => AcknowledgementNextAction::Address,
             NextActionArg::Defer => AcknowledgementNextAction::Defer,
             NextActionArg::Obsolete => AcknowledgementNextAction::Obsolete,
+        }
+    }
+}
+
+impl From<SideArg> for Side {
+    fn from(value: SideArg) -> Self {
+        match value {
+            SideArg::Old => Side::Old,
+            SideArg::New => Side::New,
+        }
+    }
+}
+
+impl ConfidenceArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            ConfidenceArg::Low => "low",
+            ConfidenceArg::Medium => "medium",
+            ConfidenceArg::High => "high",
         }
     }
 }
