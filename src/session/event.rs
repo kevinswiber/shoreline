@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AcknowledgementId, ActorId, EventId, ReviewArtifactId, ReviewEndpoint, ReviewId,
+    AcknowledgementId, ActorId, EventId, ObservationId, ReviewArtifactId, ReviewEndpoint, ReviewId,
     ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId, TrackId,
     WorkUnitId,
 };
@@ -96,6 +96,7 @@ impl ShoreEvent {
 pub enum EventType {
     ReviewInitialized,
     ReviewUnitCaptured,
+    ReviewObservationRecorded,
     RevisionPublished,
     SnapshotObserved,
     SidecarObserved,
@@ -259,6 +260,49 @@ pub struct ReviewUnitCapturedPayload {
 impl EventPayload for ReviewUnitCapturedPayload {
     fn event_type(&self) -> EventType {
         EventType::ReviewUnitCaptured
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewObservationRecordedPayload {
+    pub observation_id: ObservationId,
+    pub target: ReviewTargetRef,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_artifact_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_byte_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supersedes_observation_ids: Vec<ObservationId>,
+}
+
+impl ReviewObservationRecordedPayload {
+    pub fn idempotency_key(
+        review_unit_id: &ReviewUnitId,
+        track_id: &TrackId,
+        source_key: &str,
+    ) -> String {
+        format!(
+            "review_observation_recorded:{}:{}:{}",
+            review_unit_id.as_str(),
+            track_id.as_str(),
+            source_key
+        )
+    }
+}
+
+impl EventPayload for ReviewObservationRecordedPayload {
+    fn event_type(&self) -> EventType {
+        EventType::ReviewObservationRecorded
     }
 }
 
@@ -757,6 +801,104 @@ mod tests {
             FixedClock::at("2026-05-12T00:00:00Z"),
         )
         .expect("review unit captured event builds")
+    }
+
+    #[test]
+    fn review_observation_recorded_event_serializes_target_track_and_payload() {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:abc");
+        let target_ref = ReviewTargetRef::Range {
+            review_unit_id: review_unit_id.clone(),
+            file_path: "src/lib.rs".to_owned(),
+            side: Side::New,
+            start_line: 4,
+            end_line: 5,
+        };
+        let target = EventTarget {
+            review_id: ReviewId::new("review:default"),
+            work_unit_id: None,
+            review_unit_id: Some(review_unit_id.clone()),
+            revision_id: Some(RevisionId::new("rev:git:sha256:def")),
+            snapshot_id: Some(SnapshotId::new("snap:git:sha256:ghi")),
+            track_id: Some(TrackId::new("agent:codex")),
+            subject: Some(target_ref.clone()),
+        };
+
+        let event = ShoreEvent::new(
+            EventType::ReviewObservationRecorded,
+            "review_observation_recorded:review-unit:sha256:abc:agent:codex:obs:sha256:one",
+            target,
+            Writer::shore_local_reviewer("test"),
+            ReviewObservationRecordedPayload {
+                observation_id: ObservationId::new("obs:sha256:one"),
+                target: target_ref,
+                title: "Check this branch".to_owned(),
+                body: Some("Body".to_owned()),
+                body_artifact_path: None,
+                body_byte_size: Some(4),
+                body_content_hash: Some("sha256:body".to_owned()),
+                tags: vec!["correctness".to_owned()],
+                confidence: Some("high".to_owned()),
+                supersedes_observation_ids: vec![],
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap();
+
+        let json = serde_json::to_value(event).unwrap();
+
+        assert_eq!(json["eventType"], "review_observation_recorded");
+        assert_eq!(json["target"]["trackId"], "agent:codex");
+        assert_eq!(json["target"]["subject"]["kind"], "range");
+        assert_eq!(json["payload"]["observationId"], "obs:sha256:one");
+        assert_eq!(json["payload"]["target"]["kind"], "range");
+        assert_eq!(json["payload"]["bodyContentHash"], "sha256:body");
+        assert!(json["target"].get("workUnitId").is_none());
+    }
+
+    #[test]
+    fn review_observation_recorded_payload_hash_changes_with_body_binding() {
+        let first = review_observation_recorded_event_with_body_hash("sha256:first");
+        let second = review_observation_recorded_event_with_body_hash("sha256:second");
+
+        assert_ne!(first.payload_hash, second.payload_hash);
+    }
+
+    fn review_observation_recorded_event_with_body_hash(body_content_hash: &str) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:abc");
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+        ShoreEvent::new(
+            EventType::ReviewObservationRecorded,
+            format!(
+                "review_observation_recorded:{}:agent:codex:obs:sha256:abc",
+                review_unit_id.as_str()
+            ),
+            EventTarget {
+                review_id: ReviewId::new("review:default"),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:def")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:ghi")),
+                track_id: Some(TrackId::new("agent:codex")),
+                subject: Some(target_ref.clone()),
+            },
+            Writer::shore_local_reviewer("test"),
+            ReviewObservationRecordedPayload {
+                observation_id: ObservationId::new("obs:sha256:abc"),
+                target: target_ref,
+                title: "Title".to_owned(),
+                body: None,
+                body_artifact_path: Some("artifacts/notes/body.json".to_owned()),
+                body_byte_size: Some(4097),
+                body_content_hash: Some(body_content_hash.to_owned()),
+                tags: vec![],
+                confidence: None,
+                supersedes_observation_ids: vec![],
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
     }
 
     #[test]

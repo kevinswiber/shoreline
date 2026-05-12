@@ -529,6 +529,7 @@ fn event_type_key(event_type: EventType) -> &'static str {
     match event_type {
         EventType::ReviewInitialized => "review_initialized",
         EventType::ReviewUnitCaptured => "review_unit_captured",
+        EventType::ReviewObservationRecorded => "review_observation_recorded",
         EventType::RevisionPublished => "revision_published",
         EventType::SnapshotObserved => "snapshot_observed",
         EventType::SidecarObserved => "sidecar_observed",

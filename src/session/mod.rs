@@ -5,6 +5,7 @@ pub mod event;
 mod event_context;
 mod fingerprint;
 mod import;
+mod observation;
 mod publish;
 mod reload;
 mod snapshot_artifact;
@@ -19,9 +20,10 @@ pub use consume::{
     read_review_artifacts,
 };
 pub use event::{
-    EventPayload, EventTarget, EventType, ReviewInitializedPayload, ReviewUnitCapturedPayload,
-    RevisionPublishedPayload, ShoreEvent, SidecarObservedPayload, SidecarSource,
-    SnapshotObservedPayload, Writer, WriterRole, WriterTool,
+    EventPayload, EventTarget, EventType, ReviewInitializedPayload,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, RevisionPublishedPayload,
+    ShoreEvent, SidecarObservedPayload, SidecarSource, SnapshotObservedPayload, Writer, WriterRole,
+    WriterTool,
 };
 pub(crate) use event_context::{
     current_timestamp, reviewer_from_git_config, writer_from_git_config,

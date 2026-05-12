@@ -31,6 +31,8 @@ pub struct SessionState {
     pub sidecar_count: usize,
     pub note_count: usize,
     #[serde(default)]
+    pub observation_count: usize,
+    #[serde(default)]
     pub review_artifact_count: usize,
     #[serde(default)]
     pub acknowledgement_count: usize,
@@ -77,6 +79,7 @@ struct StateReducer {
     captured_review_unit_ids: BTreeSet<ReviewUnitId>,
     sidecar_count: usize,
     note_count: usize,
+    observation_count: usize,
     review_artifact_count: usize,
     acknowledgement_count: usize,
     published_artifacts: BTreeMap<ReviewArtifactId, (RevisionId, VerdictDecision)>,
@@ -94,6 +97,7 @@ impl Default for StateReducer {
             captured_review_unit_ids: BTreeSet::new(),
             sidecar_count: 0,
             note_count: 0,
+            observation_count: 0,
             review_artifact_count: 0,
             acknowledgement_count: 0,
             published_artifacts: BTreeMap::new(),
@@ -119,6 +123,9 @@ impl StateReducer {
         match event.event_type {
             EventType::ReviewInitialized => {}
             EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
+            EventType::ReviewObservationRecorded => {
+                self.observation_count += 1;
+            }
             EventType::RevisionPublished => self.apply_revision_published(event)?,
             EventType::SnapshotObserved => self.apply_snapshot_observed(event)?,
             EventType::SidecarObserved => {
@@ -270,6 +277,7 @@ impl StateReducer {
             event_count,
             sidecar_count: self.sidecar_count,
             note_count: self.note_count,
+            observation_count: self.observation_count,
             review_artifact_count: self.review_artifact_count,
             acknowledgement_count: self.acknowledgement_count,
             last_verdict_decision,
@@ -282,13 +290,14 @@ impl StateReducer {
 mod tests {
     use super::*;
     use crate::model::{
-        AcknowledgementId, ReviewArtifactId, ReviewEndpoint, ReviewId, ReviewUnitId,
-        ReviewUnitSource, RevisionId, Side, SnapshotId, WorkUnitId, WorktreeCaptureMode,
+        AcknowledgementId, ObservationId, ReviewArtifactId, ReviewEndpoint, ReviewId,
+        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId, TrackId,
+        WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         AcknowledgementNextAction, ImportedNoteTarget, ReviewArtifactAcknowledgedPayload,
-        ReviewArtifactPublishedPayload, ReviewNoteImportedPayload, ReviewUnitCapturedPayload,
-        VerdictDecision,
+        ReviewArtifactPublishedPayload, ReviewNoteImportedPayload,
+        ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, VerdictDecision,
     };
     use crate::session::{
         EventTarget, EventType, ReviewInitializedPayload, RevisionPublishedPayload, ShoreEvent,
@@ -423,6 +432,22 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.code == AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE)
         );
+    }
+
+    #[test]
+    fn projection_counts_observations_without_embedding_observation_history() {
+        let events = vec![
+            simple_review_unit_captured_event("review-unit:sha256:one"),
+            observation_recorded_event("obs:sha256:one", "agent:codex"),
+            observation_recorded_event("obs:sha256:two", "agent:claude"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+        let json = serde_json::to_value(&state).unwrap();
+
+        assert_eq!(state.observation_count, 2);
+        assert_eq!(json["observationCount"], 2);
+        assert!(json.get("observations").is_none());
     }
 
     #[test]
@@ -569,6 +594,29 @@ mod tests {
         assert_eq!(projection.last_verdict_decision, None);
     }
 
+    #[test]
+    fn state_defaults_missing_observation_count_to_zero() {
+        let json = serde_json::json!({
+            "schema": "shore.state",
+            "version": 1,
+            "reviewId": "review:default",
+            "workUnitId": "work:default",
+            "currentRevisionId": null,
+            "currentSnapshotId": null,
+            "eventCount": 0,
+            "sidecarCount": 0,
+            "noteCount": 0,
+            "reviewArtifactCount": 0,
+            "acknowledgementCount": 0,
+            "lastVerdictDecision": null,
+            "diagnostics": []
+        });
+
+        let state: SessionState = serde_json::from_value(json).unwrap();
+
+        assert_eq!(state.observation_count, 0);
+    }
+
     fn review_initialized(review_id: &str, work_unit_id: &str) -> ShoreEvent {
         ShoreEvent::new(
             EventType::ReviewInitialized,
@@ -645,6 +693,50 @@ mod tests {
             "2026-05-12T00:00:00Z",
         )
         .expect("review unit captured event builds")
+    }
+
+    fn simple_review_unit_captured_event(review_unit_id: &str) -> ShoreEvent {
+        review_unit_captured_event(review_unit_id)
+    }
+
+    fn observation_recorded_event(observation_id: &str, track_id: &str) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+        ShoreEvent::new(
+            EventType::ReviewObservationRecorded,
+            format!(
+                "review_observation_recorded:{}:{}:{}",
+                review_unit_id.as_str(),
+                track_id,
+                observation_id
+            ),
+            EventTarget {
+                review_id: ReviewId::new("review:default"),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: Some(TrackId::new(track_id.to_owned())),
+                subject: Some(target_ref.clone()),
+            },
+            Writer::shore_local_reviewer("test"),
+            ReviewObservationRecordedPayload {
+                observation_id: ObservationId::new(observation_id.to_owned()),
+                target: target_ref,
+                title: "Observation".to_owned(),
+                body: None,
+                body_artifact_path: None,
+                body_byte_size: None,
+                body_content_hash: None,
+                tags: vec![],
+                confidence: None,
+                supersedes_observation_ids: vec![],
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
     }
 
     fn sidecar_observed(source: &str, content_hash: &str) -> ShoreEvent {
