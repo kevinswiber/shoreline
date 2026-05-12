@@ -34,6 +34,11 @@ pub use fingerprint::{
     compute_review_unit_fingerprint,
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
+pub use observation::{
+    ObservationAddOptions, ObservationAddResult, ObservationListFilters, ObservationListOptions,
+    ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,
+    list_observations, record_observation,
+};
 pub use publish::{
     PublishOptions, PublishResult, publish_worktree_review, read_events, rebuild_state,
 };
