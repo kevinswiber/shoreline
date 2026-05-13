@@ -149,7 +149,7 @@ pub enum ReviewHistorySummary {
         snapshot_id: SnapshotId,
         snapshot_artifact_content_hash: String,
     },
-    ObservationRecorded {
+    ReviewObservationRecorded {
         observation_id: ObservationId,
         target: ReviewTargetRef,
         title: String,
@@ -190,7 +190,7 @@ pub enum ReviewHistorySummary {
         #[serde(skip_serializing_if = "Option::is_none")]
         reason_content_hash: Option<String>,
     },
-    DispositionRecorded {
+    ReviewDispositionRecorded {
         disposition_id: DispositionId,
         target: ReviewTargetRef,
         disposition: ReviewDisposition,
@@ -221,7 +221,7 @@ pub enum ReviewHistorySummary {
         #[serde(skip_serializing_if = "Option::is_none")]
         body: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        body_byte_size: Option<usize>,
+        body_byte_size: Option<u64>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         tags: Vec<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,17 +238,18 @@ pub enum ReviewHistorySummary {
 
 pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let events = EventStore::open(paths.shore_dir()).list_events()?;
+    let track_id = options
+        .track
+        .as_deref()
+        .map(validated_track_id)
+        .transpose()?;
     let filters = ResolvedHistoryFilters {
         review_unit_id: options.review_unit_id,
-        track_id: options
-            .track
-            .as_deref()
-            .map(validated_track_id)
-            .transpose()?,
+        track_id,
         event_types: options.event_types,
         include_body: options.include_body,
     };
+    let events = EventStore::open(paths.shore_dir()).list_events()?;
     history_from_events(&events, filters, Some(paths.shore_dir()))
 }
 
@@ -308,7 +309,7 @@ fn history_entry_from_event(
         EventType::ReviewObservationRecorded => {
             let payload: ReviewObservationRecordedPayload =
                 serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ObservationRecorded {
+            ReviewHistorySummary::ReviewObservationRecorded {
                 observation_id: payload.observation_id,
                 target: payload.target,
                 title: payload.title,
@@ -364,7 +365,7 @@ fn history_entry_from_event(
         EventType::ReviewDispositionRecorded => {
             let payload: ReviewDispositionRecordedPayload =
                 serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::DispositionRecorded {
+            ReviewHistorySummary::ReviewDispositionRecorded {
                 disposition_id: payload.disposition_id,
                 target: payload.target,
                 disposition: payload.disposition,
@@ -397,7 +398,7 @@ fn history_entry_from_event(
                     payload.body,
                     payload.body_artifact_path.as_deref(),
                 )?,
-                body_byte_size: payload.body_byte_size,
+                body_byte_size: payload.body_byte_size.map(|size| size as u64),
                 tags: payload.tags,
                 confidence: payload.confidence,
                 external_source: payload.external_source,
@@ -535,7 +536,7 @@ mod tests {
             (
                 observation_event_with_body("body"),
                 EventType::ReviewObservationRecorded,
-                "observation_recorded",
+                "review_observation_recorded",
             ),
             (
                 intervention_requested_event(),
@@ -550,7 +551,7 @@ mod tests {
             (
                 disposition_event(),
                 EventType::ReviewDispositionRecorded,
-                "disposition_recorded",
+                "review_disposition_recorded",
             ),
             (
                 review_note_imported_event(),

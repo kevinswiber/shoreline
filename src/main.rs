@@ -131,24 +131,31 @@ struct DispositionArgs {
 
 #[derive(Debug, Args)]
 struct HistoryArgs {
+    /// Repository root or a path inside the repository.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
+    /// Filter to one captured ReviewUnit by id.
     #[arg(long)]
     review_unit: Option<String>,
 
+    /// Filter to one review track, such as agent:codex.
     #[arg(long)]
     track: Option<String>,
 
+    /// Filter to one or more durable event types.
     #[arg(long = "event-type")]
     event_types: Vec<HistoryEventTypeArg>,
 
+    /// Hydrate body-like text from inline payloads or body artifacts.
     #[arg(long)]
     include_body: bool,
 
+    /// Pretty-print the JSON response.
     #[arg(long, conflicts_with = "compact")]
     pretty: bool,
 
+    /// Emit compact JSON explicitly.
     #[arg(long)]
     compact: bool,
 }
@@ -942,7 +949,7 @@ fn review_history_command(
     args: HistoryArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pretty = args.pretty && !args.compact;
+    let pretty = args.pretty;
     let result = review_history(history_options(&args));
     let document = HistoryDocument::from(result?);
     let json = if pretty {
