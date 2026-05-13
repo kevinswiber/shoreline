@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use crate::error::Result;
-use crate::git::git_worktree_root;
 use crate::model::{AcknowledgementId, ReviewArtifactId, RevisionId, WorkUnitId};
+use crate::session::ShoreStorePaths;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     AcknowledgementNextAction, EventType, ReviewArtifactAcknowledgedPayload,
@@ -13,6 +13,7 @@ use crate::session::state::SessionState;
 use crate::sidecar::{
     ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar,
 };
+use crate::storage::EventStore;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewArtifact {
@@ -133,9 +134,8 @@ pub(crate) fn parsed_review_notes_from_imports(
 ///
 /// This is a read-only operation and does not create directories or perform any mutations.
 pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<ParsedReviewNotes>> {
-    let repo_path = repo.as_ref();
-    let worktree_root = git_worktree_root(repo_path)?;
-    let shore_dir = worktree_root.join(".shore");
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
 
     // If .shore doesn't exist, there's no durable state to load
     if !shore_dir.exists() {
@@ -143,7 +143,7 @@ pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<Pars
     }
 
     // Read all events from the store
-    let events = crate::session::read_events(&worktree_root)?;
+    let events = EventStore::open(shore_dir).list_events()?;
 
     // Filter to ReviewNoteImported events and deserialize payloads
     let mut imported_payloads = Vec::new();
@@ -162,26 +162,26 @@ pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<Pars
     }
 
     // Replay the imported notes into ParsedReviewNotes
-    let parsed = parsed_review_notes_from_imports(&imported_payloads, &shore_dir)?;
+    let parsed = parsed_review_notes_from_imports(&imported_payloads, shore_dir)?;
 
     Ok(Some(parsed))
 }
 
 pub fn read_review_artifacts(repo: impl AsRef<Path>) -> Result<Vec<ReviewArtifact>> {
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    let shore_dir = worktree_root.join(".shore");
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
     if !shore_dir.exists() {
         return Ok(Vec::new());
     }
 
     let mut review_artifacts = Vec::new();
-    for event in crate::session::read_events(&worktree_root)? {
+    for event in EventStore::open(shore_dir).list_events()? {
         if event.event_type != EventType::ReviewArtifactPublished {
             continue;
         }
         let payload: ReviewArtifactPublishedPayload = serde_json::from_value(event.payload)?;
         let summary = if let Some(artifact_path) = &payload.summary_artifact_path {
-            load_body_artifact(&shore_dir, artifact_path)?
+            load_body_artifact(shore_dir, artifact_path)?
         } else {
             payload.summary.clone()
         };
@@ -200,20 +200,20 @@ pub fn read_review_artifacts(repo: impl AsRef<Path>) -> Result<Vec<ReviewArtifac
 }
 
 pub fn read_acknowledgements(repo: impl AsRef<Path>) -> Result<Vec<Acknowledgement>> {
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    let shore_dir = worktree_root.join(".shore");
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
     if !shore_dir.exists() {
         return Ok(Vec::new());
     }
 
     let mut acknowledgements = Vec::new();
-    for event in crate::session::read_events(&worktree_root)? {
+    for event in EventStore::open(shore_dir).list_events()? {
         if event.event_type != EventType::ReviewArtifactAcknowledged {
             continue;
         }
         let payload: ReviewArtifactAcknowledgedPayload = serde_json::from_value(event.payload)?;
         let reason = if let Some(artifact_path) = &payload.reason_artifact_path {
-            load_body_artifact(&shore_dir, artifact_path)?
+            load_body_artifact(shore_dir, artifact_path)?
         } else {
             payload.reason.clone()
         };
@@ -277,13 +277,13 @@ pub fn current_verdict_view(
 }
 
 pub fn load_or_rebuild_session_state(repo: impl AsRef<Path>) -> Result<Option<SessionState>> {
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    let shore_dir = worktree_root.join(".shore");
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
     if !shore_dir.exists() {
         return Ok(None);
     }
 
-    let events = crate::session::read_events(&worktree_root)?;
+    let events = EventStore::open(shore_dir).list_events()?;
     Ok(Some(SessionState::from_events(&events)?))
 }
 

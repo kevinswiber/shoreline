@@ -5,12 +5,12 @@ use serde::Serialize;
 
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
-use crate::git::{IngestOptions, git_worktree_root, ingest_tracked_diff_with_options};
+use crate::git::{IngestOptions, ingest_tracked_diff_with_options};
 use crate::model::{ReviewId, RevisionId, SnapshotId, WorkUnitId};
 use crate::session::{
     EventTarget, EventType, ProjectionDiagnostic, ReviewInitializedPayload,
-    RevisionPublishedPayload, SessionState, ShoreEvent, SidecarObservedPayload, SidecarSource,
-    SnapshotObservedPayload, current_timestamp, ensure_shore_ignored, ensure_store_dirs,
+    RevisionPublishedPayload, SessionState, ShoreEvent, ShoreStorePaths, SidecarObservedPayload,
+    SidecarSource, SnapshotObservedPayload, current_timestamp, prepare_shore_writer,
     sweep_stale_temp_files, worktree_fingerprint_for_files, writer_from_git_config,
 };
 use crate::sidecar::{
@@ -89,24 +89,23 @@ pub fn publish_worktree_review(options: PublishOptions) -> Result<PublishResult>
 
     let sidecar_observations = preflight_sidecar_inputs(&options)?;
 
-    let worktree_root = git_worktree_root(&options.repo)?;
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
-    ensure_store_dirs(&shore_dir)?;
-    ensure_shore_ignored(&worktree_root)?;
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let worktree_root = paths.worktree_root();
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    prepare_shore_writer(&paths, &storage)?;
 
     let snapshot =
-        ingest_tracked_diff_with_options(&worktree_root, publish_ingest_options(&options))?;
+        ingest_tracked_diff_with_options(worktree_root, publish_ingest_options(&options))?;
     let files = snapshot.files;
-    let fingerprint = worktree_fingerprint_for_files(&worktree_root, &files)?;
-    let event_store = EventStore::open(&shore_dir);
+    let fingerprint = worktree_fingerprint_for_files(worktree_root, &files)?;
+    let event_store = EventStore::open(shore_dir);
     let existing_state = SessionState::from_events(&event_store.list_events()?)?;
 
     let review_id = ReviewId::new("review:default");
     let work_unit_id = WorkUnitId::new("work:default");
     let target = EventTarget::new(review_id.clone(), work_unit_id.clone());
-    let writer = writer_from_git_config(&worktree_root);
+    let writer = writer_from_git_config(worktree_root);
     let occurred_at = current_timestamp();
     let revision_published_idempotency_key =
         revision_published_idempotency_key(&work_unit_id, &fingerprint.revision_id);
@@ -119,14 +118,14 @@ pub fn publish_worktree_review(options: PublishOptions) -> Result<PublishResult>
 
     write_revision_artifact(
         &storage,
-        &shore_dir,
+        shore_dir,
         &work_unit_id,
         &revision_published_payload.revision_id,
         &revision_published_payload.supersedes_revision_ids,
     )?;
     write_snapshot_artifact(
         &storage,
-        &shore_dir,
+        shore_dir,
         &fingerprint.snapshot_id,
         &fingerprint.revision_id,
         files.len(),
@@ -194,7 +193,7 @@ pub fn publish_worktree_review(options: PublishOptions) -> Result<PublishResult>
     }
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    let state_path = shore_dir.join("state.json");
+    let state_path = paths.state_path();
     storage.write_json_atomic(&state_path, &state, Durability::Projection)?;
 
     Ok(PublishResult {
@@ -211,27 +210,24 @@ pub fn publish_worktree_review(options: PublishOptions) -> Result<PublishResult>
 }
 
 pub fn rebuild_state(repo: impl AsRef<Path>) -> Result<SessionState> {
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let worktree_root = paths.worktree_root();
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    sweep_stale_temp_files(&storage, shore_dir)?;
 
     let span = tracing::info_span!("session.rebuild_state", repo = %worktree_root.display());
     let _entered = span.enter();
 
-    let event_store = EventStore::open(&shore_dir);
+    let event_store = EventStore::open(shore_dir);
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    storage.write_json_atomic(
-        &shore_dir.join("state.json"),
-        &state,
-        Durability::Projection,
-    )?;
+    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
     Ok(state)
 }
 
 pub fn read_events(repo: impl AsRef<Path>) -> Result<Vec<ShoreEvent>> {
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    EventStore::open(worktree_root.join(".shore")).list_events()
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    EventStore::open(paths.shore_dir()).list_events()
 }
 
 #[derive(Default)]

@@ -68,6 +68,33 @@ fn ensure_shore_ignored_treats_bare_shore_entry_as_existing_ignore() {
 }
 
 #[test]
+fn read_events_uses_worktree_shore_dir_from_subdirectory() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn demo() {}\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn demo() -> u32 { 1 }\n");
+    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+
+    let events = read_events(repo.path().join("src")).unwrap();
+
+    assert!(!events.is_empty());
+}
+
+#[test]
+fn rebuild_state_uses_worktree_shore_dir_from_subdirectory() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn demo() {}\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn demo() -> u32 { 1 }\n");
+    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    std::fs::remove_file(repo.path().join(".shore/state.json")).unwrap();
+
+    rebuild_state(repo.path().join("src")).unwrap();
+
+    assert!(repo.path().join(".shore/state.json").is_file());
+}
+
+#[test]
 fn nested_git_repo_uses_its_own_worktree_root() {
     let outer = GitRepo::new();
     outer.write("nested/.keep", "");

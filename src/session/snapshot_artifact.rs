@@ -4,9 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::{Result, ShoreError};
-use crate::git::git_worktree_root;
 use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, SnapshotId};
-use crate::session::ReviewUnitFingerprint;
+use crate::session::{ReviewUnitFingerprint, ShoreStorePaths};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 const SNAPSHOT_ARTIFACT_SCHEMA: &str = "shore.snapshot";
@@ -50,10 +49,10 @@ pub fn write_snapshot_artifact(
     };
     artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
 
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    let path = snapshot_artifact_path(&shore_dir, &artifact.snapshot.snapshot_id);
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    let path = snapshot_artifact_path(shore_dir, &artifact.snapshot.snapshot_id);
     let bytes = serde_json::to_vec(&artifact)?;
 
     match storage.create_file_exclusive(&path, &bytes, Durability::Durable)? {
@@ -76,11 +75,11 @@ pub fn read_snapshot_artifact(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
 ) -> Result<SnapshotArtifact> {
-    let worktree_root = git_worktree_root(repo.as_ref())?;
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
     let artifact: SnapshotArtifact =
-        storage.read_json(&snapshot_artifact_path(&shore_dir, snapshot_id))?;
+        storage.read_json(&snapshot_artifact_path(shore_dir, snapshot_id))?;
     validate_snapshot_artifact_content_hash(&artifact)?;
     Ok(artifact)
 }
@@ -220,6 +219,26 @@ mod tests {
             stored.content_hash,
             snapshot_artifact_content_hash(&reparsed).unwrap()
         );
+    }
+
+    #[test]
+    fn snapshot_artifact_helpers_resolve_shore_dir_from_subdirectory() {
+        let repo = modified_repo();
+        fs::create_dir_all(repo.path().join("src")).unwrap();
+        let files = capture_worktree_diff_files(repo.path()).unwrap();
+        let fingerprint = compute_review_unit_fingerprint(repo.path()).unwrap();
+        let snapshot = DiffSnapshot::new(
+            ReviewId::new("review:default"),
+            fingerprint.snapshot_id.clone(),
+            files,
+        );
+
+        let artifact =
+            write_snapshot_artifact(repo.path().join("src"), &fingerprint, snapshot).unwrap();
+        let read = read_snapshot_artifact(repo.path().join("src"), &artifact.snapshot.snapshot_id)
+            .unwrap();
+
+        assert_eq!(read, artifact);
     }
 
     fn write_current_snapshot_artifact(repo: &TestRepo) -> SnapshotArtifact {

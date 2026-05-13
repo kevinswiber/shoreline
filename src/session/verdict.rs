@@ -5,7 +5,6 @@ use serde_json::json;
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::git::git_worktree_root;
 use crate::model::{AcknowledgementId, ActorId, ReviewArtifactId, RevisionId};
 use crate::session::body_artifact::{BodyArtifactOutcome, stage_body_artifact};
 use crate::session::event::{
@@ -14,9 +13,8 @@ use crate::session::event::{
     WriterTool,
 };
 use crate::session::{
-    ProjectionDiagnostic, SessionState, ShoreEvent, current_timestamp, ensure_shore_ignored,
-    ensure_store_dirs, read_review_artifacts, reviewer_from_git_config, sweep_stale_temp_files,
-    writer_from_git_config,
+    ProjectionDiagnostic, SessionState, ShoreEvent, ShoreStorePaths, current_timestamp,
+    prepare_shore_writer, read_review_artifacts, reviewer_from_git_config, writer_from_git_config,
 };
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
@@ -140,22 +138,21 @@ pub fn publish_verdict(options: PublishVerdictOptions) -> Result<PublishVerdictR
     let decision = options
         .decision
         .ok_or_else(|| ShoreError::Message("decision is required".to_owned()))?;
-    let worktree_root = git_worktree_root(&options.repo)?;
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let worktree_root = paths.worktree_root();
     let summary = resolve_summary(&options)?;
 
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
-    ensure_store_dirs(&shore_dir)?;
-    ensure_shore_ignored(&worktree_root)?;
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(&shore_dir);
+    let event_store = EventStore::open(shore_dir);
     let existing_state = SessionState::from_events(&event_store.list_events()?)?;
     let review_id = existing_state.review_id.clone();
     let work_unit_id = existing_state.work_unit_id.clone();
     let target = EventTarget::new(review_id.clone(), work_unit_id.clone());
     let target_revision = resolve_target_revision(&options, &existing_state)?;
-    let reviewer = reviewer_writer(&worktree_root, options.reviewer_id.clone());
+    let reviewer = reviewer_writer(worktree_root, options.reviewer_id.clone());
     let occurred_at = current_timestamp();
 
     let (summary_value, summary_artifact_path, summary_artifact_bytes, summary_byte_size) =
@@ -232,7 +229,7 @@ pub fn publish_verdict(options: PublishVerdictOptions) -> Result<PublishVerdictR
     };
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    let state_path = shore_dir.join("state.json");
+    let state_path = paths.state_path();
     storage.write_json_atomic(&state_path, &state, Durability::Projection)?;
 
     Ok(PublishVerdictResult {
@@ -248,26 +245,25 @@ pub fn acknowledge_review(options: AcknowledgeReviewOptions) -> Result<Acknowled
     let next_action = options
         .next_action
         .ok_or_else(|| ShoreError::Message("next_action is required".to_owned()))?;
-    let worktree_root = git_worktree_root(&options.repo)?;
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let worktree_root = paths.worktree_root();
     let reason = resolve_optional_text(
         options.reason.clone(),
         options.reason_file.as_ref(),
         "reason",
     )?;
 
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
-    ensure_store_dirs(&shore_dir)?;
-    ensure_shore_ignored(&worktree_root)?;
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(&shore_dir);
+    let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
     let existing_state = SessionState::from_events(&events)?;
     let review_id = existing_state.review_id.clone();
     let work_unit_id = existing_state.work_unit_id.clone();
     let target = EventTarget::new(review_id.clone(), work_unit_id.clone());
-    let known_review_artifact_ids = published_review_artifact_ids(&worktree_root)?;
+    let known_review_artifact_ids = published_review_artifact_ids(worktree_root)?;
     if !known_review_artifact_ids.contains(&options.review_artifact_id) {
         return Err(ShoreError::Message(format!(
             "unknown review artifact: {}",
@@ -275,7 +271,7 @@ pub fn acknowledge_review(options: AcknowledgeReviewOptions) -> Result<Acknowled
         )));
     }
 
-    let acknowledger = acknowledger_writer(&worktree_root, options.actor_id.clone());
+    let acknowledger = acknowledger_writer(worktree_root, options.actor_id.clone());
     let occurred_at = current_timestamp();
     let (reason_value, reason_artifact_path, reason_artifact_bytes, reason_byte_size) =
         match reason.as_deref() {
@@ -348,7 +344,7 @@ pub fn acknowledge_review(options: AcknowledgeReviewOptions) -> Result<Acknowled
     };
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    let state_path = shore_dir.join("state.json");
+    let state_path = paths.state_path();
     storage.write_json_atomic(&state_path, &state, Durability::Projection)?;
 
     Ok(AcknowledgeReviewResult {

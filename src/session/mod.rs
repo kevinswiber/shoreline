@@ -46,8 +46,8 @@ pub(crate) use reload::reload_diagnostics_for_document;
 pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
 pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact, write_snapshot_artifact};
 pub use state::{ProjectionDiagnostic, SessionState};
+pub(crate) use store_init::{ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files};
 pub use store_init::{ensure_shore_ignored, shore_dir_for_repo};
-pub(crate) use store_init::{ensure_store_dirs, sweep_stale_temp_files};
 pub use verdict::{
     AcknowledgeReviewOptions, AcknowledgeReviewResult, PublishVerdictOptions, PublishVerdictResult,
     acknowledge_review, publish_verdict,

@@ -2,14 +2,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
-use crate::git::{IngestOptions, git_worktree_root, ingest_tracked_diff_with_options};
+use crate::git::{IngestOptions, ingest_tracked_diff_with_options};
 use crate::model::{
     DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource, RevisionId, SnapshotId,
 };
 use crate::session::{
     EventTarget, EventType, ProjectionDiagnostic, ReviewUnitCapturedPayload, SessionState,
-    ShoreEvent, current_timestamp, ensure_shore_ignored, ensure_store_dirs, sweep_stale_temp_files,
-    writer_from_git_config,
+    ShoreEvent, ShoreStorePaths, current_timestamp, prepare_shore_writer, writer_from_git_config,
 };
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
@@ -59,26 +58,24 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
         tracing::info_span!("session.capture_worktree_review", repo = %options.repo.display());
     let _entered = span.enter();
 
-    let worktree_root = git_worktree_root(&options.repo)?;
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
-    ensure_store_dirs(&shore_dir)?;
-    ensure_shore_ignored(&worktree_root)?;
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let worktree_root = paths.worktree_root();
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    prepare_shore_writer(&paths, &storage)?;
 
     let snapshot =
-        ingest_tracked_diff_with_options(&worktree_root, capture_ingest_options(&options))?;
+        ingest_tracked_diff_with_options(worktree_root, capture_ingest_options(&options))?;
     let files = snapshot.files;
-    let fingerprint =
-        super::fingerprint::review_unit_fingerprint_for_files(&worktree_root, &files)?;
+    let fingerprint = super::fingerprint::review_unit_fingerprint_for_files(worktree_root, &files)?;
     let review_id = ReviewId::new("review:default");
     let snapshot = DiffSnapshot::new(review_id.clone(), fingerprint.snapshot_id.clone(), files);
     let artifact =
-        super::snapshot_artifact::write_snapshot_artifact(&worktree_root, &fingerprint, snapshot)?;
+        super::snapshot_artifact::write_snapshot_artifact(worktree_root, &fingerprint, snapshot)?;
 
-    let event_store = EventStore::open(&shore_dir);
+    let event_store = EventStore::open(shore_dir);
     let mut recorder = CaptureRecorder::default();
-    let writer = writer_from_git_config(&worktree_root);
+    let writer = writer_from_git_config(worktree_root);
     let occurred_at = current_timestamp();
     recorder.record(
         &event_store,
@@ -106,11 +103,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
     )?;
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    storage.write_json_atomic(
-        &shore_dir.join("state.json"),
-        &state,
-        Durability::Projection,
-    )?;
+    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
     Ok(CaptureResult {
         review_id,

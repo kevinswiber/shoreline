@@ -4,7 +4,6 @@ use serde_json::json;
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::git::git_worktree_root;
 use crate::model::WorkUnitId;
 use crate::session::body_artifact::{BodyArtifactOutcome, stage_body_artifact};
 use crate::session::event::{
@@ -12,8 +11,8 @@ use crate::session::event::{
     ReviewNoteImportedPayload, ShoreEvent, SidecarSource,
 };
 use crate::session::{
-    ProjectionDiagnostic, SessionState, current_timestamp, ensure_shore_ignored, ensure_store_dirs,
-    sweep_stale_temp_files, writer_from_git_config,
+    ProjectionDiagnostic, SessionState, ShoreStorePaths, current_timestamp, prepare_shore_writer,
+    writer_from_git_config,
 };
 use crate::sidecar::{ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar};
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
@@ -68,22 +67,21 @@ pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
         ));
     }
 
-    let worktree_root = git_worktree_root(&options.repo)?;
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let worktree_root = paths.worktree_root();
     let (sidecar_source, sidecar_content_hash, sidecar) = parsed_sidecar_input(&options)?;
 
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
-    ensure_store_dirs(&shore_dir)?;
-    ensure_shore_ignored(&worktree_root)?;
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(&shore_dir);
+    let event_store = EventStore::open(shore_dir);
     let existing_state = SessionState::from_events(&event_store.list_events()?)?;
 
     let review_id = existing_state.review_id.clone();
     let work_unit_id = existing_state.work_unit_id.clone();
     let target = EventTarget::new(review_id.clone(), work_unit_id.clone());
-    let writer = writer_from_git_config(&worktree_root);
+    let writer = writer_from_git_config(worktree_root);
     let occurred_at = current_timestamp();
 
     match event_store.record_event_once(&ShoreEvent::new(
@@ -132,7 +130,7 @@ pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
     }
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    let state_path = shore_dir.join("state.json");
+    let state_path = paths.state_path();
     storage.write_json_atomic(&state_path, &state, Durability::Projection)?;
 
     Ok(ImportNotesResult {

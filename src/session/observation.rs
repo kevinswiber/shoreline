@@ -6,7 +6,6 @@ use serde_json::json;
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::git::git_worktree_root;
 use crate::model::{
     EventId, ObservationId, ReviewId, ReviewTargetRef, ReviewUnitId, RevisionId, Side, SnapshotId,
     TrackId,
@@ -19,7 +18,7 @@ use crate::session::event::{
 use crate::session::event_context::{current_timestamp, reviewer_from_git_config};
 use crate::session::snapshot_artifact::read_snapshot_artifact;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::{ensure_shore_ignored, ensure_store_dirs, sweep_stale_temp_files};
+use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,17 +200,16 @@ pub enum ObservationStatus {
 }
 
 pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationAddResult> {
-    let worktree_root = git_worktree_root(&options.repo)?;
-    let shore_dir = worktree_root.join(".shore");
-    let storage = LocalStorage::new(&shore_dir);
-    sweep_stale_temp_files(&storage, &shore_dir)?;
-    ensure_store_dirs(&shore_dir)?;
-    ensure_shore_ignored(&worktree_root)?;
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let worktree_root = paths.worktree_root();
+    let shore_dir = paths.shore_dir();
+    let storage = LocalStorage::new(shore_dir);
+    prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(&shore_dir);
+    let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
     let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
-    let target = resolve_observation_target(&worktree_root, &resolved, &options.target)?;
+    let target = resolve_observation_target(worktree_root, &resolved, &options.target)?;
     let track_id = validated_track_id(
         options
             .track
@@ -219,7 +217,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
             .ok_or_else(|| ShoreError::Message("track is required".to_owned()))?,
     )?;
     let title = required_title(options.title.as_deref())?;
-    let writer = reviewer_from_git_config(&worktree_root);
+    let writer = reviewer_from_git_config(worktree_root);
     let body_content_hash = options
         .body
         .as_ref()
@@ -293,11 +291,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     };
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    storage.write_json_atomic(
-        &shore_dir.join("state.json"),
-        &state,
-        Durability::Projection,
-    )?;
+    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
     Ok(ObservationAddResult {
         review_unit_id: resolved.review_unit_id,
@@ -314,9 +308,9 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
 }
 
 pub fn list_observations(options: ObservationListOptions) -> Result<ObservationListResult> {
-    let worktree_root = git_worktree_root(&options.repo)?;
-    let shore_dir = worktree_root.join(".shore");
-    let event_store = EventStore::open(&shore_dir);
+    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let shore_dir = paths.shore_dir();
+    let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
     let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
     let track_filter = options
@@ -358,7 +352,7 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
         }
 
         let body = if options.include_body {
-            observation_body(&shore_dir, &payload)?
+            observation_body(shore_dir, &payload)?
         } else {
             None
         };
@@ -1023,6 +1017,23 @@ mod tests {
         ];
         expected_ids.sort();
         assert_eq!(actual_ids, expected_ids);
+    }
+
+    #[test]
+    fn list_observations_uses_worktree_shore_dir_from_subdirectory() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let added = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("subdir read"),
+        )
+        .unwrap();
+
+        let result = list_observations(ObservationListOptions::new(repo.path().join("src")))
+            .expect("observations load from subdirectory");
+
+        assert_eq!(result.observations[0].id, added.observation_id);
     }
 
     #[test]
