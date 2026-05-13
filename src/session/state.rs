@@ -12,6 +12,7 @@ use crate::session::event::{
     ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
     ShoreEvent,
 };
+use crate::session::projection_freshness::event_set_hash_for_events;
 
 const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;
@@ -38,6 +39,8 @@ pub struct SessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_review_unit_id: Option<ReviewUnitId>,
     pub event_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_set_hash: Option<String>,
     pub note_count: usize,
     #[serde(default)]
     pub observation_count: usize,
@@ -54,11 +57,12 @@ pub struct SessionState {
 
 impl SessionState {
     pub fn from_events(events: &[ShoreEvent]) -> Result<Self> {
+        let event_set_hash = event_set_hash_for_events(events)?;
         let mut reducer = StateReducer::default();
         for event in events {
             reducer.apply(event)?;
         }
-        reducer.finish(events.len())
+        reducer.finish(events.len(), event_set_hash)
     }
 
     pub fn validate_schema_version(&self) -> Result<()> {
@@ -204,7 +208,7 @@ impl StateReducer {
         Ok(())
     }
 
-    fn finish(self, event_count: usize) -> Result<SessionState> {
+    fn finish(self, event_count: usize, event_set_hash: String) -> Result<SessionState> {
         let mut diagnostics = Vec::new();
         let current_review_unit = match self.captured_review_units.len() {
             0 => None,
@@ -280,6 +284,7 @@ impl StateReducer {
             review_unit_count: self.captured_review_units.len(),
             current_review_unit_id,
             event_count,
+            event_set_hash: Some(event_set_hash),
             note_count: self.note_count,
             observation_count: self.observation_events.len(),
             disposition_count: self.disposition_events.len(),
@@ -337,6 +342,52 @@ mod tests {
         assert_eq!(state.current_revision_id, None);
         assert_eq!(state.current_snapshot_id, None);
         assert_eq!(state.event_count, 0);
+    }
+
+    #[test]
+    fn projection_defaults_include_event_set_hash() {
+        let state = SessionState::from_events(&[]).unwrap();
+
+        assert_eq!(state.event_count, 0);
+        assert!(
+            state
+                .event_set_hash
+                .as_deref()
+                .is_some_and(|hash| hash.starts_with("sha256:"))
+        );
+    }
+
+    #[test]
+    fn projection_event_set_hash_is_order_independent() {
+        let first = review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one");
+        let second = observation_event("retry-a", "obs:sha256:one");
+
+        let forward = SessionState::from_events(&[first.clone(), second.clone()]).unwrap();
+        let reversed = SessionState::from_events(&[second, first]).unwrap();
+
+        assert_eq!(forward.event_set_hash, reversed.event_set_hash);
+        assert_eq!(forward.event_count, 2);
+        assert_eq!(reversed.event_count, 2);
+    }
+
+    #[test]
+    fn state_json_includes_event_set_hash_but_not_raw_events() {
+        let state = SessionState::from_events(&[review_unit_captured_event(
+            "review-unit:sha256:one",
+            "rev:one",
+            "snap:one",
+        )])
+        .unwrap();
+
+        let json = serde_json::to_value(&state).unwrap();
+
+        assert!(
+            json["eventSetHash"]
+                .as_str()
+                .unwrap()
+                .starts_with("sha256:")
+        );
+        assert!(json.get("events").is_none());
     }
 
     #[test]
@@ -430,6 +481,7 @@ mod tests {
         let state: SessionState = serde_json::from_value(json).unwrap();
 
         assert_eq!(state.review_unit_count, 0);
+        assert_eq!(state.event_set_hash, None);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);

@@ -356,10 +356,34 @@ fn ledger_pipeline_records_capture_import_and_bounded_state() {
 
     assert_eq!(state["schema"], "shore.state");
     assert_eq!(state["eventCount"], 3);
+    assert!(
+        state["eventSetHash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
     assert_eq!(state["reviewUnitCount"], 1);
     assert_eq!(state["noteCount"], 1);
     assert!(state.get("events").is_none());
     assert_eq!(event_file_count(repo.path()), 3);
+}
+
+#[test]
+fn state_event_set_hash_changes_when_events_change() {
+    let repo = modified_repo();
+    capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
+    let capture_state: serde_json::Value =
+        serde_json::from_str(&repo.read(".shore/state.json")).expect("capture state");
+
+    let sidecar = repo.write_fixture("review-notes.json", native_review_notes_json());
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(sidecar))
+        .expect("notes import succeeds");
+    let import_state: serde_json::Value =
+        serde_json::from_str(&repo.read(".shore/state.json")).expect("import state");
+
+    assert_eq!(capture_state["eventCount"], 1);
+    assert_eq!(import_state["eventCount"], 3);
+    assert_ne!(capture_state["eventSetHash"], import_state["eventSetHash"]);
 }
 
 #[test]
@@ -373,10 +397,9 @@ fn state_can_be_deleted_and_rebuilt_from_events() {
 
     assert!(repo.path().join(".shore/state.json").is_file());
     assert!(rebuilt.event_count >= 1);
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&rebuilt_state).unwrap(),
-        serde_json::from_str::<serde_json::Value>(&original_state).unwrap()
-    );
+    let original: serde_json::Value = serde_json::from_str(&original_state).unwrap();
+    let rebuilt: serde_json::Value = serde_json::from_str(&rebuilt_state).unwrap();
+    assert_eq!(rebuilt, original);
 }
 
 #[test]

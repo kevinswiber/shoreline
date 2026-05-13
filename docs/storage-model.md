@@ -232,6 +232,22 @@ Imported review-note bodies follow this rule directly: small bodies may stay inl
 event payload, but oversized bodies should move to content-addressed `artifacts/notes/` records so
 the authoritative event and rebuildable projection remain bounded.
 
+## Projection Freshness
+
+`state.json` records `eventSetHash` as derived freshness metadata for the event set used to build
+the projection. `eventCount` remains a cheap count, but it does not prove that a cached projection
+matches the current `.shore/events/` set.
+
+`eventSetHash` is computed from Shore's canonical JSON hash path over sorted `(eventId,
+payloadHash)` pairs. It intentionally excludes the full event JSON, event filenames, sequence
+numbers, writer metadata, storage paths, and `occurredAt`. The hash describes which durable facts
+the projection saw; it is not a causal ordering primitive or a raw event-file checksum.
+
+If a cached projection's `eventSetHash` does not match a fresh scan of `.shore/events/`, the
+projection is stale and should be rebuilt from the event files. The event files remain authoritative;
+`state.json` is still safe to delete and regenerate. Future history, export, and derived-index
+projections should reuse this freshness primitive rather than inventing per-projection hashes.
+
 ## Shared Mutable Files
 
 Authoritative facts should not live in read-modify-write shared JSON documents. Per-event files are

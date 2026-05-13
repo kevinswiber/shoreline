@@ -9,6 +9,7 @@ mod fingerprint;
 mod import;
 mod intervention;
 mod observation;
+mod projection_freshness;
 mod reload;
 mod snapshot_artifact;
 pub mod state;
