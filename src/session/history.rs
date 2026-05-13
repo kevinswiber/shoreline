@@ -2,12 +2,13 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::error::Result;
+use crate::error::{Result, ShoreError};
 use crate::model::{
     DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
     ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId,
     SnapshotId, TrackId,
 };
+use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, ImportedNoteTarget, InterventionMode, InterventionReasonCode,
     InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
@@ -69,6 +70,7 @@ pub struct ReviewHistoryResult {
     pub event_count: usize,
     pub filters: ReviewHistoryFilters,
     pub entries: Vec<ReviewHistoryEntry>,
+    /// Diagnostics describe the full replayed event set, not only filtered entries.
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
@@ -264,7 +266,7 @@ fn history_from_events(
     let mut entries = events
         .iter()
         .filter(|event| event_matches_filters(event, &filters))
-        .map(history_entry_from_event)
+        .map(|event| history_entry_from_event(event, filters.include_body, _shore_dir))
         .collect::<Result<Vec<_>>>()?;
 
     entries.sort_by(|left, right| {
@@ -282,7 +284,11 @@ fn history_from_events(
     })
 }
 
-fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
+fn history_entry_from_event(
+    event: &ShoreEvent,
+    include_body: bool,
+    shore_dir: Option<&Path>,
+) -> Result<ReviewHistoryEntry> {
     let summary = match event.event_type {
         EventType::ReviewInitialized => {
             let _payload: ReviewInitializedPayload = serde_json::from_value(event.payload.clone())?;
@@ -307,7 +313,12 @@ fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
                 observation_id: payload.observation_id,
                 target: payload.target,
                 title: payload.title,
-                body: None,
+                body: optional_text(
+                    shore_dir,
+                    include_body,
+                    payload.body,
+                    payload.body_artifact_path.as_deref(),
+                )?,
                 body_byte_size: payload.body_byte_size,
                 body_content_hash: payload.body_content_hash,
                 tags: payload.tags,
@@ -324,7 +335,12 @@ fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
                 mode: payload.mode,
                 reason_code: payload.reason_code,
                 title: payload.title,
-                body: None,
+                body: optional_text(
+                    shore_dir,
+                    include_body,
+                    payload.body,
+                    payload.body_artifact_path.as_deref(),
+                )?,
                 body_byte_size: payload.body_byte_size,
                 body_content_hash: payload.body_content_hash,
             }
@@ -336,7 +352,12 @@ fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
                 intervention_resolution_id: payload.intervention_resolution_id,
                 intervention_id: payload.intervention_id,
                 outcome: payload.outcome,
-                reason: None,
+                reason: optional_text(
+                    shore_dir,
+                    include_body,
+                    payload.reason,
+                    payload.reason_artifact_path.as_deref(),
+                )?,
                 reason_byte_size: payload.reason_byte_size,
                 reason_content_hash: payload.reason_content_hash,
             }
@@ -348,7 +369,12 @@ fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
                 disposition_id: payload.disposition_id,
                 target: payload.target,
                 disposition: payload.disposition,
-                summary: None,
+                summary: optional_text(
+                    shore_dir,
+                    include_body,
+                    payload.summary,
+                    payload.summary_artifact_path.as_deref(),
+                )?,
                 summary_byte_size: payload.summary_byte_size,
                 summary_content_hash: payload.summary_content_hash,
                 replaces: payload.replaces_disposition_ids,
@@ -366,7 +392,12 @@ fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
                 file_old_path: payload.file_old_path,
                 target: payload.target,
                 title: payload.title,
-                body: None,
+                body: optional_text(
+                    shore_dir,
+                    include_body,
+                    payload.body,
+                    payload.body_artifact_path.as_deref(),
+                )?,
                 body_byte_size: payload.body_byte_size,
                 tags: payload.tags,
                 confidence: payload.confidence,
@@ -392,6 +423,31 @@ fn history_entry_from_event(event: &ShoreEvent) -> Result<ReviewHistoryEntry> {
         writer: event.writer.clone(),
         summary,
     })
+}
+
+fn optional_text(
+    shore_dir: Option<&Path>,
+    include_body: bool,
+    inline: Option<String>,
+    artifact_path: Option<&str>,
+) -> Result<Option<String>> {
+    if !include_body {
+        return Ok(None);
+    }
+    if inline.is_some() {
+        return Ok(inline);
+    }
+    match artifact_path {
+        Some(path) => {
+            let shore_dir = shore_dir.ok_or_else(|| {
+                ShoreError::Message(
+                    "shore directory is required to hydrate body artifact".to_owned(),
+                )
+            })?;
+            load_body_artifact(shore_dir, path)
+        }
+        None => Ok(None),
+    }
 }
 
 fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -> bool {
@@ -424,6 +480,7 @@ mod tests {
         TrackId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{ImportedNoteTarget, ReviewNoteImportedPayload};
+    use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
     use crate::session::{
         EventTarget, EventType, InterventionMode, InterventionReasonCode,
         InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
@@ -504,7 +561,7 @@ mod tests {
         ];
 
         for (event, event_type, summary_kind) in cases {
-            let entry = history_entry_from_event(&event).unwrap();
+            let entry = history_entry_from_event(&event, false, None).unwrap();
             let summary_json = serde_json::to_value(&entry.summary).unwrap();
 
             assert_eq!(entry.event_type, event_type);
@@ -516,7 +573,7 @@ mod tests {
     fn history_entry_omits_internal_artifact_paths() {
         let event = observation_event_with_artifact_path("artifacts/notes/body.json");
 
-        let entry = history_entry_from_event(&event).unwrap();
+        let entry = history_entry_from_event(&event, false, None).unwrap();
         let json = serde_json::to_string(&entry).unwrap();
 
         assert!(!json.contains("bodyArtifactPath"));
@@ -576,6 +633,115 @@ mod tests {
         assert_eq!(
             result.entries[0].event_type,
             EventType::ReviewObservationRecorded
+        );
+    }
+
+    #[test]
+    fn history_omits_body_text_by_default() {
+        let event = observation_event_with_body("inline body");
+
+        let result =
+            history_from_events(&[event], ResolvedHistoryFilters::default(), None).unwrap();
+        let json = serde_json::to_value(&result.entries[0]).unwrap();
+
+        assert!(json["summary"].get("body").is_none());
+        assert!(json.to_string().contains("bodyContentHash"));
+    }
+
+    #[test]
+    fn history_include_body_hydrates_inline_body_like_fields() {
+        let filters = ResolvedHistoryFilters {
+            include_body: true,
+            ..ResolvedHistoryFilters::default()
+        };
+        let events = [
+            observation_event_with_body("observation body"),
+            intervention_requested_event(),
+            intervention_resolved_event(),
+            disposition_event(),
+            review_note_imported_event(),
+        ];
+
+        let result = history_from_events(&events, filters, None).unwrap();
+        let entries = result
+            .entries
+            .iter()
+            .map(|entry| serde_json::to_value(entry).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(entries[0]["summary"]["body"], "observation body");
+        assert_eq!(entries[1]["summary"]["body"], "body");
+        assert_eq!(entries[2]["summary"]["reason"], "approved");
+        assert_eq!(entries[3]["summary"]["summary"], "ship it");
+        assert_eq!(entries[4]["summary"]["body"], "body");
+    }
+
+    #[test]
+    fn history_include_body_hydrates_artifact_body_without_exposing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let artifact_path = "artifacts/notes/body.json";
+        let full_path = dir.path().join(artifact_path);
+        std::fs::create_dir_all(full_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &full_path,
+            r#"{"schema":"shore.note-body","version":1,"body":"artifact body"}"#,
+        )
+        .unwrap();
+        let filters = ResolvedHistoryFilters {
+            include_body: true,
+            ..ResolvedHistoryFilters::default()
+        };
+
+        let result = history_from_events(
+            &[observation_event_with_artifact_path(artifact_path)],
+            filters,
+            Some(dir.path()),
+        )
+        .unwrap();
+        let json = serde_json::to_value(&result.entries[0]).unwrap();
+        let serialized = serde_json::to_string(&result.entries[0]).unwrap();
+
+        assert_eq!(json["summary"]["body"], "artifact body");
+        assert!(!serialized.contains("bodyArtifactPath"));
+        assert!(!serialized.contains("artifacts/notes"));
+    }
+
+    #[test]
+    fn history_includes_duplicate_semantic_diagnostics() {
+        let first = observation_event_with_id_and_key("obs:sha256:same", "retry-a");
+        let second = observation_event_with_id_and_key("obs:sha256:same", "retry-b");
+
+        let result =
+            history_from_events(&[first, second], ResolvedHistoryFilters::default(), None).unwrap();
+
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE
+                && diagnostic.message.contains("obs:sha256:same")
+        }));
+        assert_eq!(
+            result.entries.len(),
+            2,
+            "history preserves raw append-only facts"
+        );
+    }
+
+    #[test]
+    fn history_diagnostics_are_not_suppressed_by_filters() {
+        let duplicate_a = observation_event_with_id_and_key("obs:sha256:same", "retry-a");
+        let duplicate_b = observation_event_with_id_and_key("obs:sha256:same", "retry-b");
+        let filters = ResolvedHistoryFilters {
+            event_types: vec![EventType::ReviewUnitCaptured],
+            ..ResolvedHistoryFilters::default()
+        };
+
+        let result = history_from_events(&[duplicate_a, duplicate_b], filters, None).unwrap();
+
+        assert!(result.entries.is_empty());
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.code == DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE })
         );
     }
 
@@ -706,6 +872,33 @@ mod tests {
         tracked_event(
             EventType::ReviewObservationRecorded,
             "observation:artifact",
+            "agent:codex",
+            payload,
+            "2026-05-13T10:00:01Z",
+        )
+    }
+
+    fn observation_event_with_id_and_key(
+        observation_id: &str,
+        idempotency_key: &str,
+    ) -> ShoreEvent {
+        let payload = ReviewObservationRecordedPayload {
+            observation_id: ObservationId::new(observation_id),
+            target: ReviewTargetRef::ReviewUnit {
+                review_unit_id: review_unit_id("one"),
+            },
+            title: "Duplicate".to_owned(),
+            body: Some("same body".to_owned()),
+            body_artifact_path: None,
+            body_byte_size: Some(9),
+            body_content_hash: Some("sha256:body".to_owned()),
+            tags: vec![],
+            confidence: None,
+            supersedes_observation_ids: vec![],
+        };
+        tracked_event(
+            EventType::ReviewObservationRecorded,
+            idempotency_key,
             "agent:codex",
             payload,
             "2026-05-13T10:00:01Z",
