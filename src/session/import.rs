@@ -11,11 +11,11 @@ use crate::session::event::{
     ReviewNoteImportedPayload, ShoreEvent, SidecarSource,
 };
 use crate::session::{
-    ProjectionDiagnostic, SessionState, ShoreStorePaths, current_timestamp, prepare_shore_writer,
-    writer_from_git_config,
+    EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, ShoreStorePaths,
+    current_timestamp, prepare_shore_writer, writer_from_git_config,
 };
 use crate::sidecar::{ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar};
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
+use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NoteImportRecord {

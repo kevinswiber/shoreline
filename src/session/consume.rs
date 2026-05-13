@@ -2,14 +2,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::error::Result;
-use crate::session::ShoreStorePaths;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{EventType, ReviewNoteImportedPayload};
 use crate::session::state::SessionState;
+use crate::session::{EventStore, ShoreStorePaths};
 use crate::sidecar::{
     ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar,
 };
-use crate::storage::EventStore;
 
 pub(crate) fn replay_note_entry(
     payload: &ReviewNoteImportedPayload,
@@ -138,7 +137,6 @@ mod tests {
         EventTarget, ImportedNoteTarget, ReviewInitializedPayload, ShoreEvent, SidecarSource,
         Writer,
     };
-    use crate::storage::EventStore;
 
     fn test_payload_for(file_path: &str, note_id: &str) -> ReviewNoteImportedPayload {
         ReviewNoteImportedPayload {

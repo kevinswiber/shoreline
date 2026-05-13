@@ -22,7 +22,8 @@ use crate::session::observation::{
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
+use crate::session::{EventStore, EventWriteOutcome};
+use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterventionRequestOptions {
@@ -1020,10 +1021,9 @@ mod tests {
     use super::*;
     use crate::model::{ObservationId, ReviewTargetRef, Side};
     use crate::session::{
-        CaptureOptions, ObservationAddOptions, SessionState, capture_worktree_review,
+        CaptureOptions, EventStore, ObservationAddOptions, SessionState, capture_worktree_review,
         record_observation,
     };
-    use crate::storage::EventStore;
 
     #[test]
     fn request_intervention_writes_event_and_updates_state() {

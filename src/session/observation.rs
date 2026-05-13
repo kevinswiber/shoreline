@@ -19,7 +19,8 @@ use crate::session::event_context::{current_timestamp, reviewer_from_git_config}
 use crate::session::snapshot_artifact::read_snapshot_artifact;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
+use crate::session::{EventStore, EventWriteOutcome};
+use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedReviewUnit {
@@ -727,10 +728,9 @@ mod tests {
         RevisionId, Side, SnapshotId, WorktreeCaptureMode,
     };
     use crate::session::{
-        CaptureOptions, CaptureResult, EventTarget, EventType, ReviewUnitCapturedPayload,
-        SessionState, ShoreEvent, Writer, capture_worktree_review,
+        CaptureOptions, CaptureResult, EventStore, EventTarget, EventType,
+        ReviewUnitCapturedPayload, SessionState, ShoreEvent, Writer, capture_worktree_review,
     };
-    use crate::storage::EventStore;
 
     #[test]
     fn track_policy_accepts_lowercase_local_and_namespaced_ids() {

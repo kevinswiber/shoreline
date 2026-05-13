@@ -7,10 +7,11 @@ use crate::model::{
     DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource, RevisionId, SnapshotId,
 };
 use crate::session::{
-    EventTarget, EventType, ProjectionDiagnostic, ReviewUnitCapturedPayload, SessionState,
-    ShoreEvent, ShoreStorePaths, current_timestamp, prepare_shore_writer, writer_from_git_config,
+    EventStore, EventTarget, EventType, EventWriteOutcome, ProjectionDiagnostic,
+    ReviewUnitCapturedPayload, SessionState, ShoreEvent, ShoreStorePaths, current_timestamp,
+    prepare_shore_writer, writer_from_git_config,
 };
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
+use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptureOptions {
@@ -167,9 +168,8 @@ mod tests {
     use std::process::Command;
 
     use crate::session::{
-        CaptureOptions, EventType, capture_worktree_review, read_snapshot_artifact,
+        CaptureOptions, EventStore, EventType, capture_worktree_review, read_snapshot_artifact,
     };
-    use crate::storage::EventStore;
 
     #[test]
     fn capture_worktree_review_writes_event_artifact_and_state() {

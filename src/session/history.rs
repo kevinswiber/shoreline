@@ -8,6 +8,7 @@ use crate::model::{
     ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId,
     SnapshotId, TrackId,
 };
+use crate::session::EventStore;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, ImportedNoteTarget, InterventionMode, InterventionReasonCode,
@@ -19,7 +20,6 @@ use crate::session::event::{
 use crate::session::observation::validated_track_id;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::ShoreStorePaths;
-use crate::storage::EventStore;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewHistoryOptions {

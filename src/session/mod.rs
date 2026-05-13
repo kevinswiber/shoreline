@@ -5,6 +5,7 @@ mod disposition;
 pub mod event;
 mod event_context;
 mod event_log;
+mod event_store;
 mod fingerprint;
 mod history;
 mod import;
@@ -34,6 +35,7 @@ pub use event::{
 };
 pub(crate) use event_context::{current_timestamp, writer_from_git_config};
 pub use event_log::{read_events, rebuild_state};
+pub(crate) use event_store::{EventStore, EventWriteOutcome};
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
 pub use fingerprint::{
     ReviewUnitFingerprint, WorktreeFingerprint, capture_worktree_fingerprint,

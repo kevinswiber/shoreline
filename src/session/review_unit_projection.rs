@@ -7,6 +7,7 @@ use crate::model::{
     ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, RowId,
     SnapshotId, TrackId,
 };
+use crate::session::EventStore;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::disposition::{
     CurrentDispositionView, DispositionProjectionOptions, DispositionView, project_dispositions,
@@ -28,7 +29,6 @@ use crate::session::store_init::ShoreStorePaths;
 use crate::sidecar::{
     ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar, resolve_notes,
 };
-use crate::storage::EventStore;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowOptions {

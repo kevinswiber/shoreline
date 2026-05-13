@@ -21,7 +21,8 @@ use crate::session::observation::{
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage};
+use crate::session::{EventStore, EventWriteOutcome};
+use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispositionAddOptions {
@@ -966,10 +967,9 @@ mod tests {
         ObservationAddOptions, ObservationTargetSelector, resolve_review_unit,
     };
     use crate::session::{
-        CaptureOptions, InterventionMode, InterventionReasonCode, capture_worktree_review,
-        record_observation, request_intervention,
+        CaptureOptions, EventStore, InterventionMode, InterventionReasonCode,
+        capture_worktree_review, record_observation, request_intervention,
     };
-    use crate::storage::EventStore;
 
     #[test]
     fn resolves_current_review_unit_as_default_disposition_target() {

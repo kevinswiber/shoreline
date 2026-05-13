@@ -1,8 +1,10 @@
 use std::path::Path;
 
 use crate::error::Result;
-use crate::session::{SessionState, ShoreEvent, ShoreStorePaths, sweep_stale_temp_files};
-use crate::storage::{Durability, EventStore, LocalStorage};
+use crate::session::{
+    EventStore, SessionState, ShoreEvent, ShoreStorePaths, sweep_stale_temp_files,
+};
+use crate::storage::{Durability, LocalStorage};
 
 pub fn rebuild_state(repo: impl AsRef<Path>) -> Result<SessionState> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
