@@ -6,6 +6,7 @@ pub mod event;
 mod event_context;
 mod event_log;
 mod fingerprint;
+mod history;
 mod import;
 mod intervention;
 mod observation;
@@ -36,6 +37,10 @@ pub(crate) use fingerprint::worktree_fingerprint_for_files;
 pub use fingerprint::{
     ReviewUnitFingerprint, WorktreeFingerprint, capture_worktree_fingerprint,
     compute_review_unit_fingerprint,
+};
+pub use history::{
+    ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
+    ReviewHistorySummary, review_history,
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
 pub use intervention::{
