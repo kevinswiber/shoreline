@@ -16,10 +16,10 @@ use shore::session::{
     ImportNotesOptions, ImportNotesResult, InterventionFetchOptions, InterventionFetchResult,
     InterventionListOptions, InterventionListResult, InterventionMode, InterventionReasonCode,
     InterventionRequestOptions, InterventionRequestResult, InterventionResolutionOutcome,
-    InterventionResolveOptions, InterventionResolveResult, InterventionStatus,
-    InterventionStatusFilter, InterventionTargetSelector, InterventionView, ObservationAddOptions,
-    ObservationAddResult, ObservationListOptions, ObservationListResult, ObservationTargetSelector,
-    ObservationView, ProjectionDiagnostic, PublishOptions, PublishResult, PublishVerdictOptions,
+    InterventionResolveOptions, InterventionResolveResult, InterventionStatusFilter,
+    InterventionTargetSelector, InterventionView, ObservationAddOptions, ObservationAddResult,
+    ObservationListOptions, ObservationListResult, ObservationTargetSelector, ObservationView,
+    ProjectionDiagnostic, PublishOptions, PublishResult, PublishVerdictOptions,
     PublishVerdictResult, acknowledge_review, capture_worktree_review, fetch_intervention,
     import_notes, list_interventions, list_observations, publish_verdict, publish_worktree_review,
     record_observation, request_intervention, resolve_intervention,
@@ -1130,6 +1130,14 @@ fn intervention_target(
         )));
     }
 
+    if args.end_line.is_some() && args.start_line.is_none() {
+        return if args.file.is_some() {
+            Err("start line is required when end line is supplied".into())
+        } else {
+            Err("file is required when selecting intervention lines".into())
+        };
+    }
+
     match (&args.file, args.start_line) {
         (Some(file), Some(start_line)) => Ok(InterventionTargetSelector::range(
             file.clone(),
@@ -1137,16 +1145,8 @@ fn intervention_target(
             start_line,
             args.end_line,
         )),
-        (Some(file), None) => {
-            if args.end_line.is_some() {
-                return Err("start line is required when end line is supplied".into());
-            }
-            Ok(InterventionTargetSelector::file(file.clone()))
-        }
+        (Some(file), None) => Ok(InterventionTargetSelector::file(file.clone())),
         (None, Some(_)) => Err("file is required when selecting intervention lines".into()),
-        (None, None) if args.end_line.is_some() => {
-            Err("file is required when selecting intervention lines".into())
-        }
         (None, None) => Ok(InterventionTargetSelector::review_unit()),
     }
 }
@@ -1462,7 +1462,7 @@ impl From<InterventionListResult> for InterventionListDocument {
                     .map(|track_id| track_id.as_str().to_owned()),
                 mode: result.filters.mode,
                 file: result.filters.file,
-                status: intervention_status_filter_as_str(result.filters.status),
+                status: result.filters.status.as_str(),
                 include_body: result.filters.include_body,
             },
             interventions: result
@@ -1516,7 +1516,7 @@ impl From<InterventionView> for InterventionViewDocument {
             title: view.title,
             body: view.body,
             body_content_hash: view.body_content_hash,
-            status: intervention_status_as_str(view.status),
+            status: view.status.as_str(),
             resolutions: view
                 .resolutions
                 .into_iter()
@@ -1658,23 +1658,6 @@ impl From<InterventionOutcomeArg> for InterventionResolutionOutcome {
             InterventionOutcomeArg::Superseded => InterventionResolutionOutcome::Superseded,
             InterventionOutcomeArg::Abandoned => InterventionResolutionOutcome::Abandoned,
         }
-    }
-}
-
-fn intervention_status_as_str(status: InterventionStatus) -> &'static str {
-    match status {
-        InterventionStatus::Open => "open",
-        InterventionStatus::Resolved => "resolved",
-        InterventionStatus::Ambiguous => "ambiguous",
-    }
-}
-
-fn intervention_status_filter_as_str(status: InterventionStatusFilter) -> &'static str {
-    match status {
-        InterventionStatusFilter::Open => "open",
-        InterventionStatusFilter::Resolved => "resolved",
-        InterventionStatusFilter::Ambiguous => "ambiguous",
-        InterventionStatusFilter::All => "all",
     }
 }
 

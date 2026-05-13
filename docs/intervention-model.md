@@ -78,6 +78,10 @@ the intervention, and carries an `outcome` such as approved, rejected, dismissed
 abandoned. Resolution `outcome` is intentionally separate from request `reasonCode`: one describes
 why the pause was requested, the other describes how it ended.
 
+V1 resolution events keep the request event's review unit, revision, snapshot, and track context.
+That anchors the decision to the captured material that caused the intervention, not to whatever
+worktree state happens to exist when the intervention is resolved.
+
 Multiple different resolution events are preserved as append-only facts. Current V1 read surfaces
 report that state as ambiguous rather than choosing a timestamp winner.
 

@@ -293,6 +293,16 @@ pub enum InterventionStatus {
     Ambiguous,
 }
 
+impl InterventionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Resolved => "resolved",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InterventionStatusFilter {
     Open,
@@ -400,6 +410,8 @@ pub fn request_intervention(
         && let (Some(artifact_path), Some(bytes)) =
             (body_artifact_path.as_deref(), body_artifact_bytes.as_ref())
     {
+        // Body artifacts are content-addressed. A crash before the event commit can leave a
+        // harmless orphan that a retry reuses or overwrites with the same bytes.
         storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
     }
 
@@ -639,6 +651,8 @@ pub fn resolve_intervention(
             reason_artifact_bytes.as_ref(),
         )
     {
+        // Body artifacts are content-addressed. A crash before the event commit can leave a
+        // harmless orphan that a retry reuses or overwrites with the same bytes.
         storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
     }
 
@@ -801,6 +815,15 @@ fn sort_resolution_views(resolutions: &mut [InterventionResolutionView]) {
 }
 
 impl InterventionStatusFilter {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Resolved => "resolved",
+            Self::Ambiguous => "ambiguous",
+            Self::All => "all",
+        }
+    }
+
     fn matches(self, status: InterventionStatus) -> bool {
         match self {
             Self::Open => status == InterventionStatus::Open,
