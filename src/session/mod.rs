@@ -62,7 +62,7 @@ pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_s
 pub use review_unit_projection::{
     AdapterNoteView, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
     ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
-    ReviewUnitShowResult, show_review_unit,
+    ReviewUnitShowResult, SnapshotOrder, show_review_unit,
 };
 pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact, write_snapshot_artifact};
 pub use state::{ProjectionDiagnostic, SessionState};
