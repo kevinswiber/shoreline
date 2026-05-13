@@ -1,6 +1,16 @@
 use std::io::Read;
 use std::path::Path;
 
+use clap::ValueEnum;
+use shore::model::Side;
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+pub(super) enum SideArg {
+    Old,
+    New,
+}
+
 pub(crate) fn read_body_input(
     inline: Option<&str>,
     file: Option<&Path>,
@@ -18,6 +28,15 @@ pub(crate) fn read_body_input(
         return Ok(Some(body));
     }
     Ok(None)
+}
+
+impl From<SideArg> for Side {
+    fn from(value: SideArg) -> Self {
+        match value {
+            SideArg::Old => Side::Old,
+            SideArg::New => Side::New,
+        }
+    }
 }
 
 #[cfg(test)]

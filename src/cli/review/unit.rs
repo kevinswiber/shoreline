@@ -1,0 +1,364 @@
+use std::io::Write;
+use std::path::PathBuf;
+
+use clap::{Args, Subcommand};
+use shore::model::{ReviewTargetRef, ReviewUnitId, Side};
+use shore::session::{
+    AdapterNoteView, ProjectionDiagnostic, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
+    ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
+    ReviewUnitShowResult, show_review_unit,
+};
+
+use crate::cli::json;
+use crate::cli::review::documents::{
+    CurrentDispositionDocument, DispositionViewDocument, InterventionViewDocument,
+    ObservationViewDocument,
+};
+
+#[derive(Debug, Args)]
+pub(super) struct UnitArgs {
+    #[command(subcommand)]
+    command: UnitCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum UnitCommand {
+    Show(UnitShowArgs),
+}
+
+#[derive(Debug, Args)]
+pub(super) struct UnitShowArgs {
+    /// Repository root or a path inside the repository.
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Select one ReviewUnit by id.
+    #[arg(long)]
+    review_unit: Option<String>,
+
+    /// Filter narrative facts to one review track.
+    #[arg(long)]
+    track: Option<String>,
+
+    /// Hydrate body-like text from inline payloads or body artifacts.
+    #[arg(long)]
+    include_body: bool,
+
+    /// Pretty-print the JSON response.
+    #[arg(long, conflicts_with = "compact")]
+    pretty: bool,
+
+    /// Emit compact JSON explicitly.
+    #[arg(long)]
+    compact: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitShowDocument {
+    schema: &'static str,
+    version: u32,
+    event_set_hash: String,
+    event_count: usize,
+    review_unit: UnitReviewUnitDocument,
+    filters: UnitShowFiltersDocument,
+    summary: UnitShowSummaryDocument,
+    current_disposition: CurrentDispositionDocument,
+    observations: Vec<ObservationViewDocument>,
+    interventions: Vec<InterventionViewDocument>,
+    dispositions: Vec<DispositionViewDocument>,
+    adapter_notes: Vec<AdapterNoteDocument>,
+    rows: Vec<UnitProjectionRowDocument>,
+    diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitReviewUnitDocument {
+    id: String,
+    review_id: String,
+    revision_id: String,
+    snapshot_id: String,
+    source: shore::model::ReviewUnitSource,
+    base: shore::model::ReviewEndpoint,
+    target: shore::model::ReviewEndpoint,
+    snapshot_artifact_content_hash: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitShowFiltersDocument {
+    review_unit_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track_id: Option<String>,
+    include_body: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitShowSummaryDocument {
+    file_count: usize,
+    row_count: usize,
+    narrative_row_count: usize,
+    snapshot_row_count: usize,
+    snapshot_remainder_row_count: usize,
+    observation_count: usize,
+    intervention_count: usize,
+    disposition_count: usize,
+    adapter_note_count: usize,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdapterNoteDocument {
+    id: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<AdapterNoteTargetDocument>,
+    status: &'static str,
+    file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_old_path: Option<String>,
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+    sidecar_content_hash: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdapterNoteTargetDocument {
+    side: Side,
+    start_line: u32,
+    end_line: u32,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnitProjectionRowDocument {
+    id: String,
+    kind: &'static str,
+    projection_phase: &'static str,
+    projection_order: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshot_order: Option<SnapshotOrderDocument>,
+    coverage: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<ReviewTargetRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_path: Option<String>,
+    related_observation_ids: Vec<String>,
+    related_intervention_ids: Vec<String>,
+    related_disposition_ids: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotOrderDocument {
+    file_index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hunk_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    row_index: Option<usize>,
+}
+
+pub(super) fn run(
+    args: UnitArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match args.command {
+        UnitCommand::Show(args) => {
+            tracing::debug!(command = "review.unit.show", "command_start");
+            review_unit_show_command(args, stdout)
+        }
+    }
+}
+
+fn review_unit_show_command(
+    args: UnitShowArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pretty = args.pretty;
+    let result = show_review_unit(review_unit_show_options(&args));
+    let document = UnitShowDocument::from(result?);
+    json::write_json(stdout, &document, pretty)
+}
+
+fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {
+    let mut options = ReviewUnitShowOptions::new(&args.repo).with_include_body(args.include_body);
+    if let Some(review_unit) = &args.review_unit {
+        options = options.with_review_unit_id(ReviewUnitId::new(review_unit.clone()));
+    }
+    if let Some(track) = &args.track {
+        options = options.with_track(track.clone());
+    }
+    options
+}
+
+impl From<ReviewUnitShowResult> for UnitShowDocument {
+    fn from(result: ReviewUnitShowResult) -> Self {
+        Self {
+            schema: "shore.review-unit",
+            version: 1,
+            event_set_hash: result.event_set_hash,
+            event_count: result.event_count,
+            review_unit: UnitReviewUnitDocument::from(result.review_unit),
+            filters: UnitShowFiltersDocument::from(result.filters),
+            summary: UnitShowSummaryDocument::from(result.summary),
+            current_disposition: CurrentDispositionDocument::from(result.current_disposition),
+            observations: result
+                .observations
+                .into_iter()
+                .map(ObservationViewDocument::from)
+                .collect(),
+            interventions: result
+                .interventions
+                .into_iter()
+                .map(InterventionViewDocument::from)
+                .collect(),
+            dispositions: result
+                .dispositions
+                .into_iter()
+                .map(DispositionViewDocument::from)
+                .collect(),
+            adapter_notes: result
+                .adapter_notes
+                .into_iter()
+                .map(AdapterNoteDocument::from)
+                .collect(),
+            rows: result
+                .rows
+                .into_iter()
+                .map(UnitProjectionRowDocument::from)
+                .collect(),
+            diagnostics: result.diagnostics,
+        }
+    }
+}
+
+impl From<ReviewUnitProjectionIdentity> for UnitReviewUnitDocument {
+    fn from(identity: ReviewUnitProjectionIdentity) -> Self {
+        Self {
+            id: identity.id.as_str().to_owned(),
+            review_id: identity.review_id.as_str().to_owned(),
+            revision_id: identity.revision_id.as_str().to_owned(),
+            snapshot_id: identity.snapshot_id.as_str().to_owned(),
+            source: identity.source,
+            base: identity.base,
+            target: identity.target,
+            snapshot_artifact_content_hash: identity.snapshot_artifact_content_hash,
+        }
+    }
+}
+
+impl From<ReviewUnitShowFilters> for UnitShowFiltersDocument {
+    fn from(filters: ReviewUnitShowFilters) -> Self {
+        Self {
+            review_unit_id: filters.review_unit_id.as_str().to_owned(),
+            track_id: filters
+                .track_id
+                .map(|track_id| track_id.as_str().to_owned()),
+            include_body: filters.include_body,
+        }
+    }
+}
+
+impl From<ReviewUnitProjectionSummary> for UnitShowSummaryDocument {
+    fn from(summary: ReviewUnitProjectionSummary) -> Self {
+        Self {
+            file_count: summary.file_count,
+            row_count: summary.row_count,
+            narrative_row_count: summary.narrative_row_count,
+            snapshot_row_count: summary.snapshot_row_count,
+            snapshot_remainder_row_count: summary.snapshot_remainder_row_count,
+            observation_count: summary.observation_count,
+            intervention_count: summary.intervention_count,
+            disposition_count: summary.disposition_count,
+            adapter_note_count: summary.adapter_note_count,
+        }
+    }
+}
+
+impl From<AdapterNoteView> for AdapterNoteDocument {
+    fn from(view: AdapterNoteView) -> Self {
+        Self {
+            id: view.id,
+            title: view.title,
+            body: view.body,
+            target: view.target.map(AdapterNoteTargetDocument::from),
+            status: view.status.as_str(),
+            file_path: view.file_path,
+            file_old_path: view.file_old_path,
+            tags: view.tags,
+            confidence: view.confidence,
+            external_source: view.external_source,
+            author: view.author,
+            created_at: view.created_at,
+            sidecar_content_hash: view.sidecar_content_hash,
+        }
+    }
+}
+
+impl From<shore::session::event::ImportedNoteTarget> for AdapterNoteTargetDocument {
+    fn from(target: shore::session::event::ImportedNoteTarget) -> Self {
+        Self {
+            side: target.side,
+            start_line: target.start_line,
+            end_line: target.end_line,
+        }
+    }
+}
+
+impl From<ReviewUnitProjectionRow> for UnitProjectionRowDocument {
+    fn from(row: ReviewUnitProjectionRow) -> Self {
+        Self {
+            id: row.id.as_str().to_owned(),
+            kind: row.kind.as_str(),
+            projection_phase: row.projection_phase.as_str(),
+            projection_order: row.projection_order,
+            snapshot_order: row.snapshot_order.map(SnapshotOrderDocument::from),
+            coverage: row.coverage.as_str(),
+            target: row.target,
+            file_path: row.file_path,
+            old_path: row.old_path,
+            related_observation_ids: row
+                .related_observation_ids
+                .into_iter()
+                .map(|id| id.as_str().to_owned())
+                .collect(),
+            related_intervention_ids: row
+                .related_intervention_ids
+                .into_iter()
+                .map(|id| id.as_str().to_owned())
+                .collect(),
+            related_disposition_ids: row
+                .related_disposition_ids
+                .into_iter()
+                .map(|id| id.as_str().to_owned())
+                .collect(),
+        }
+    }
+}
+
+impl From<shore::session::SnapshotOrder> for SnapshotOrderDocument {
+    fn from(order: shore::session::SnapshotOrder) -> Self {
+        Self {
+            file_index: order.file_index,
+            metadata_index: order.metadata_index,
+            hunk_index: order.hunk_index,
+            row_index: order.row_index,
+        }
+    }
+}
