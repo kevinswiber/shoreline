@@ -15,11 +15,10 @@ use crate::session::event::{
     EventTarget, EventType, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
     ShoreEvent, Writer,
 };
-use crate::session::event_context::{current_timestamp, reviewer_from_git_config};
 use crate::session::snapshot_artifact::read_snapshot_artifact;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::{EventStore, EventWriteOutcome};
+use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_from_git_config};
 use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]

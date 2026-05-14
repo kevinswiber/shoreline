@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::model::ActorId;
 use crate::session::event::{Writer, WriterRole, WriterTool};
@@ -53,17 +52,32 @@ fn git_config_value(repo: &Path, key: &str) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
-pub(crate) fn current_timestamp() -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    format!("unix-ms:{millis}")
-}
-
 #[cfg(test)]
 mod tests {
     use std::process::Command;
+
+    #[test]
+    fn writer_from_git_config_uses_author_role_and_git_identity() {
+        let repo = tempfile::tempdir().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "author@example.com"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+
+        let writer = super::writer_from_git_config(repo.path());
+
+        assert_eq!(
+            writer.actor_id.as_str(),
+            "actor:git-email:author@example.com"
+        );
+        assert_eq!(writer.role, crate::session::WriterRole::Author);
+    }
 
     #[test]
     fn reviewer_from_git_config_uses_email_then_name_then_actor_local() {

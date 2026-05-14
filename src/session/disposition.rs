@@ -14,14 +14,13 @@ use crate::session::event::{
     EventTarget, EventType, InterventionRequestedPayload, ReviewDisposition,
     ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ShoreEvent,
 };
-use crate::session::event_context::{current_timestamp, reviewer_from_git_config};
 use crate::session::observation::{
     ObservationTargetSelector, ResolvedReviewUnit, resolve_observation_target, resolve_review_unit,
     staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::{EventStore, EventWriteOutcome};
+use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_from_git_config};
 use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
