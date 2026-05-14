@@ -1,6 +1,8 @@
 mod options;
+mod result;
 
 pub use self::options::{ReviewHistoryFilters, ReviewHistoryOptions};
+pub use self::result::ReviewHistoryResult;
 
 use std::path::Path;
 
@@ -22,27 +24,10 @@ use crate::session::event::{
     ShoreEvent, SidecarSource, Writer,
 };
 use crate::session::observation::validated_track_id;
-use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::state::SessionState;
 use crate::session::store_init::ShoreStorePaths;
 
 use self::options::ResolvedHistoryFilters;
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewHistoryResult {
-    pub event_set_hash: String,
-    pub event_count: usize,
-    pub filters: ReviewHistoryFilters,
-    pub entries: Vec<ReviewHistoryEntry>,
-    /// Diagnostics describe the full replayed event set, not only filtered entries.
-    pub diagnostics: Vec<ProjectionDiagnostic>,
-}
-
-impl ReviewHistoryResult {
-    pub fn history_count(&self) -> usize {
-        self.entries.len()
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
