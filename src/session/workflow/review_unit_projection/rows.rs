@@ -6,7 +6,8 @@ use crate::session::disposition::DispositionView;
 use crate::session::intervention::InterventionView;
 use crate::session::observation::ObservationView;
 
-use super::{AdapterNoteView, ReviewUnitProjectionSummary};
+use super::ReviewUnitProjectionSummary;
+use super::adapter_notes::AdapterNoteView;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitProjectionRow {
