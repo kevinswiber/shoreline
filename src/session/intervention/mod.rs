@@ -1,10 +1,14 @@
-use std::path::{Path, PathBuf};
-
+mod fetch;
+mod list;
 mod target;
 mod view;
 mod request;
 mod resolve;
 
+pub use self::fetch::{InterventionFetchOptions, InterventionFetchResult, fetch_intervention};
+pub use self::list::{
+    InterventionListFilters, InterventionListOptions, InterventionListResult, list_interventions,
+};
 pub use self::request::{
     InterventionRequestOptions, InterventionRequestResult, request_intervention,
 };
@@ -15,200 +19,22 @@ pub use self::target::InterventionTargetSelector;
 pub use self::view::{
     InterventionResolutionView, InterventionStatus, InterventionStatusFilter, InterventionView,
 };
-use self::view::{
-    collect_request_records, collect_resolution_views, intervention_view_from_event,
-};
 pub(crate) use self::view::{InterventionProjectionOptions, project_interventions};
 #[cfg(test)]
 use self::view::sort_intervention_views;
 #[cfg(test)]
 use crate::canonical_hash::sha256_bytes_hex;
-use crate::error::{Result, ShoreError};
-use crate::model::{InterventionId, ReviewUnitId, TrackId};
 #[cfg(test)]
-use crate::model::{EventId, InterventionResolutionId};
-use crate::session::event::InterventionMode;
+use crate::model::{
+    EventId, InterventionId, InterventionResolutionId, ReviewUnitId, TrackId,
+};
 #[cfg(test)]
 use crate::session::event::{
-    EventTarget, EventType, InterventionReasonCode, InterventionResolutionOutcome,
-    InterventionResolvedPayload, ShoreEvent, Writer,
+    EventTarget, EventType, InterventionMode, InterventionReasonCode,
+    InterventionResolutionOutcome, InterventionResolvedPayload, ShoreEvent, Writer,
 };
-use crate::session::observation::{resolve_review_unit, validated_track_id};
-use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::ShoreStorePaths;
-use crate::session::EventStore;
 #[cfg(test)]
 use crate::session::current_timestamp;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionListOptions {
-    repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
-    track: Option<String>,
-    mode: Option<InterventionMode>,
-    file: Option<String>,
-    status: InterventionStatusFilter,
-    include_body: bool,
-}
-
-impl InterventionListOptions {
-    pub fn new(repo: impl AsRef<Path>) -> Self {
-        Self {
-            repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
-            track: None,
-            mode: None,
-            file: None,
-            status: InterventionStatusFilter::Open,
-            include_body: false,
-        }
-    }
-
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
-        self.review_unit_id = Some(id);
-        self
-    }
-
-    pub fn with_track(mut self, track: impl Into<String>) -> Self {
-        self.track = Some(track.into());
-        self
-    }
-
-    pub fn with_mode(mut self, mode: InterventionMode) -> Self {
-        self.mode = Some(mode);
-        self
-    }
-
-    pub fn with_file(mut self, file: impl Into<String>) -> Self {
-        self.file = Some(file.into());
-        self
-    }
-
-    pub fn with_status(mut self, status: InterventionStatusFilter) -> Self {
-        self.status = status;
-        self
-    }
-
-    pub fn with_include_body(mut self, include_body: bool) -> Self {
-        self.include_body = include_body;
-        self
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionFetchOptions {
-    repo: PathBuf,
-    intervention_id: InterventionId,
-    include_body: bool,
-}
-
-impl InterventionFetchOptions {
-    pub fn new(repo: impl AsRef<Path>, intervention_id: InterventionId) -> Self {
-        Self {
-            repo: repo.as_ref().to_path_buf(),
-            intervention_id,
-            include_body: false,
-        }
-    }
-
-    pub fn with_include_body(mut self, include_body: bool) -> Self {
-        self.include_body = include_body;
-        self
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionListFilters {
-    pub track_id: Option<TrackId>,
-    pub mode: Option<InterventionMode>,
-    pub file: Option<String>,
-    pub status: InterventionStatusFilter,
-    pub include_body: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionListResult {
-    pub review_unit_id: ReviewUnitId,
-    pub filters: InterventionListFilters,
-    pub interventions: Vec<InterventionView>,
-    pub diagnostics: Vec<ProjectionDiagnostic>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionFetchResult {
-    pub intervention: InterventionView,
-    pub diagnostics: Vec<ProjectionDiagnostic>,
-}
-
-pub fn list_interventions(options: InterventionListOptions) -> Result<InterventionListResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let shore_dir = paths.shore_dir();
-    let event_store = EventStore::open(shore_dir);
-    let events = event_store.list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
-    let track_filter = options
-        .track
-        .as_deref()
-        .map(validated_track_id)
-        .transpose()?;
-    let interventions = project_interventions(InterventionProjectionOptions {
-        shore_dir,
-        events: &events,
-        resolved: &resolved,
-        track_filter: track_filter.clone(),
-        mode_filter: options.mode,
-        file_filter: options.file.as_deref(),
-        status_filter: options.status,
-        include_body: options.include_body,
-    })?;
-    let diagnostics = SessionState::from_events(&events)?.diagnostics;
-
-    Ok(InterventionListResult {
-        review_unit_id: resolved.review_unit_id,
-        filters: InterventionListFilters {
-            track_id: track_filter,
-            mode: options.mode,
-            file: options.file,
-            status: options.status,
-            include_body: options.include_body,
-        },
-        interventions,
-        diagnostics,
-    })
-}
-
-pub fn fetch_intervention(options: InterventionFetchOptions) -> Result<InterventionFetchResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let shore_dir = paths.shore_dir();
-    let events = EventStore::open(shore_dir).list_events()?;
-    let mut request_records = collect_request_records(&events)?;
-    let resolutions = collect_resolution_views(&events)?;
-
-    if let Some(record) = request_records.remove(&options.intervention_id) {
-        let view = intervention_view_from_event(
-            shore_dir,
-            record.event,
-            record.payload,
-            record.track_id,
-            resolutions
-                .get(&options.intervention_id)
-                .cloned()
-                .unwrap_or_default(),
-            options.include_body,
-        )?;
-        let diagnostics = SessionState::from_events(&events)?.diagnostics;
-
-        return Ok(InterventionFetchResult {
-            intervention: view,
-            diagnostics,
-        });
-    }
-
-    Err(ShoreError::Message(format!(
-        "unknown intervention: {}",
-        options.intervention_id.as_str()
-    )))
-}
 
 #[cfg(test)]
 mod tests {
