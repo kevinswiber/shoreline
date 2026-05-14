@@ -1,8 +1,8 @@
-pub(crate) mod body_artifact;
+pub(in crate::session) mod body_artifact;
 mod event_store;
 pub(in crate::session) mod fingerprint;
-pub(crate) mod snapshot_artifact;
-pub(crate) mod store_init;
+pub(in crate::session) mod snapshot_artifact;
+pub(in crate::session) mod store_init;
 
 pub(crate) use event_store::{EventStore, EventWriteOutcome};
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
