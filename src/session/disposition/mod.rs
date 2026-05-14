@@ -1,22 +1,27 @@
+mod target;
+mod util;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
+pub use self::target::{DispositionOverrideSelector, DispositionTargetSelector};
+pub(crate) use self::target::{
+    DispositionRelationships, resolve_disposition_relationships, resolve_disposition_target,
+};
+use self::util::sorted_unique;
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    DispositionId, EventId, InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId, Side,
-    TrackId,
+    DispositionId, EventId, InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId, TrackId,
 };
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
-    EventTarget, EventType, InterventionRequestedPayload, ReviewDisposition,
-    ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ShoreEvent,
+    EventTarget, EventType, ReviewDisposition, ReviewDispositionRecordedPayload, ShoreEvent,
 };
 use crate::session::observation::{
-    ObservationTargetSelector, ResolvedReviewUnit, resolve_observation_target, resolve_review_unit,
-    staged_body, validated_track_id,
+    ResolvedReviewUnit, resolve_review_unit, staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
@@ -477,291 +482,6 @@ pub(crate) fn project_dispositions(
     ))
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DispositionTargetSelector {
-    ReviewUnit,
-    File {
-        path: String,
-    },
-    Range {
-        path: String,
-        side: Side,
-        start_line: u32,
-        end_line: Option<u32>,
-    },
-    Observation {
-        observation_id: ObservationId,
-    },
-    Intervention {
-        intervention_id: InterventionId,
-    },
-    Disposition {
-        disposition_id: DispositionId,
-    },
-}
-
-impl DispositionTargetSelector {
-    pub fn review_unit() -> Self {
-        Self::ReviewUnit
-    }
-
-    pub fn file(path: impl Into<String>) -> Self {
-        Self::File { path: path.into() }
-    }
-
-    pub fn range(
-        path: impl Into<String>,
-        side: Side,
-        start_line: u32,
-        end_line: Option<u32>,
-    ) -> Self {
-        Self::Range {
-            path: path.into(),
-            side,
-            start_line,
-            end_line,
-        }
-    }
-
-    pub fn observation(observation_id: ObservationId) -> Self {
-        Self::Observation { observation_id }
-    }
-
-    pub fn intervention(intervention_id: InterventionId) -> Self {
-        Self::Intervention { intervention_id }
-    }
-
-    pub fn disposition(disposition_id: DispositionId) -> Self {
-        Self::Disposition { disposition_id }
-    }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct DispositionRelationships {
-    pub replaces_disposition_ids: Vec<DispositionId>,
-    pub related_observation_ids: Vec<ObservationId>,
-    pub related_intervention_ids: Vec<InterventionId>,
-    pub overrides: Vec<DispositionOverrideSelector>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DispositionOverrideSelector {
-    Observation { observation_id: ObservationId },
-    Intervention { intervention_id: InterventionId },
-    Disposition { disposition_id: DispositionId },
-}
-
-impl DispositionOverrideSelector {
-    pub fn observation(observation_id: ObservationId) -> Self {
-        Self::Observation { observation_id }
-    }
-
-    pub fn intervention(intervention_id: InterventionId) -> Self {
-        Self::Intervention { intervention_id }
-    }
-
-    pub fn disposition(disposition_id: DispositionId) -> Self {
-        Self::Disposition { disposition_id }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedDispositionTarget {
-    pub target: ReviewTargetRef,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedDispositionRelationships {
-    pub replaces_disposition_ids: Vec<DispositionId>,
-    pub related_observation_ids: Vec<ObservationId>,
-    pub related_intervention_ids: Vec<InterventionId>,
-    pub overrides: Vec<ReviewTargetRef>,
-}
-
-pub(crate) fn resolve_disposition_target(
-    repo: &Path,
-    events: &[ShoreEvent],
-    resolved: &ResolvedReviewUnit,
-    selector: &DispositionTargetSelector,
-) -> Result<ResolvedDispositionTarget> {
-    let target = match selector {
-        DispositionTargetSelector::ReviewUnit => {
-            resolve_observation_target(repo, resolved, &ObservationTargetSelector::review_unit())?
-        }
-        DispositionTargetSelector::File { path } => {
-            resolve_observation_target(repo, resolved, &ObservationTargetSelector::file(path))?
-        }
-        DispositionTargetSelector::Range {
-            path,
-            side,
-            start_line,
-            end_line,
-        } => resolve_observation_target(
-            repo,
-            resolved,
-            &ObservationTargetSelector::range(path, *side, *start_line, *end_line),
-        )?,
-        DispositionTargetSelector::Observation { observation_id } => {
-            resolve_observation_ref(events, resolved, observation_id)?
-        }
-        DispositionTargetSelector::Intervention { intervention_id } => {
-            resolve_intervention_ref(events, resolved, intervention_id)?
-        }
-        DispositionTargetSelector::Disposition { disposition_id } => {
-            resolve_disposition_ref(events, resolved, disposition_id)?
-        }
-    };
-
-    Ok(ResolvedDispositionTarget { target })
-}
-
-pub(crate) fn resolve_disposition_relationships(
-    events: &[ShoreEvent],
-    resolved: &ResolvedReviewUnit,
-    relationships: &DispositionRelationships,
-    disposition: ReviewDisposition,
-    summary: Option<&str>,
-) -> Result<ResolvedDispositionRelationships> {
-    if disposition == ReviewDisposition::Overridden {
-        if summary.is_none_or(|summary| summary.trim().is_empty()) {
-            return Err(ShoreError::Message(
-                "summary is required for overridden disposition".to_owned(),
-            ));
-        }
-        if relationships.overrides.is_empty() {
-            return Err(ShoreError::Message(
-                "override reference is required for overridden disposition".to_owned(),
-            ));
-        }
-    }
-
-    for observation_id in &relationships.related_observation_ids {
-        resolve_observation_ref(events, resolved, observation_id)?;
-    }
-    for intervention_id in &relationships.related_intervention_ids {
-        resolve_intervention_ref(events, resolved, intervention_id)?;
-    }
-    for disposition_id in &relationships.replaces_disposition_ids {
-        resolve_disposition_ref(events, resolved, disposition_id)?;
-    }
-
-    let mut overrides = Vec::with_capacity(relationships.overrides.len());
-    for override_selector in &relationships.overrides {
-        overrides.push(resolve_override_ref(events, resolved, override_selector)?);
-    }
-
-    Ok(ResolvedDispositionRelationships {
-        replaces_disposition_ids: sorted_unique(relationships.replaces_disposition_ids.clone()),
-        related_observation_ids: sorted_unique(relationships.related_observation_ids.clone()),
-        related_intervention_ids: sorted_unique(relationships.related_intervention_ids.clone()),
-        overrides: sorted_unique_targets(overrides)?,
-    })
-}
-
-fn resolve_override_ref(
-    events: &[ShoreEvent],
-    resolved: &ResolvedReviewUnit,
-    selector: &DispositionOverrideSelector,
-) -> Result<ReviewTargetRef> {
-    match selector {
-        DispositionOverrideSelector::Observation { observation_id } => {
-            resolve_observation_ref(events, resolved, observation_id)
-        }
-        DispositionOverrideSelector::Intervention { intervention_id } => {
-            resolve_intervention_ref(events, resolved, intervention_id)
-        }
-        DispositionOverrideSelector::Disposition { disposition_id } => {
-            resolve_disposition_ref(events, resolved, disposition_id)
-        }
-    }
-}
-
-fn resolve_observation_ref(
-    events: &[ShoreEvent],
-    resolved: &ResolvedReviewUnit,
-    observation_id: &ObservationId,
-) -> Result<ReviewTargetRef> {
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
-    {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
-            continue;
-        }
-
-        let payload: ReviewObservationRecordedPayload =
-            serde_json::from_value(event.payload.clone())?;
-        if &payload.observation_id == observation_id {
-            return Ok(ReviewTargetRef::Observation {
-                review_unit_id: resolved.review_unit_id.clone(),
-                observation_id: observation_id.clone(),
-            });
-        }
-    }
-
-    Err(ShoreError::Message(format!(
-        "unknown observation target: {}",
-        observation_id.as_str()
-    )))
-}
-
-fn resolve_intervention_ref(
-    events: &[ShoreEvent],
-    resolved: &ResolvedReviewUnit,
-    intervention_id: &InterventionId,
-) -> Result<ReviewTargetRef> {
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::InterventionRequested)
-    {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
-            continue;
-        }
-
-        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
-        if &payload.intervention_id == intervention_id {
-            return Ok(ReviewTargetRef::Intervention {
-                review_unit_id: resolved.review_unit_id.clone(),
-                intervention_id: intervention_id.clone(),
-            });
-        }
-    }
-
-    Err(ShoreError::Message(format!(
-        "unknown intervention target: {}",
-        intervention_id.as_str()
-    )))
-}
-
-fn resolve_disposition_ref(
-    events: &[ShoreEvent],
-    resolved: &ResolvedReviewUnit,
-    disposition_id: &DispositionId,
-) -> Result<ReviewTargetRef> {
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::ReviewDispositionRecorded)
-    {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
-            continue;
-        }
-
-        let payload: ReviewDispositionRecordedPayload =
-            serde_json::from_value(event.payload.clone())?;
-        if &payload.disposition_id == disposition_id {
-            return Ok(ReviewTargetRef::Disposition {
-                review_unit_id: resolved.review_unit_id.clone(),
-                disposition_id: disposition_id.clone(),
-            });
-        }
-    }
-
-    Err(ShoreError::Message(format!(
-        "unknown disposition target: {}",
-        disposition_id.as_str()
-    )))
-}
-
 struct DispositionEventRecord<'a> {
     event: &'a ShoreEvent,
     payload: ReviewDispositionRecordedPayload,
@@ -870,25 +590,6 @@ fn sort_disposition_views(dispositions: &mut [DispositionView]) {
             .cmp(&right.created_at)
             .then_with(|| left.event_id.as_str().cmp(right.event_id.as_str()))
     });
-}
-
-fn sorted_unique<T: Ord>(mut values: Vec<T>) -> Vec<T> {
-    values.sort();
-    values.dedup();
-    values
-}
-
-fn sorted_unique_targets(targets: Vec<ReviewTargetRef>) -> Result<Vec<ReviewTargetRef>> {
-    let mut keyed_targets = targets
-        .into_iter()
-        .map(|target| Ok((sha256_json_hex(&target)?, target)))
-        .collect::<Result<Vec<_>>>()?;
-    keyed_targets.sort_by(|(left, _), (right, _)| left.cmp(right));
-    keyed_targets.dedup_by(|(left, _), (right, _)| left == right);
-    Ok(keyed_targets
-        .into_iter()
-        .map(|(_, target)| target)
-        .collect())
 }
 
 struct DispositionIdMaterial<'a> {
