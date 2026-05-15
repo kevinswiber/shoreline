@@ -81,6 +81,101 @@ fn dump_document_serializes_summary_diagnostics_and_stream_rows() {
 }
 
 #[test]
+fn dump_document_stream_row_kind_is_externally_tagged() {
+    let snapshot = snapshot_with_one_hunk();
+    let hunk = &snapshot.files[0].hunks[0];
+    let note = ReviewNote {
+        id: ReviewNoteId::new("note:demo"),
+        anchor: Anchor {
+            file_id: FileId::new("src/lib.rs"),
+            side: Side::New,
+            line_range: LineRange::new(1, 1),
+            hunk_signature: hunk.signature(),
+            target_text_hash: "sha256:demo".to_owned(),
+            status: ResolutionStatus::Exact,
+        },
+        source: ReviewNoteSource::Sidecar,
+        title: "Demo note".to_owned(),
+        body: None,
+        tags: Vec::new(),
+        confidence: None,
+        external_source: None,
+        author: None,
+        created_at: None,
+    };
+    let stream =
+        ReviewStream::from_snapshot_with_resolved_notes(&snapshot, std::slice::from_ref(&note));
+
+    let document = DumpDocument::new(
+        DumpInputSummary {
+            source: DumpInputSource::ReviewNotes,
+        },
+        snapshot,
+        vec![note],
+        stream,
+        Vec::new(),
+    );
+    let json = serde_json::to_value(&document).expect("dump document serializes");
+
+    let rows = json["stream"]["rows"].as_array().expect("rows are array");
+
+    for (idx, row) in rows.iter().enumerate() {
+        let kind = row["kind"]
+            .as_object()
+            .unwrap_or_else(|| panic!("row {idx} kind must be an object, got {row:#?}"));
+        assert_eq!(
+            kind.len(),
+            1,
+            "row {idx} kind must have exactly one variant tag, got {kind:#?}"
+        );
+    }
+
+    let file_header_row = rows
+        .iter()
+        .find(|row| {
+            row["kind"]
+                .as_object()
+                .is_some_and(|k| k.contains_key("file_header"))
+        })
+        .expect("file_header row present");
+    let file_header = &file_header_row["kind"]["file_header"];
+    assert_object_keys(file_header, &["path", "status"]);
+    assert_eq!(file_header["path"], "src/lib.rs");
+    assert_eq!(file_header["status"], "modified");
+
+    let note_row = rows
+        .iter()
+        .find(|row| {
+            row["kind"]
+                .as_object()
+                .is_some_and(|k| k.contains_key("note"))
+        })
+        .expect("note row present");
+    let note_kind = &note_row["kind"]["note"];
+    assert_object_keys(note_kind, &["note_id", "target_row_id", "title"]);
+    assert_eq!(note_kind["note_id"], "note:demo");
+    assert_eq!(note_kind["title"], "Demo note");
+    assert!(
+        note_kind["target_row_id"].is_string(),
+        "target_row_id is a row id string"
+    );
+}
+
+fn assert_object_keys(value: &serde_json::Value, expected: &[&str]) {
+    let actual: std::collections::BTreeSet<&str> = value
+        .as_object()
+        .expect("value is object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let expected: std::collections::BTreeSet<&str> = expected.iter().copied().collect();
+    assert_eq!(
+        actual, expected,
+        "JSON object keys differ from expected contract"
+    );
+}
+
+#[test]
 fn dump_input_source_serializes_as_snake_case() {
     assert_eq!(
         input_source_value(DumpInputSource::None),
