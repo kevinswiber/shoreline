@@ -374,7 +374,9 @@ cd ~/src/myproject
 git status
 
 # 1. Capture a ReviewUnit. This freezes the current diff as a snapshot.
-shore review capture --pretty
+#    `shore review capture` emits compact JSON only; pipe through jq if you
+#    want to read it.
+shore review capture | jq .
 
 # 2. Read the captured ReviewUnit (composite view, narrative + snapshot).
 shore review unit show --pretty | less

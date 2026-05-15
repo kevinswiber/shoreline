@@ -15,7 +15,10 @@ caller would see them.
   `./target/release/shore`. A debug build works for behavior checks if you prefer.
 - All commands below assume `shore` resolves to that binary. Set `SHORE=$(pwd)/target/release/shore`
   in your shell and substitute `"$SHORE"` if you do not want to install it on `PATH`.
-- Use a fresh temp directory per test so storage state does not bleed across cases:
+- Use a fresh temp directory per test so storage state does not bleed across cases. `shore review
+  capture` shells out to `git diff … HEAD`, so the repo needs **at least one commit** before
+  capture runs; otherwise the underlying git call fails with `fatal: bad revision 'HEAD'`. Include a
+  baseline commit in the setup:
 
   ```bash
   TMP=$(mktemp -d)
@@ -24,7 +27,14 @@ caller would see them.
   git config user.email "manual-test@example.com"
   git config user.name "Manual Test"
   git config commit.gpgsign false
+
+  # Baseline commit — required so `shore review capture` has a HEAD to diff against.
+  echo "placeholder" > README
+  git add README && git commit -q -m "baseline"
   ```
+
+  Each section below then layers real changes on top of that baseline (modify tracked files, add
+  new ones, stage them, leave them unstaged, etc.) so the captured diff is non-empty.
 
 - `shore review capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
   `python3 -m json.tool` if you want to read them. Most read commands accept `--pretty`.
@@ -37,8 +47,10 @@ caller would see them.
 snapshot artifact, and rebuilds `.shore/state.json`.
 
 ```bash
+# Add a tracked file on top of the baseline commit, then modify it so the
+# working tree has a real diff against HEAD.
 echo -e "alpha\nbeta\ngamma" > src.txt
-git add src.txt && git commit -q -m "initial"
+git add src.txt && git commit -q -m "add src"
 echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
 
 shore review capture | jq .
@@ -186,7 +198,7 @@ shore review history --pretty --event-type review-observation-recorded \
 shore review history --pretty --track human:kevin \
   | jq '.eventCount, .historyCount'
 shore review history --pretty --include-body \
-  | jq '.entries[] | select(.eventType=="review_observation_recorded") | .body'
+  | jq '.entries[] | select(.eventType=="review_observation_recorded") | .summary.body'
 ```
 
 **Expect.**
@@ -195,31 +207,57 @@ shore review history --pretty --include-body \
   scan; `historyCount` reflects the returned entries. The `eventSetHash` is identical across
   filtered and unfiltered runs of the same event set.
 - `--include-body` hydrates observation bodies, intervention bodies and resolution reasons, and
-  disposition summaries inline.
+  disposition summaries inline. In a history entry, the event-specific fields (including any
+  hydrated body) live under `.summary`, not at the entry root — for example, an observation body
+  is `.summary.body`, a disposition summary is `.summary.summary`, and an intervention resolution
+  reason is on the resolved entry's `.summary.reason`.
 
 ## G. Review unit show with and without `--include-body`
 
 **Goal.** Confirm the composite ReviewUnit view returns narrative facts before the snapshot
 remainder, and that body text is omitted by default.
 
+`shore review unit show` puts each ReviewUnit fact in two places:
+
+- top-level `observations[]`, `interventions[]`, `dispositions[]`, and `adapterNotes[]` carry the
+  hydrated facts (including `body` / `summary` / `reason` when `--include-body` is passed).
+- `rows[]` carries the projection rendering. Each row has `kind` as a **string**
+  (`"observation"`, `"intervention"`, `"disposition"`, `"file_header"`, `"hunk_header"`,
+  `"diff"`, `"metadata"`, `"adapter_note"`, etc.) and a `projectionPhase` of either `"narrative"`
+  or `"snapshot_remainder"`. Body text is **not** carried on rows.
+
 ```bash
-shore review unit show --pretty | jq '.eventSetHash, .summary // {}'
-shore review unit show --pretty | jq '.rows[].kind | keys'
-shore review unit show --pretty --include-body \
-  | jq '.rows[] | select(.kind.observation) | .kind.observation.body // "(no body)"'
+shore review unit show --pretty | jq '.eventSetHash, .summary'
+shore review unit show --pretty | jq '[.rows[].kind] | unique'
+shore review unit show --pretty \
+  | jq '[.rows[] | {kind, projectionPhase}] | group_by(.projectionPhase) | map({phase: .[0].projectionPhase, count: length})'
+
+# Bodies are omitted by default and live on the top-level fact lists when hydrated.
+shore review unit show --pretty | jq '.observations[] | {title, body}'
+shore review unit show --pretty --include-body | jq '.observations[] | {title, body}'
+shore review unit show --pretty --include-body | jq '.dispositions[] | {disposition, summary}'
+
+# Track filter narrows narrative material but leaves the snapshot remainder intact.
 shore review unit show --pretty --track agent:codex \
-  | jq '.summary // {}, [.rows[] | select(.kind.observation) | .kind.observation.trackId] | unique'
+  | jq '{
+      observations: [.observations[].trackId] | unique,
+      interventions_count: (.interventions | length),
+      dispositions_count: (.dispositions | length),
+      narrative_rows: [.rows[] | select(.projectionPhase=="narrative") | .kind],
+      snapshot_remainder_count: [.rows[] | select(.projectionPhase=="snapshot_remainder")] | length
+    }'
 ```
 
 **Expect.**
 
-- `rows[]` begins with narrative material (observations, interventions, dispositions, imported
-  notes) and continues with the snapshot remainder (file headers, hunk headers, metadata rows,
-  diff rows).
-- Default output has no body strings on observation/intervention/disposition rows. With
-  `--include-body`, the body text appears inline.
-- The `--track` filter narrows narrative rows only; the snapshot remainder still includes every
-  captured file.
+- `[.rows[].kind] | unique` returns a flat list of row-kind strings; the narrative-phase rows
+  appear before the snapshot-remainder rows in `rows[]` order.
+- Default output has every observation/intervention/disposition object present in the top-level
+  lists but with no `body` / `summary` / `reason` field. `--include-body` adds those fields
+  inline.
+- The `--track agent:codex` filter returns only `agent:codex` facts in the top-level lists and
+  drops their narrative rows. `snapshot_remainder_count` is the same as without the filter, and
+  the snapshot remainder still includes every captured file.
 
 ## H. Notes apply + dump/show compatibility path
 
@@ -294,8 +332,20 @@ row per orphan note. The synthetic header is omitted when there are no orphans.
 
 ## J. Storage soundness — events, artifacts, and projection rebuildability
 
-**Goal.** Confirm `.shore/state.json` is a pure projection and that the event log alone is
-sufficient authority.
+**Goal.** Confirm that `.shore/events/` and `.shore/artifacts/` together are the authoritative
+durable store, and that `.shore/state.json` is a pure projection that can be deleted and
+regenerated.
+
+The authority split (see `docs/storage-model.md`):
+
+- `.shore/events/` — append-only immutable per-fact events.
+- `.shore/artifacts/` — immutable support records that events bind to: captured ReviewUnit
+  snapshots (`artifacts/snapshots/`), and content-addressed bodies for large observation,
+  intervention, and disposition payloads (`artifacts/notes/`). `review unit show` reads the
+  snapshot artifact for the selected ReviewUnit; the event log alone cannot reconstruct snapshot
+  rows or large note bodies.
+- `.shore/state.json` — rebuildable projection summary. Reads do not depend on its existence;
+  writes regenerate it.
 
 ```bash
 ls .shore/events/
@@ -335,8 +385,12 @@ When refactoring storage, projections, or CLI surfaces, also look at:
   README's "Current CLI" section.
 - **Event file count**: each `add`/`request`/`resolve`/`apply` call should create exactly one new
   event file unless it is a same-key idempotent retry.
-- **Artifact dedup**: writing two observations with the same body string should yield one file in
-  `.shore/artifacts/notes/` (content-addressed), but two events that both reference it.
+- **Artifact dedup**: writing two observations with the same **large** body string should yield
+  one file in `.shore/artifacts/notes/` (content-addressed) and two events that both reference it
+  by content hash. Bodies under roughly 4 KiB stay inline in the event payload and do not produce
+  an artifact at all, so use a body well over that threshold to exercise this path —
+  `python3 -c "print('x'*5000)" > big-body.txt` and pass `--body-file big-body.txt` to two
+  separate `observation add` calls.
 - **Exit codes**: piping `shore dump`, `shore review unit show`, or `shore review history` through
   `jq -e 'has("schema")'` should always exit 0 for successful runs.
 - **Tracing**: passing `--log info --log-file /tmp/shore.log` to any command should write to that
