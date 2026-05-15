@@ -39,8 +39,8 @@ impl ReviewUnitFingerprint {
     ///
     /// V1 uses the canonical worktree root, which is intentionally local-only and
     /// may change when a later repo-namespace model lands.
-    #[allow(dead_code)]
-    pub fn source_repo_namespace(&self) -> &str {
+    #[cfg(test)]
+    pub(crate) fn source_repo_namespace(&self) -> &str {
         &self.source_repo_namespace
     }
 }
@@ -57,7 +57,7 @@ pub fn capture_worktree_fingerprint(repo: &Path) -> Result<WorktreeFingerprint> 
     worktree_fingerprint_for_files(repo, &files)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn compute_review_unit_fingerprint(repo: &Path) -> Result<ReviewUnitFingerprint> {
     let files = capture_worktree_diff_files(repo)?;
     let files = exclude_shore_storage_files(files);
@@ -136,7 +136,7 @@ pub(crate) fn review_unit_fingerprint_for_files(
     })
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn exclude_shore_storage_files(files: Vec<DiffFile>) -> Vec<DiffFile> {
     files
         .into_iter()
@@ -147,7 +147,7 @@ fn exclude_shore_storage_files(files: Vec<DiffFile>) -> Vec<DiffFile> {
         .collect()
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn is_shore_storage_path(path: &str) -> bool {
     path == ".shore" || path.starts_with(".shore/")
 }

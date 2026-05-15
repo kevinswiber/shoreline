@@ -7,7 +7,7 @@ use self::options::ResolvedHistoryFilters;
 pub use self::options::{ReviewHistoryFilters, ReviewHistoryOptions};
 use self::projection::history_from_events;
 pub use self::result::ReviewHistoryResult;
-pub use self::summary::{ReviewHistoryEntry, ReviewHistorySummary};
+pub use self::summary::ReviewHistoryEntry;
 use crate::error::Result;
 use crate::session::EventStore;
 use crate::session::observation::validated_track_id;

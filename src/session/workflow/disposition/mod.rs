@@ -12,9 +12,9 @@ pub use self::target::{DispositionOverrideSelector, DispositionTargetSelector};
 pub(crate) use self::target::{
     DispositionRelationships, resolve_disposition_relationships, resolve_disposition_target,
 };
-pub use self::view::{
-    CurrentDispositionStatus, CurrentDispositionView, DispositionRecordStatus, DispositionView,
-};
+#[cfg(test)]
+pub use self::view::DispositionRecordStatus;
+pub use self::view::{CurrentDispositionStatus, CurrentDispositionView, DispositionView};
 pub(crate) use self::view::{DispositionProjectionOptions, project_dispositions};
 
 #[cfg(test)]

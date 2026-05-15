@@ -11,30 +11,32 @@ pub(in crate::session) mod observation;
 pub use capture::{CaptureOptions, CaptureResult, capture_worktree_review};
 pub use disposition::{
     CurrentDispositionStatus, CurrentDispositionView, DispositionAddOptions, DispositionAddResult,
-    DispositionOverrideSelector, DispositionRecordStatus, DispositionShowFilters,
-    DispositionShowOptions, DispositionShowResult, DispositionTargetSelector, DispositionView,
-    record_disposition, show_dispositions,
+    DispositionShowFilters, DispositionShowOptions, DispositionShowResult,
+    DispositionTargetSelector, DispositionView, record_disposition, show_dispositions,
 };
 pub use history::{
     ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
-    ReviewHistorySummary, review_history,
+    review_history,
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
+#[cfg(test)]
+pub use intervention::InterventionStatus;
 pub use intervention::{
-    InterventionFetchOptions, InterventionFetchResult, InterventionListFilters,
-    InterventionListOptions, InterventionListResult, InterventionRequestOptions,
-    InterventionRequestResult, InterventionResolutionView, InterventionResolveOptions,
-    InterventionResolveResult, InterventionStatus, InterventionStatusFilter,
-    InterventionTargetSelector, InterventionView, fetch_intervention, list_interventions,
-    request_intervention, resolve_intervention,
+    InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
+    InterventionListResult, InterventionRequestOptions, InterventionRequestResult,
+    InterventionResolutionView, InterventionResolveOptions, InterventionResolveResult,
+    InterventionStatusFilter, InterventionTargetSelector, InterventionView, fetch_intervention,
+    list_interventions, request_intervention, resolve_intervention,
 };
 pub use observation::{
-    ObservationAddOptions, ObservationAddResult, ObservationListFilters, ObservationListOptions,
-    ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,
-    list_observations, record_observation,
+    ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,
+    ObservationStatus, ObservationTargetSelector, ObservationView, list_observations,
+    record_observation,
 };
+#[cfg(test)]
+pub use reload::ReloadOutcome;
 pub(crate) use reload::reload_diagnostics_for_document;
-pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
+pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, reload_session};
 pub use review_unit_projection::{
     AdapterNoteView, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
     ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,

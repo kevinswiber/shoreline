@@ -6,9 +6,7 @@ mod target;
 mod view;
 
 pub use self::fetch::{InterventionFetchOptions, InterventionFetchResult, fetch_intervention};
-pub use self::list::{
-    InterventionListFilters, InterventionListOptions, InterventionListResult, list_interventions,
-};
+pub use self::list::{InterventionListOptions, InterventionListResult, list_interventions};
 pub use self::request::{
     InterventionRequestOptions, InterventionRequestResult, request_intervention,
 };
@@ -17,11 +15,11 @@ pub use self::resolve::{
 };
 pub use self::target::InterventionTargetSelector;
 #[cfg(test)]
+pub use self::view::InterventionStatus;
+#[cfg(test)]
 use self::view::sort_intervention_views;
 pub(crate) use self::view::{InterventionProjectionOptions, project_interventions};
-pub use self::view::{
-    InterventionResolutionView, InterventionStatus, InterventionStatusFilter, InterventionView,
-};
+pub use self::view::{InterventionResolutionView, InterventionStatusFilter, InterventionView};
 #[cfg(test)]
 use crate::canonical_hash::sha256_bytes_hex;
 #[cfg(test)]

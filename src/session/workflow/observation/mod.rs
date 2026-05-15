@@ -5,9 +5,7 @@ mod util;
 mod view;
 
 pub use self::add::{ObservationAddOptions, ObservationAddResult, record_observation};
-pub use self::list::{
-    ObservationListFilters, ObservationListOptions, ObservationListResult, list_observations,
-};
+pub use self::list::{ObservationListOptions, ObservationListResult, list_observations};
 pub use self::target::ObservationTargetSelector;
 pub(crate) use self::target::{
     ResolvedReviewUnit, resolve_observation_target, resolve_review_unit,

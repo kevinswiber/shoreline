@@ -5,23 +5,18 @@ mod store;
 mod workflow;
 
 pub(crate) use identity::{current_timestamp, reviewer_from_git_config, writer_from_git_config};
+pub(crate) use projection::state;
 pub use projection::{
     ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, read_events, rebuild_state,
 };
-#[allow(unused_imports)]
-pub(crate) use projection::{load_or_rebuild_session_state, state};
 pub(crate) use store::{
-    EventStore, EventWriteOutcome, ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files,
-    worktree_fingerprint_for_files,
-};
-#[allow(unused_imports)]
-pub(crate) use store::{
-    ReviewUnitFingerprint, SnapshotArtifact, WorktreeFingerprint, compute_review_unit_fingerprint,
-    read_snapshot_artifact, write_snapshot_artifact,
+    EventStore, EventWriteOutcome, ReviewUnitFingerprint, ShoreStorePaths, prepare_shore_writer,
+    sweep_stale_temp_files, worktree_fingerprint_for_files,
 };
 pub(in crate::session) use store::{body_artifact, fingerprint, snapshot_artifact, store_init};
 pub use store::{capture_worktree_fingerprint, ensure_shore_ignored, shore_dir_for_repo};
-pub(crate) use workflow::reload_diagnostics_for_document;
+#[cfg(test)]
+pub(crate) use store::{compute_review_unit_fingerprint, read_snapshot_artifact};
 pub use workflow::{
     AdapterNoteView, CaptureOptions, CaptureResult, CurrentDispositionStatus,
     CurrentDispositionView, DispositionAddOptions, DispositionAddResult, DispositionShowFilters,
@@ -40,12 +35,9 @@ pub use workflow::{
     request_intervention, resolve_intervention, review_history, show_dispositions,
     show_review_unit,
 };
-#[allow(unused_imports)]
-pub(crate) use workflow::{
-    DispositionOverrideSelector, DispositionRecordStatus, InterventionListFilters,
-    InterventionStatus, ObservationListFilters, ReloadDiagnostic, ReloadOutcome,
-    ReviewHistorySummary,
-};
+#[cfg(test)]
+pub(crate) use workflow::{InterventionStatus, ReloadOutcome};
+pub(crate) use workflow::{ReloadDiagnostic, reload_diagnostics_for_document};
 pub(in crate::session) use workflow::{disposition, intervention, observation};
 
 #[cfg(test)]
