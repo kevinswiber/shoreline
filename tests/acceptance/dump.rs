@@ -2,8 +2,8 @@ use serde_json::Value;
 use shore::dump::{DumpDocument, DumpInputSource, DumpInputSummary};
 use shore::model::{
     Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId, LineRange,
-    ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource,
-    ReviewRowKind, ReviewStream, Side, SnapshotId,
+    ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource, ReviewRow,
+    ReviewRowKind, ReviewStream, RowId, Side, SnapshotId,
 };
 use shore::sidecar::{
     DiagnosticLevel, ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesDiagnostic,
@@ -159,6 +159,111 @@ fn dump_document_stream_row_kind_is_externally_tagged() {
         note_kind["target_row_id"].is_string(),
         "target_row_id is a row id string"
     );
+}
+
+#[test]
+fn dump_document_pins_stale_note_kind_envelope() {
+    let review_id = ReviewId::new("review:test");
+    let snapshot = DiffSnapshot::empty(review_id.clone());
+
+    let stale_row = ReviewRow {
+        id: RowId::new("row:stale"),
+        ordinal: 0,
+        file_id: Some(FileId::new("src/lib.rs")),
+        hunk_id: None,
+        kind: ReviewRowKind::StaleNote {
+            note_id: ReviewNoteId::new("note:stale"),
+            title: "Stale review note".to_owned(),
+            resolution_status: ResolutionStatus::Stale,
+            target_path: "src/lib.rs".to_owned(),
+            target_line_range: LineRange::new(99, 99),
+        },
+    };
+    let orphan_row = ReviewRow {
+        id: RowId::new("row:orphan"),
+        ordinal: 1,
+        file_id: None,
+        hunk_id: None,
+        kind: ReviewRowKind::StaleNote {
+            note_id: ReviewNoteId::new("note:orphan"),
+            title: "Orphan review note".to_owned(),
+            resolution_status: ResolutionStatus::Orphaned,
+            target_path: "src/gone.rs".to_owned(),
+            target_line_range: LineRange::new(1, 3),
+        },
+    };
+    let stream = ReviewStream {
+        review_id: review_id.clone(),
+        snapshot_id: SnapshotId::new("snapshot:test"),
+        rows: vec![stale_row, orphan_row],
+    };
+
+    let document = DumpDocument::new(
+        DumpInputSummary {
+            source: DumpInputSource::ReviewNotes,
+        },
+        snapshot,
+        Vec::new(),
+        stream,
+        Vec::new(),
+    );
+    let json = serde_json::to_value(&document).expect("dump document serializes");
+
+    let rows = json["stream"]["rows"].as_array().expect("rows are array");
+    assert_eq!(rows.len(), 2, "expected exactly two rows: {json:#?}");
+
+    for row in rows {
+        assert_eq!(
+            row["kind"].as_object().expect("kind is object").len(),
+            1,
+            "row kind must have exactly one variant tag: {row:#?}"
+        );
+    }
+
+    let stale_kinds: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter_map(|row| row["kind"].as_object()?.get("stale_note"))
+        .collect();
+    assert_eq!(stale_kinds.len(), 2);
+
+    let stale_value = stale_kinds
+        .iter()
+        .find(|v| v["resolution_status"] == "stale")
+        .expect("stale row present");
+    assert_object_keys(
+        stale_value,
+        &[
+            "note_id",
+            "title",
+            "resolution_status",
+            "target_path",
+            "target_line_range",
+        ],
+    );
+    assert_eq!(stale_value["note_id"], "note:stale");
+    assert_eq!(stale_value["title"], "Stale review note");
+    assert_eq!(stale_value["target_path"], "src/lib.rs");
+    assert_eq!(stale_value["target_line_range"]["start"], 99);
+    assert_eq!(stale_value["target_line_range"]["end"], 99);
+
+    let orphan_value = stale_kinds
+        .iter()
+        .find(|v| v["resolution_status"] == "orphaned")
+        .expect("orphan row present");
+    assert_object_keys(
+        orphan_value,
+        &[
+            "note_id",
+            "title",
+            "resolution_status",
+            "target_path",
+            "target_line_range",
+        ],
+    );
+    assert_eq!(orphan_value["note_id"], "note:orphan");
+    assert_eq!(orphan_value["target_path"], "src/gone.rs");
+    assert_eq!(orphan_value["target_line_range"]["start"], 1);
+    assert_eq!(orphan_value["target_line_range"]["end"], 3);
 }
 
 fn assert_object_keys(value: &serde_json::Value, expected: &[&str]) {
