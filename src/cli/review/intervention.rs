@@ -244,18 +244,26 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         InterventionCommand::Request(args) => {
+            let span = tracing::info_span!("shore.review.intervention.request");
+            let _entered = span.enter();
             tracing::debug!(command = "review.intervention.request", "command_start");
             review_intervention_request(args, stdout)
         }
         InterventionCommand::List(args) => {
+            let span = tracing::info_span!("shore.review.intervention.list");
+            let _entered = span.enter();
             tracing::debug!(command = "review.intervention.list", "command_start");
             review_intervention_list(args, stdout)
         }
         InterventionCommand::Fetch(args) => {
+            let span = tracing::info_span!("shore.review.intervention.fetch");
+            let _entered = span.enter();
             tracing::debug!(command = "review.intervention.fetch", "command_start");
             review_intervention_fetch(args, stdout)
         }
         InterventionCommand::Resolve(args) => {
+            let span = tracing::info_span!("shore.review.intervention.resolve");
+            let _entered = span.enter();
             tracing::debug!(command = "review.intervention.resolve", "command_start");
             review_intervention_resolve(args, stdout)
         }

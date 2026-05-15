@@ -67,6 +67,8 @@ pub(super) fn run(
     args: HistoryArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.review.history");
+    let _entered = span.enter();
     tracing::debug!(command = "review.history", "command_start");
     let pretty = args.pretty;
     let result = review_history(history_options(&args));

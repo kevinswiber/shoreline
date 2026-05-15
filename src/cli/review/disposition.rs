@@ -165,10 +165,14 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         DispositionCommand::Add(args) => {
+            let span = tracing::info_span!("shore.review.disposition.add");
+            let _entered = span.enter();
             tracing::debug!(command = "review.disposition.add", "command_start");
             review_disposition_add(*args, stdout)
         }
         DispositionCommand::Show(args) => {
+            let span = tracing::info_span!("shore.review.disposition.show");
+            let _entered = span.enter();
             tracing::debug!(command = "review.disposition.show", "command_start");
             review_disposition_show(args, stdout)
         }

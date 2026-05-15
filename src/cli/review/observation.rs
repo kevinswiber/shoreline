@@ -139,10 +139,14 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ObservationCommand::Add(args) => {
+            let span = tracing::info_span!("shore.review.observation.add");
+            let _entered = span.enter();
             tracing::debug!(command = "review.observation.add", "command_start");
             review_observation_add(args, stdout)
         }
         ObservationCommand::List(args) => {
+            let span = tracing::info_span!("shore.review.observation.list");
+            let _entered = span.enter();
             tracing::debug!(command = "review.observation.list", "command_start");
             review_observation_list(args, stdout)
         }

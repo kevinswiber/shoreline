@@ -5,10 +5,15 @@ use std::sync::Mutex;
 
 use clap::{Args, ValueEnum};
 use shore::perf::{self, PERF_TARGET, PerfLayer};
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
+
+/// Per-layer filter applied to `PerfLayer` so it observes shore spans
+/// (including the existing `event_store.*` debug spans) regardless of the
+/// user's `--log` filter, without bleeding those events into the fmt layer.
+const PERF_OBSERVE_FILTER: &str = "shore=debug";
 
 #[derive(Clone, Debug, Args)]
 pub(crate) struct TracingArgs {
@@ -40,43 +45,55 @@ pub(crate) fn init_tracing(args: &TracingArgs) -> Result<(), Box<dyn std::error:
         return Ok(());
     }
 
-    let filter_str = compose_filter(log_filter.as_deref(), perf_enabled);
-    let filter = EnvFilter::try_new(&filter_str)
+    let fmt_filter_str = compose_fmt_filter(log_filter.as_deref(), perf_enabled);
+    let fmt_filter = EnvFilter::try_new(&fmt_filter_str)
         .map_err(|error| invalid_input(format!("invalid log filter: {error}")))?;
     let (writer, ansi) = writer(args.log_file.as_ref())?;
 
-    init_tracing_with_writer(filter, args.log_format, writer, ansi, perf_enabled)
+    init_tracing_with_writer(fmt_filter, args.log_format, writer, ansi, perf_enabled)
 }
 
 pub(crate) fn init_tracing_with_writer(
-    filter: EnvFilter,
+    fmt_filter: EnvFilter,
     format: LogFormatArg,
     writer: BoxMakeWriter,
     ansi: bool,
     perf_enabled: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let perf_layer = perf_enabled.then(PerfLayer::new);
-    let registry = tracing_subscriber::registry().with(filter).with(perf_layer);
+    let perf_layer = perf_enabled
+        .then(|| {
+            EnvFilter::try_new(PERF_OBSERVE_FILTER)
+                .map(|filter| PerfLayer::new().with_filter(filter))
+        })
+        .transpose()
+        .map_err(|error| invalid_input(format!("invalid perf observe filter: {error}")))?;
+
+    let registry = tracing_subscriber::registry().with(perf_layer);
     let fmt_base = tracing_subscriber::fmt::layer()
         .with_writer(writer)
         .with_ansi(ansi);
 
     match format {
-        LogFormatArg::Compact => registry.with(fmt_base.compact()).try_init(),
-        LogFormatArg::Pretty => registry.with(fmt_base.pretty()).try_init(),
-        LogFormatArg::Json => registry.with(fmt_base.json()).try_init(),
+        LogFormatArg::Compact => registry
+            .with(fmt_base.compact().with_filter(fmt_filter))
+            .try_init(),
+        LogFormatArg::Pretty => registry
+            .with(fmt_base.pretty().with_filter(fmt_filter))
+            .try_init(),
+        LogFormatArg::Json => registry
+            .with(fmt_base.json().with_filter(fmt_filter))
+            .try_init(),
     }
     .map_err(|error| io::Error::other(error.to_string()))?;
 
     Ok(())
 }
 
-fn compose_filter(log: Option<&str>, perf_enabled: bool) -> String {
-    let perf_directives = format!("{PERF_TARGET}=info,shore=debug");
+fn compose_fmt_filter(log: Option<&str>, perf_enabled: bool) -> String {
     match (log, perf_enabled) {
-        (Some(filter), true) => format!("{filter},{perf_directives}"),
+        (Some(filter), true) => format!("{filter},{PERF_TARGET}=info"),
         (Some(filter), false) => filter.to_owned(),
-        (None, true) => format!("off,{perf_directives}"),
+        (None, true) => format!("off,{PERF_TARGET}=info"),
         (None, false) => "off".to_owned(),
     }
 }
@@ -140,30 +157,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compose_filter_returns_off_when_nothing_enabled() {
-        assert_eq!(compose_filter(None, false), "off");
+    fn compose_fmt_filter_returns_off_when_nothing_enabled() {
+        assert_eq!(compose_fmt_filter(None, false), "off");
     }
 
     #[test]
-    fn compose_filter_passes_user_filter_through_when_perf_disabled() {
-        assert_eq!(compose_filter(Some("shore=info"), false), "shore=info");
+    fn compose_fmt_filter_passes_user_filter_through_when_perf_disabled() {
+        assert_eq!(compose_fmt_filter(Some("shore=info"), false), "shore=info");
     }
 
     #[test]
-    fn compose_filter_enables_perf_directives_when_only_perf_set() {
-        let composed = compose_filter(None, true);
-        assert!(composed.starts_with("off,"), "got: {composed}");
-        assert!(composed.contains(PERF_TARGET));
-        assert!(composed.contains("shore=debug"));
-        // EnvFilter should accept the composed directives.
+    fn compose_fmt_filter_only_lets_perf_events_through_when_perf_alone_is_set() {
+        let composed = compose_fmt_filter(None, true);
+        assert_eq!(composed, format!("off,{PERF_TARGET}=info"));
+        assert!(
+            !composed.contains("shore=debug"),
+            "fmt filter must not enable broad shore debug output: {composed}"
+        );
         EnvFilter::try_new(&composed).expect("composed filter parses");
     }
 
     #[test]
-    fn compose_filter_merges_user_filter_with_perf_directives() {
-        let composed = compose_filter(Some("warn"), true);
-        assert!(composed.starts_with("warn,"));
-        assert!(composed.contains(PERF_TARGET));
+    fn compose_fmt_filter_merges_user_filter_with_perf_target_only() {
+        let composed = compose_fmt_filter(Some("warn"), true);
+        assert_eq!(composed, format!("warn,{PERF_TARGET}=info"));
         EnvFilter::try_new(&composed).expect("composed filter parses");
+    }
+
+    #[test]
+    fn perf_observe_filter_is_valid() {
+        EnvFilter::try_new(PERF_OBSERVE_FILTER).expect("perf observe filter parses");
     }
 }

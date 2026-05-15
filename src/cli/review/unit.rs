@@ -177,6 +177,8 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         UnitCommand::Show(args) => {
+            let span = tracing::info_span!("shore.review.unit.show");
+            let _entered = span.enter();
             tracing::debug!(command = "review.unit.show", "command_start");
             review_unit_show_command(args, stdout)
         }
