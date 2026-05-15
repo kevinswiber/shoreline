@@ -1,12 +1,32 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::{
-    ActorId, DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
-    ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side,
-    SnapshotId, TrackId, WorkUnitId,
+use crate::model::EventId;
+
+mod disposition;
+mod intervention;
+mod kind;
+mod observation;
+mod payload;
+mod review;
+mod target;
+mod writer;
+
+pub use disposition::{ReviewDisposition, ReviewDispositionRecordedPayload};
+pub use intervention::{
+    InterventionMode, InterventionReasonCode, InterventionRequestedPayload,
+    InterventionResolutionOutcome, InterventionResolvedPayload,
 };
+pub use kind::EventType;
+pub use observation::ReviewObservationRecordedPayload;
+pub use payload::EventPayload;
+pub use review::{
+    ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload,
+    ReviewUnitCapturedPayload, SidecarSource,
+};
+pub use target::EventTarget;
+pub use writer::{Writer, WriterRole, WriterTool};
 
 const EVENT_SCHEMA: &str = "shore.event";
 const EVENT_VERSION: u32 = 1;
@@ -18,7 +38,7 @@ pub struct ShoreEvent {
     pub version: u32,
     pub event_id: EventId,
     pub event_type: EventType,
-    #[serde(deserialize_with = "deserialize_non_empty_idempotency_key")]
+    #[serde(deserialize_with = "payload::deserialize_non_empty_idempotency_key")]
     pub idempotency_key: String,
     pub target: EventTarget,
     pub writer: Writer,
@@ -89,399 +109,6 @@ impl ShoreEvent {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventType {
-    ReviewInitialized,
-    ReviewUnitCaptured,
-    ReviewObservationRecorded,
-    ReviewDispositionRecorded,
-    InterventionRequested,
-    InterventionResolved,
-    ReviewNoteImported,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EventTarget {
-    pub review_id: ReviewId,
-    /// Work-unit target used by review-level events that do not yet target a
-    /// captured ReviewUnit, such as initialization and imported review notes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub work_unit_id: Option<WorkUnitId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub review_unit_id: Option<ReviewUnitId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub revision_id: Option<RevisionId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot_id: Option<SnapshotId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub track_id: Option<TrackId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject: Option<ReviewTargetRef>,
-}
-
-impl EventTarget {
-    pub fn new(review_id: ReviewId, work_unit_id: WorkUnitId) -> Self {
-        Self {
-            review_id,
-            work_unit_id: Some(work_unit_id),
-            review_unit_id: None,
-            revision_id: None,
-            snapshot_id: None,
-            track_id: None,
-            subject: None,
-        }
-    }
-
-    pub fn for_review_unit(
-        review_id: ReviewId,
-        review_unit_id: ReviewUnitId,
-        revision_id: RevisionId,
-        snapshot_id: SnapshotId,
-    ) -> Self {
-        Self {
-            review_id,
-            work_unit_id: None,
-            review_unit_id: Some(review_unit_id.clone()),
-            revision_id: Some(revision_id),
-            snapshot_id: Some(snapshot_id),
-            track_id: None,
-            subject: Some(ReviewTargetRef::ReviewUnit { review_unit_id }),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Writer {
-    pub actor_id: ActorId,
-    pub role: WriterRole,
-    pub tool: WriterTool,
-}
-
-impl Writer {
-    pub fn shore_local_author(version: impl Into<String>) -> Self {
-        Self {
-            actor_id: ActorId::new("actor:local"),
-            role: WriterRole::Author,
-            tool: WriterTool {
-                name: "shore".to_owned(),
-                version: version.into(),
-            },
-        }
-    }
-
-    pub fn shore_local_reviewer(version: impl Into<String>) -> Self {
-        Self {
-            actor_id: ActorId::new("actor:local"),
-            role: WriterRole::Reviewer,
-            tool: WriterTool {
-                name: "shore".to_owned(),
-                version: version.into(),
-            },
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WriterRole {
-    Author,
-    Reviewer,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WriterTool {
-    pub name: String,
-    pub version: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReviewDisposition {
-    Accepted,
-    AcceptedWithFollowUp,
-    NeedsChanges,
-    NeedsClarification,
-    Overridden,
-    Deferred,
-    SplitOut,
-    Superseded,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InterventionMode {
-    Blocking,
-    Advisory,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InterventionReasonCode {
-    AmbiguousState,
-    UnsafeAction,
-    StaleRevision,
-    FailedGate,
-    ExternalSideEffect,
-    ConflictingEvent,
-    MissingPermission,
-    ManualDecisionRequired,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InterventionResolutionOutcome {
-    Approved,
-    Rejected,
-    Dismissed,
-    Superseded,
-    Abandoned,
-}
-
-pub trait EventPayload: Serialize {
-    fn event_type(&self) -> EventType;
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewInitializedPayload {}
-
-impl ReviewInitializedPayload {
-    pub fn idempotency_key(review_id: &ReviewId, work_unit_id: &WorkUnitId) -> String {
-        format!(
-            "review_initialized:{}:{}",
-            review_id.as_str(),
-            work_unit_id.as_str()
-        )
-    }
-}
-
-impl EventPayload for ReviewInitializedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::ReviewInitialized
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewUnitCapturedPayload {
-    pub review_unit_id: ReviewUnitId,
-    pub source: ReviewUnitSource,
-    pub base: ReviewEndpoint,
-    pub target: ReviewEndpoint,
-    pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
-    pub snapshot_artifact_content_hash: String,
-}
-
-impl EventPayload for ReviewUnitCapturedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::ReviewUnitCaptured
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewObservationRecordedPayload {
-    pub observation_id: ObservationId,
-    pub target: ReviewTargetRef,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_artifact_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_byte_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_content_hash: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub supersedes_observation_ids: Vec<ObservationId>,
-}
-
-impl ReviewObservationRecordedPayload {
-    pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
-        track_id: &TrackId,
-        source_key: &str,
-    ) -> String {
-        format!(
-            "review_observation_recorded:{}:{}:{}",
-            review_unit_id.as_str(),
-            track_id.as_str(),
-            source_key
-        )
-    }
-}
-
-impl EventPayload for ReviewObservationRecordedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::ReviewObservationRecorded
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewDispositionRecordedPayload {
-    pub disposition_id: DispositionId,
-    pub target: ReviewTargetRef,
-    pub disposition: ReviewDisposition,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_artifact_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_byte_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_content_hash: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub replaces_disposition_ids: Vec<DispositionId>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub related_observation_ids: Vec<ObservationId>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub related_intervention_ids: Vec<InterventionId>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub overrides: Vec<ReviewTargetRef>,
-}
-
-impl ReviewDispositionRecordedPayload {
-    pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
-        track_id: &TrackId,
-        source_key: &str,
-    ) -> String {
-        format!(
-            "review_disposition_recorded:{}:{}:{}",
-            review_unit_id.as_str(),
-            track_id.as_str(),
-            source_key
-        )
-    }
-}
-
-impl EventPayload for ReviewDispositionRecordedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::ReviewDispositionRecorded
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InterventionRequestedPayload {
-    pub intervention_id: InterventionId,
-    pub target: ReviewTargetRef,
-    pub mode: InterventionMode,
-    pub reason_code: InterventionReasonCode,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_artifact_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_byte_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_content_hash: Option<String>,
-}
-
-impl InterventionRequestedPayload {
-    pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
-        track_id: &TrackId,
-        source_key: &str,
-    ) -> String {
-        format!(
-            "intervention_requested:{}:{}:{}",
-            review_unit_id.as_str(),
-            track_id.as_str(),
-            source_key
-        )
-    }
-}
-
-impl EventPayload for InterventionRequestedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::InterventionRequested
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InterventionResolvedPayload {
-    pub intervention_resolution_id: InterventionResolutionId,
-    pub intervention_id: InterventionId,
-    pub outcome: InterventionResolutionOutcome,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason_artifact_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason_byte_size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason_content_hash: Option<String>,
-}
-
-impl InterventionResolvedPayload {
-    pub fn idempotency_key(intervention_id: &InterventionId, source_key: &str) -> String {
-        format!(
-            "intervention_resolved:{}:{}",
-            intervention_id.as_str(),
-            source_key
-        )
-    }
-}
-
-impl EventPayload for InterventionResolvedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::InterventionResolved
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SidecarSource {
-    ReviewNotes,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewNoteImportedPayload {
-    pub sidecar_source: SidecarSource,
-    pub note_id: String,
-    pub file_path: String,
-    pub file_old_path: Option<String>,
-    pub target: Option<ImportedNoteTarget>,
-    pub title: String,
-    pub body: Option<String>,
-    pub body_artifact_path: Option<String>,
-    pub body_byte_size: Option<usize>,
-    pub tags: Vec<String>,
-    pub confidence: Option<String>,
-    pub external_source: Option<String>,
-    pub author: Option<String>,
-    pub created_at: Option<String>,
-    pub sidecar_content_hash: String,
-}
-
-impl EventPayload for ReviewNoteImportedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::ReviewNoteImported
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportedNoteTarget {
-    pub side: Side,
-    pub start_line: u32,
-    pub end_line: u32,
-}
-
 #[cfg(test)]
 struct FixedClock(String);
 
@@ -499,20 +126,6 @@ impl From<FixedClock> for String {
     }
 }
 
-fn deserialize_non_empty_idempotency_key<'de, D>(
-    deserializer: D,
-) -> std::result::Result<String, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = String::deserialize(deserializer)?;
-    if value.trim().is_empty() {
-        return Err(serde::de::Error::custom("idempotencyKey cannot be empty"));
-    }
-
-    Ok(value)
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -520,8 +133,9 @@ mod tests {
     use super::*;
     use crate::error::ShoreError;
     use crate::model::{
-        DispositionId, InterventionId, InterventionResolutionId, ReviewEndpoint, ReviewId,
-        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, TrackId, WorktreeCaptureMode,
+        DispositionId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
+        ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId,
+        TrackId, WorkUnitId, WorktreeCaptureMode,
     };
 
     #[test]
