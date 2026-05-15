@@ -214,6 +214,12 @@ Behavior:
 
   Other `kind` variants follow the same envelope: `hunk_header`, `diff`, `metadata`, `note`, and
   `empty_state`.
+- Row IDs (`stream.rows[*].id` and the `target_row_id` carried by `note` row kinds) are opaque
+  strings. They are stable and unique within a single built review stream and safe to use as keys
+  or to follow note references, but their internal format is implementation detail: do not parse
+  them, derive ordering from them lexically, or assume any particular width or prefix. Use the
+  sibling `ordinal` field if you need a numeric position. Format changes are not breaking changes
+  to the dump contract.
 - Explicit sidecar inputs and `--log-file <path>` are command helpers and are not themselves
   included in the reviewed snapshot for that command. Other unrelated tracked and untracked files
   remain visible.

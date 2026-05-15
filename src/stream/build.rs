@@ -232,6 +232,8 @@ impl<'a> StreamBuilder<'a> {
         kind: ReviewRowKind,
     ) -> RowId {
         let ordinal = self.rows.len();
+        // RowId is opaque in the dump contract — see README "Behavior" notes under `shore dump`.
+        // The width of this padding is not load-bearing; consumers must use `ordinal` for position.
         let id = RowId::new(format!("row:{ordinal:04}"));
         self.rows.push(ReviewRow {
             id: id.clone(),
