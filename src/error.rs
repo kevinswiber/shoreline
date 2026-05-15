@@ -26,4 +26,20 @@ pub enum ShoreError {
 
     #[error("unsupported state schema/version: {schema} v{version}")]
     UnsupportedStateSchemaVersion { schema: String, version: u32 },
+
+    #[error("{reason}")]
+    WorkflowInputInvalid { reason: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workflow_input_invalid_preserves_display_text() {
+        let err = ShoreError::WorkflowInputInvalid {
+            reason: "track is required".to_owned(),
+        };
+        assert_eq!(err.to_string(), "track is required");
+    }
 }

@@ -5,7 +5,9 @@ use crate::session::body_artifact::{BodyArtifactOutcome, stage_body_artifact};
 pub(crate) fn required_title(title: Option<&str>) -> Result<String> {
     let title = title.unwrap_or_default().trim();
     if title.is_empty() {
-        return Err(ShoreError::Message("title is required".to_owned()));
+        return Err(ShoreError::WorkflowInputInvalid {
+            reason: "title is required".to_owned(),
+        });
     }
     Ok(title.to_owned())
 }
@@ -59,5 +61,7 @@ pub(crate) fn validated_track_id(value: &str) -> Result<TrackId> {
 }
 
 fn invalid_track_id(message: &str) -> ShoreError {
-    ShoreError::Message(message.to_owned())
+    ShoreError::WorkflowInputInvalid {
+        reason: message.to_owned(),
+    }
 }

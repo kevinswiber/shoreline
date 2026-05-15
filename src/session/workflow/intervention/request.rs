@@ -117,16 +117,17 @@ pub fn request_intervention(
     let events = event_store.list_events()?;
     let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let target = resolve_intervention_target(worktree_root, &events, &resolved, &options.target)?;
-    let track_id = validated_track_id(
-        options
-            .track
-            .as_deref()
-            .ok_or_else(|| ShoreError::Message("track is required".to_owned()))?,
-    )?;
+    let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
+        ShoreError::WorkflowInputInvalid {
+            reason: "track is required".to_owned(),
+        }
+    })?)?;
     let title = required_title(options.title.as_deref())?;
     let reason_code = options
         .reason_code
-        .ok_or_else(|| ShoreError::Message("reason code is required".to_owned()))?;
+        .ok_or_else(|| ShoreError::WorkflowInputInvalid {
+            reason: "reason code is required".to_owned(),
+        })?;
     let writer = reviewer_from_git_config(worktree_root);
     let body_content_hash = options
         .body

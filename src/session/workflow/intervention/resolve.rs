@@ -89,7 +89,9 @@ pub fn resolve_intervention(
     let request_payload = request_record.payload;
     let outcome = options
         .outcome
-        .ok_or_else(|| ShoreError::Message("outcome is required".to_owned()))?;
+        .ok_or_else(|| ShoreError::WorkflowInputInvalid {
+            reason: "outcome is required".to_owned(),
+        })?;
     let writer = reviewer_from_git_config(worktree_root);
     let reason_content_hash = options
         .reason

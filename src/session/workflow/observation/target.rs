@@ -100,9 +100,9 @@ pub(crate) fn resolve_observation_target(
 ) -> Result<ReviewTargetRef> {
     let Some(file_path) = selector.file_path.as_deref() else {
         if selector.start_line.is_some() || selector.end_line.is_some() {
-            return Err(ShoreError::Message(
-                "file is required when selecting observation lines".to_owned(),
-            ));
+            return Err(ShoreError::WorkflowInputInvalid {
+                reason: "file is required when selecting observation lines".to_owned(),
+            });
         }
         return Ok(ReviewTargetRef::ReviewUnit {
             review_unit_id: resolved.review_unit_id.clone(),
@@ -121,15 +121,15 @@ pub(crate) fn resolve_observation_target(
     match selector.start_line {
         Some(start_line) => {
             if start_line == 0 {
-                return Err(ShoreError::Message(
-                    "start line must be greater than zero".to_owned(),
-                ));
+                return Err(ShoreError::WorkflowInputInvalid {
+                    reason: "start line must be greater than zero".to_owned(),
+                });
             }
             let end_line = selector.end_line.unwrap_or(start_line);
             if end_line < start_line {
-                return Err(ShoreError::Message(
-                    "end line must be greater than or equal to start line".to_owned(),
-                ));
+                return Err(ShoreError::WorkflowInputInvalid {
+                    reason: "end line must be greater than or equal to start line".to_owned(),
+                });
             }
             Ok(ReviewTargetRef::Range {
                 review_unit_id: resolved.review_unit_id.clone(),
@@ -141,9 +141,9 @@ pub(crate) fn resolve_observation_target(
         }
         None => {
             if selector.end_line.is_some() {
-                return Err(ShoreError::Message(
-                    "start line is required when end line is supplied".to_owned(),
-                ));
+                return Err(ShoreError::WorkflowInputInvalid {
+                    reason: "start line is required when end line is supplied".to_owned(),
+                });
             }
             Ok(ReviewTargetRef::File {
                 review_unit_id: resolved.review_unit_id.clone(),

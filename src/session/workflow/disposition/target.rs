@@ -158,14 +158,14 @@ pub(crate) fn resolve_disposition_relationships(
 ) -> Result<ResolvedDispositionRelationships> {
     if disposition == ReviewDisposition::Overridden {
         if summary.is_none_or(|summary| summary.trim().is_empty()) {
-            return Err(ShoreError::Message(
-                "summary is required for overridden disposition".to_owned(),
-            ));
+            return Err(ShoreError::WorkflowInputInvalid {
+                reason: "summary is required for overridden disposition".to_owned(),
+            });
         }
         if relationships.overrides.is_empty() {
-            return Err(ShoreError::Message(
-                "override reference is required for overridden disposition".to_owned(),
-            ));
+            return Err(ShoreError::WorkflowInputInvalid {
+                reason: "override reference is required for overridden disposition".to_owned(),
+            });
         }
     }
 

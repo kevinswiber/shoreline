@@ -143,15 +143,16 @@ pub fn record_disposition(options: DispositionAddOptions) -> Result<DispositionA
     let events = event_store.list_events()?;
     let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let target = resolve_disposition_target(worktree_root, &events, &resolved, &options.target)?;
-    let track_id = validated_track_id(
-        options
-            .track
-            .as_deref()
-            .ok_or_else(|| ShoreError::Message("track is required".to_owned()))?,
-    )?;
+    let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
+        ShoreError::WorkflowInputInvalid {
+            reason: "track is required".to_owned(),
+        }
+    })?)?;
     let disposition = options
         .disposition
-        .ok_or_else(|| ShoreError::Message("disposition is required".to_owned()))?;
+        .ok_or_else(|| ShoreError::WorkflowInputInvalid {
+            reason: "disposition is required".to_owned(),
+        })?;
     let relationships = resolve_disposition_relationships(
         &events,
         &resolved,
