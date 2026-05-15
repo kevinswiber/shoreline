@@ -173,6 +173,47 @@ Behavior:
   followed by one `stale_note` row per orphan note. Stale-note rows carry `note_id`, `title`,
   `resolution_status` (`stale` or `orphaned`), `target_path`, and `target_line_range`. The
   synthetic header is omitted when there are no orphan notes.
+- The `kind` field on each `stream.rows[*]` entry is the externally tagged JSON representation of
+  the row-kind enum: a single-key object whose key is the snake_case variant tag and whose value
+  carries that variant's fields. This is the raw model serialization, not a separately-projected
+  dump shape; any future projection would be a versioned `schema`/`version` bump on the dump
+  document. Example `file_header` and `stale_note` row entries:
+
+  ```json
+  {
+    "id": "row:0000",
+    "ordinal": 0,
+    "file_id": "src/lib.rs",
+    "hunk_id": null,
+    "kind": {
+      "file_header": {
+        "path": "src/lib.rs",
+        "status": "modified"
+      }
+    }
+  }
+  ```
+
+  ```json
+  {
+    "id": "row:0003",
+    "ordinal": 3,
+    "file_id": "src/lib.rs",
+    "hunk_id": null,
+    "kind": {
+      "stale_note": {
+        "note_id": "note:stale",
+        "title": "Stale review note",
+        "resolution_status": "stale",
+        "target_path": "src/lib.rs",
+        "target_line_range": { "start": 99, "end": 99 }
+      }
+    }
+  }
+  ```
+
+  Other `kind` variants follow the same envelope: `hunk_header`, `diff`, `metadata`, `note`, and
+  `empty_state`.
 - Explicit sidecar inputs and `--log-file <path>` are command helpers and are not themselves
   included in the reviewed snapshot for that command. Other unrelated tracked and untracked files
   remain visible.
