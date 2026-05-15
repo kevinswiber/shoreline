@@ -114,9 +114,11 @@ impl LocalStorage {
 
     /// Creates `path` only if it does not already exist.
     ///
-    /// The implementation writes and syncs a same-directory temp file first, then links it into
-    /// place so readers never observe a partially-written target. This requires a local filesystem
-    /// that supports hard links, which is expected for `.shore/` inside a normal Git worktree.
+    /// Opens the target with `OpenOptions::create_new(true)`, which maps to `O_CREAT|O_EXCL` on
+    /// POSIX and `CREATE_NEW` on Windows. The open either creates the file atomically or fails
+    /// with `AlreadyExists` when the path is already present. If the open succeeds but the
+    /// subsequent write or fsync fails, the partially written target is removed on a best-effort
+    /// basis so a retry can succeed.
     pub fn create_file_exclusive(
         &self,
         path: &Path,
@@ -125,25 +127,30 @@ impl LocalStorage {
     ) -> Result<CreateFileOutcome> {
         let path = self.resolve(path);
         let parent = parent_dir(&path)?;
-        let temp_path = self.write_temp_file(parent, bytes, durability)?;
+        fs::create_dir_all(parent).map_err(|error| io_error("create directory", parent, error))?;
 
-        match fs::hard_link(&temp_path, &path) {
-            Ok(()) => {
-                fs::remove_file(&temp_path)
-                    .map_err(|error| io_error("remove temp file", &temp_path, error))?;
-                sync_parent_if_durable(parent, durability)?;
-                Ok(CreateFileOutcome::Created)
-            }
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                fs::remove_file(&temp_path)
-                    .map_err(|error| io_error("remove temp file", &temp_path, error))?;
-                Ok(CreateFileOutcome::AlreadyExists)
+                return Ok(CreateFileOutcome::AlreadyExists);
             }
-            Err(error) => {
-                let _ = fs::remove_file(&temp_path);
-                Err(io_error("create file exclusively", &path, error))
-            }
+            Err(error) => return Err(io_error("create file exclusively", &path, error)),
+        };
+
+        if let Err(error) = file.write_all(bytes) {
+            let _ = fs::remove_file(&path);
+            return Err(io_error("write file", &path, error));
         }
+
+        if durability == Durability::Durable
+            && let Err(error) = file.sync_all()
+        {
+            let _ = fs::remove_file(&path);
+            return Err(io_error("sync file", &path, error));
+        }
+
+        sync_parent_if_durable(parent, durability)?;
+        Ok(CreateFileOutcome::Created)
     }
 
     pub fn list_dir(&self, dir: &Path) -> Result<Vec<PathBuf>> {
@@ -406,5 +413,35 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn exclusive_create_does_not_leave_temp_files_behind() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        let path = root.path().join("events/event.json");
+
+        storage
+            .create_file_exclusive(&path, b"first", Durability::Durable)
+            .unwrap();
+        storage
+            .create_file_exclusive(&path, b"second", Durability::Projection)
+            .unwrap();
+
+        assert!(storage.list_temp_files(root.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn exclusive_create_creates_missing_parent_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        let path = root.path().join("deeply/nested/dirs/event.json");
+
+        let outcome = storage
+            .create_file_exclusive(&path, b"payload", Durability::Projection)
+            .unwrap();
+
+        assert_eq!(outcome, CreateFileOutcome::Created);
+        assert_eq!(storage.read_bytes(&path).unwrap(), b"payload");
     }
 }
