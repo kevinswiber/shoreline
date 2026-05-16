@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::view::collect_request_records;
+use super::view::{InterventionProjectionRecords, collect_intervention_projection_records};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{EventId, InterventionId, InterventionResolutionId, ReviewTargetRef};
@@ -76,7 +76,10 @@ pub fn resolve_intervention(
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let mut request_records = collect_request_records(&events)?;
+    let InterventionProjectionRecords {
+        mut request_records,
+        ..
+    } = collect_intervention_projection_records(&events)?;
     let request_record = request_records
         .remove(&options.intervention_id)
         .ok_or_else(|| {

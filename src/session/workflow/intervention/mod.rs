@@ -17,18 +17,22 @@ pub use self::target::InterventionTargetSelector;
 #[cfg(test)]
 pub use self::view::InterventionStatus;
 #[cfg(test)]
+use self::view::collect_intervention_projection_records;
+#[cfg(test)]
 use self::view::sort_intervention_views;
 pub(crate) use self::view::{InterventionProjectionOptions, project_interventions};
 pub use self::view::{InterventionResolutionView, InterventionStatusFilter, InterventionView};
 #[cfg(test)]
 use crate::canonical_hash::sha256_bytes_hex;
 #[cfg(test)]
-use crate::model::{EventId, InterventionId, InterventionResolutionId, ReviewUnitId, TrackId};
+use crate::model::{
+    EventId, InterventionId, InterventionResolutionId, ReviewId, ReviewUnitId, TrackId,
+};
 #[cfg(test)]
 use crate::session::current_timestamp;
 #[cfg(test)]
 use crate::session::event::{
-    EventTarget, EventType, InterventionMode, InterventionReasonCode,
+    EventTarget, EventType, InterventionMode, InterventionReasonCode, InterventionRequestedPayload,
     InterventionResolutionOutcome, InterventionResolvedPayload, ShoreEvent, Writer,
 };
 
@@ -726,6 +730,106 @@ mod tests {
     }
 
     #[test]
+    fn collect_intervention_projection_records_is_order_independent_and_collapses_duplicates() {
+        let review_id = ReviewId::new("review:default");
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:test");
+        let track_id = TrackId::new("human:kevin");
+        let intervention_id = InterventionId::new("intervention:sha256:alpha");
+        let approve_resolution_id =
+            InterventionResolutionId::new("intervention-resolution:sha256:approve");
+        let reject_resolution_id =
+            InterventionResolutionId::new("intervention-resolution:sha256:reject");
+
+        let request_a = projection_request_event(
+            &review_id,
+            &review_unit_id,
+            &track_id,
+            &intervention_id,
+            "retry-a",
+            "2026-01-01T00:00:00Z",
+        );
+        let request_b = projection_request_event(
+            &review_id,
+            &review_unit_id,
+            &track_id,
+            &intervention_id,
+            "retry-b",
+            "2026-01-01T00:00:00Z",
+        );
+        let approve_x = projection_resolution_event(
+            &review_id,
+            &review_unit_id,
+            &track_id,
+            &intervention_id,
+            &approve_resolution_id,
+            "retry-x",
+            "2026-01-02T00:00:00Z",
+        );
+        let approve_y = projection_resolution_event(
+            &review_id,
+            &review_unit_id,
+            &track_id,
+            &intervention_id,
+            &approve_resolution_id,
+            "retry-y",
+            "2026-01-02T00:00:00Z",
+        );
+        let reject_z = projection_resolution_event(
+            &review_id,
+            &review_unit_id,
+            &track_id,
+            &intervention_id,
+            &reject_resolution_id,
+            "retry-z",
+            "2026-01-03T00:00:00Z",
+        );
+
+        let lowest_request_event_id =
+            std::cmp::min(request_a.event_id.as_str(), request_b.event_id.as_str()).to_owned();
+        let lowest_approve_event_id =
+            std::cmp::min(approve_x.event_id.as_str(), approve_y.event_id.as_str()).to_owned();
+
+        let forward = vec![
+            request_a.clone(),
+            request_b.clone(),
+            approve_x.clone(),
+            approve_y.clone(),
+            reject_z.clone(),
+        ];
+        let reverse: Vec<ShoreEvent> = forward.iter().rev().cloned().collect();
+
+        let forward_records = collect_intervention_projection_records(&forward).unwrap();
+        let reverse_records = collect_intervention_projection_records(&reverse).unwrap();
+
+        assert_eq!(forward_records.request_records.len(), 1);
+        assert_eq!(
+            forward_records.request_records[&intervention_id]
+                .event
+                .event_id
+                .as_str(),
+            lowest_request_event_id,
+        );
+        assert_eq!(
+            reverse_records.request_records[&intervention_id]
+                .event
+                .event_id
+                .as_str(),
+            lowest_request_event_id,
+        );
+
+        let forward_resolutions = &forward_records.resolutions[&intervention_id];
+        let reverse_resolutions = &reverse_records.resolutions[&intervention_id];
+        assert_eq!(forward_resolutions, reverse_resolutions);
+        assert_eq!(forward_resolutions.len(), 2);
+
+        let approve_view = forward_resolutions
+            .iter()
+            .find(|view| view.id == approve_resolution_id)
+            .unwrap();
+        assert_eq!(approve_view.event_id.as_str(), lowest_approve_event_id);
+    }
+
+    #[test]
     fn sort_intervention_views_uses_created_at_then_event_id() {
         let mut views = vec![
             intervention_view_for_sort("intervention:sha256:b", "evt:sha256:b", "unix-ms:2"),
@@ -956,6 +1060,88 @@ mod tests {
             .record_event_once(&event)
             .unwrap();
         event_id
+    }
+
+    fn projection_request_event(
+        review_id: &ReviewId,
+        review_unit_id: &ReviewUnitId,
+        track_id: &TrackId,
+        intervention_id: &InterventionId,
+        source_key: &str,
+        occurred_at: &str,
+    ) -> ShoreEvent {
+        let payload = InterventionRequestedPayload {
+            intervention_id: intervention_id.clone(),
+            target: ReviewTargetRef::ReviewUnit {
+                review_unit_id: review_unit_id.clone(),
+            },
+            mode: InterventionMode::Advisory,
+            reason_code: InterventionReasonCode::ManualDecisionRequired,
+            title: "projection".to_owned(),
+            body: None,
+            body_artifact_path: None,
+            body_byte_size: None,
+            body_content_hash: None,
+        };
+        ShoreEvent::new(
+            EventType::InterventionRequested,
+            InterventionRequestedPayload::idempotency_key(review_unit_id, track_id, source_key),
+            EventTarget {
+                review_id: review_id.clone(),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: None,
+                snapshot_id: None,
+                track_id: Some(track_id.clone()),
+                subject: Some(ReviewTargetRef::ReviewUnit {
+                    review_unit_id: review_unit_id.clone(),
+                }),
+            },
+            Writer::shore_local_reviewer("test"),
+            payload,
+            occurred_at.to_owned(),
+        )
+        .unwrap()
+    }
+
+    fn projection_resolution_event(
+        review_id: &ReviewId,
+        review_unit_id: &ReviewUnitId,
+        track_id: &TrackId,
+        intervention_id: &InterventionId,
+        resolution_id: &InterventionResolutionId,
+        source_key: &str,
+        occurred_at: &str,
+    ) -> ShoreEvent {
+        let payload = InterventionResolvedPayload {
+            intervention_resolution_id: resolution_id.clone(),
+            intervention_id: intervention_id.clone(),
+            outcome: InterventionResolutionOutcome::Approved,
+            reason: None,
+            reason_artifact_path: None,
+            reason_byte_size: None,
+            reason_content_hash: None,
+        };
+        ShoreEvent::new(
+            EventType::InterventionResolved,
+            InterventionResolvedPayload::idempotency_key(intervention_id, source_key),
+            EventTarget {
+                review_id: review_id.clone(),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: None,
+                snapshot_id: None,
+                track_id: Some(track_id.clone()),
+                subject: Some(ReviewTargetRef::Intervention {
+                    review_unit_id: review_unit_id.clone(),
+                    intervention_id: intervention_id.clone(),
+                }),
+            },
+            Writer::shore_local_reviewer("test"),
+            payload,
+            occurred_at.to_owned(),
+        )
+        .unwrap()
     }
 
     fn assert_status(

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::view::{
-    InterventionView, collect_request_records, collect_resolution_views,
+    InterventionProjectionRecords, InterventionView, collect_intervention_projection_records,
     intervention_view_from_event,
 };
 use crate::error::{Result, ShoreError};
@@ -42,8 +42,10 @@ pub fn fetch_intervention(options: InterventionFetchOptions) -> Result<Intervent
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let shore_dir = paths.shore_dir();
     let events = EventStore::open(shore_dir).list_events()?;
-    let mut request_records = collect_request_records(&events)?;
-    let resolutions = collect_resolution_views(&events)?;
+    let InterventionProjectionRecords {
+        mut request_records,
+        resolutions,
+    } = collect_intervention_projection_records(&events)?;
 
     if let Some(record) = request_records.remove(&options.intervention_id) {
         let view = intervention_view_from_event(

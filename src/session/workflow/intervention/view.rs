@@ -97,8 +97,10 @@ impl InterventionStatusFilter {
 pub(crate) fn project_interventions(
     options: InterventionProjectionOptions<'_>,
 ) -> Result<Vec<InterventionView>> {
-    let request_records = collect_request_records(options.events)?;
-    let resolutions = collect_resolution_views(options.events)?;
+    let InterventionProjectionRecords {
+        request_records,
+        resolutions,
+    } = collect_intervention_projection_records(options.events)?;
     let mut interventions = Vec::new();
 
     for record in request_records.into_values() {
@@ -160,63 +162,63 @@ struct InterventionResolutionRecord<'a> {
     payload: InterventionResolvedPayload,
 }
 
-pub(super) fn collect_request_records<'a>(
-    events: &'a [ShoreEvent],
-) -> Result<BTreeMap<InterventionId, InterventionRequestRecord<'a>>> {
-    let mut records: BTreeMap<InterventionId, InterventionRequestRecord<'a>> = BTreeMap::new();
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::InterventionRequested)
-    {
-        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
-        let track_id =
-            event.target.track_id.clone().ok_or_else(|| {
-                ShoreError::Message("intervention event missing track id".to_owned())
-            })?;
-        let intervention_id = payload.intervention_id.clone();
-        let replace_record = records.get(&intervention_id).is_none_or(|record| {
-            // Event IDs are deterministic storage addresses, not causal order. Pick the
-            // lowest one only as a stable representative for duplicate semantic facts.
-            event.event_id.as_str() < record.event.event_id.as_str()
-        });
-        if replace_record {
-            records.insert(
-                intervention_id,
-                InterventionRequestRecord {
-                    event,
-                    payload,
-                    track_id,
-                },
-            );
-        }
-    }
-
-    Ok(records)
+pub(super) struct InterventionProjectionRecords<'a> {
+    pub(super) request_records: BTreeMap<InterventionId, InterventionRequestRecord<'a>>,
+    pub(super) resolutions: BTreeMap<InterventionId, Vec<InterventionResolutionView>>,
 }
 
-pub(super) fn collect_resolution_views(
-    events: &[ShoreEvent],
-) -> Result<BTreeMap<InterventionId, Vec<InterventionResolutionView>>> {
+pub(super) fn collect_intervention_projection_records<'a>(
+    events: &'a [ShoreEvent],
+) -> Result<InterventionProjectionRecords<'a>> {
+    let mut request_records: BTreeMap<InterventionId, InterventionRequestRecord<'a>> =
+        BTreeMap::new();
     let mut resolution_records: BTreeMap<
         InterventionResolutionId,
-        InterventionResolutionRecord<'_>,
+        InterventionResolutionRecord<'a>,
     > = BTreeMap::new();
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::InterventionResolved)
-    {
-        let payload: InterventionResolvedPayload = serde_json::from_value(event.payload.clone())?;
-        let resolution_id = payload.intervention_resolution_id.clone();
-        let replace_record = resolution_records.get(&resolution_id).is_none_or(|record| {
-            // Event IDs are deterministic storage addresses, not causal order. Pick the
-            // lowest one only as a stable representative for duplicate semantic facts.
-            event.event_id.as_str() < record.event.event_id.as_str()
-        });
-        if replace_record {
-            resolution_records.insert(
-                resolution_id,
-                InterventionResolutionRecord { event, payload },
-            );
+
+    for event in events {
+        match event.event_type {
+            EventType::InterventionRequested => {
+                let payload: InterventionRequestedPayload =
+                    serde_json::from_value(event.payload.clone())?;
+                let track_id = event.target.track_id.clone().ok_or_else(|| {
+                    ShoreError::Message("intervention event missing track id".to_owned())
+                })?;
+                let intervention_id = payload.intervention_id.clone();
+                if should_replace_representative(
+                    request_records
+                        .get(&intervention_id)
+                        .map(|record| record.event),
+                    event,
+                ) {
+                    request_records.insert(
+                        intervention_id,
+                        InterventionRequestRecord {
+                            event,
+                            payload,
+                            track_id,
+                        },
+                    );
+                }
+            }
+            EventType::InterventionResolved => {
+                let payload: InterventionResolvedPayload =
+                    serde_json::from_value(event.payload.clone())?;
+                let resolution_id = payload.intervention_resolution_id.clone();
+                if should_replace_representative(
+                    resolution_records
+                        .get(&resolution_id)
+                        .map(|record| record.event),
+                    event,
+                ) {
+                    resolution_records.insert(
+                        resolution_id,
+                        InterventionResolutionRecord { event, payload },
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
@@ -243,7 +245,16 @@ pub(super) fn collect_resolution_views(
         sort_resolution_views(resolution_views);
     }
 
-    Ok(resolutions)
+    Ok(InterventionProjectionRecords {
+        request_records,
+        resolutions,
+    })
+}
+
+// Event IDs are deterministic storage addresses, not causal order. Pick the lowest one
+// only as a stable representative for duplicate semantic facts.
+fn should_replace_representative(current: Option<&ShoreEvent>, candidate: &ShoreEvent) -> bool {
+    current.is_none_or(|existing| candidate.event_id.as_str() < existing.event_id.as_str())
 }
 
 pub(super) fn intervention_view_from_event(
