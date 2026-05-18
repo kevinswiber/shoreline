@@ -39,6 +39,8 @@ impl Writer {
 pub enum WriterRole {
     Author,
     Reviewer,
+    User,
+    Agent,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

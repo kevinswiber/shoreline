@@ -300,7 +300,7 @@ fn decode_user_line(line: &str, line_no: usize) -> Result<ParsedMessage> {
             parent_uuid: raw.parent_uuid,
             timestamp: raw.timestamp,
             line_number: line_no,
-            text: texts.join("\n"),
+            text: texts.join("\n\n"),
         }))
     }
 }
