@@ -36,6 +36,7 @@ id_type!(InterventionId);
 id_type!(InterventionResolutionId);
 id_type!(DispositionId);
 id_type!(WorkObjectId);
+id_type!(CheckpointId);
 
 #[cfg(test)]
 mod tests {
@@ -87,5 +88,17 @@ mod tests {
         assert_eq!(json, "\"disp:sha256:abc\"");
         assert_eq!(parsed, id);
         assert_eq!(parsed.as_str(), "disp:sha256:abc");
+    }
+
+    #[test]
+    fn checkpoint_id_round_trips_through_serde_and_string() {
+        let id = CheckpointId::new("checkpoint:sha256:abc");
+
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: CheckpointId = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(json, "\"checkpoint:sha256:abc\"");
+        assert_eq!(parsed, id);
+        assert_eq!(parsed.as_str(), "checkpoint:sha256:abc");
     }
 }

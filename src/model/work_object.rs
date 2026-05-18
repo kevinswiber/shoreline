@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::CheckpointId;
 use super::review_unit::ReviewTargetRef;
 
 /// Substrate-level discriminator for which domain a work object belongs to.
@@ -13,12 +14,23 @@ pub enum WorkObjectType {
     TaskAttempt,
 }
 
-/// Reserved for Phase 3 (`task-supervision-prototype-proposal.md` §4.2).
+/// Within-task-attempt sub-target reference.
 ///
-/// Currently a placeholder that serializes as `{}` so substrate-shaped code
-/// can refer to a task-domain target without a domain-specific shape baked in.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct TaskTargetRef {}
+/// `Checkpoint` is a sub-target of the parent `TaskAttempt`, not a peer
+/// `WorkObjectType` variant: the envelope's `work_object_id` and
+/// `work_object_type` continue to identify the `TaskAttempt`, and the
+/// checkpoint identity lives here. Analogous to how `ReviewTargetRef::Range`
+/// addresses a slice inside a `ReviewUnit`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum TaskTargetRef {
+    TaskAttempt,
+    Checkpoint { checkpoint_id: CheckpointId },
+}
 
 /// Substrate-level target reference. Externally tagged so that each domain's
 /// own internal shape (e.g., `ReviewTargetRef`'s `kind` discriminator) is
@@ -33,7 +45,8 @@ pub enum TargetRef {
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        ReviewTargetRef, ReviewUnitId, TargetRef, TaskTargetRef, WorkObjectId, WorkObjectType,
+        CheckpointId, ReviewTargetRef, ReviewUnitId, TargetRef, TaskTargetRef, WorkObjectId,
+        WorkObjectType,
     };
 
     #[test]
@@ -63,11 +76,33 @@ mod tests {
     }
 
     #[test]
-    fn task_target_ref_serializes_as_empty_object_placeholder() {
-        let task = TaskTargetRef::default();
+    fn task_target_ref_task_attempt_variant_serializes_with_kind_only() {
+        let task = TaskTargetRef::TaskAttempt;
 
         let json = serde_json::to_value(&task).unwrap();
-        assert_eq!(json, serde_json::json!({}));
+        assert_eq!(json, serde_json::json!({"kind": "task_attempt"}));
+
+        let parsed: TaskTargetRef = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, TaskTargetRef::TaskAttempt);
+    }
+
+    #[test]
+    fn task_target_ref_checkpoint_variant_serializes_kind_and_checkpoint_id() {
+        let task = TaskTargetRef::Checkpoint {
+            checkpoint_id: CheckpointId::new("checkpoint:sha256:c"),
+        };
+
+        let json = serde_json::to_value(&task).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "kind": "checkpoint",
+                "checkpointId": "checkpoint:sha256:c"
+            })
+        );
+
+        let parsed: TaskTargetRef = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, task);
     }
 
     #[test]
@@ -84,12 +119,33 @@ mod tests {
     }
 
     #[test]
-    fn target_ref_task_carries_task_target_ref_externally_tagged() {
-        let target = TargetRef::Task(TaskTargetRef::default());
+    fn target_ref_task_wraps_task_target_ref_with_external_task_tag() {
+        let target = TargetRef::Task(TaskTargetRef::Checkpoint {
+            checkpoint_id: CheckpointId::new("checkpoint:sha256:c"),
+        });
 
         let json = serde_json::to_value(&target).unwrap();
 
-        assert_eq!(json["task"], serde_json::json!({}));
+        assert_eq!(json["task"]["kind"], "checkpoint");
+        assert_eq!(json["task"]["checkpointId"], "checkpoint:sha256:c");
         assert!(json.get("review").is_none());
+    }
+
+    #[test]
+    fn task_target_ref_checkpoint_is_not_a_work_object_type_variant() {
+        assert_eq!(
+            serde_json::to_string(&WorkObjectType::ReviewUnit).unwrap(),
+            "\"review_unit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&WorkObjectType::TaskAttempt).unwrap(),
+            "\"task_attempt\""
+        );
+
+        let decoded: Result<WorkObjectType, _> = serde_json::from_str("\"checkpoint\"");
+        assert!(
+            decoded.is_err(),
+            "WorkObjectType must reject `checkpoint` — it is a sub-target of TaskAttempt, not a peer work-object type"
+        );
     }
 }
