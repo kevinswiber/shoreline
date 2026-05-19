@@ -237,7 +237,7 @@ pub(crate) fn task_attempt_summary_from_events(
         claude_session_uuid: attempt_payload.claude_session_uuid,
         initial_prompt_hash: attempt_payload.initial_prompt_hash,
         predecessor: attempt_payload.predecessor,
-        base_snapshot_fingerprint: None,
+        base_snapshot_fingerprint: attempt_payload.base_snapshot_fingerprint,
         latest_checkpoint,
         checkpoints,
         observations_without_checkpoint,
@@ -390,7 +390,7 @@ pub(crate) fn open_task_interventions_from_events(
             body_artifact_path: payload.body_artifact_path,
             body_byte_size: payload.body_byte_size,
             body_content_hash: payload.body_content_hash,
-            target_fingerprint: None,
+            target_fingerprint: payload.target_fingerprint,
         });
     }
 
@@ -451,7 +451,9 @@ impl FreshnessBasis {
     fn is_fresh(self) -> bool {
         matches!(
             self,
-            FreshnessBasis::TaskAttemptNoFingerprintCheck | FreshnessBasis::CheckpointMatchesLatest
+            FreshnessBasis::TaskAttemptNoFingerprintCheck
+                | FreshnessBasis::CheckpointMatchesLatest
+                | FreshnessBasis::CheckpointFingerprintMatches
         )
     }
 }
@@ -829,7 +831,7 @@ fn collect_task_intervention_records(
                     body_artifact_path: payload.body_artifact_path,
                     body_byte_size: payload.body_byte_size,
                     body_content_hash: payload.body_content_hash,
-                    target_fingerprint: None,
+                    target_fingerprint: payload.target_fingerprint,
                 });
             }
             EventType::InterventionResolved => {
@@ -888,12 +890,16 @@ fn freshness_for_task_target(
     // When the writer recorded a fingerprint on both sides, opaque-string
     // equality is the freshness signal -- the resolver's `target_fingerprint`
     // is compared to the latest checkpoint's `checkpoint_fingerprint`. The
-    // identity-based fallback below handles every other shape.
+    // identity-based fallback below handles every other shape (either side
+    // `None`).
     if let (Some(latest_fp), Some(resolution_fp)) =
         (latest_checkpoint_fingerprint, resolution_fingerprint)
-        && latest_fp != resolution_fp
     {
-        return FreshnessBasis::CheckpointFingerprintMismatch;
+        return if latest_fp == resolution_fp {
+            FreshnessBasis::CheckpointFingerprintMatches
+        } else {
+            FreshnessBasis::CheckpointFingerprintMismatch
+        };
     }
 
     match &view.target {
@@ -3012,7 +3018,8 @@ mod tests {
         assert!(projection.treated_as_operative);
         assert_eq!(
             projection.freshness,
-            Some(FreshnessBasis::CheckpointMatchesLatest)
+            Some(FreshnessBasis::CheckpointFingerprintMatches),
+            "both fingerprints are Some and equal -- agreement on opaque fingerprint is the freshness signal"
         );
         let resolution_view = projection
             .selected_resolution
