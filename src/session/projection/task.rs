@@ -413,8 +413,9 @@ pub(crate) enum AgentResumptionState {
 }
 
 /// Why a task-targeted intervention is considered fresh (or not) for the
-/// resumption rule. The identity variants cover Phase 5; the fingerprint
-/// variant generalizes staleness to opaque-string code-state fingerprints.
+/// resumption rule. The identity variants cover the checkpoint-by-identity
+/// fallback; the fingerprint variant generalizes staleness to opaque-string
+/// code-state fingerprints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FreshnessBasis {
     /// No fingerprint check applies because the intervention targets the
