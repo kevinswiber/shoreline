@@ -13,6 +13,7 @@ mod payload;
 mod review;
 mod source;
 mod target;
+mod task;
 mod writer;
 
 pub use assertion::AssertionMode;
@@ -30,6 +31,7 @@ pub use review::{
 };
 pub use source::SourceRef;
 pub use target::EventTarget;
+pub use task::TaskAttemptCapturedPayload;
 pub use writer::{Writer, WriterRole, WriterTool};
 
 const EVENT_SCHEMA: &str = "shore.event";
