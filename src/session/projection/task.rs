@@ -2099,6 +2099,249 @@ mod tests {
         );
     }
 
+    // -- Task 5.4: Phase 5 no-information-loss validation ------------------
+
+    #[test]
+    fn phase_5_projection_no_information_loss_across_three_views() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
+        let cp_b = CheckpointId::new("checkpoint:sha256:cp-b");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+        let resolution_id = InterventionResolutionId::new("intervention-resolution:sha256:r");
+
+        let attempt = task_attempt_event(
+            &task_attempt_id,
+            &session_id,
+            "uuid-1",
+            "2026-05-18T00:00:00Z",
+        );
+        let cp_a_event = checkpoint_event(
+            &task_attempt_id,
+            &session_id,
+            &cp_a,
+            "msg_a",
+            vec!["tu_a".to_owned()],
+            "2026-05-18T00:00:01Z",
+        );
+        let cp_b_event = checkpoint_event(
+            &task_attempt_id,
+            &session_id,
+            &cp_b,
+            "msg_b",
+            vec!["tu_b".to_owned()],
+            "2026-05-18T00:00:03Z",
+        );
+        let obs_a = observation_event(
+            &task_attempt_id,
+            &session_id,
+            Some(&cp_a),
+            "uuid-1#tool_result:tu_a",
+            "tool_result: Bash",
+            "2026-05-18T00:00:02Z",
+        );
+        let obs_b = observation_event(
+            &task_attempt_id,
+            &session_id,
+            Some(&cp_b),
+            "uuid-1#tool_result:tu_b",
+            "tool_result: Read",
+            "2026-05-18T00:00:04Z",
+        );
+        let request = task_intervention_event_with_target(
+            &task_attempt_id,
+            &session_id,
+            &intervention_id,
+            "source:approve",
+            "2026-05-18T00:00:05Z",
+            TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: cp_b.clone(),
+            }),
+            "needs approval",
+        );
+        let resolution = user_resolution_event(
+            &intervention_id,
+            &resolution_id,
+            InterventionResolutionOutcome::Approved,
+            AssertionMode::Operative,
+            WriterRole::User,
+            "2026-05-18T00:00:06Z",
+        );
+
+        let events = vec![
+            attempt.clone(),
+            cp_a_event.clone(),
+            cp_b_event.clone(),
+            obs_a.clone(),
+            obs_b.clone(),
+            request.clone(),
+            resolution.clone(),
+        ];
+
+        let summary = task_attempt_summary_from_events(&events, &task_attempt_id, &reader_actor())
+            .unwrap()
+            .expect("attempt present");
+        let interventions =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+        let resumption =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        let task_event_ids: Vec<&str> = [
+            attempt.event_id.as_str(),
+            cp_a_event.event_id.as_str(),
+            cp_b_event.event_id.as_str(),
+            obs_a.event_id.as_str(),
+            obs_b.event_id.as_str(),
+        ]
+        .to_vec();
+        let mut surfaced_task_event_ids: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        surfaced_task_event_ids.insert(summary.attempt_event.event_id.as_str().to_owned());
+        for cp in &summary.checkpoints {
+            surfaced_task_event_ids.insert(cp.envelope.event_id.as_str().to_owned());
+            for obs in &cp.observations {
+                surfaced_task_event_ids.insert(obs.envelope.event_id.as_str().to_owned());
+            }
+        }
+        for obs in &summary.observations_without_checkpoint {
+            surfaced_task_event_ids.insert(obs.envelope.event_id.as_str().to_owned());
+        }
+        for task_id in &task_event_ids {
+            assert!(
+                surfaced_task_event_ids.contains(*task_id),
+                "task event id {task_id} missing from task_attempt_summary"
+            );
+        }
+
+        let selected_intervention = resumption
+            .selected_intervention
+            .as_ref()
+            .expect("intervention surfaced");
+        assert_eq!(selected_intervention.envelope.event_id, request.event_id);
+        let selected_resolution = resumption
+            .selected_resolution
+            .as_ref()
+            .expect("resolution surfaced");
+        assert_eq!(selected_resolution.envelope.event_id, resolution.event_id);
+
+        assert_eq!(summary.task_attempt_id, task_attempt_id);
+        let surfaced_checkpoint_ids: std::collections::BTreeSet<CheckpointId> = summary
+            .checkpoints
+            .iter()
+            .map(|cp| cp.checkpoint_id.clone())
+            .collect();
+        assert!(surfaced_checkpoint_ids.contains(&cp_a));
+        assert!(surfaced_checkpoint_ids.contains(&cp_b));
+
+        let surfaced_observation_ids: std::collections::BTreeSet<ObservationId> = summary
+            .checkpoints
+            .iter()
+            .flat_map(|cp| cp.observations.iter().map(|obs| obs.observation_id.clone()))
+            .chain(
+                summary
+                    .observations_without_checkpoint
+                    .iter()
+                    .map(|obs| obs.observation_id.clone()),
+            )
+            .collect();
+        let obs_a_payload: TaskObservationRecordedPayload =
+            serde_json::from_value(obs_a.payload.clone()).unwrap();
+        let obs_b_payload: TaskObservationRecordedPayload =
+            serde_json::from_value(obs_b.payload.clone()).unwrap();
+        assert!(surfaced_observation_ids.contains(&obs_a_payload.observation_id));
+        assert!(surfaced_observation_ids.contains(&obs_b_payload.observation_id));
+
+        assert_eq!(selected_intervention.intervention_id, intervention_id);
+        assert_eq!(selected_resolution.resolution_id, resolution_id);
+
+        let latest = summary
+            .latest_checkpoint
+            .as_ref()
+            .expect("latest checkpoint surfaced");
+        assert_eq!(latest.envelope.assertion_mode, cp_b_event.assertion_mode);
+        assert_eq!(latest.envelope.source_ref, cp_b_event.source_ref);
+        assert_eq!(latest.envelope.writer, cp_b_event.writer);
+        assert_eq!(latest.envelope.target, cp_b_event.target);
+        assert_eq!(latest.envelope.occurred_at, cp_b_event.occurred_at);
+        assert_eq!(latest.envelope.payload_hash, cp_b_event.payload_hash);
+
+        assert_eq!(
+            selected_resolution.envelope.assertion_mode,
+            AssertionMode::Operative
+        );
+        assert_eq!(
+            selected_resolution.envelope.source_ref,
+            resolution.source_ref
+        );
+        assert_eq!(selected_resolution.envelope.writer, resolution.writer);
+        assert_eq!(selected_resolution.envelope.target, resolution.target);
+        assert_eq!(
+            selected_resolution.envelope.payload_hash,
+            resolution.payload_hash
+        );
+        assert_eq!(
+            selected_resolution.envelope.occurred_at,
+            resolution.occurred_at
+        );
+
+        assert_eq!(summary.project_path, "/repo");
+        assert_eq!(summary.claude_session_uuid, "uuid-1");
+        assert_eq!(summary.initial_prompt_hash, "sha256:prompt");
+        for cp in &summary.checkpoints {
+            assert!(!cp.assistant_message_id.is_empty());
+        }
+        for cp in &summary.checkpoints {
+            for obs in &cp.observations {
+                assert!(!obs.title.is_empty());
+            }
+        }
+
+        assert_eq!(selected_intervention.title, "needs approval");
+        assert_eq!(selected_intervention.mode, InterventionMode::Blocking);
+        assert_eq!(
+            selected_intervention.reason_code,
+            InterventionReasonCode::ManualDecisionRequired
+        );
+
+        // The payload's review-shaped `target` field is preserved as
+        // diagnostic evidence by `open_task_interventions` when the
+        // intervention is still open. Re-run without the resolution to
+        // confirm the diagnostic fires for unresolved task interventions.
+        let events_without_resolution = vec![
+            attempt.clone(),
+            cp_a_event.clone(),
+            cp_b_event.clone(),
+            obs_a.clone(),
+            obs_b.clone(),
+            request.clone(),
+        ];
+        let interventions_open_only = open_task_interventions_from_events(
+            &events_without_resolution,
+            &task_attempt_id,
+            &reader_actor(),
+        )
+        .unwrap();
+        assert!(
+            interventions_open_only
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "task_intervention_payload_target_is_review_shaped"),
+            "payload target mismatch must be visible as diagnostic for open intervention"
+        );
+
+        // Once resolved, the intervention drops out of the open set.
+        assert!(interventions.open_interventions.is_empty());
+
+        assert!(resumption.may_resume);
+        assert_eq!(resumption.state, AgentResumptionState::Ready);
+        assert!(resumption.treated_as_operative);
+        assert_eq!(
+            resumption.freshness,
+            Some(FreshnessBasis::CheckpointMatchesLatest)
+        );
+    }
+
     #[test]
     fn agent_resumption_fails_closed_when_task_attempt_absent() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:missing");
