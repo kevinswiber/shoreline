@@ -57,7 +57,11 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
         AdapterIntent::CheckpointCaptured {
             checkpoint_id,
             parent_task_attempt_id,
-            target: target_ref,
+            // intent.target is redundant; the envelope subject is derived from
+            // checkpoint_id so a malformed intent cannot persist an event whose
+            // payload names checkpoint A while the envelope subject points at
+            // checkpoint B (or a non-task target).
+            target: _,
             session_id,
             source_ref,
             assertion_mode,
@@ -71,7 +75,9 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 parent_task_attempt_id.clone(),
                 WorkObjectType::TaskAttempt,
             );
-            target.subject = Some(target_ref.clone());
+            target.subject = Some(TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: checkpoint_id.clone(),
+            }));
             let payload = TaskCheckpointCapturedPayload {
                 checkpoint_id: checkpoint_id.clone(),
                 parent_task_attempt_id: parent_task_attempt_id.clone(),
@@ -105,10 +111,20 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             occurred_at,
             title,
         } => {
+            // source_ref is required: observation_id is derived from source_id
+            // so replays match. Without a source_ref, two no-source observations
+            // for the same task would collapse onto the same id and idempotency
+            // key.
             let source_id = source_ref
                 .as_ref()
-                .map(|s| s.source_id.clone())
-                .unwrap_or_default();
+                .ok_or_else(|| {
+                    ShoreError::Message(
+                        "ObservationRecorded intent requires source_ref for deterministic observation_id"
+                            .to_owned(),
+                    )
+                })?
+                .source_id
+                .clone();
             let observation_id = ObservationId::new(format!(
                 "obs:sha256:{}",
                 sha256_bytes_hex(source_id.as_bytes())
@@ -157,7 +173,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             Ok(event)
         }
         AdapterIntent::InterventionRequested => Err(ShoreError::Message(
-            "AdapterIntent::InterventionRequested has no Phase 4 write mapping".to_owned(),
+            "AdapterIntent::InterventionRequested has no task-event write mapping".to_owned(),
         )),
     }
 }
@@ -364,6 +380,64 @@ mod tests {
     fn intent_to_event_rejects_unhandled_intervention_requested_variant() {
         let result = intent_to_event(&AdapterIntent::InterventionRequested);
         assert!(result.is_err(), "InterventionRequested must not map");
+    }
+
+    #[test]
+    fn intent_to_event_derives_checkpoint_subject_from_payload_id_not_intent_target() {
+        // Pin: a malformed intent whose `target` names a *different* checkpoint
+        // than `checkpoint_id` must not persist an event whose envelope subject
+        // contradicts its payload. The mapper derives the subject from
+        // checkpoint_id, ignoring intent.target.
+        let payload_checkpoint = CheckpointId::new("checkpoint:sha256:from-payload");
+        let stale_checkpoint = CheckpointId::new("checkpoint:sha256:stale-stub");
+        let intent = AdapterIntent::CheckpointCaptured {
+            checkpoint_id: payload_checkpoint.clone(),
+            parent_task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            target: TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: stale_checkpoint,
+            }),
+            session_id: SessionId::new("session:claude:uuid-1"),
+            source_ref: Some(SourceRef::new("claude_code", "uuid-1#assistant:msg_x")),
+            assertion_mode: AssertionMode::Advisory,
+            writer: Writer::shore_local_reviewer("test"),
+            occurred_at: "2026-05-18T00:00:01Z".to_owned(),
+            assistant_message_id: "msg_x".to_owned(),
+            tool_use_ids: vec![],
+        };
+
+        let event = intent_to_event(&intent).unwrap();
+
+        assert_eq!(
+            event.target.subject,
+            Some(TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: payload_checkpoint,
+            }))
+        );
+    }
+
+    #[test]
+    fn intent_to_event_requires_source_ref_for_observation_recorded() {
+        // Pin: observation_id is derived from source_id; without a source_ref the
+        // empty-string hash would collapse two no-source observations onto one
+        // observation_id / idempotency key.
+        let intent = AdapterIntent::ObservationRecorded {
+            parent_task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            target: TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: CheckpointId::new("checkpoint:sha256:cp"),
+            }),
+            session_id: SessionId::new("session:claude:uuid-1"),
+            source_ref: None,
+            assertion_mode: AssertionMode::Advisory,
+            writer: Writer::shore_local_reviewer("test"),
+            occurred_at: "2026-05-18T00:00:02Z".to_owned(),
+            title: "tool_result: Bash".to_owned(),
+        };
+
+        let error = intent_to_event(&intent).expect_err("missing source_ref rejected");
+        assert!(
+            error.to_string().contains("source_ref"),
+            "error must mention source_ref; got: {error}"
+        );
     }
 
     #[test]
