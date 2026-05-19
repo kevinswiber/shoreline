@@ -166,6 +166,13 @@ pub(super) fn history_entry_from_event(
                 sidecar_content_hash: payload.sidecar_content_hash,
             }
         }
+        EventType::TaskAttemptCaptured
+        | EventType::TaskCheckpointCaptured
+        | EventType::TaskObservationRecorded => {
+            return Err(ShoreError::Message(
+                "review history projects review-domain events only; task event reached this match arm — upstream filter missing".to_owned(),
+            ));
+        }
     };
 
     Ok(ReviewHistoryEntry {

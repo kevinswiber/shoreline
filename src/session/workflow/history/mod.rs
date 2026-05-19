@@ -35,16 +35,16 @@ mod tests {
     use super::projection::{history_entry_from_event, history_from_events};
     use super::*;
     use crate::model::{
-        DispositionId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
-        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, Side, SnapshotId,
-        TrackId, WorkUnitId, WorktreeCaptureMode,
+        DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
+        ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
+        Side, SnapshotId, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        EventTarget, EventType, ImportedNoteTarget, InterventionMode, InterventionReasonCode,
-        InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
-        ReviewDisposition, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
-        ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-        ShoreEvent, SidecarSource, Writer,
+        AssertionMode, EventTarget, EventType, ImportedNoteTarget, InterventionMode,
+        InterventionReasonCode, InterventionRequestedPayload, InterventionResolutionOutcome,
+        InterventionResolvedPayload, ReviewDisposition, ReviewDispositionRecordedPayload,
+        ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
+        ReviewUnitCapturedPayload, ShoreEvent, SidecarSource, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
 
@@ -165,6 +165,36 @@ mod tests {
             ]
         );
         assert!(result.entries[0].event_id.as_str() < result.entries[1].event_id.as_str());
+    }
+
+    #[test]
+    fn review_history_projection_rejects_task_event_with_explicit_error() {
+        let event = ShoreEvent {
+            schema: "shore.event".to_owned(),
+            version: 1,
+            event_id: EventId::new("evt:sha256:checkpoint-1"),
+            event_type: EventType::TaskCheckpointCaptured,
+            idempotency_key: "task_checkpoint_captured:cp-1".to_owned(),
+            target: EventTarget::new(
+                SessionId::new("session:claude:abc"),
+                WorkUnitId::new("work:default"),
+            ),
+            writer: Writer::shore_local_author("test"),
+            occurred_at: "2026-05-18T00:00:00Z".to_owned(),
+            payload_hash: "sha256:placeholder".to_owned(),
+            assertion_mode: AssertionMode::Advisory,
+            source_ref: None,
+            payload: serde_json::Value::Null,
+        };
+
+        let error = history_entry_from_event(&event, false, None)
+            .expect_err("task events must not project to review-history");
+        let message = error.to_string();
+
+        assert!(
+            message.contains("review-domain") || message.contains("task event"),
+            "error message must document the review-domain contract; got: {message}"
+        );
     }
 
     #[test]

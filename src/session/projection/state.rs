@@ -180,6 +180,12 @@ impl StateReducer {
             EventType::ReviewNoteImported => {
                 self.note_count += 1;
             }
+            EventType::TaskAttemptCaptured
+            | EventType::TaskCheckpointCaptured
+            | EventType::TaskObservationRecorded => {
+                // Task-domain events do not contribute to review-session state.
+                // Phase 5 may add a sibling task-session reducer.
+            }
         }
 
         Ok(())
@@ -372,7 +378,9 @@ mod tests {
     use super::*;
     use crate::model::{ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, WorktreeCaptureMode};
     use crate::session::EventWriteOutcome;
-    use crate::session::event::{EventTarget, ReviewObservationRecordedPayload, Writer};
+    use crate::session::event::{
+        AssertionMode, EventTarget, ReviewObservationRecordedPayload, Writer,
+    };
 
     #[test]
     fn projection_defaults_without_events() {
@@ -582,6 +590,40 @@ mod tests {
             "expected duplicate-semantic-observation diagnostic, got {:?}",
             incremental.diagnostics
         );
+    }
+
+    #[test]
+    fn session_state_reducer_ignores_task_attempt_captured_event() {
+        let event = ShoreEvent {
+            schema: "shore.event".to_owned(),
+            version: 1,
+            event_id: EventId::new("evt:sha256:task-1"),
+            event_type: EventType::TaskAttemptCaptured,
+            idempotency_key: "task_attempt_captured:task-1".to_owned(),
+            target: EventTarget::new(
+                SessionId::new("session:claude:abc"),
+                WorkUnitId::new("work:default"),
+            ),
+            writer: Writer::shore_local_author("test"),
+            occurred_at: "2026-05-18T00:00:00Z".to_owned(),
+            payload_hash: "sha256:placeholder".to_owned(),
+            assertion_mode: AssertionMode::Advisory,
+            source_ref: None,
+            payload: serde_json::Value::Null,
+        };
+
+        let state = SessionState::from_events(&[event]).expect("task event applies as no-op");
+
+        assert_eq!(state.review_unit_count, 0);
+        assert_eq!(state.note_count, 0);
+        assert_eq!(state.observation_count, 0);
+        assert_eq!(state.disposition_count, 0);
+        assert_eq!(state.intervention_count, 0);
+        assert_eq!(state.open_intervention_count, 0);
+        assert_eq!(state.open_blocking_intervention_count, 0);
+        assert!(state.current_review_unit_id.is_none());
+        assert!(state.current_revision_id.is_none());
+        assert!(state.current_snapshot_id.is_none());
     }
 
     #[test]
