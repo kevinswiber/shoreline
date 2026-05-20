@@ -47,7 +47,7 @@ commit-check range='origin/main..HEAD':
 
 # Run the CLI.
 run *args:
-    cargo +stable run -- {{ args }}
+    cargo +stable run --bin shore -- {{ args }}
 
 # Check commit messages, compile, lint, and tests.
 check: commit-check build lint test

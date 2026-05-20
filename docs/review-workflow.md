@@ -289,8 +289,8 @@ shore show --review-notes review-notes.json
 
 - `q` / Esc / Ctrl+C — quit
 - `j` / `k` or Up / Down — move by row
-- `[` / `]` — move through hunks
-- `{` / `}` — move through hunks with review notes
+- `[` / `]` — move through diff sections
+- `{` / `}` — move through noted sections
 - `r` — re-ingest the working tree and reload
 
 Like `shore dump`, `shore show` does not yet project native observations,

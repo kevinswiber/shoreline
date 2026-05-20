@@ -1,11 +1,20 @@
 # Shore
 
+[![Crates.io](https://img.shields.io/crates/v/shoreline.svg)](https://crates.io/crates/shoreline)
+[![Documentation](https://docs.rs/shoreline/badge.svg)](https://docs.rs/shoreline)
+
 Shore is an experimental Rust terminal review tool for understanding what changed and why,
 especially in tool-assisted changesets.
 
-It is inspired by [hunk](https://github.com/modem-dev/hunk), but it is not intended to be a direct clone or fork. The goal is to build a
-small, Rust-native review core with a data model that is easy to reason about, test, and eventually
-expose to other tools.
+Install the `shoreline` crate; it provides the `shore` command:
+
+```bash
+cargo install shoreline
+shore --help
+```
+
+The v0.1.0 release is focused on a small, Rust-native review core with a data model that is easy to
+reason about, test, and eventually expose to other tools.
 
 For a narrative end-to-end walkthrough of the current review workflow — capturing a ReviewUnit,
 inspecting it, recording observations, input requests, and assessments, and the distinction between
@@ -20,73 +29,53 @@ and storage rebuildability.
 
 ## Name
 
-The name connects to Pointbreak and the idea of reviewing the wake of tool-assisted work once it
-reaches shore. It also works as a verb: `shore up` can become the command that reviews and hardens a
-changeset.
-
-The metaphor should stay light. Command names should remain mostly plain and practical:
-
-- `shore diff`
-- `shore show`
-- `shore up`
-- `shore notes`
-- `shore dump`
-- `shore review`
-- `shore session`
+The package is named `shoreline` because that is the boundary where tool-assisted changes meet
+human review. The installed command stays `shore` because command names should remain short and
+practical.
 
 ## Product Intent
 
 Shore is for code review in a terminal. It should help a reviewer inspect:
 
 - the actual working-tree diff
-- the review notes a reviewer or tool attached to files and hunks
-- the hunk stream in the order the reviewer should read it
+- the review notes a reviewer or tool attached to files and code rows
+- the diff stream in the order the reviewer should read it
 - which notes are attached to which code rows
 - enough recoverable session state that review context is not lost when a UI is restarted
 
 The first version should be a focused terminal review tool, not a generic summarizer.
 
-## Inspiration And Lessons
+## Core Architecture Principle
 
-Hunk is the practical inspiration: a terminal-first diff viewer with hunk-level notes, live review
-sessions, and keyboard navigation across notes.
+Build the review stream as a pure, headless data layer before building the TUI.
 
-Detailed field notes from a real Hunk review session are captured in
-[docs/hunk-feedback.md](docs/hunk-feedback.md). Treat those notes as product input, especially
-around persistence, reload semantics, stable comment anchors, and separating long-lived reviews
-from individual diff snapshots.
-
-The most important lesson from maintaining a [hunk fork](https://github.com/kevinswiber/hunk) is that the hard part is not simply drawing a
-diff in a TUI. The hard part is keeping these behaviors aligned:
+The hard part is not simply drawing a diff in a TUI. The hard part is keeping these behaviors
+aligned:
 
 - file order
-- hunk order
+- diff-section order
 - row geometry
 - scroll position
-- selected hunk
+- selected diff section
 - note anchors
-- note-hunk navigation
+- note navigation
 - terminal resize behavior
 - saved or live review-note context
 
 Shore should avoid parallel sources of truth. Rendering, scrolling, and navigation should derive
 from one explicit review-stream model.
 
-## Core Architecture Principle
-
-Build the review stream as a pure, headless data layer before building the TUI.
-
 That model should own:
 
 - file identity, status, old path, and new path
 - file order, including sidecar-provided narrative order
-- hunk identity and hunk order
-- hunk header spans, including context rows
+- diff-section identity and order
+- diff-section header spans, including context rows
 - rendered review rows
 - row and section geometry
 - note anchors and resolved note targets
-- hunk navigation cursors
-- note-hunk navigation cursors
+- diff-section navigation cursors
+- note navigation cursors
 - serializable review/session state
 
 The TUI should be a projection of that model. Widgets may render state, but they should not become
@@ -99,18 +88,16 @@ storage, event, input-request, and assessment design, not current V1 implementat
 
 ## Initial Scope
 
-The first milestone should be deliberately smaller than hunk.
-
 Build:
 
 - a Rust CLI binary
 - working-tree `diff` support
 - tracked and untracked file support
-- unified-diff parsing into Shore's own file/hunk/row model
+- unified-diff parsing into Shore's own file/diff-section/row model
 - a native `review-notes.json` sidecar loader
 - a split terminal diff view
-- `[` and `]` navigation through the full hunk stream
-- `{` and `}` navigation through hunks with review notes
+- `[` and `]` navigation through the full diff stream
+- `{` and `}` navigation through noted diff sections
 - snapshot and acceptance fixtures for the review model
 
 Prefer shelling out to `git` at first. A VCS abstraction can come later if the model earns it.
@@ -150,8 +137,8 @@ Behavior:
 - When no explicit sidecar is supplied, repo-only `shore show` auto-loads durable imported notes
   from `.shore/` if the store exists.
 - Press `r` to re-ingest the working tree and reload the projection without losing your cursor
-  position. Reload preserves the cursor by row ID when possible, then falls back to file+hunk,
-  file, or the first row in the refreshed stream.
+  position. Reload preserves the cursor by row ID when possible, then falls back to the nearest
+  file and diff section, the file, or the first row in the refreshed stream.
 - Stale and orphan review notes appear as dedicated rows you can park the cursor on. The detail
   pane labels the row with its resolution status and the original target path and line range.
 - Explicit sidecar inputs are command helpers and are not themselves included in the reviewed
@@ -159,7 +146,7 @@ Behavior:
 - The view is read-only: it renders the working-tree diff, resolved review notes, and recoverable
   diagnostics, but it does not mutate notes or write session state.
 - Keybindings are intentionally small: `q`/Esc/Ctrl+C quits, `j`/`k` or Up/Down moves by row, `[` and
-  `]` move through hunks, and `{` and `}` move through hunks with review notes.
+  `]` move through diff sections, and `{` and `}` move through noted sections.
 
 `shore dump` remains the JSON contract over the headless model so other frontends and tests can
 consume the same review stream:
@@ -461,7 +448,7 @@ Behavior:
 
 ## Explicit V1 Deferrals
 
-Do not start by rebuilding all of hunk.
+Do not start by rebuilding a complete review platform.
 
 Defer:
 
@@ -474,14 +461,12 @@ Defer:
 - syntax highlighting
 - word-level intra-line diff
 - advanced mouse behavior
-- package distribution
 
 These are useful, but they should wrap a proven review model rather than shape it prematurely.
 
-## Git And Diff Requirements To Account For Early
+## Git And Diff Requirements
 
-Some diff cases should be represented in the model from the start, even if the UI initially renders
-them plainly:
+Shore keeps these Git diff cases explicit in the model, even when the UI renders them plainly:
 
 - untracked files: `git diff` does not include them, so use `git ls-files --others --exclude-standard`
   and synthesize diffs against `/dev/null`
@@ -490,7 +475,7 @@ them plainly:
 - submodules
 - mode-only changes
 - deleted files and new files
-- hunks with zero lines on one side
+- diff sections with zero lines on one side
 - context-row note anchors
 - large changesets where rendering must not require every row to be visible at once
 
@@ -506,10 +491,11 @@ The sidecar should stay review-oriented and concise:
 
 - one changeset summary
 - file summaries in narrative order
-- hunk-level or line-level review notes with clear title and body text
+- diff-section or line-level review notes with clear title and body text
 
 Review notes belong beside the code. The first UI should render notes spatially near the targeted
-hunk or row, and note navigation should move through hunk-specific notes in the review stream.
+diff section or row, and note navigation should move through section-specific notes in the review
+stream.
 
 The sidecar file order is intentional. Shore should preserve that order when it differs from the raw
 Git diff order.
@@ -559,9 +545,9 @@ Daemon/session coordination is not v1, but the review model should be ready for 
 Future external tools should be able to ask for operations like:
 
 - get current review state
-- navigate to next or previous hunk
+- navigate to next or previous diff section
 - navigate to next or previous note
-- select a file or hunk
+- select a file or diff section
 - add a live comment
 - clear live comments
 - dump the current review context
@@ -569,14 +555,14 @@ Future external tools should be able to ask for operations like:
 The model should use stable IDs and serializable state so this can be added without rewriting the
 core.
 
-## Candidate Rust Stack
+## Rust Stack
 
-Likely starting point:
+Shore currently uses:
 
 - `ratatui` plus `crossterm` for the terminal UI
 - `serde` and `serde_json` for sidecar and state JSON
 - shelling out to `git` for repository data
-- snapshot tests for the headless model
+- focused headless tests before TUI behavior tests
 
 Be careful with stateful widget idioms. Shore should keep model state authoritative and make TUI
 widgets render from it.
@@ -591,9 +577,9 @@ Useful fixtures:
 - untracked file diffs
 - rename diffs
 - binary and mode-only changes
-- notes on context rows inside a hunk
-- current hunk has no notes, then `{` or `}` should resolve relative to the full stream
-- current hunk past the last note, then `}` should clamp to the last hunk with notes rather than
+- notes on context rows inside a diff section
+- current diff section has no notes, then `{` or `}` should resolve relative to the full stream
+- current diff section past the last note, then `}` should clamp to the last noted section rather than
   wrap
 - terminal resize causing geometry recomputation
 - large synthetic changesets
@@ -606,7 +592,7 @@ placement without a terminal.
 Shore should not initially try to be:
 
 - a general Git porcelain
-- a complete nunk replacement
+- a complete review platform
 - a web review UI
 - a summarizer detached from the code
 - a terminal framework experiment
