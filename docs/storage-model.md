@@ -23,7 +23,7 @@ projections, not a temporary gap waiting to be replaced by a database.
 - `.shore/events/` — append-only, immutable per-fact event files. Events are independently written
   and never moved, retried in place, or rewritten on read.
 - `.shore/artifacts/` — immutable or content-addressed support records, including captured
-  ReviewUnit snapshots and large bodies for imported notes, native observations, interventions, and
+  ReviewUnit snapshots and large bodies for imported notes, native observations, input requests, and
   assessments.
 
 These are the only authoritative durable storage in V1. Everything else is a cache or projection.
@@ -159,15 +159,14 @@ unbounded event payload growth.
 The direct read surfaces are `shore review input-request list` and `shore review input-request fetch`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
-input requests also appear in the composite `shore review unit show` projection, where that older
-read surface still uses intervention-shaped JSON until its contract is updated. They are not
+input requests also appear in the composite `shore review unit show` projection. They are not
 projected into `shore dump` or `shore show`.
 
 Native assessments follow the same ReviewUnit ledger model:
 
 - immutable `review_assessment_recorded` events in `events/` carry durable assessment facts
-- each assessment targets a ReviewUnit, captured file or range, native observation, native
-  intervention, or native assessment in that same ReviewUnit
+- each assessment targets a ReviewUnit, captured file or range, native observation, native input
+  request, or native assessment in that same ReviewUnit
 - each assessment belongs to a required track; actor/tool provenance remains in the event writer
   envelope
 - bounded `state.json` summarizes assessment state with `assessmentCount`, but it does not embed
@@ -177,7 +176,7 @@ Assessment values are closed in V1: `accepted`, `accepted_with_follow_up`, `need
 `needs_clarification`.
 
 Assessment replacement is explicit. `replacesAssessmentIds` is the only V1 relationship that
-removes an older assessment from the current set. Related observation and intervention references
+removes an older assessment from the current set. Related observation and input-request references
 are evidence links; they do not change current/replaced status.
 
 Assessment read projections use semantic IDs rather than event filenames as logical identity.
@@ -214,10 +213,10 @@ Review history is the chronological read surface over durable events:
   default output keeps large text omitted
 
 History preserves raw append-only facts. It does not collapse duplicate semantic events, choose
-current assessments, resolve interventions, or build the full ReviewUnit row projection. Shared
-state diagnostics are still included so callers can see duplicate semantic facts while inspecting
-the underlying events. Raw event files, artifact paths, event filenames, and `state.json` are
-storage details, not history output API.
+current assessments, resolve input-request lifecycles, or build the full ReviewUnit row projection.
+Shared state diagnostics are still included so callers can see duplicate semantic facts while
+inspecting the underlying events. Raw event files, artifact paths, event filenames, and `state.json`
+are storage details, not history output API.
 
 ReviewUnit show is the composite read surface for one captured ReviewUnit:
 
@@ -226,7 +225,7 @@ ReviewUnit show is the composite read surface for one captured ReviewUnit:
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   selected ReviewUnit's returned narrative facts
 - the output includes ReviewUnit identity, filters, summary counts, current assessment, native
-  observations, interventions, assessments, imported adapter notes, projection rows, and
+  observations, input requests, assessments, imported adapter notes, projection rows, and
   diagnostics
 - rows are narrative-first plus snapshot-complete: reviewed ledger material appears first, and the
   snapshot remainder still includes every captured file, metadata row, hunk header, and diff row
@@ -303,7 +302,7 @@ Artifact filenames follow two deliberate rules, paired to what the file represen
   the V2 reversal shape.
 - **Content-addressed artifacts** use a hash of the artifact body as the filename stem. Note-body
   artifacts live at `artifacts/notes/<sha256(body)>.json`. Hashing the body gives deterministic
-  addressing and deduplication across observations, interventions, and assessments that share
+  addressing and deduplication across observations, input requests, and assessments that share
   text. Native-recorded payloads may carry a payload-level body hash
   (`body_content_hash` / `reason_content_hash` / `summary_content_hash`) so future read paths or
   repair tools can verify the artifact against the event ledger; imported-note payloads do not
@@ -399,7 +398,7 @@ artifact-per-body materialization.
   additional fsync per body-bearing event (both inline event and artifact use `Durability::Durable`
   writes), with proportional file-count growth.
 - The body's identity does not depend on materialization: native-recorded payloads (observations,
-  interventions, assessments) already carry a `*_content_hash`, and imported-note artifacts are
+  input requests, assessments) already carry a `*_content_hash`, and imported-note artifacts are
   content-addressed by `sha256(body)` in their filenames. Materializing every body would not
   strengthen those guarantees, only change where canonical bytes live.
 - Artifact-only enumeration is not a supported read path. Even if all bodies were materialized, an

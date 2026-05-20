@@ -6,7 +6,7 @@ use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
 
 /// Inline/artifact threshold for note-shaped event bodies (observations,
-/// intervention bodies / resolution reasons, assessment summaries, imported
+/// input request bodies / response reasons, assessment summaries, imported
 /// review notes).
 ///
 /// Bodies whose byte length is at most this value remain inline in the event
@@ -16,7 +16,7 @@ use crate::error::{Result, ShoreError};
 /// This value is internal storage tuning and may change without a deprecation
 /// cycle. The inline-or-artifact bifurcation itself is the stable contract.
 ///
-/// See `docs/adr-0001-note-body-materialization.md`.
+/// See `docs/adr/adr-0001-note-body-materialization.md`.
 pub(crate) const BODY_INLINE_LIMIT: usize = 4096;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -63,7 +63,7 @@ pub(crate) enum BodyArtifactOutcome {
 ///
 /// Replay (`EventStore::list_events()` + [`load_body_artifact`]) is the
 /// authoritative read primitive. See
-/// `docs/adr-0001-note-body-materialization.md`.
+/// `docs/adr/adr-0001-note-body-materialization.md`.
 pub(crate) fn stage_body_artifact(body_bytes: &[u8]) -> Result<BodyArtifactOutcome> {
     let body = std::str::from_utf8(body_bytes)
         .map_err(|err| ShoreError::Message(format!("body artifact must be utf-8: {err}")))?;

@@ -155,10 +155,10 @@ pub enum AdapterIntent {
         title: String,
     },
     /// Reserved variant. The Claude Code session adapter never emits this:
-    /// fabricating intervention structure from a transcript would cross
-    /// from translator into interpreter (Tripwire 4). Phase 4 / Phase 5 may
-    /// surface intervention intents from a different write-side signal.
-    InterventionRequested,
+    /// fabricating input-request structure from a transcript would cross from
+    /// translator into interpreter (Tripwire 4). Future work may surface
+    /// input-request intents from a different write-side signal.
+    InputRequestRequested,
 }
 
 fn first_user_prompt_text(parsed: &ParsedSession) -> String {
@@ -546,16 +546,16 @@ mod tests {
     }
 
     #[test]
-    fn translate_does_not_emit_intervention_intents() {
+    fn translate_does_not_emit_input_request_intents() {
         let parsed = parse_session(&fixture_path()).expect("parses");
         let intents = translate_session(&parsed);
 
-        let any_intervention = intents
+        let any_input_request = intents
             .iter()
-            .any(|i| matches!(i, AdapterIntent::InterventionRequested));
+            .any(|i| matches!(i, AdapterIntent::InputRequestRequested));
         assert!(
-            !any_intervention,
-            "adapter never fabricates intervention structure from a transcript (Tripwire 4)"
+            !any_input_request,
+            "adapter never fabricates input-request structure from a transcript (Tripwire 4)"
         );
     }
 

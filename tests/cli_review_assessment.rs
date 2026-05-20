@@ -188,7 +188,7 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
     let repo_arg = repo.path().to_str().unwrap();
     shore(["review", "capture", "--repo", repo_arg]);
     let observation = add_observation(&repo, "Related observation");
-    let intervention = open_input_request(&repo, "Related intervention");
+    let input_request = open_input_request(&repo, "Related input request");
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "Fix this");
 
     let second = shore([
@@ -208,7 +208,7 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
         "--related-observation",
         observation["observationId"].as_str().unwrap(),
         "--related-input-request",
-        intervention["inputRequestId"].as_str().unwrap(),
+        input_request["inputRequestId"].as_str().unwrap(),
     ]);
     assert!(
         second.status.success(),
@@ -238,7 +238,7 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
     );
     assert_eq!(
         current["relatedInputRequests"][0],
-        intervention["inputRequestId"]
+        input_request["inputRequestId"]
     );
 }
 

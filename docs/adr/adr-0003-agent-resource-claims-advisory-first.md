@@ -33,7 +33,7 @@ Concretely:
 - Projections surface conflicting claims as explicit conflict or ambiguity state.
 - Readers decide how to behave from the projection they read.
 - Recovery from stale or conflicting claims happens through later events: supersession, retraction,
-  intervention resolution, human review, or a projection-specific authority rule.
+  input request response, human review, or a projection-specific authority rule.
 - Shore does not block event writes because a competing advisory claim exists.
 
 ## Consequences

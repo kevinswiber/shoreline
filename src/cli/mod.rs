@@ -46,7 +46,7 @@ where
     S: Into<OsString>,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    let legacy_intervention_command = invokes_legacy_review_intervention(&args);
+    let removed_input_request_command = invokes_removed_input_request_command(&args);
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
@@ -58,7 +58,7 @@ where
                 ExitCode::SUCCESS
             } else {
                 let _ = writeln!(stderr, "{error}");
-                if error.kind() == ErrorKind::InvalidSubcommand && legacy_intervention_command {
+                if error.kind() == ErrorKind::InvalidSubcommand && removed_input_request_command {
                     let _ = writeln!(
                         stderr,
                         "\nUse `shore review input-request` instead of `shore review intervention`."
@@ -79,7 +79,7 @@ where
     }
 }
 
-fn invokes_legacy_review_intervention(args: &[OsString]) -> bool {
+fn invokes_removed_input_request_command(args: &[OsString]) -> bool {
     args.windows(2)
         .any(|pair| pair[0].to_str() == Some("review") && pair[1].to_str() == Some("intervention"))
 }

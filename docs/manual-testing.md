@@ -124,12 +124,12 @@ shore review observation list --pretty --include-body
 **Goal.** Confirm the durable pause/decision lifecycle.
 
 ```bash
-INT_OUT=$(shore review input-request open \
+REQUEST_OUT=$(shore review input-request open \
   --track human:kevin \
   --title "Need approval before landing" \
   --reason manual-decision-required)
-echo "$INT_OUT" | jq .
-INPUT_REQUEST_ID=$(echo "$INT_OUT" | jq -r .inputRequestId)
+echo "$REQUEST_OUT" | jq .
+INPUT_REQUEST_ID=$(echo "$REQUEST_OUT" | jq -r .inputRequestId)
 
 shore review input-request list --pretty
 shore review input-request list --pretty --status all
@@ -243,10 +243,10 @@ shore review unit list --pretty | jq '.entries[] | {reviewUnitId, capturedAt, sn
 
 `shore review unit show` puts each ReviewUnit fact in two places:
 
-- top-level `observations[]`, `interventions[]`, `assessments[]`, and `adapterNotes[]` carry the
+- top-level `observations[]`, `inputRequests[]`, `assessments[]`, and `adapterNotes[]` carry the
   hydrated facts (including `body` / `summary` / `reason` when `--include-body` is passed).
 - `rows[]` carries the projection rendering. Each row has `kind` as a **string**
-  (`"observation"`, `"intervention"`, `"assessment"`, `"file_header"`, `"hunk_header"`,
+  (`"observation"`, `"input_request"`, `"assessment"`, `"file_header"`, `"hunk_header"`,
   `"diff"`, `"metadata"`, `"adapter_note"`, etc.) and a `projectionPhase` of either `"narrative"`
   or `"snapshot_remainder"`. Body text is **not** carried on rows.
 
@@ -265,7 +265,7 @@ shore review unit show --pretty --include-body | jq '.assessments[] | {assessmen
 shore review unit show --pretty --track agent:codex \
   | jq '{
       observations: [.observations[].trackId] | unique,
-      interventions_count: (.interventions | length),
+      input_requests_count: (.inputRequests | length),
       assessments_count: (.assessments | length),
       narrative_rows: [.rows[] | select(.projectionPhase=="narrative") | .kind],
       snapshot_remainder_count: [.rows[] | select(.projectionPhase=="snapshot_remainder")] | length
@@ -276,7 +276,7 @@ shore review unit show --pretty --track agent:codex \
 
 - `[.rows[].kind] | unique` returns a flat list of row-kind strings; the narrative-phase rows
   appear before the snapshot-remainder rows in `rows[]` order.
-- Default output has every observation/intervention/assessment object present in the top-level
+- Default output has every observation/input-request/assessment object present in the top-level
   lists but with no `body` / `summary` / `reason` field. `--include-body` adds those fields
   inline.
 - The `--track agent:codex` filter keeps only `agent:codex` facts in the top-level lists and
@@ -366,7 +366,7 @@ The authority split (see `docs/storage-model.md`):
 - `.shore/events/` — append-only immutable per-fact events.
 - `.shore/artifacts/` — immutable support records that events bind to: captured ReviewUnit
   snapshots (`artifacts/snapshots/`), and content-addressed bodies for large observation,
-  intervention, and assessment payloads (`artifacts/notes/`). `review unit show` reads the
+  input request, and assessment payloads (`artifacts/notes/`). `review unit show` reads the
   snapshot artifact for the selected ReviewUnit; the event log alone cannot reconstruct snapshot
   rows or large note bodies.
 - `.shore/state.json` — rebuildable projection summary. Reads do not depend on its existence;

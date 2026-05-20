@@ -12,7 +12,7 @@ captured diff snapshot taken at a single moment. V1 captures the local Git
 worktree from `HEAD` to the working tree, including untracked files.
 
 Each ReviewUnit gets its own immutable snapshot artifact. Anything you record
-afterwards — observations, interventions, assessments — attaches to that
+afterwards — observations, input requests, assessments — attaches to that
 ReviewUnit and lives in the durable `.shore/events/` log.
 
 ## The workflow at a glance
@@ -23,7 +23,7 @@ ReviewUnit and lives in the durable `.shore/events/` log.
    `shore review history`.
 4. Record review facts as you read the diff:
    - **Observations** are notes you want preserved.
-   - **Interventions** are durable pause/decision requests for someone else.
+   - **Input requests** are durable pause/decision requests for someone else.
    - **Assessments** are the current review call for the ReviewUnit (or for a
      file, range, or specific fact within it).
 5. Optionally use `shore notes apply`, `shore dump`, and `shore show` for
@@ -104,7 +104,7 @@ shore review unit list --pretty
 
 - ReviewUnit identity and event-set freshness metadata
 - summary counts and current assessment status
-- native observations, interventions, and assessments
+- native observations, input requests, and assessments
 - imported adapter notes
 - projection rows (narrative-first, then snapshot-complete)
 - diagnostics
@@ -274,7 +274,7 @@ shore dump --review-notes review-notes.json
 ```
 
 `shore dump` operates on the **working tree at run time**, not on a captured
-ReviewUnit. It does not include native observations, interventions, or
+ReviewUnit. It does not include native observations, input requests, or
 assessments — use `shore review unit show` for those.
 
 ### `shore show`
@@ -294,7 +294,7 @@ shore show --review-notes review-notes.json
 - `r` — re-ingest the working tree and reload
 
 Like `shore dump`, `shore show` does not yet project native observations,
-interventions, or assessments; it renders the diff, imported notes, and any
+input requests, or assessments; it renders the diff, imported notes, and any
 stale/orphan note rows.
 
 ## 6. Concepts you need to know
@@ -308,7 +308,7 @@ Shore separates **authoritative facts** from **derived views**:
   rewritten on read.
 - `.shore/artifacts/` holds the immutable support records that events bind to:
   captured ReviewUnit snapshots, and the optional content-addressed bodies
-  for large observation, intervention, and assessment payloads.
+  for large observation, input request, and assessment payloads.
 - `.shore/state.json` is a **rebuildable projection**, not the authority. It
   may be deleted and regenerated; freshness against the current event set is
   verified through `eventSetHash`.
@@ -342,14 +342,14 @@ There are two overlapping read surfaces today:
   `unit show` commands) operates on a frozen captured snapshot plus the
   durable event log. It is the surface for recording review facts.
 
-Native observations, interventions, and assessments appear in
+Native observations, input requests, and assessments appear in
 `shore review unit show` but are not yet projected into `shore dump` or
 `shore show`. If you need a single view that combines a captured snapshot
 with all ledger facts, use `shore review unit show`.
 
 ### Tracks
 
-Every observation, intervention, and assessment belongs to a required
+Every observation, input request, and assessment belongs to a required
 `--track`. Tracks are **review lanes**, such as `agent:codex` or
 `human:kevin`. They are not actor identity. Writer provenance — who actually
 ran the command, with which tool — is recorded separately in the event

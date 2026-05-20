@@ -8,14 +8,14 @@ small, Rust-native review core with a data model that is easy to reason about, t
 expose to other tools.
 
 For a narrative end-to-end walkthrough of the current review workflow — capturing a ReviewUnit,
-inspecting it, recording observations, interventions, and assessments, and the distinction between
+inspecting it, recording observations, input requests, and assessments, and the distinction between
 durable events, rebuildable projections, and command-output JSON — see
 [docs/review-workflow.md](docs/review-workflow.md). The "Current CLI" section below remains the
 per-command reference.
 
 Maintainers running a confidence pass after big changes can use the manual testing playbook in
 [docs/manual-testing.md](docs/manual-testing.md): copy/paste scratch-repo recipes for capture,
-observations, interventions, assessments, history, unit show, sidecar import, stale-note reload,
+observations, input requests, assessments, history, unit show, sidecar import, stale-note reload,
 and storage rebuildability.
 
 ## Name
@@ -93,10 +93,9 @@ The TUI should be a projection of that model. Widgets may render state, but they
 the authoritative owners of scroll, selection, or navigation semantics.
 
 Durable workflow guidance is captured in [docs/storage-model.md](docs/storage-model.md),
-[docs/intervention-model.md](docs/intervention-model.md), and
+[docs/input-request-model.md](docs/input-request-model.md), and
 [docs/assessment-model.md](docs/assessment-model.md). Treat those as architecture guidance for
-storage, event, interruption, assessment, and escalation design, not current V1 implementation
-scope.
+storage, event, input-request, and assessment design, not current V1 implementation scope.
 
 ## Initial Scope
 
@@ -347,7 +346,7 @@ Behavior:
   `shore.review-input-request-respond` JSON by default. Read commands also accept `--pretty`.
 - V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
   notification transport, or cancellation/escalation event.
-- Native interventions appear in `shore review unit show`. They are not yet projected into
+- Native input requests appear in `shore review unit show`. They are not yet projected into
   `shore dump` or `shore show`.
 
 `shore review assessment` records and reads review calls for a captured ReviewUnit:
@@ -425,7 +424,7 @@ Behavior:
 - When exactly one ReviewUnit has been captured, Shore selects it automatically. If multiple
   captured ReviewUnits exist, pass `--review-unit <id>` to select one explicitly.
 - The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
-  current assessment status, native observations, interventions, assessments, imported adapter
+  current assessment status, native observations, input requests, assessments, imported adapter
   notes, projection rows, and diagnostics.
 - Rows are narrative-first, then snapshot-complete. Native ledger facts and imported adapter notes
   appear before the captured snapshot remainder; the snapshot remainder still includes every

@@ -174,8 +174,8 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             event.assertion_mode = *assertion_mode;
             Ok(event)
         }
-        AdapterIntent::InterventionRequested => Err(ShoreError::Message(
-            "AdapterIntent::InterventionRequested has no task-event write mapping".to_owned(),
+        AdapterIntent::InputRequestRequested => Err(ShoreError::Message(
+            "AdapterIntent::InputRequestRequested has no task-event write mapping".to_owned(),
         )),
     }
 }
@@ -379,9 +379,9 @@ mod tests {
     }
 
     #[test]
-    fn intent_to_event_rejects_unhandled_intervention_requested_variant() {
-        let result = intent_to_event(&AdapterIntent::InterventionRequested);
-        assert!(result.is_err(), "InterventionRequested must not map");
+    fn intent_to_event_rejects_unhandled_input_request_requested_variant() {
+        let result = intent_to_event(&AdapterIntent::InputRequestRequested);
+        assert!(result.is_err(), "InputRequestRequested must not map");
     }
 
     #[test]

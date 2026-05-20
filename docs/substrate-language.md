@@ -89,8 +89,8 @@ different architecture.
 | review observation | assertion | An attributed claim about a review unit or target inside it. |
 | review assessment | assertion | A formal review-domain call. |
 | review note | imported assertion | A note imported from an external review source. |
-| intervention | assertion / input request | A durable request for attention, decision, or explicit response. |
-| intervention resolution | assertion / response | A durable answer to an intervention. |
+| input request | assertion | A durable request for another actor's input, such as attention, decision, or explicit response. |
+| input request response | assertion | A durable answer to an input request. |
 
 Review-domain terms remain correct in command names and user-facing JSON. Do not rename user-facing
 surfaces to substrate terms just because the underlying pattern generalizes.

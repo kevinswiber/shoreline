@@ -203,18 +203,18 @@ mod tests {
     }
 
     #[test]
-    fn task_attempt_captured_idempotency_key_does_not_collide_with_intervention_substrate_form() {
+    fn task_attempt_captured_idempotency_key_does_not_collide_with_input_request_form() {
         let task_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("shared"),
             WorkObjectType::TaskAttempt,
             "source-1",
         );
-        let intervention_key = InputRequestOpenedPayload::idempotency_key_for_work_object(
+        let input_request_key = InputRequestOpenedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("shared"),
             WorkObjectType::TaskAttempt,
             "source-1",
         );
-        assert_ne!(task_key, intervention_key);
+        assert_ne!(task_key, input_request_key);
     }
 
     #[test]

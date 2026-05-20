@@ -55,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn intervention_id_round_trips_through_serde_and_string() {
+    fn input_request_id_round_trips_through_serde_and_string() {
         let id = InputRequestId::new("input-request:sha256:abc");
 
         let json = serde_json::to_string(&id).unwrap();
@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn intervention_resolution_id_round_trips_through_serde_and_string() {
+    fn input_request_response_id_round_trips_through_serde_and_string() {
         let id = InputRequestResponseId::new("input-request-response:sha256:def");
 
         let json = serde_json::to_string(&id).unwrap();
