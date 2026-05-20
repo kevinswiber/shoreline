@@ -7,7 +7,7 @@
 
 ## Context
 
-Shore stores captured review-unit diffs as identifier-hashed artifacts under
+Shoreline stores captured review-unit diffs as identifier-hashed artifacts under
 `artifacts/snapshots/<sha256(snapshotId)>.json`. The artifact body carries the full row
 inventory inline: `snapshot.files[].hunks[].rows[]` is one row object per added, removed,
 or context line. A newly added 10,000-line text file produces one artifact with roughly
@@ -15,7 +15,7 @@ or context line. A newly added 10,000-line text file produces one artifact with 
 that the read path recomputes and compares on every load
 (`src/session/store/snapshot_artifact.rs::validate_snapshot_artifact_content_hash`).
 
-Issue #64 asked Shore to decide V1 policy on five concrete questions about how the
+Issue #64 asked Shoreline to decide V1 policy on five concrete questions about how the
 snapshot artifact should behave at scale.
 
 ## Decision
@@ -33,7 +33,7 @@ questions receives an explicit answer below.
   trigger, ratifying the simplest possible model keeps `shore review unit show`'s
   "snapshot-complete" contract honest.
 - **Q2: Should generated files be detected and marked metadata-only?**
-  No. Shore does not parse `.gitattributes`, look at `linguist-generated` markers, or
+  No. Shoreline does not parse `.gitattributes`, look at `linguist-generated` markers, or
   apply any heuristic. Detection rules and their interaction with review-stream noise
   are V2 design decisions.
 - **Q3: Should binary / too-large / elided files produce explicit metadata rows?**
@@ -88,7 +88,7 @@ questions receives an explicit answer below.
 
 ### Option (b): adopt a row-count elision threshold in V1
 
-Rejected. Choosing a threshold without a real workload to anchor it commits Shore to a
+Rejected. Choosing a threshold without a real workload to anchor it commits Shoreline to a
 number (1k? 10k? 50k?) that V2 will almost certainly want to change. Worse, an
 elision-bearing artifact under the current `SNAPSHOT_ARTIFACT_VERSION = 1` and the
 current `contentHash` scope would change what `snapshotArtifactContentHash` means for

@@ -6,7 +6,7 @@
 
 ## Context
 
-Shore stores note-shaped event bodies (observations, input request bodies, input request response
+Shoreline stores note-shaped event bodies (observations, input request bodies, input request response
 reasons, assessment summaries, imported review notes) using a threshold split: small bodies live
 inline in the event payload, larger bodies are externalized to `artifacts/notes/<sha256(body)>.json`
 under the `shore.note-body` envelope. Issue #17 asked whether note bodies should always materialize
@@ -78,7 +78,7 @@ Rejected for these reasons:
 1. **Doubled durable writes per body-bearing event.** Every observation, input request body,
    input request response reason, assessment summary, and imported note would emit an additional
    `Durability::Durable` write (one fsync per artifact, in addition to the event's existing fsync).
-   Shore's expected workload has many short observations and assessment summaries; this multiplies
+   Shoreline's expected workload has many short observations and assessment summaries; this multiplies
    file-count and fsync growth roughly 1:1 with the event log.
 2. **No simplification on the read path.** Every consumer already handles both arms via a uniform
    `inline-or-load_body_artifact` fallback (see `observation_body`, `input_request_body`,

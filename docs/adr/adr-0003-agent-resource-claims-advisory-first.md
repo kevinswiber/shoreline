@@ -5,16 +5,16 @@
 
 ## Context
 
-Shore coordinates software work through durable facts and derived projections, not through a
+Shoreline coordinates software work through durable facts and derived projections, not through a
 central workflow controller. As agent workflows become more common, agents may need to communicate
 intent such as "I am editing this file" or "I am working on this task checkpoint."
 
 Hard leases and reservations would prevent some conflicts, but they would also introduce executive
 policy with write-side force: a scheduler, lock manager, daemon broker, or first-claimer-wins rule.
-That is not Shore's V1 architecture. Shore's substrate should preserve facts, surface conflicts,
+That is not Shoreline's V1 architecture. Shoreline's substrate should preserve facts, surface conflicts,
 and let readers apply explicit policy.
 
-The existing writer contract already follows this posture. `.shore/` assumes one active Shore
+The existing writer contract already follows this posture. `.shore/` assumes one active Shoreline
 writer per store at a time, but it does not coordinate broader multi-agent work through lockfiles,
 leases, daemon brokering, IPC, or filesystem notifications.
 
@@ -34,13 +34,13 @@ Concretely:
 - Readers decide how to behave from the projection they read.
 - Recovery from stale or conflicting claims happens through later events: supersession, retraction,
   input request response, human review, or a projection-specific authority rule.
-- Shore does not block event writes because a competing advisory claim exists.
+- Shoreline does not block event writes because a competing advisory claim exists.
 
 ## Consequences
 
 ### Accepted
 
-- Some conflicts can happen. Shore records and surfaces them; it does not prevent all of them.
+- Some conflicts can happen. Shoreline records and surfaces them; it does not prevent all of them.
 - Agents need reader-side discipline. An agent that ignores advisory conflict projections may still
   produce collisions.
 - Human review and later corrective facts remain the recovery path for conflicts that cannot be

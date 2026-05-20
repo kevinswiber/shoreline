@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn event_target_rejects_legacy_review_id_shape() {
-        // Shore is unreleased; no migration shim is supported. Legacy
+        // Shoreline is unreleased; no migration shim is supported. Legacy
         // event-target JSON that names the envelope identifier `reviewId`
         // must fail to deserialize once the rename lands.
         let legacy = r#"{"reviewId":"review:default","workUnitId":"work:default"}"#;

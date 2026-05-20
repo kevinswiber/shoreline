@@ -29,7 +29,7 @@ enum AssessmentCommand {
 
 #[derive(Debug, Args)]
 pub(super) struct AssessmentAddArgs {
-    /// Repository path to read/write Shore review state for.
+    /// Repository path to read/write Shoreline review state for.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
@@ -104,7 +104,7 @@ pub(super) struct AssessmentAddArgs {
 
 #[derive(Debug, Args)]
 pub(super) struct AssessmentShowArgs {
-    /// Repository path to read Shore review state from.
+    /// Repository path to read Shoreline review state from.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 

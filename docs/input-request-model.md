@@ -2,7 +2,7 @@
 
 ## Status
 
-V1 has a local durable input-request ledger. Shore can record `input_request_opened` events,
+V1 has a local durable input-request ledger. Shoreline can record `input_request_opened` events,
 append `input_request_responded` events, and expose polling read surfaces through
 `shore review input-request list` and `shore review input-request fetch`.
 
@@ -11,12 +11,12 @@ behavior, notification transport, UI prompts, and automatic cancellation are def
 
 ## Goal
 
-Shore needs a durable way to represent moments where normal review flow needs input from another
+Shoreline needs a durable way to represent moments where normal review flow needs input from another
 actor: a decision, an answer, an approval, a clarification, or an explicit response that changes how
 the work proceeds.
 
 Do not call this "human-in-the-loop" in the core model. The actor may be a human, reviewer, monitor
-process, automated tool, cloud worker, or another Shore client. The model describes the workflow
+process, automated tool, cloud worker, or another Shoreline client. The model describes the workflow
 fact, not who resolves it.
 
 ## Core Terms
@@ -139,12 +139,12 @@ This document does not require:
 - automatic expiry
 - explicit cancellation/escalation event types
 
-Those may become useful later, but the architectural requirement is narrower: Shore's durable model
+Those may become useful later, but the architectural requirement is narrower: Shoreline's durable model
 should request input at safe workflow boundaries and record the response that closes the request.
 
 ## Legacy Intervention Events
 
-Earlier development versions of Shore wrote intervention events and exposed a
-`shore review intervention` command family. Current Shore uses input request events and
-`shore review input-request` instead. Because Shore has not released this storage contract, the
+Earlier development versions of Shoreline wrote intervention events and exposed a
+`shore review intervention` command family. Current Shoreline uses input request events and
+`shore review input-request` instead. Because Shoreline has not released this storage contract, the
 supported migration is to discard the old local `.shore/` directory and recapture the review.

@@ -2,19 +2,19 @@
 
 ## Status
 
-This is architecture guidance for Shore's durable review/session state. It describes constraints the
+This is architecture guidance for Shoreline's durable review/session state. It describes constraints the
 first `.shore/` persistence slice should preserve, even when the implementation starts small.
 
 ## Goal
 
-Shore should make durable state boring: write facts once, rebuild projections, and keep output,
+Shoreline should make durable state boring: write facts once, rebuild projections, and keep output,
 storage, and notification side effects behind explicit seams. The storage model should avoid the
 common failure modes of long-running coordination tools: hidden in-memory authority, direct delivery
 before persistence, shared mutable JSON files, unbounded retries, and helper bypasses.
 
 ## Storage Authority
 
-Shore V1 intentionally uses filesystem-backed `.shore/events/` and `.shore/artifacts/` as the
+Shoreline V1 intentionally uses filesystem-backed `.shore/events/` and `.shore/artifacts/` as the
 authoritative local store. This is a deliberate split between canonical immutable facts and derived
 projections, not a temporary gap waiting to be replaced by a database.
 
@@ -33,15 +33,15 @@ These are the only authoritative durable storage in V1. Everything else is a cac
 They may be deleted and regenerated. Freshness against the current event set is verified through
 `eventSetHash`, not through the projection's existence or `eventCount` alone.
 
-**Consumer contract.** Stable automation should depend on Shore commands and named JSON documents,
+**Consumer contract.** Stable automation should depend on Shoreline commands and named JSON documents,
 not on raw storage paths. Commands and documents expose semantic IDs, content hashes, and freshness
 metadata as the public surface. Event filenames, artifact paths, fan-out layout, the internal shape
-of `state.json`, raw storage envelopes, and row or hunk identifier formatting are Shore-owned
+of `state.json`, raw storage envelopes, and row or hunk identifier formatting are Shoreline-owned
 storage details. They may change without a deprecation cycle unless a later design explicitly
 promotes them to a stable contract.
 
 **Deferred options.** SQLite-backed read indexes, content-address fan-out, snapshot compaction or
-delta packs, store manifests, and retention policy are implementation choices Shore may add later
+delta packs, store manifests, and retention policy are implementation choices Shoreline may add later
 as derived layers. None of them are current authority, and none of them are part of the consumer
 contract until a later design explicitly promotes them.
 
@@ -62,14 +62,14 @@ Use distinct storage concepts for distinct semantics:
 `failed/`, retried in place, or rewritten on read.
 
 `state.json` is a cache/projection. It must be rebuildable from durable records. If it is missing,
-stale, or invalid, Shore should rebuild it rather than treating it as authority.
+stale, or invalid, Shoreline should rebuild it rather than treating it as authority.
 
 ReviewUnit capture follows the same authority split:
 
 - `review_unit_captured` events in `events/` carry durable capture facts
 - a ReviewUnit is the base endpoint, target endpoint, and captured diff snapshot
 - V1 captures the local Git worktree from `HEAD` to the working tree
-- full captured snapshots live as Shore-owned immutable artifacts under `artifacts/snapshots/`
+- full captured snapshots live as Shoreline-owned immutable artifacts under `artifacts/snapshots/`
 - `review_unit_captured` events bind to the internal snapshot artifact's canonical `contentHash`
 - bounded `state.json` may summarize ReviewUnit count and current unambiguous ReviewUnit ID, but it
   is not the source of ReviewUnit identity or snapshot content
@@ -95,7 +95,7 @@ Imported review notes should follow the same split:
   bodies above the threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the
   `shore.note-body` envelope (schema `shore.note-body`, version `1`)
 
-On the read path, Shore reconstructs imported notes by replaying `review_note_imported` events and
+On the read path, Shoreline reconstructs imported notes by replaying `review_note_imported` events and
 loading any optional note-body artifacts under `artifacts/notes/`. `state.json` remains a bounded
 projection and is not the durable source of note content.
 
@@ -113,7 +113,7 @@ Observations are append-only. Corrections are new `review_observation_recorded` 
 older observations through `supersedesObservationIds`; standalone retraction is deferred.
 
 Observation read projections use `observationId` as the logical identity. If multiple durable
-events carry the same observation ID, Shore preserves those events but returns one observation row
+events carry the same observation ID, Shoreline preserves those events but returns one observation row
 and emits a duplicate semantic diagnostic.
 
 Observation bodies use the same inline-or-artifact mechanics as imported notes. Bodies under or
@@ -235,7 +235,7 @@ ReviewUnit show is the composite read surface for one captured ReviewUnit:
   default output keeps large text omitted
 
 `shore.review-unit` is command-output API. Snapshot artifacts, note body artifacts, event files,
-event filenames, and `state.json` remain Shore-owned storage details and are not exposed as stable
+event filenames, and `state.json` remain Shoreline-owned storage details and are not exposed as stable
 paths.
 
 The review stream also surfaces stale and orphan notes as dedicated rows so reviewers can park the
@@ -278,12 +278,12 @@ that repeats the same logical fact with different idempotency keys creates multi
 not a storage overwrite. Read projections collapse same-semantic-ID events to one logical row and
 surface a duplicate semantic diagnostic so the raw append-only history remains inspectable.
 
-Any hash that contributes to durable identity should use Shore's canonical JSON path, with object
+Any hash that contributes to durable identity should use Shoreline's canonical JSON path, with object
 keys sorted recursively before hashing. Do not rely on incidental serde_json map ordering or local
 construction order for event payload hashes, revision fingerprints, snapshot fingerprints, or future
 content-derived IDs.
 
-Do not add a global sequence number until Shore has a concrete allocator that does not create a
+Do not add a global sequence number until Shoreline has a concrete allocator that does not create a
 shared mutable counter. Deterministic event ordering can start from event metadata and filenames.
 
 ## Artifact Files
@@ -315,14 +315,14 @@ characters, while content-addressed naming earns its keep through deterministic 
 should not mix the two rules — locate snapshot artifacts by their `snapshotId` and note-body
 artifacts by the relative path recorded in the referencing event.
 
-Artifact filenames remain Shore-owned storage details. The consumer contract is the command-output
+Artifact filenames remain Shoreline-owned storage details. The consumer contract is the command-output
 JSON (`shore.review-capture`, `shore.review-unit`, and friends), which exposes semantic IDs and the
 snapshot artifact's canonical `contentHash`. Filename derivation rules may change without a
 deprecation cycle, but artifacts are V1 authority alongside events — the event log alone cannot
 reconstruct snapshot rows or large note bodies. A future rule change must therefore rename or
 migrate the affected files in place, keep a compatibility read path during transition, or
 regenerate the directory from the original source (worktree capture, sidecar import) where that is
-possible. Shore does not promise dual-read of legacy filenames implicitly.
+possible. Shoreline does not promise dual-read of legacy filenames implicitly.
 
 ## Atomic Writes
 
@@ -337,7 +337,7 @@ All durable writes should go through one storage helper. The helper owns:
 - stale temp file sweep
 
 Any helper that can create temp files must also participate in sweeping them. Cleanup should not be
-limited to queue code. On load, Shore should remove stale temp files matching its known prefixes and
+limited to queue code. On load, Shoreline should remove stale temp files matching its known prefixes and
 older than the configured safety threshold.
 
 Rebuildable projections may use a non-durable write mode that skips fsync, but they still should use
@@ -359,7 +359,7 @@ version `1`), so the authoritative event and rebuildable projection remain bound
 
 ## Note Body Materialization
 
-Shore stores note-shaped event bodies (observations, input request bodies, input request response
+Shoreline stores note-shaped event bodies (observations, input request bodies, input request response
 reasons, assessment summaries, imported review notes) using a threshold split, not as a uniform
 artifact-per-body materialization.
 
@@ -417,7 +417,7 @@ See [ADR-0001](./adr/adr-0001-note-body-materialization.md) for the decision rat
 
 ## Large Snapshot Artifact Policy
 
-Shore stores captured review-unit diffs inline in identifier-hashed artifacts under
+Shoreline stores captured review-unit diffs inline in identifier-hashed artifacts under
 `artifacts/snapshots/<sha256(snapshotId)>.json`. The artifact body is one JSON object per snapshot
 and carries every captured file, every metadata row, every hunk, and every diff row. There is no
 elision threshold, no generated-file detection, and no metadata-only marker for "too-large" or
@@ -450,7 +450,7 @@ have to change to flip it — is recorded in the ADR's "Future Reversal" section
 the projection. `eventCount` remains a cheap count, but it does not prove that a cached projection
 matches the current `.shore/events/` set.
 
-`eventSetHash` is computed from Shore's canonical JSON hash path over sorted `(eventId,
+`eventSetHash` is computed from Shoreline's canonical JSON hash path over sorted `(eventId,
 payloadHash)` pairs. It intentionally excludes the full event JSON, event filenames, sequence
 numbers, writer metadata, storage paths, and `occurredAt`. The hash describes which durable facts
 the projection saw; it is not a causal ordering primitive or a raw event-file checksum.
@@ -476,8 +476,8 @@ are explicit and tested.
 
 ## V1 Writer Contract
 
-V1 uses a single-writer workflow contract: one active Shore writer per `.shore/` directory at a
-time. Shore does not coordinate writers with lockfiles, leases, a daemon, IPC, or filesystem
+V1 uses a single-writer workflow contract: one active Shoreline writer per `.shore/` directory at a
+time. Shoreline does not coordinate writers with lockfiles, leases, a daemon, IPC, or filesystem
 notifications yet.
 
 Event files remain the append-only authority. They are created with exclusive file creation:
@@ -488,7 +488,7 @@ whether the resulting event set is valid, ambiguous, or conflicting.
 `state.json` writes are projection cache writes. If projection writers race, events remain
 authoritative and the projection can be rebuilt.
 
-Workflow startup cleanup removes only Shore temp files older than the workflow startup threshold.
+Workflow startup cleanup removes only Shoreline temp files older than the workflow startup threshold.
 Preserving fresh `.shore-write.*.tmp` files avoids clobbering an in-flight write, but it is not a
 lock or lease and does not make long-running multi-process writes a supported coordination model.
 
@@ -552,7 +552,7 @@ ambient process TTY state unless the command is inherently interactive and fails
 Notifications are hints, not authority. The durable event must land before any notification fires.
 Clients that receive a notification should re-read durable state before acting.
 
-If Shore later adds a delivery queue, every retry path must have:
+If Shoreline later adds a delivery queue, every retry path must have:
 
 - a maximum attempt count
 - backoff policy

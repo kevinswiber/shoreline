@@ -1,6 +1,6 @@
 # Manual Testing Playbook
 
-This is a maintainer-facing checklist for spot-checking Shore's current workflows by hand. It is
+This is a maintainer-facing checklist for spot-checking Shoreline's current workflows by hand. It is
 intentionally small: each section creates a disposable scratch repo, runs a few commands, and
 describes what to look for. Use it after big changes to confirm the surfaces still behave the way
 the docs claim.

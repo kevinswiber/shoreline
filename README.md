@@ -1,11 +1,12 @@
-# Shore
+# Shoreline
 
 [![Crates.io](https://img.shields.io/crates/v/shoreline.svg)](https://crates.io/crates/shoreline)
 [![Documentation](https://docs.rs/shoreline/badge.svg)](https://docs.rs/shoreline)
 [![CI](https://github.com/kevinswiber/shore/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinswiber/shore/actions/workflows/ci.yml)
 
-Shore is an experimental Rust terminal review tool for understanding what changed and why,
-especially in tool-assisted changesets.
+Shoreline is terminal code review built for the human-agent loop — capture a change, record
+observations and interventions, resolve them asynchronously, and resume the review state across
+sessions.
 
 Install the `shoreline` crate; it provides the `shore` command:
 
@@ -38,7 +39,7 @@ practical.
 
 ## Product Intent
 
-Shore is for code review in a terminal. It should help a reviewer inspect:
+Shoreline is for code review in a terminal. It should help a reviewer inspect:
 
 - the actual working-tree diff
 - the review notes a reviewer or tool attached to files and code rows
@@ -65,7 +66,7 @@ aligned:
 - terminal resize behavior
 - saved or live review-note context
 
-Shore should avoid parallel sources of truth. Rendering, scrolling, and navigation should derive
+Shoreline should avoid parallel sources of truth. Rendering, scrolling, and navigation should derive
 from one explicit review-stream model.
 
 That model should own:
@@ -96,7 +97,7 @@ Build:
 - a Rust CLI binary
 - working-tree `diff` support
 - tracked and untracked file support
-- unified-diff parsing into Shore's own file/diff-section/row model
+- unified-diff parsing into Shoreline's own file/diff-section/row model
 - a native `review-notes.json` sidecar loader
 - a split terminal diff view
 - `[` and `]` navigation through the full diff stream
@@ -123,7 +124,7 @@ All commands accept optional tracing flags:
 Tracing writes to stderr by default. If stdout is being piped into JSON tools, prefer
 `--log-file <path>` instead of `2>&1`; mixing stderr into stdout will corrupt the JSON stream.
 `shore show` requires `--log-file` when tracing is enabled so trace lines do not scribble over the
-raw-mode TUI. When `--log-file <path>` points inside the repository, Shore treats that path as a
+raw-mode TUI. When `--log-file <path>` points inside the repository, Shoreline treats that path as a
 command helper for the current command and excludes it from the reviewed snapshot and fingerprint.
 
 `shore show` opens the first read-only terminal review view over the same headless review stream
@@ -136,7 +137,7 @@ shore show [--repo <path>] [--review-notes <path>]
 Behavior:
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--review-notes <path>` loads Shore-native `review-notes.json`.
+- `--review-notes <path>` loads Shoreline-native `review-notes.json`.
 - When no explicit sidecar is supplied, repo-only `shore show` auto-loads durable imported notes
   from `.shore/` if the store exists.
 - Press `r` to re-ingest the working tree and reload the projection without losing your cursor
@@ -161,7 +162,7 @@ shore dump [--repo <path>] [--review-notes <path>] [--pretty | --compact]
 Behavior:
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--review-notes <path>` loads Shore-native `review-notes.json`.
+- `--review-notes <path>` loads Shoreline-native `review-notes.json`.
 - When no explicit sidecar is supplied, repo-only `shore dump` auto-loads durable imported notes
   from `.shore/` if the store exists.
 - When durable notes no longer match the current snapshot, `shore dump` emits an optional
@@ -229,7 +230,7 @@ Behavior:
 - Fatal errors, such as unreadable files or malformed JSON, are written to stderr and exit
   non-zero; unreadable sidecar errors include the attempted path.
 
-The dump output is Shore introspection JSON and uses snake_case fields. Native `review-notes.json`
+The dump output is Shoreline introspection JSON and uses snake_case fields. Native `review-notes.json`
 input keeps its schema-defined camelCase fields such as `oldPath`, `startLine`, and `createdAt`.
 
 `shore review capture` records the current V1 ReviewUnit:
@@ -248,10 +249,10 @@ Behavior:
   `.gitignore` when needed.
 - `.shore/events/` stores immutable local event files. `.shore/state.json` is a rebuildable
   projection, not the authority.
-- `.shore/` is local, synchronous storage. V1 uses a single-writer contract: one active Shore writer
+- `.shore/` is local, synchronous storage. V1 uses a single-writer contract: one active Shoreline writer
   at a time per `.shore/` directory. Event writes use per-file durable facts and rebuildable
   projections rather than a daemon or shared mutable JSON authority.
-- Full captured snapshots are Shore-owned immutable artifacts under `.shore/artifacts/snapshots/`.
+- Full captured snapshots are Shoreline-owned immutable artifacts under `.shore/artifacts/snapshots/`.
   The `review_unit_captured` event binds to the snapshot artifact's canonical content hash, so
   replay can detect changed artifact facts. The output exposes ReviewUnit, revision, and snapshot
   IDs plus that content hash, but does not expose artifact paths as user-facing API.
@@ -262,7 +263,7 @@ Behavior:
   optional import/transport adapter for read/import commands.
 - Output is compact `shore.review-capture` JSON. Command output documents are the external contract
   for automation; `.shore/state.json` is only a rebuildable projection, and artifact paths remain
-  Shore-owned storage details.
+  Shoreline-owned storage details.
 
 `shore review capture` does not add a daemon, delivery queue, approval flow, async or remote
 storage backend, or note mutation. `.shore/events/` is the local authoritative event log, not a
@@ -280,14 +281,14 @@ shore review observation list --track agent:codex
 Behavior:
 
 - `shore review observation add` requires `--track` and `--title`.
-- Tracks are review lanes, not actor or tool provenance. Shore still records writer provenance from
-  local Git config and the Shore tool identity in the event envelope.
+- Tracks are review lanes, not actor or tool provenance. Shoreline still records writer provenance from
+  local Git config and the Shoreline tool identity in the event envelope.
 - Without `--file`, the observation is review-wide and targets the whole ReviewUnit.
 - With `--file <path>`, the observation targets a file in the captured snapshot.
 - With `--file <path> --start-line <n> [--end-line <n>]`, the observation targets a range on the
   selected side (`--side <old|new>`, default `new`).
 - Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies are stored as
-  Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
+  Shoreline-owned `shore.note-body` artifacts while command output keeps artifact paths private.
 - `--supersedes <observation-id>` records a correction by appending a new observation that names the
   older observation. Standalone retraction is deferred.
 - `shore review observation list` replays durable events for the ReviewUnit. Bodies are omitted by
@@ -320,7 +321,7 @@ Behavior:
   `--file <path> --start-line <n> [--end-line <n>]` for a range, or `--observation
   <observation-id>` for an existing native observation in the same ReviewUnit.
 - Request bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies reuse
-  Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
+  Shoreline-owned `shore.note-body` artifacts while command output keeps artifact paths private.
 - `input-request list` is the V1 polling read surface. It replays `.shore/events/`, defaults to
   open requests, and can filter by `--track`, `--mode`, `--file`, and `--status`.
 - `input-request fetch <id> --include-body` returns one input request and hydrates the body when
@@ -358,7 +359,7 @@ Behavior:
   <observation-id>`, `--input-request <input-request-id>`, or `--target-assessment
   <assessment-id>` for native facts in the same ReviewUnit.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Large summaries reuse
-  Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
+  Shoreline-owned `shore.note-body` artifacts while command output keeps artifact paths private.
 - `--replaces <assessment-id>` is the only V1 relationship that removes an older assessment from the
   current set.
 - `--related-observation` and `--related-input-request` record evidence links. They do not mutate
@@ -376,7 +377,7 @@ Behavior:
   observations when they are needed. Record them with `shore review observation add` and a concrete
   tag such as `--tag state-change:deferred`.
 
-`shore review history` reads the chronological ledger of durable Shore events:
+`shore review history` reads the chronological ledger of durable Shoreline events:
 
 ```bash
 shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
@@ -412,7 +413,7 @@ shore review unit show [--repo <path>] [--review-unit <id>] [--track <track-id>]
 Behavior:
 
 - The command emits compact `shore.review-unit` v1 JSON by default.
-- When exactly one ReviewUnit has been captured, Shore selects it automatically. If multiple
+- When exactly one ReviewUnit has been captured, Shoreline selects it automatically. If multiple
   captured ReviewUnits exist, pass `--review-unit <id>` to select one explicitly.
 - The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
   current assessment status, native observations, input requests, assessments, imported adapter
@@ -429,7 +430,7 @@ Behavior:
 - `shore review unit show` is distinct from `shore review history`: history is the chronological raw
   event listing, while unit show is the composite ReviewUnit view for agents and future frontends.
 
-`shore notes apply` imports review notes into Shore-owned durable state without publishing a
+`shore notes apply` imports review notes into Shoreline-owned durable state without publishing a
 revision:
 
 ```bash
@@ -443,7 +444,7 @@ Behavior:
 - `--review-notes <path>` is required.
 - The command initializes local `.shore/` storage when needed, records one immutable durable event
   per imported note, and rebuilds `.shore/state.json`.
-- Native `review-notes.json` is an import/transport input, not the authoritative persisted Shore
+- Native `review-notes.json` is an import/transport input, not the authoritative persisted Shoreline
   store.
 - Large note bodies may be stored as content-addressed note-body artifacts under
   `.shore/artifacts/notes/`; small note bodies remain inline in the imported-note event payload.
@@ -469,7 +470,7 @@ These are useful, but they should wrap a proven review model rather than shape i
 
 ## Git And Diff Requirements
 
-Shore keeps these Git diff cases explicit in the model, even when the UI renders them plainly:
+Shoreline keeps these Git diff cases explicit in the model, even when the UI renders them plainly:
 
 - untracked files: `git diff` does not include them, so use `git ls-files --others --exclude-standard`
   and synthesize diffs against `/dev/null`
@@ -487,7 +488,7 @@ honest product constraint.
 
 ## Review Notes Sidecar
 
-Shore's native sidecar is `review-notes.json`. It is a transport/import file for ordered review
+Shoreline's native sidecar is `review-notes.json`. It is a transport/import file for ordered review
 notes, not a persisted `.shore/` session-state format.
 
 The sidecar should stay review-oriented and concise:
@@ -500,7 +501,7 @@ Review notes belong beside the code. The first UI should render notes spatially 
 diff section or row, and note navigation should move through section-specific notes in the review
 stream.
 
-The sidecar file order is intentional. Shore should preserve that order when it differs from the raw
+The sidecar file order is intentional. Shoreline should preserve that order when it differs from the raw
 Git diff order.
 
 Example native sidecar shape:
@@ -535,10 +536,10 @@ Example native sidecar shape:
 }
 ```
 
-Shore's native sidecar is `review-notes.json`.
+Shoreline's native sidecar is `review-notes.json`.
 
-When Shore imports these sidecars through `shore notes apply`, it persists immutable imported-note
-events under `.shore/events/`. For large note bodies, Shore may store the body text as a
+When Shoreline imports these sidecars through `shore notes apply`, it persists immutable imported-note
+events under `.shore/events/`. For large note bodies, Shoreline may store the body text as a
 content-addressed artifact under `.shore/artifacts/notes/` while keeping the event payload bounded.
 
 ## Future Session Model
@@ -560,14 +561,14 @@ core.
 
 ## Rust Stack
 
-Shore currently uses:
+Shoreline currently uses:
 
 - `ratatui` plus `crossterm` for the terminal UI
 - `serde` and `serde_json` for sidecar and state JSON
 - shelling out to `git` for repository data
 - focused headless tests before TUI behavior tests
 
-Be careful with stateful widget idioms. Shore should keep model state authoritative and make TUI
+Be careful with stateful widget idioms. Shoreline should keep model state authoritative and make TUI
 widgets render from it.
 
 ## Testing Strategy
@@ -592,7 +593,7 @@ placement without a terminal.
 
 ## Non-Goals
 
-Shore should not initially try to be:
+Shoreline should not initially try to be:
 
 - a general Git porcelain
 - a complete review platform

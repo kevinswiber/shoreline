@@ -1,6 +1,6 @@
 # Releasing
 
-Shore releases are driven from GitHub Actions through Cocogitto.
+Shoreline releases are driven from GitHub Actions through Cocogitto.
 
 Use the **Release Plan** workflow in `plan` mode first. It reports the current commit, recent CI
 status, the version Cocogitto will publish, and a changelog preview. For an exact release, set the
@@ -39,11 +39,11 @@ Repository secrets:
 - `GPG_PRIVATE_KEY` - private key used by the Release Plan workflow to sign the Cocogitto version
   commit and tag.
 
-No Homebrew, npm, or binary-asset secrets are needed for Shore.
+No Homebrew, npm, or binary-asset secrets are needed for Shoreline.
 
 ## Cocogitto Major Bumps
 
 For normal automatic releases, Cocogitto infers a major bump from a breaking-change conventional
-commit such as `feat!:` or a commit with a `BREAKING CHANGE:` footer. For the first Shore `0.1.0`
+commit such as `feat!:` or a commit with a `BREAKING CHANGE:` footer. For the first Shoreline `0.1.0`
 release, use the explicit workflow version input instead of creating an artificial breaking-change
 commit.

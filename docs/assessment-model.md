@@ -1,6 +1,6 @@
 # Assessment Model
 
-Shore records reviewer decisions as `review_assessment_recorded` events. An assessment is the
+Shoreline records reviewer decisions as `review_assessment_recorded` events. An assessment is the
 current review call for a captured ReviewUnit, file, range, observation, input request, or earlier
 assessment.
 
@@ -42,7 +42,7 @@ shore review assessment add --track human:kevin --assessment accepted-with-follo
 ```
 
 Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Large summaries use the
-same Shore-owned `shore.note-body` artifact path as other note-shaped bodies; command output keeps
+same Shoreline-owned `shore.note-body` artifact path as other note-shaped bodies; command output keeps
 artifact paths private.
 
 `--replaces <assessment-id>` is the only relationship that removes an older assessment from the
@@ -81,7 +81,7 @@ identity, and idempotency.
 
 ## Legacy disposition events
 
-Earlier versions of Shore wrote `review_disposition_recorded` events with eight variants. Shore is
+Earlier versions of Shoreline wrote `review_disposition_recorded` events with eight variants. Shoreline is
 pre-V1 and does not preserve those events on disk. Loading a `.shore/events/` directory that
 contains legacy disposition events fails with a typed error pointing at this section.
 

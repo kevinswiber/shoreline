@@ -2,7 +2,7 @@
 
 ## Status
 
-Source-facing summary. Shore's substrate thesis is supported by the current code-review system and
+Source-facing summary. Shoreline's substrate thesis is supported by the current code-review system and
 one headless agent task-supervision prototype. Treat the framing as stable internal architecture
 language, not as a universal product claim.
 
@@ -12,7 +12,7 @@ freshness, and advisory/operative patterns.
 
 ## Thesis
 
-Shore is a durable shared medium for software work objects. The same substrate pattern can support
+Shoreline is a durable shared medium for software work objects. The same substrate pattern can support
 more than one software-work domain without growing a central workflow controller:
 
 - append-only event log;
@@ -71,7 +71,7 @@ Two qualifications matter:
 
 ### No Hidden Controller
 
-Shore should not silently become a workflow engine. Executive policy belongs in named projections or
+Shoreline should not silently become a workflow engine. Executive policy belongs in named projections or
 explicit ADRs. A projection may answer whether an actor can proceed, but the rule must be visible,
 testable, and diagnostic-rich.
 

@@ -1,13 +1,13 @@
 # Review Workflow
 
 This document describes the intended end-to-end workflow for reviewing a
-tool-assisted change with Shore today. Command reference details live in the
+tool-assisted change with Shoreline today. Command reference details live in the
 `README.md`; this is the narrative version that explains *when* to run each
 command and *why*.
 
-## What Shore reviews
+## What Shoreline reviews
 
-Shore reviews a **ReviewUnit**: the base endpoint, the target endpoint, and a
+Shoreline reviews a **ReviewUnit**: the base endpoint, the target endpoint, and a
 captured diff snapshot taken at a single moment. V1 captures the local Git
 worktree from `HEAD` to the working tree, including untracked files.
 
@@ -33,10 +33,10 @@ The rest of this document walks through each step.
 
 ## 1. Start in a worktree with the change
 
-Shore expects to run inside a Git worktree where the working tree differs from
+Shoreline expects to run inside a Git worktree where the working tree differs from
 `HEAD`. The change can come from anywhere — a coding agent, a teammate's WIP
 branch, your own edits — but it must be present in the working tree before
-capture. Shore reads the diff from `git`; it does not summarize prior commits
+capture. Shoreline reads the diff from `git`; it does not summarize prior commits
 on its own.
 
 ```bash
@@ -44,7 +44,7 @@ cd path/to/worktree
 git status        # confirm the changes you expect are present
 ```
 
-The first Shore command run in the worktree will create local `.shore/`
+The first Shoreline command run in the worktree will create local `.shore/`
 storage and add `.shore/` to `.gitignore` when needed.
 
 ## 2. Capture a ReviewUnit
@@ -54,7 +54,7 @@ shore review capture
 ```
 
 `shore review capture` records a `review_unit_captured` event and writes the
-captured snapshot as an immutable Shore-owned artifact. The output document is
+captured snapshot as an immutable Shoreline-owned artifact. The output document is
 `shore.review-capture` JSON and includes:
 
 - the ReviewUnit ID
@@ -177,7 +177,7 @@ shore review observation list --include-body
 ```
 
 Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies
-are stored as Shore-owned content-addressed artifacts; command output never
+are stored as Shoreline-owned content-addressed artifacts; command output never
 exposes those paths.
 
 ### Input requests
@@ -266,7 +266,7 @@ Imported notes appear in `shore review unit show` as adapter notes, and in
 ### `shore dump`
 
 `shore dump` emits the headless review-stream JSON for the current working
-tree. It is a useful integration surface for non-Shore frontends and tests.
+tree. It is a useful integration surface for non-Shoreline frontends and tests.
 
 ```bash
 shore dump --pretty
@@ -301,7 +301,7 @@ stale/orphan note rows.
 
 ### Durable event facts vs. rebuildable projections
 
-Shore separates **authoritative facts** from **derived views**:
+Shoreline separates **authoritative facts** from **derived views**:
 
 - `.shore/events/` is the authoritative append-only log. Each file is one
   immutable durable fact. Events are never moved, retried in place, or
@@ -313,7 +313,7 @@ Shore separates **authoritative facts** from **derived views**:
   may be deleted and regenerated; freshness against the current event set is
   verified through `eventSetHash`.
 
-If `.shore/state.json` looks stale or inconsistent, Shore rebuilds it from
+If `.shore/state.json` looks stale or inconsistent, Shoreline rebuilds it from
 the event log. Do not write to `state.json` yourself, and do not depend on
 its internal shape.
 
@@ -327,7 +327,7 @@ The stable surface for automation is **command-output JSON documents**:
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
 Raw event files, event filenames, artifact paths, and `.shore/state.json` are
-Shore-owned storage details. They can change without a deprecation cycle.
+Shoreline-owned storage details. They can change without a deprecation cycle.
 
 ### Old dump/show stream vs. ReviewUnit ledger
 
@@ -353,7 +353,7 @@ Every observation, input request, and assessment belongs to a required
 `--track`. Tracks are **review lanes**, such as `agent:codex` or
 `human:kevin`. They are not actor identity. Writer provenance — who actually
 ran the command, with which tool — is recorded separately in the event
-envelope from local Git config and the Shore tool identity. Pick track names
+envelope from local Git config and the Shoreline tool identity. Pick track names
 that group facts the way you want to read them back, then let provenance
 take care of itself.
 
@@ -370,7 +370,7 @@ shape either way.
 
 ### IDs are opaque
 
-Shore exposes several kinds of IDs in its output: ReviewUnit IDs, revision
+Shoreline exposes several kinds of IDs in its output: ReviewUnit IDs, revision
 IDs, snapshot IDs, observation IDs, input request IDs, input request response
 IDs, assessment IDs, event IDs, and review-stream row IDs. **Treat them all
 as opaque strings.** They are stable and safe to use as keys or to pass back
