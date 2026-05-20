@@ -2,7 +2,11 @@
 name = "shoreline"
 version = "0.1.0"
 edition = "2024"
-description = "Terminal review tool for understanding tool-assisted changesets"
+description = "Terminal code-review tooling for inspecting changes, notes, and resumable review state"
+rust-version = "1.95"
+license = "Apache-2.0"
+authors = ["Kevin Swiber <kevin@swiber.dev>"]
+homepage = "https://github.com/kevinswiber/shore"
 repository = "https://github.com/kevinswiber/shore"
 documentation = "https://docs.rs/shoreline"
 readme = "README.md"
