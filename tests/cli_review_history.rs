@@ -134,6 +134,7 @@ fn review_history_filters_input_request_events_and_hydrates_text() {
         entry["eventType"] == "input_request_opened"
             && entry["summary"]["kind"] == "input_request_opened"
             && entry["summary"]["inputRequestId"] == requested["inputRequestId"]
+            && entry["summary"]["mode"] == "operative"
             && entry["summary"]["body"] == "request details"
     }));
     assert!(json["entries"].as_array().unwrap().iter().any(|entry| {
@@ -143,6 +144,37 @@ fn review_history_filters_input_request_events_and_hydrates_text() {
             && entry["summary"]["reason"] == "approved"
     }));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("artifacts/notes/"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("\"blocking\""));
+}
+
+#[test]
+fn review_history_input_request_opened_uses_envelope_mode_values() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let operative = add_input_request_with_body(&repo, "operative details");
+    let advisory = add_input_request_with_mode(&repo, "FYI", "advisory");
+
+    let output = shore([
+        "review",
+        "history",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--event-type",
+        "input-request-opened",
+    ]);
+    let json = parse_json(&output.stdout);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(json["entries"].as_array().unwrap().len(), 2);
+    assert!(json["entries"].as_array().unwrap().iter().any(|entry| {
+        entry["summary"]["inputRequestId"] == operative["inputRequestId"]
+            && entry["summary"]["mode"] == "operative"
+    }));
+    assert!(json["entries"].as_array().unwrap().iter().any(|entry| {
+        entry["summary"]["inputRequestId"] == advisory["inputRequestId"]
+            && entry["summary"]["mode"] == "advisory"
+    }));
+    assert!(!stdout.contains("\"blocking\""));
 }
 
 #[test]
@@ -355,6 +387,27 @@ fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
             "manual-decision-required",
             "--body",
             body,
+        ])
+        .stdout,
+    )
+}
+
+fn add_input_request_with_mode(repo: &GitRepo, title: &str, mode: &str) -> Value {
+    parse_json(
+        &shore([
+            "review",
+            "input-request",
+            "open",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--track",
+            "agent:codex",
+            "--title",
+            title,
+            "--reason",
+            "manual-decision-required",
+            "--mode",
+            mode,
         ])
         .stdout,
     )

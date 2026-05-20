@@ -190,6 +190,7 @@ fn review_unit_show_includes_input_requests_and_omits_legacy_fields() {
 
     assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
     assert_eq!(json["inputRequests"][0]["id"], input_request_id);
+    assert_eq!(json["inputRequests"][0]["mode"], "operative");
     assert_eq!(json["inputRequests"][0]["body"], "visible request body");
     assert_eq!(
         json["inputRequests"][0]["responses"][0]["reason"],
@@ -199,6 +200,7 @@ fn review_unit_show_includes_input_requests_and_omits_legacy_fields() {
     assert!(!stdout.contains("artifacts/notes/"));
     assert!(!stdout.contains("artifacts/snapshots/"));
     assert!(!stdout.contains(".shore/events"));
+    assert!(!stdout.contains("\"blocking\""));
     assert!(json.get("interventions").is_none());
     assert!(json["summary"].get("interventionCount").is_none());
     assert!(json["inputRequests"][0].get("resolutions").is_none());

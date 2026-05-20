@@ -139,7 +139,7 @@ where
     S: serde::Serializer,
 {
     serializer.serialize_str(match mode {
-        AssertionMode::Operative => "blocking",
+        AssertionMode::Operative => "operative",
         AssertionMode::Advisory => "advisory",
     })
 }

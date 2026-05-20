@@ -303,6 +303,7 @@ fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
     assert_eq!(json["schema"], "shore.review-input-request-fetch");
     assert_eq!(json["version"], 1);
     assert_eq!(json["inputRequest"]["id"], input_request_id);
+    assert_eq!(json["inputRequest"]["mode"], "operative");
     assert_eq!(json["inputRequest"]["body"], "full request body");
     assert_has_no_legacy_public_input_request_shape(&json);
 }
