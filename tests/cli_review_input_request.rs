@@ -9,14 +9,14 @@ use support::git_repo::GitRepo;
 use support::shore;
 
 #[test]
-fn intervention_request_records_blocking_request_and_emits_v1_json() {
+fn input_request_open_records_blocking_request_and_emits_v1_json() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -37,7 +37,7 @@ fn intervention_request_records_blocking_request_and_emits_v1_json() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-intervention-request");
+    assert_eq!(json["schema"], "shore.review-input-request-open");
     assert_eq!(json["version"], 1);
     assert!(
         json["inputRequestId"]
@@ -50,18 +50,19 @@ fn intervention_request_records_blocking_request_and_emits_v1_json() {
     assert_eq!(json["reasonCode"], "manual_decision_required");
     assert_eq!(json["eventsCreatedByType"]["input_request_opened"], 1);
     assert!(json.get("bodyArtifactPath").is_none());
+    assert_has_no_legacy_public_input_request_shape(&json);
     assert!(repo.path().join(".shore/state.json").is_file());
 }
 
 #[test]
-fn intervention_list_emits_v1_json_and_pretty_prints() {
+fn input_request_list_emits_v1_json_and_pretty_prints() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     request(&repo, "First");
 
     let output = shore([
         "review",
-        "intervention",
+        "input-request",
         "list",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -75,24 +76,25 @@ fn intervention_list_emits_v1_json_and_pretty_prints() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-intervention-list");
+    assert_eq!(json["schema"], "shore.review-input-request-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["filters"]["status"], "open");
-    assert_eq!(json["interventions"].as_array().unwrap().len(), 1);
-    assert_eq!(json["interventions"][0]["title"], "First");
-    assert_eq!(json["interventions"][0]["status"], "open");
+    assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
+    assert_eq!(json["inputRequests"][0]["title"], "First");
+    assert_eq!(json["inputRequests"][0]["status"], "open");
+    assert_has_no_legacy_public_input_request_shape(&json);
 }
 
 #[test]
-fn intervention_list_collapses_duplicate_request_events() {
+fn input_request_list_collapses_duplicate_request_events() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
 
     let first = parse_json(
         &shore([
             "review",
-            "intervention",
-            "request",
+            "input-request",
+            "open",
             "--repo",
             repo.path().to_str().unwrap(),
             "--track",
@@ -111,8 +113,8 @@ fn intervention_list_collapses_duplicate_request_events() {
     let second = parse_json(
         &shore([
             "review",
-            "intervention",
-            "request",
+            "input-request",
+            "open",
             "--repo",
             repo.path().to_str().unwrap(),
             "--track",
@@ -131,7 +133,7 @@ fn intervention_list_collapses_duplicate_request_events() {
 
     let list = shore([
         "review",
-        "intervention",
+        "input-request",
         "list",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -144,9 +146,9 @@ fn intervention_list_collapses_duplicate_request_events() {
     let input_request_id = first["inputRequestId"].as_str().unwrap();
 
     assert_eq!(first["inputRequestId"], second["inputRequestId"]);
-    assert_eq!(json["interventions"].as_array().unwrap().len(), 1);
-    assert_eq!(json["interventions"][0]["id"], first["inputRequestId"]);
-    assert_eq!(json["interventions"][0]["body"], "same body");
+    assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
+    assert_eq!(json["inputRequests"][0]["id"], first["inputRequestId"]);
+    assert_eq!(json["inputRequests"][0]["body"], "same body");
     assert!(
         diagnostic["message"]
             .as_str()
@@ -156,7 +158,7 @@ fn intervention_list_collapses_duplicate_request_events() {
 }
 
 #[test]
-fn intervention_fetch_include_body_emits_v1_json_and_hydrates_body() {
+fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request_with_body(&repo, "Need details", "full request body");
@@ -164,7 +166,7 @@ fn intervention_fetch_include_body_emits_v1_json_and_hydrates_body() {
 
     let output = shore([
         "review",
-        "intervention",
+        "input-request",
         "fetch",
         input_request_id,
         "--repo",
@@ -180,14 +182,15 @@ fn intervention_fetch_include_body_emits_v1_json_and_hydrates_body() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-intervention-fetch");
+    assert_eq!(json["schema"], "shore.review-input-request-fetch");
     assert_eq!(json["version"], 1);
-    assert_eq!(json["intervention"]["id"], input_request_id);
-    assert_eq!(json["intervention"]["body"], "full request body");
+    assert_eq!(json["inputRequest"]["id"], input_request_id);
+    assert_eq!(json["inputRequest"]["body"], "full request body");
+    assert_has_no_legacy_public_input_request_shape(&json);
 }
 
 #[test]
-fn intervention_resolve_records_resolution_and_emits_v1_json() {
+fn input_request_respond_records_response_and_emits_v1_json() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
@@ -195,8 +198,8 @@ fn intervention_resolve_records_resolution_and_emits_v1_json() {
 
     let output = shore([
         "review",
-        "intervention",
-        "resolve",
+        "input-request",
+        "respond",
         input_request_id,
         "--repo",
         repo.path().to_str().unwrap(),
@@ -212,7 +215,7 @@ fn intervention_resolve_records_resolution_and_emits_v1_json() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-intervention-resolve");
+    assert_eq!(json["schema"], "shore.review-input-request-respond");
     assert_eq!(json["version"], 1);
     assert_eq!(json["inputRequestId"], input_request_id);
     assert!(
@@ -224,10 +227,11 @@ fn intervention_resolve_records_resolution_and_emits_v1_json() {
     assert_eq!(json["outcome"], "approved");
     assert_eq!(json["eventsCreatedByType"]["input_request_responded"], 1);
     assert!(json.get("reasonArtifactPath").is_none());
+    assert_has_no_legacy_public_input_request_shape(&json);
 }
 
 #[test]
-fn intervention_fetch_collapses_duplicate_resolution_events() {
+fn input_request_fetch_collapses_duplicate_response_events() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
@@ -236,8 +240,8 @@ fn intervention_fetch_collapses_duplicate_resolution_events() {
     let first = parse_json(
         &shore([
             "review",
-            "intervention",
-            "resolve",
+            "input-request",
+            "respond",
             input_request_id,
             "--repo",
             repo.path().to_str().unwrap(),
@@ -253,8 +257,8 @@ fn intervention_fetch_collapses_duplicate_resolution_events() {
     let second = parse_json(
         &shore([
             "review",
-            "intervention",
-            "resolve",
+            "input-request",
+            "respond",
             input_request_id,
             "--repo",
             repo.path().to_str().unwrap(),
@@ -270,7 +274,7 @@ fn intervention_fetch_collapses_duplicate_resolution_events() {
 
     let fetch = shore([
         "review",
-        "intervention",
+        "input-request",
         "fetch",
         input_request_id,
         "--repo",
@@ -278,42 +282,84 @@ fn intervention_fetch_collapses_duplicate_resolution_events() {
     ]);
     let json = parse_json(&fetch.stdout);
     let diagnostic = diagnostic_with_code(&json, "duplicate_semantic_input_request_response_event");
-    let resolution_id = first["inputRequestResponseId"].as_str().unwrap();
+    let response_id = first["inputRequestResponseId"].as_str().unwrap();
 
     assert_eq!(
         first["inputRequestResponseId"],
         second["inputRequestResponseId"]
     );
-    assert_eq!(json["intervention"]["status"], "responded");
+    assert_eq!(json["inputRequest"]["status"], "responded");
     assert_eq!(
-        json["intervention"]["resolutions"]
-            .as_array()
-            .unwrap()
-            .len(),
+        json["inputRequest"]["responses"].as_array().unwrap().len(),
         1
     );
     assert_eq!(
-        json["intervention"]["resolutions"][0]["id"],
+        json["inputRequest"]["responses"][0]["id"],
         first["inputRequestResponseId"]
     );
     assert!(
         diagnostic["message"]
             .as_str()
             .unwrap()
-            .contains(resolution_id)
+            .contains(response_id)
     );
+    assert_has_no_legacy_public_input_request_shape(&json);
 }
 
 #[test]
-fn intervention_request_body_stdin_reads_from_stdin() {
+fn input_request_list_filters_responded_requests() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request(&repo, "Need approval");
+    let input_request_id = requested["inputRequestId"].as_str().unwrap();
+    let response = shore([
+        "review",
+        "input-request",
+        "respond",
+        input_request_id,
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--outcome",
+        "approved",
+    ]);
+    assert!(
+        response.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&response.stderr)
+    );
+
+    let output = shore([
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--status",
+        "responded",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+
+    assert_eq!(json["schema"], "shore.review-input-request-list");
+    assert_eq!(json["filters"]["status"], "responded");
+    assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
+    assert_eq!(json["inputRequests"][0]["id"], input_request_id);
+}
+
+#[test]
+fn input_request_open_body_stdin_reads_from_stdin() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore_with_stdin(
         [
             "review",
-            "intervention",
-            "request",
+            "input-request",
+            "open",
             "--repo",
             repo.path().to_str().unwrap(),
             "--track",
@@ -335,7 +381,7 @@ fn intervention_request_body_stdin_reads_from_stdin() {
 
     let fetch = shore([
         "review",
-        "intervention",
+        "input-request",
         "fetch",
         requested["inputRequestId"].as_str().unwrap(),
         "--repo",
@@ -343,11 +389,11 @@ fn intervention_request_body_stdin_reads_from_stdin() {
         "--include-body",
     ]);
     let json = parse_json(&fetch.stdout);
-    assert_eq!(json["intervention"]["body"], "body from stdin");
+    assert_eq!(json["inputRequest"]["body"], "body from stdin");
 }
 
 #[test]
-fn intervention_resolve_reason_stdin_reads_from_stdin() {
+fn input_request_respond_reason_stdin_reads_from_stdin() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
@@ -356,8 +402,8 @@ fn intervention_resolve_reason_stdin_reads_from_stdin() {
     let output = shore_with_stdin(
         [
             "review",
-            "intervention",
-            "resolve",
+            "input-request",
+            "respond",
             input_request_id,
             "--repo",
             repo.path().to_str().unwrap(),
@@ -382,14 +428,14 @@ fn intervention_resolve_reason_stdin_reads_from_stdin() {
 }
 
 #[test]
-fn intervention_request_requires_track() {
+fn input_request_open_requires_track() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--title",
@@ -403,14 +449,14 @@ fn intervention_request_requires_track() {
 }
 
 #[test]
-fn intervention_request_rejects_invalid_reason_and_mode_values() {
+fn input_request_open_rejects_invalid_reason_and_mode_values() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
 
     let bad_reason = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -422,8 +468,8 @@ fn intervention_request_rejects_invalid_reason_and_mode_values() {
     ]);
     let bad_mode = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -443,15 +489,15 @@ fn intervention_request_rejects_invalid_reason_and_mode_values() {
 }
 
 #[test]
-fn intervention_resolve_rejects_invalid_outcome() {
+fn input_request_respond_rejects_invalid_outcome() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
 
     let output = shore([
         "review",
-        "intervention",
-        "resolve",
+        "input-request",
+        "respond",
         requested["inputRequestId"].as_str().unwrap(),
         "--repo",
         repo.path().to_str().unwrap(),
@@ -464,7 +510,7 @@ fn intervention_resolve_rejects_invalid_outcome() {
 }
 
 #[test]
-fn intervention_request_observation_target_conflicts_with_file_and_lines() {
+fn input_request_open_observation_target_conflicts_with_file_and_lines() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let observation = shore([
@@ -482,8 +528,8 @@ fn intervention_request_observation_target_conflicts_with_file_and_lines() {
 
     let output = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -507,7 +553,7 @@ fn intervention_request_observation_target_conflicts_with_file_and_lines() {
 }
 
 #[test]
-fn intervention_request_body_inputs_are_mutually_exclusive() {
+fn input_request_open_body_inputs_are_mutually_exclusive() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let body_file = repo.path().join("body.txt");
@@ -515,8 +561,8 @@ fn intervention_request_body_inputs_are_mutually_exclusive() {
 
     let output = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -536,7 +582,7 @@ fn intervention_request_body_inputs_are_mutually_exclusive() {
 }
 
 #[test]
-fn intervention_resolve_reason_inputs_are_mutually_exclusive() {
+fn input_request_respond_reason_inputs_are_mutually_exclusive() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
@@ -545,8 +591,8 @@ fn intervention_resolve_reason_inputs_are_mutually_exclusive() {
 
     let output = shore([
         "review",
-        "intervention",
-        "resolve",
+        "input-request",
+        "respond",
         requested["inputRequestId"].as_str().unwrap(),
         "--repo",
         repo.path().to_str().unwrap(),
@@ -563,7 +609,7 @@ fn intervention_resolve_reason_inputs_are_mutually_exclusive() {
 }
 
 #[test]
-fn intervention_request_requires_review_unit_when_current_is_ambiguous() {
+fn input_request_open_requires_review_unit_when_current_is_ambiguous() {
     let repo = modified_repo();
     let first =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
@@ -574,8 +620,8 @@ fn intervention_request_requires_review_unit_when_current_is_ambiguous() {
 
     let ambiguous = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -590,8 +636,8 @@ fn intervention_request_requires_review_unit_when_current_is_ambiguous() {
 
     let explicit = shore([
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--review-unit",
@@ -612,6 +658,33 @@ fn intervention_request_requires_review_unit_when_current_is_ambiguous() {
     assert_eq!(json["reviewUnitId"], first["reviewUnit"]["id"]);
 }
 
+#[test]
+fn legacy_intervention_command_is_not_registered() {
+    let output = shore(["review", "intervention", "list"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unrecognized subcommand"),
+        "stderr:\n{stderr}"
+    );
+    assert!(stderr.contains("input-request"), "stderr:\n{stderr}");
+}
+
+#[test]
+fn other_unknown_review_subcommands_keep_clap_suggestions() {
+    let output = shore(["review", "observatin"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unrecognized subcommand"),
+        "stderr:\n{stderr}"
+    );
+    assert!(stderr.contains("observation"), "stderr:\n{stderr}");
+    assert!(stderr.contains("Usage: shore review"), "stderr:\n{stderr}");
+}
+
 fn request(repo: &GitRepo, title: &str) -> Value {
     request_with_body(repo, title, "")
 }
@@ -619,8 +692,8 @@ fn request(repo: &GitRepo, title: &str) -> Value {
 fn request_with_body(repo: &GitRepo, title: &str, body: &str) -> Value {
     let mut args = vec![
         "review",
-        "intervention",
-        "request",
+        "input-request",
+        "open",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -670,6 +743,17 @@ fn diagnostic_with_code<'a>(json: &'a Value, code: &str) -> &'a Value {
         .iter()
         .find(|diagnostic| diagnostic["code"] == code)
         .unwrap_or_else(|| panic!("missing diagnostic code {code}: {json}"))
+}
+
+fn assert_has_no_legacy_public_input_request_shape(json: &Value) {
+    let output = serde_json::to_string(json).unwrap();
+    assert!(!output.contains("shore.review-intervention"));
+    assert!(!output.contains("interventionId"));
+    assert!(!output.contains("interventionResolutionId"));
+    assert!(!output.contains("\"resolutions\""));
+    assert!(!output.contains("resolution_id"));
+    assert!(json.get("intervention").is_none());
+    assert!(json.get("interventions").is_none());
 }
 
 fn modified_repo() -> GitRepo {

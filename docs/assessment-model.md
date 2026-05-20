@@ -1,7 +1,7 @@
 # Assessment Model
 
 Shore records reviewer decisions as `review_assessment_recorded` events. An assessment is the
-current review call for a captured ReviewUnit, file, range, observation, intervention, or earlier
+current review call for a captured ReviewUnit, file, range, observation, input request, or earlier
 assessment.
 
 The assessment values are deliberately narrow:
@@ -27,7 +27,7 @@ shore review assessment add \
 ```
 
 The command targets the selected ReviewUnit by default. It can also target a captured file or range,
-or a native observation, intervention, or assessment in the same ReviewUnit:
+or a native observation, input request, or assessment in the same ReviewUnit:
 
 ```bash
 shore review assessment add --track human:kevin --assessment needs-changes --file src/lib.rs
@@ -36,7 +36,7 @@ shore review assessment add --track human:kevin --assessment needs-changes \
 shore review assessment add --track human:kevin --assessment accepted \
   --observation <observation-id>
 shore review assessment add --track human:kevin --assessment accepted \
-  --intervention <intervention-id>
+  --input-request <input-request-id>
 shore review assessment add --track human:kevin --assessment accepted-with-follow-up \
   --target-assessment <assessment-id>
 ```
@@ -46,8 +46,8 @@ same Shore-owned `shore.note-body` artifact path as other note-shaped bodies; co
 artifact paths private.
 
 `--replaces <assessment-id>` is the only relationship that removes an older assessment from the
-current set. `--related-observation` and `--related-intervention` record evidence links only; they
-do not mutate observations or close interventions.
+current set. `--related-observation` and `--related-input-request` record evidence links only; they
+do not mutate observations or close input requests.
 
 Use `shore review assessment show` to read the current assessment projection:
 
@@ -74,7 +74,7 @@ duplicate semantic diagnostic.
 - optional `summaryContentHash`
 - `replacesAssessmentIds`
 - `relatedObservationIds`
-- `relatedInterventionIds`
+- `relatedInputRequestIds`
 
 The event envelope owns writer provenance, track, review-unit identity, revision identity, snapshot
 identity, and idempotency.

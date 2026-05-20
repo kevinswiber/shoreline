@@ -9,7 +9,7 @@ pub(super) mod capture;
 pub(super) mod common;
 pub(super) mod documents;
 pub(super) mod history;
-pub(super) mod intervention;
+pub(super) mod input_request;
 pub(super) mod observation;
 pub(super) mod unit;
 
@@ -24,7 +24,7 @@ enum ReviewCommand {
     Assessment(assessment::AssessmentArgs),
     Capture(capture::CaptureArgs),
     History(history::HistoryArgs),
-    Intervention(intervention::InterventionArgs),
+    InputRequest(input_request::InputRequestArgs),
     Observation(observation::ObservationArgs),
     Unit(unit::UnitArgs),
 }
@@ -38,7 +38,7 @@ pub(super) fn run(
         ReviewCommand::Assessment(args) => assessment::run(args, stdout),
         ReviewCommand::Capture(args) => capture::run(args, tracing, stdout),
         ReviewCommand::History(args) => history::run(args, stdout),
-        ReviewCommand::Intervention(args) => intervention::run(args, stdout),
+        ReviewCommand::InputRequest(args) => input_request::run(args, stdout),
         ReviewCommand::Observation(args) => observation::run(args, stdout),
         ReviewCommand::Unit(args) => unit::run(args, stdout),
     }

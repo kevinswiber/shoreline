@@ -119,38 +119,38 @@ shore review observation list --pretty --include-body
 - The `--tag correctness` filter returns only observations carrying that exact tag.
 - The default `observation list` omits body text; `--include-body` hydrates it.
 
-## D. Interventions — request, list, fetch, resolve
+## D. Input requests — open, list, fetch, respond
 
 **Goal.** Confirm the durable pause/decision lifecycle.
 
 ```bash
-INT_OUT=$(shore review intervention request \
+INT_OUT=$(shore review input-request open \
   --track human:kevin \
   --title "Need approval before landing" \
   --reason manual-decision-required)
 echo "$INT_OUT" | jq .
-INT_ID=$(echo "$INT_OUT" | jq -r .interventionId)
+INPUT_REQUEST_ID=$(echo "$INT_OUT" | jq -r .inputRequestId)
 
-shore review intervention list --pretty
-shore review intervention list --pretty --status all
-shore review intervention fetch "$INT_ID" --pretty --include-body
+shore review input-request list --pretty
+shore review input-request list --pretty --status all
+shore review input-request fetch "$INPUT_REQUEST_ID" --pretty --include-body
 
-shore review intervention resolve "$INT_ID" \
+shore review input-request respond "$INPUT_REQUEST_ID" \
   --outcome approved \
   --reason "verified plan with on-call DBA"
 
-shore review intervention list --pretty --status all
+shore review input-request list --pretty --status all
 ```
 
 **Expect.**
 
-- `intervention request` returns an `interventionId` and `reasonCode: "manual_decision_required"`
+- `input-request open` returns an `inputRequestId` and `reasonCode: "manual_decision_required"`
   (snake_case in the output).
-- `intervention list` defaults to status `open` and includes the new request.
-- `intervention fetch` returns one intervention plus an empty `resolutions` list before resolve.
-- `intervention resolve` returns an `interventionResolutionId` and `outcome: "approved"`.
-- After resolve, `intervention list --status all` shows the intervention with `status: "resolved"`
-  and one entry under `resolutions`. `intervention list` with the default `--status open` returns
+- `input-request list` defaults to status `open` and includes the new request.
+- `input-request fetch` returns one input request plus an empty `responses` list before respond.
+- `input-request respond` returns an `inputRequestResponseId` and `outcome: "approved"`.
+- After respond, `input-request list --status all` shows the request with `status: "responded"`
+  and one entry under `responses`. `input-request list` with the default `--status open` returns
   zero entries.
 
 ## E. Assessments — add and show
@@ -208,11 +208,11 @@ shore review history --pretty --include-body \
 - The two count fields differ when a filter applies: `eventCount` reflects the full validated
   scan; `historyCount` reflects the returned entries. The `eventSetHash` is identical across
   filtered and unfiltered runs of the same event set.
-- `--include-body` hydrates observation bodies, intervention bodies and resolution reasons, and
+- `--include-body` hydrates observation bodies, input request bodies and response reasons, and
   assessment summaries inline. In a history entry, the event-specific fields (including any
   hydrated body) live under `.summary`, not at the entry root — for example, an observation body
-  is `.summary.body`, an assessment summary is `.summary.summary`, and an intervention resolution
-  reason is on the resolved entry's `.summary.reason`.
+  is `.summary.body`, an assessment summary is `.summary.summary`, and an input request response
+  reason is on the responded entry's `.summary.reason`.
 
 ## G. Review unit list and show with and without `--include-body`
 

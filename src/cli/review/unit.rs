@@ -12,8 +12,8 @@ use shore::session::{
 
 use crate::cli::json;
 use crate::cli::review::documents::{
-    AssessmentViewDocument, CurrentAssessmentDocument, InterventionViewDocument,
-    ObservationViewDocument,
+    AssessmentViewDocument, CurrentAssessmentDocument, ObservationViewDocument,
+    ReviewUnitInputRequestViewDocument,
 };
 
 #[derive(Debug, Args)]
@@ -80,7 +80,7 @@ struct UnitShowBody {
     summary: UnitShowSummaryDocument,
     current_assessment: CurrentAssessmentDocument,
     observations: Vec<ObservationViewDocument>,
-    interventions: Vec<InterventionViewDocument>,
+    interventions: Vec<ReviewUnitInputRequestViewDocument>,
     assessments: Vec<AssessmentViewDocument>,
     adapter_notes: Vec<AdapterNoteDocument>,
     rows: Vec<UnitProjectionRowDocument>,
@@ -279,7 +279,7 @@ fn unit_show_document(result: ReviewUnitShowResult) -> json::DiagnosticDocument<
             interventions: result
                 .interventions
                 .into_iter()
-                .map(InterventionViewDocument::from)
+                .map(ReviewUnitInputRequestViewDocument::from)
                 .collect(),
             assessments: result
                 .assessments

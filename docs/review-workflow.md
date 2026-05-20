@@ -180,39 +180,39 @@ Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies
 are stored as Shore-owned content-addressed artifacts; command output never
 exposes those paths.
 
-### Interventions
+### Input requests
 
-An intervention is a durable pause/decision request. Use it when a reviewer
+An input request is a durable pause/decision request. Use it when a reviewer
 or tool needs an explicit answer before proceeding. `--mode` defaults to
 `blocking`; `advisory` requests are still durable but do not imply that a
 cooperative client must pause.
 
 ```bash
-shore review intervention request \
+shore review input-request open \
   --track human:kevin \
   --title "Need approval to land schema change" \
   --reason manual-decision-required
 
-shore review intervention list                 # defaults to open
-shore review intervention list --status all
-shore review intervention fetch <intervention-id> --include-body
+shore review input-request list                 # defaults to open
+shore review input-request list --status all
+shore review input-request fetch <input-request-id> --include-body
 
-shore review intervention resolve <intervention-id> \
+shore review input-request respond <input-request-id> \
   --outcome approved \
   --reason "discussed in chat, ok to land"
 ```
 
 `--reason` on the request is the classification axis (`manual-decision-required`,
-`ambiguous-state`, `unsafe-action`, etc.). `--outcome` on the resolve is a
+`ambiguous-state`, `unsafe-action`, etc.). `--outcome` on the response is a
 separate axis (`approved`, `rejected`, `dismissed`, `superseded`, `abandoned`).
 
-Multiple different resolution events are preserved as append-only facts and
-make the intervention `ambiguous` rather than picking a timestamp winner.
+Multiple different response events are preserved as append-only facts and
+make the input request `ambiguous` rather than picking a timestamp winner.
 
 ### Assessments
 
 An assessment is the current review call for a ReviewUnit, a file, a range,
-or a specific native observation/intervention/assessment in the same
+or a specific native observation/input request/assessment in the same
 ReviewUnit. V1 values: `accepted`, `accepted-with-follow-up`, `needs-changes`,
 and `needs-clarification`.
 
@@ -235,9 +235,9 @@ shore review assessment show --all --include-summary
 
 `--replaces` is the only V1 relationship that removes an older assessment
 from the current set.
-`--related-observation` and `--related-intervention` record evidence links;
-they do not mutate observations or close interventions (use
-`shore review intervention resolve` for the intervention lifecycle).
+`--related-observation` and `--related-input-request` record evidence links;
+they do not mutate observations or close input requests (use
+`shore review input-request respond` for the input-request lifecycle).
 
 State-change outcomes such as deferred, split-out, overridden, and superseded
 are recorded as observations tagged with `state-change:*`. Use
@@ -322,7 +322,7 @@ its internal shape.
 The stable surface for automation is **command-output JSON documents**:
 `shore.review-capture`, `shore.review-history`, `shore.review-unit`,
 `shore.review-observation-add` / `-list`,
-`shore.review-intervention-request` / `-list` / `-fetch` / `-resolve`,
+`shore.review-input-request-open` / `-list` / `-fetch` / `-respond`,
 `shore.review-assessment-add` / `-show`, and `shore.notes-apply`.
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
@@ -338,7 +338,7 @@ There are two overlapping read surfaces today:
   It is the older surface and is well-suited to import workflows and quick
   read-only viewing.
 - The **ReviewUnit ledger** (`shore review capture` plus the
-  `shore review observation`, `intervention`, `assessment`, `history`, and
+  `shore review observation`, `input-request`, `assessment`, `history`, and
   `unit show` commands) operates on a frozen captured snapshot plus the
   durable event log. It is the surface for recording review facts.
 
@@ -359,7 +359,7 @@ take care of itself.
 
 ### Bodies
 
-Observation bodies, intervention request bodies, intervention resolution
+Observation bodies, input request bodies, input request response
 reasons, and assessment summaries all share the same input mechanics:
 `--body` / `--body-file` / `--body-stdin` (or `--summary*` /
 `--reason*`). Read commands omit body-like text by default and hydrate it
@@ -371,7 +371,7 @@ shape either way.
 ### IDs are opaque
 
 Shore exposes several kinds of IDs in its output: ReviewUnit IDs, revision
-IDs, snapshot IDs, observation IDs, intervention IDs, intervention resolution
+IDs, snapshot IDs, observation IDs, input request IDs, input request response
 IDs, assessment IDs, event IDs, and review-stream row IDs. **Treat them all
 as opaque strings.** They are stable and safe to use as keys or to pass back
 into other commands, but their internal format is an implementation detail.
@@ -389,8 +389,8 @@ In particular:
 ## 7. A small realistic walkthrough
 
 The block below captures the typical sequence: confirm the change, capture
-the ReviewUnit, inspect it, record a couple of observations, raise an
-intervention, resolve it, and land an assessment.
+the ReviewUnit, inspect it, record a couple of observations, open an
+input request, respond to it, and land an assessment.
 
 ```bash
 # 0. Confirm the worktree has the changes you want to review.
@@ -419,16 +419,16 @@ shore review observation add \
 
 shore review observation list --pretty
 
-# 4. Raise an intervention when you need a decision from someone else.
-shore review intervention request \
+# 4. Open an input request when you need a decision from someone else.
+shore review input-request open \
   --track human:kevin \
   --title "Approve schema migration before landing" \
   --reason manual-decision-required \
   --file db/migrations/0042_users.sql
 
-# Someone reads the open queue and resolves it.
-shore review intervention list --status open
-shore review intervention resolve <intervention-id> \
+# Someone reads the open queue and responds to it.
+shore review input-request list --status open
+shore review input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified backfill plan with on-call DBA"
 

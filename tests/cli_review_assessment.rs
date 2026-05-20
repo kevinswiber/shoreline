@@ -290,7 +290,7 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
 
     let request = shore([
         "review",
-        "intervention",
+        "input-request",
         "fetch",
         "--repo",
         repo_arg,
@@ -302,9 +302,9 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
         String::from_utf8_lossy(&request.stderr)
     );
     let request = parse_json(&request.stdout);
-    assert_eq!(request["intervention"]["status"], "open");
+    assert_eq!(request["inputRequest"]["status"], "open");
     assert!(
-        request["intervention"]["resolutions"]
+        request["inputRequest"]["responses"]
             .as_array()
             .unwrap()
             .is_empty()
@@ -587,8 +587,8 @@ fn open_input_request(repo: &GitRepo, title: &str) -> Value {
     parse_json(
         &shore([
             "review",
-            "intervention",
-            "request",
+            "input-request",
+            "open",
             "--repo",
             repo.path().to_str().unwrap(),
             "--track",

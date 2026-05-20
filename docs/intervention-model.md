@@ -2,9 +2,9 @@
 
 ## Status
 
-V1 has a local durable intervention ledger. Shore can record `intervention_requested` events,
-append `intervention_resolved` events, and expose polling read surfaces through
-`shore review intervention list` and `shore review intervention fetch`.
+V1 has a local durable intervention ledger. Shore can record `input_request_opened` events,
+append `input_request_responded` events, and expose polling read surfaces through
+`shore review input-request list` and `shore review input-request fetch`.
 
 This document remains architecture guidance for the model around that V1 surface. Prompt delivery,
 watch mode, cancellation, escalation, daemon behavior, and UI prompts are deferred.
@@ -57,8 +57,8 @@ The same durable event model should work for all three.
 V1 intervention events use the same event envelope as other review/session state:
 
 ```text
-intervention_requested
-intervention_resolved
+input_request_opened
+input_request_responded
 ```
 
 Deferred event types may include:
@@ -68,45 +68,45 @@ intervention_cancelled
 intervention_escalated
 ```
 
-`intervention_requested` records the durable request. The request has a stable intervention ID, a
+`input_request_opened` records the durable request. The request has a stable input request ID, a
 target reference, a required track, a blocking/advisory mode, a short title, an optional body, and a
 structured `reasonCode`.
 
-`intervention_resolved` records a durable answer. The resolution has a stable resolution ID, targets
-the intervention, and carries an `outcome` such as approved, rejected, dismissed, superseded, or
-abandoned. Resolution `outcome` is intentionally separate from request `reasonCode`: one describes
+`input_request_responded` records a durable answer. The response has a stable response ID, targets
+the input request, and carries an `outcome` such as approved, rejected, dismissed, superseded, or
+abandoned. Response `outcome` is intentionally separate from request `reasonCode`: one describes
 why the pause was requested, the other describes how it ended.
 
-V1 resolution events keep the request event's review unit, revision, snapshot, and track context.
-That anchors the decision to the captured material that caused the intervention, not to whatever
-worktree state happens to exist when the intervention is resolved.
+V1 response events keep the request event's review unit, revision, snapshot, and track context.
+That anchors the decision to the captured material that caused the input request, not to whatever
+worktree state happens to exist when the input request is answered.
 
-Multiple different resolution events are preserved as append-only facts. Current V1 read surfaces
+Multiple different response events are preserved as append-only facts. Current V1 read surfaces
 report that state as ambiguous rather than choosing a timestamp winner.
 
 Duplicate events with the same semantic ID are different from multiple decisions. If a request is
-written more than once with the same `interventionId`, `list` and `fetch` return one intervention
-and include a duplicate semantic diagnostic. If a resolution is written more than once with the same
-`interventionResolutionId`, `fetch` returns one resolution and keeps the intervention `resolved`.
-Only distinct resolution IDs make an intervention `ambiguous`.
+written more than once with the same `inputRequestId`, `list` and `fetch` return one input request
+and include a duplicate semantic diagnostic. If a response is written more than once with the same
+`inputRequestResponseId`, `fetch` returns one response and keeps the input request `responded`.
+Only distinct response IDs make an input request `ambiguous`.
 
 Future `intervention_escalated` should target an existing intervention and change its routing or
 urgency in the derived projection. It should not create a second intervention. If a separate decision
-is needed, create another `intervention_requested` event with an explicit relationship to the first.
+is needed, create another `input_request_opened` event with an explicit relationship to the first.
 
 Future `intervention_cancelled` means the request was withdrawn without a decision. V1 expresses
-cancellation-like outcomes through `dismissed`, `superseded`, or `abandoned` resolution outcomes.
+cancellation-like outcomes through `dismissed`, `superseded`, or `abandoned` response outcomes.
 
 Each event should carry:
 
-- a stable intervention ID
+- a stable input request ID and, for responses, a stable response ID
 - target reference: ReviewUnit, file, range, observation, intervention, or event
 - blocking/advisory mode
 - request reason code
 - short title
 - body or structured details
 - requesting actor or writer provenance
-- resolving actor or writer provenance, for resolution events
+- responding actor or writer provenance, for response events
 - timestamps using the same UTC timestamp policy as other Shore events
 - idempotency key
 
@@ -125,7 +125,7 @@ The `blocking` mode is the control-flow signal. Urgency is advisory; it should n
 client may continue.
 
 Interventions should not expire automatically. Clearing an unresolved intervention requires an
-explicit `intervention_resolved` event in V1, or a future `intervention_cancelled` event. A future
+explicit `input_request_responded` event in V1, or a future `intervention_cancelled` event. A future
 `expiresAt` field can be added if a concrete workflow needs advisory expiry, but it should not
 silently unblock a client.
 
@@ -134,8 +134,8 @@ blocking states should clear themselves on a timer. For review workflows, the ex
 often the point. The requirement is that Shore can represent how the state ends: resolved,
 cancelled, superseded, escalated, or explicitly abandoned.
 
-Resolution events should preserve the audit trail even when the target is no longer live. For
-example, an `intervention_resolved` event targeting a closed work unit should still be recorded, but
+Response events should preserve the audit trail even when the target is no longer live. For
+example, an `input_request_responded` event targeting a closed work unit should still be recorded, but
 any resume or apply action derived from it should be a no-op. Distinguish "the event happened" from
 "the action still applies."
 
@@ -144,43 +144,43 @@ any resume or apply action derived from it should be a no-op. Distinguish "the e
 The command surface is:
 
 ```bash
-shore review intervention request
-shore review intervention list
-shore review intervention fetch
-shore review intervention resolve
+shore review input-request open
+shore review input-request list
+shore review input-request fetch
+shore review input-request respond
 ```
 
 The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/events/`; they do not
-depend on `state.json` as authority. Bodies and resolution reasons may use internal
+depend on `state.json` as authority. Bodies and response reasons may use internal
 `shore.note-body` artifacts, but command output does not expose artifact paths.
 
 `list` and `fetch` project semantic IDs, not raw event count. `idempotencyKey` decides whether a
-write is the same event-file retry; `interventionId` and `interventionResolutionId` decide whether
-read output represents one logical request or resolution. Duplicate semantic IDs are preserved in
+write is the same event-file retry; `inputRequestId` and `inputRequestResponseId` decide whether
+read output represents one logical request or response. Duplicate semantic IDs are preserved in
 storage and reported through diagnostics rather than silently hidden.
 
 Bounded `state.json` exposes only summary counters:
 
 ```text
-interventionCount
-openInterventionCount
-openBlockingInterventionCount
+inputRequestCount
+openInputRequestCount
+openBlockingInputRequestCount
 ```
 
 A future fuller projection can expose:
 
 ```text
-unresolved_interventions
-unresolved_blocking_interventions
-latest_intervention_event_id
+unresolved_input_requests
+unresolved_blocking_input_requests
+latest_input_request_event_id
 ```
 
 A client should be able to ask:
 
-- Are there unresolved blocking interventions for this work unit?
-- Are there unresolved blocking interventions targeting the current revision?
+- Are there unresolved blocking input requests for this work unit?
+- Are there unresolved blocking input requests targeting the current revision?
 - Has anything changed since my last event cursor?
-- Which event or artifact caused the intervention?
+- Which event or artifact caused the input request?
 
 That implies Shore should eventually expose an `events_since(cursor)` style API or equivalent
 cursor-based projection. V1 does not implement that API, but it should not choose a storage shape
@@ -206,9 +206,9 @@ Intervention transport is independent of review-exchange transport. An intervent
 artifact, verdict, or review note. A future adapter may export or import intervention facts, but the
 core model should keep them separate.
 
-Native assessments may relate to interventions through `--related-intervention`, but that
-relationship is evidence, not lifecycle. An assessment does not close an intervention. Use
-`shore review intervention resolve` to append the explicit closure event.
+Native assessments may relate to input requests through `--related-input-request`, but that
+relationship is evidence, not lifecycle. An assessment does not close an input request. Use
+`shore review input-request respond` to append the explicit closure event.
 
 ## Non-Goals
 

@@ -127,39 +127,40 @@ hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are
 details, not command-output API. Native observations also appear in the composite
 `shore review unit show` projection, but they are not projected into `shore dump` or `shore show`.
 
-Native interventions follow the same ReviewUnit ledger model:
+Native input requests follow the same ReviewUnit ledger model:
 
-- immutable `intervention_requested` events in `events/` carry durable request facts
-- immutable `intervention_resolved` events in `events/` carry durable resolution facts
+- immutable `input_request_opened` events in `events/` carry durable request facts
+- immutable `input_request_responded` events in `events/` carry durable response facts
 - each request targets a ReviewUnit, captured file or range, or native observation in that same
   ReviewUnit
 - each request belongs to a required track; actor/tool provenance remains in the event writer
   envelope
-- bounded `state.json` summarizes intervention state with `interventionCount`,
-  `openInterventionCount`, and `openBlockingInterventionCount`, but it does not embed intervention
-  history, resolution history, body content, or reason content
+- bounded `state.json` summarizes input request state with `inputRequestCount`,
+  `openInputRequestCount`, and `openBlockingInputRequestCount`, but it does not embed request
+  history, response history, body content, or reason content
 
-Request `reasonCode` and resolution `outcome` are intentionally separate classification axes.
-Multiple different resolution events remain append-only facts; read surfaces report that
-intervention as ambiguous instead of choosing a timestamp winner.
+Request `reasonCode` and response `outcome` are intentionally separate classification axes.
+Multiple different response events remain append-only facts; read surfaces report that
+input request as ambiguous instead of choosing a timestamp winner.
 
-Intervention read projections use semantic IDs rather than event filenames as logical identity.
-Multiple `intervention_requested` events with the same `interventionId` collapse to one request row
-with a duplicate semantic diagnostic. Multiple `intervention_resolved` events with the same
-`interventionResolutionId` collapse to one resolution row and do not make the intervention
-ambiguous. Distinct resolution IDs remain distinct facts and can still make the intervention
+Input request read projections use semantic IDs rather than event filenames as logical identity.
+Multiple `input_request_opened` events with the same `inputRequestId` collapse to one request row
+with a duplicate semantic diagnostic. Multiple `input_request_responded` events with the same
+`inputRequestResponseId` collapse to one response row and do not make the input request
+ambiguous. Distinct response IDs remain distinct facts and can still make the input request
 ambiguous.
 
-Intervention bodies and resolution reasons use the shared inline-or-artifact mechanics. Text under
+Input request bodies and response reasons use the shared inline-or-artifact mechanics. Text under
 or equal to `BODY_INLINE_LIMIT` (4096 bytes today) stays inline in the event payload; text above
 the threshold is externalized to `artifacts/notes/<sha256(body)>.json` with the `shore.note-body`
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surfaces are `shore review intervention list` and `shore review intervention fetch`,
+The direct read surfaces are `shore review input-request list` and `shore review input-request fetch`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
-interventions also appear in the composite `shore review unit show` projection, but they are not
+input requests also appear in the composite `shore review unit show` projection, where that older
+read surface still uses intervention-shaped JSON until its contract is updated. They are not
 projected into `shore dump` or `shore show`.
 
 Native assessments follow the same ReviewUnit ledger model:
@@ -359,7 +360,7 @@ version `1`), so the authoritative event and rebuildable projection remain bound
 
 ## Note Body Materialization
 
-Shore stores note-shaped event bodies (observations, intervention bodies, intervention resolution
+Shore stores note-shaped event bodies (observations, input request bodies, input request response
 reasons, assessment summaries, imported review notes) using a threshold split, not as a uniform
 artifact-per-body materialization.
 
@@ -367,7 +368,7 @@ artifact-per-body materialization.
   at `src/session/store/body_artifact.rs:8`) remain inline in the event payload. The on-disk event
   carries the body bytes verbatim under its `body` (or `summary` / `reason`) field.
   `body_artifact_path` stays `None`. The materialization discriminator is `body` vs
-  `body_artifact_path`, not `body_byte_size`: native ledger payloads (observations, interventions,
+  `body_artifact_path`, not `body_byte_size`: native ledger payloads (observations, input requests,
   assessments) currently set `body_byte_size = Some(_)` on the inline arm via the shared
   `staged_body` helper, while imported-note payloads leave `body_byte_size = None` inline. Consumers
   that need an inline length should read it from the inline string directly.
@@ -375,7 +376,7 @@ artifact-per-body materialization.
   `artifacts/notes/<sha256(body)>.json` under the `shore.note-body` envelope
   (`{"schema":"shore.note-body","version":1,"body":"..."}`). The event payload's `body` field is
   `None`; its `body_artifact_path` carries the relative path and `body_byte_size` carries the body's
-  length. Native-recorded payloads (observations, interventions, intervention resolutions,
+  length. Native-recorded payloads (observations, input requests, input request responses,
   assessments) additionally carry `body_content_hash` / `reason_content_hash` /
   `summary_content_hash`; imported-note payloads do not. `load_body_artifact` validates the path
   shape and the envelope's `schema` / `version` fields, not the body bytes themselves — hash-based

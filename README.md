@@ -119,7 +119,7 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 ## Current CLI
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
-`shore review observation add/list`, `shore review intervention request/list/fetch/resolve`,
+`shore review observation add/list`, `shore review input-request open/list/fetch/respond`,
 `shore review assessment add/show`, `shore review history`, `shore review unit list/show`, and
 `shore notes apply`.
 
@@ -311,40 +311,40 @@ Behavior:
 - Native observations appear in `shore review unit show`. They are not yet projected into
   `shore dump` or `shore show`.
 
-`shore review intervention` records and reads durable pause/decision requests for a captured
+`shore review input-request` records and reads durable pause/decision requests for a captured
 ReviewUnit:
 
 ```bash
-shore review intervention request --track human:kevin --title "Need approval" \
+shore review input-request open --track human:kevin --title "Need approval" \
   --reason manual-decision-required [--mode blocking|advisory]
-shore review intervention list [--status open|resolved|ambiguous|all]
-shore review intervention fetch <intervention-id> [--include-body]
-shore review intervention resolve <intervention-id> --outcome approved [--reason "approved"]
+shore review input-request list [--status open|responded|ambiguous|all]
+shore review input-request fetch <input-request-id> [--include-body]
+shore review input-request respond <input-request-id> --outcome approved [--reason "approved"]
 ```
 
 Behavior:
 
-- `intervention request` requires `--track`, `--title`, and `--reason`. `--mode` defaults to
+- `input-request open` requires `--track`, `--title`, and `--reason`. `--mode` defaults to
   `blocking`; `advisory` requests are durable but do not imply a cooperative client must pause.
 - Request targets mirror observations: review-wide by default, `--file <path>` for a captured file,
   `--file <path> --start-line <n> [--end-line <n>]` for a range, or `--observation
   <observation-id>` for an existing native observation in the same ReviewUnit.
 - Request bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies reuse
   Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
-- `intervention list` is the V1 polling read surface. It replays `.shore/events/`, defaults to open
-  interventions, and can filter by `--track`, `--mode`, `--file`, and `--status`.
-- `intervention fetch <id> --include-body` returns one intervention and hydrates the body when
+- `input-request list` is the V1 polling read surface. It replays `.shore/events/`, defaults to
+  open requests, and can filter by `--track`, `--mode`, `--file`, and `--status`.
+- `input-request fetch <id> --include-body` returns one input request and hydrates the body when
   requested.
-- `intervention resolve <id>` appends an `intervention_resolved` event with an `--outcome` of
+- `input-request respond <id>` appends an `input_request_responded` event with an `--outcome` of
   `approved`, `rejected`, `dismissed`, `superseded`, or `abandoned`. The optional reason may come
   from `--reason`, `--reason-file`, or `--reason-stdin`.
-- Repeated writes with the same `interventionId` or `interventionResolutionId` are preserved but
+- Repeated writes with the same `inputRequestId` or `inputRequestResponseId` are preserved but
   collapsed in read output with duplicate semantic diagnostics.
-- Multiple different resolution events are preserved as append-only facts. Read surfaces report the
-  intervention as `ambiguous` instead of picking a timestamp winner.
-- Output documents are compact `shore.review-intervention-request`,
-  `shore.review-intervention-list`, `shore.review-intervention-fetch`, and
-  `shore.review-intervention-resolve` JSON by default. Read commands also accept `--pretty`.
+- Multiple different response events are preserved as append-only facts. Read surfaces report the
+  request as `ambiguous` instead of picking a timestamp winner.
+- Output documents are compact `shore.review-input-request-open`,
+  `shore.review-input-request-list`, `shore.review-input-request-fetch`, and
+  `shore.review-input-request-respond` JSON by default. Read commands also accept `--pretty`.
 - V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
   notification transport, or cancellation/escalation event.
 - Native interventions appear in `shore review unit show`. They are not yet projected into
@@ -365,14 +365,14 @@ Behavior:
   `needs-clarification`.
 - Targets mirror the ReviewUnit ledger: review-wide by default, `--file <path>` for a captured
   file, `--file <path> --start-line <n> [--end-line <n>]` for a range, `--observation
-  <observation-id>`, `--intervention <intervention-id>`, or `--target-assessment
+  <observation-id>`, `--input-request <input-request-id>`, or `--target-assessment
   <assessment-id>` for native facts in the same ReviewUnit.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Large summaries reuse
   Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
 - `--replaces <assessment-id>` is the only V1 relationship that removes an older assessment from the
   current set.
-- `--related-observation` and `--related-intervention` record evidence links. They do not mutate
-  observations or close interventions; use `shore review intervention resolve` for intervention
+- `--related-observation` and `--related-input-request` record evidence links. They do not mutate
+  observations or close input requests; use `shore review input-request respond` for input-request
   lifecycle.
 - `assessment show` replays `.shore/events/`, reports current status as `unassessed`, `resolved`,
   or `ambiguous`, and defaults to current assessments only. `--all` includes replaced records.
@@ -403,8 +403,8 @@ Behavior:
   still use explicit replacement/resolution relationships rather than timestamp winners.
 - `--review-unit`, `--track`, and repeated `--event-type` narrow the returned entries. Event-type
   CLI values are kebab-case, such as `review-observation-recorded`.
-- Body-like text is omitted by default. `--include-body` hydrates observation bodies, intervention
-  request bodies, intervention resolution reasons, assessment summaries, and imported-note bodies.
+- Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
+  bodies, input request response reasons, assessment summaries, and imported-note bodies.
 - History preserves raw append-only facts. Duplicate semantic events remain visible as separate
   entries while shared duplicate diagnostics are included in the document.
 - Raw event files, event filenames, artifact paths, and `state.json` remain internal storage. The
@@ -432,8 +432,8 @@ Behavior:
   captured file, metadata row, hunk header, and diff row.
 - `--track <track-id>` filters narrative facts without changing the selected ReviewUnit, event-set
   freshness metadata, or captured snapshot completeness.
-- Body-like text is omitted by default. `--include-body` hydrates observation bodies, intervention
-  request bodies and resolution reasons, assessment summaries, and imported-note bodies.
+- Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
+  bodies and response reasons, assessment summaries, and imported-note bodies.
 - Raw event files, event filenames, artifact paths, snapshot artifact paths, and `state.json` remain
   internal storage. The command-output JSON is the integration surface.
 - `shore review unit show` is distinct from `shore review history`: history is the chronological raw

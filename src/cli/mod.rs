@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::Write;
 use std::process::ExitCode;
 
@@ -42,8 +43,10 @@ pub(crate) fn run_main() -> ExitCode {
 fn run_with_io<I, S>(args: I, stdout: &mut dyn Write, stderr: &mut dyn Write) -> ExitCode
 where
     I: IntoIterator<Item = S>,
-    S: Into<std::ffi::OsString> + Clone,
+    S: Into<OsString>,
 {
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let legacy_intervention_command = invokes_legacy_review_intervention(&args);
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
@@ -55,6 +58,12 @@ where
                 ExitCode::SUCCESS
             } else {
                 let _ = writeln!(stderr, "{error}");
+                if error.kind() == ErrorKind::InvalidSubcommand && legacy_intervention_command {
+                    let _ = writeln!(
+                        stderr,
+                        "\nUse `shore review input-request` instead of `shore review intervention`."
+                    );
+                }
                 ExitCode::FAILURE
             };
             return exit;
@@ -68,6 +77,11 @@ where
             ExitCode::FAILURE
         }
     }
+}
+
+fn invokes_legacy_review_intervention(args: &[OsString]) -> bool {
+    args.windows(2)
+        .any(|pair| pair[0].to_str() == Some("review") && pair[1].to_str() == Some("intervention"))
 }
 
 fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
