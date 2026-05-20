@@ -108,6 +108,8 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 ## Current CLI
 
+For a standalone command reference, see [docs/cli-reference.md](docs/cli-reference.md).
+
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
 `shore review observation add/list`, `shore review input-request open/list/fetch/respond`,
 `shore review assessment add/show`, `shore review history`, `shore review unit list/show`, and
