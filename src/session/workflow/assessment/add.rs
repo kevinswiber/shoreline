@@ -32,7 +32,7 @@ pub struct AssessmentAddOptions {
     target: AssessmentTargetSelector,
     replaces_assessment_ids: Vec<AssessmentId>,
     related_observation_ids: Vec<ObservationId>,
-    related_intervention_ids: Vec<InputRequestId>,
+    related_input_request_ids: Vec<InputRequestId>,
     idempotency_key: Option<String>,
 }
 
@@ -47,7 +47,7 @@ impl AssessmentAddOptions {
             target: AssessmentTargetSelector::review_unit(),
             replaces_assessment_ids: Vec::new(),
             related_observation_ids: Vec::new(),
-            related_intervention_ids: Vec::new(),
+            related_input_request_ids: Vec::new(),
             idempotency_key: None,
         }
     }
@@ -92,8 +92,8 @@ impl AssessmentAddOptions {
         self
     }
 
-    pub fn related_intervention(mut self, input_request_id: InputRequestId) -> Self {
-        self.related_intervention_ids.push(input_request_id);
+    pub fn related_input_request(mut self, input_request_id: InputRequestId) -> Self {
+        self.related_input_request_ids.push(input_request_id);
         self
     }
 
@@ -145,7 +145,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         &resolved.review_unit_id,
         &options.replaces_assessment_ids,
         &options.related_observation_ids,
-        &options.related_intervention_ids,
+        &options.related_input_request_ids,
     )?;
 
     let writer = reviewer_from_git_config(worktree_root);
@@ -157,7 +157,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         staged_body(options.summary.as_deref())?;
     let replaces_assessment_ids = sorted_unique(options.replaces_assessment_ids);
     let related_observation_ids = sorted_unique(options.related_observation_ids);
-    let related_intervention_ids = sorted_unique(options.related_intervention_ids);
+    let related_input_request_ids = sorted_unique(options.related_input_request_ids);
     let assessment_id = build_assessment_id(AssessmentIdMaterial {
         review_unit_id: &resolved.review_unit_id,
         track_id: &track_id,
@@ -166,7 +166,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         summary_content_hash: summary_content_hash.as_deref(),
         replaces_assessment_ids: &replaces_assessment_ids,
         related_observation_ids: &related_observation_ids,
-        related_intervention_ids: &related_intervention_ids,
+        related_input_request_ids: &related_input_request_ids,
         writer_actor_id: writer.actor_id.as_str(),
     })?;
     let source_key = options
@@ -213,7 +213,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
             summary_content_hash: summary_content_hash.clone(),
             replaces_assessment_ids,
             related_observation_ids,
-            related_intervention_ids,
+            related_input_request_ids,
         },
         current_timestamp(),
     )?;
@@ -252,7 +252,7 @@ fn validate_assessment_relationships(
     review_unit_id: &ReviewUnitId,
     replaces_assessment_ids: &[AssessmentId],
     related_observation_ids: &[ObservationId],
-    related_intervention_ids: &[InputRequestId],
+    related_input_request_ids: &[InputRequestId],
 ) -> Result<()> {
     for assessment_id in replaces_assessment_ids {
         if !has_assessment(events, review_unit_id, assessment_id)? {
@@ -270,10 +270,10 @@ fn validate_assessment_relationships(
             )));
         }
     }
-    for input_request_id in related_intervention_ids {
-        if !has_intervention(events, review_unit_id, input_request_id)? {
+    for input_request_id in related_input_request_ids {
+        if !has_input_request(events, review_unit_id, input_request_id)? {
             return Err(ShoreError::Message(format!(
-                "unknown intervention: {}",
+                "unknown input request: {}",
                 input_request_id.as_str()
             )));
         }
@@ -323,7 +323,7 @@ fn has_observation(
     Ok(false)
 }
 
-fn has_intervention(
+fn has_input_request(
     events: &[ShoreEvent],
     review_unit_id: &ReviewUnitId,
     input_request_id: &InputRequestId,
@@ -351,7 +351,7 @@ struct AssessmentIdMaterial<'a> {
     summary_content_hash: Option<&'a str>,
     replaces_assessment_ids: &'a [AssessmentId],
     related_observation_ids: &'a [ObservationId],
-    related_intervention_ids: &'a [InputRequestId],
+    related_input_request_ids: &'a [InputRequestId],
     writer_actor_id: &'a str,
 }
 
@@ -368,12 +368,12 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
         .map(|observation_id| observation_id.as_str())
         .collect::<Vec<_>>();
     related_observations.sort();
-    let mut related_interventions = material
-        .related_intervention_ids
+    let mut related_input_requests = material
+        .related_input_request_ids
         .iter()
         .map(|input_request_id| input_request_id.as_str())
         .collect::<Vec<_>>();
-    related_interventions.sort();
+    related_input_requests.sort();
 
     let digest = sha256_json_prefixed(&json!({
         "reviewUnitId": material.review_unit_id.as_str(),
@@ -383,7 +383,7 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
         "summaryContentHash": material.summary_content_hash,
         "replacesAssessmentIds": replaces,
         "relatedObservationIds": related_observations,
-        "relatedInterventionIds": related_interventions,
+        "relatedInputRequestIds": related_input_requests,
         "writerActorId": material.writer_actor_id,
     }))?;
     Ok(AssessmentId::new(format!("assess:{digest}")))
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn build_assessment_id_uses_stable_material_digest() {
         const EXPECTED_ASSESSMENT_ID_FOR_FIXTURE: &str =
-            "assess:sha256:91d7fb904f67c97690fdb39363246526b3001203f4addc94248c7095fbaea677";
+            "assess:sha256:f02af88089d4bc49951febbc53dce26f79f4557f5cd3c8b73c86b212712ebdcd";
 
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
@@ -412,7 +412,7 @@ mod tests {
             summary_content_hash: Some("sha256:summary"),
             replaces_assessment_ids: &[],
             related_observation_ids: &[],
-            related_intervention_ids: &[],
+            related_input_request_ids: &[],
             writer_actor_id: "human:kevin",
         })
         .unwrap();

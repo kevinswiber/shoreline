@@ -62,7 +62,7 @@ pub enum ReviewTargetRef {
         review_unit_id: ReviewUnitId,
         observation_id: ObservationId,
     },
-    Intervention {
+    InputRequest {
         review_unit_id: ReviewUnitId,
         input_request_id: InputRequestId,
     },
@@ -153,27 +153,61 @@ mod tests {
     }
 
     #[test]
-    fn review_target_can_represent_observation_and_intervention_scope() {
+    fn review_target_can_represent_observation_and_input_request_scope() {
         let observation = ReviewTargetRef::Observation {
             review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
             observation_id: ObservationId::new("obs:sha256:def"),
         };
-        let intervention = ReviewTargetRef::Intervention {
+        let input_request = ReviewTargetRef::InputRequest {
             review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
             input_request_id: InputRequestId::new("input-request:sha256:ghi"),
         };
 
         let json = serde_json::json!({
             "observation": observation,
-            "intervention": intervention
+            "inputRequest": input_request
         });
 
         assert_eq!(json["observation"]["kind"], "observation");
         assert_eq!(json["observation"]["observationId"], "obs:sha256:def");
-        assert_eq!(json["intervention"]["kind"], "intervention");
+        assert_eq!(json["inputRequest"]["kind"], "input_request");
         assert_eq!(
-            json["intervention"]["inputRequestId"],
+            json["inputRequest"]["inputRequestId"],
             "input-request:sha256:ghi"
+        );
+        assert!(json["inputRequest"].get("interventionId").is_none());
+    }
+
+    #[test]
+    fn review_target_ref_input_request_variant_wire_shape_is_kind_input_request() {
+        let target = ReviewTargetRef::InputRequest {
+            review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            input_request_id: InputRequestId::new("input-request:sha256:one"),
+        };
+
+        let json = serde_json::to_value(&target).unwrap();
+
+        assert_eq!(json["kind"], "input_request");
+        assert_eq!(json["reviewUnitId"], "review-unit:sha256:one");
+        assert_eq!(json["inputRequestId"], "input-request:sha256:one");
+        assert!(json.get("interventionId").is_none());
+
+        let round_tripped: ReviewTargetRef = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, target);
+    }
+
+    #[test]
+    fn review_target_ref_legacy_intervention_kind_fails_to_decode() {
+        let legacy = serde_json::json!({
+            "kind": "intervention",
+            "reviewUnitId": "review-unit:sha256:one",
+            "inputRequestId": "input-request:sha256:one"
+        });
+
+        let error = serde_json::from_value::<ReviewTargetRef>(legacy).unwrap_err();
+        assert!(
+            error.to_string().contains("unknown variant"),
+            "unexpected error: {error}"
         );
     }
 

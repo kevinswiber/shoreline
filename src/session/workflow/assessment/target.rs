@@ -27,7 +27,7 @@ pub enum AssessmentTargetSelector {
     Observation {
         observation_id: ObservationId,
     },
-    Intervention {
+    InputRequest {
         input_request_id: InputRequestId,
     },
     Assessment {
@@ -63,8 +63,8 @@ impl AssessmentTargetSelector {
         Self::Observation { observation_id }
     }
 
-    pub fn intervention(input_request_id: InputRequestId) -> Self {
-        Self::Intervention { input_request_id }
+    pub fn input_request(input_request_id: InputRequestId) -> Self {
+        Self::InputRequest { input_request_id }
     }
 
     pub fn assessment(assessment_id: AssessmentId) -> Self {
@@ -102,8 +102,8 @@ pub(crate) fn resolve_assessment_target(
         AssessmentTargetSelector::Observation { observation_id } => {
             resolve_observation_ref(events, resolved, observation_id)?
         }
-        AssessmentTargetSelector::Intervention { input_request_id } => {
-            resolve_intervention_ref(events, resolved, input_request_id)?
+        AssessmentTargetSelector::InputRequest { input_request_id } => {
+            resolve_input_request_ref(events, resolved, input_request_id)?
         }
         AssessmentTargetSelector::Assessment { assessment_id } => {
             resolve_assessment_ref(events, resolved, assessment_id)?
@@ -156,7 +156,7 @@ fn resolve_observation_ref(
     )))
 }
 
-fn resolve_intervention_ref(
+fn resolve_input_request_ref(
     events: &[ShoreEvent],
     resolved: &ResolvedReviewUnit,
     input_request_id: &InputRequestId,
@@ -171,7 +171,7 @@ fn resolve_intervention_ref(
 
         let payload: InputRequestOpenedPayload = serde_json::from_value(event.payload.clone())?;
         if &payload.input_request_id == input_request_id {
-            return Ok(ReviewTargetRef::Intervention {
+            return Ok(ReviewTargetRef::InputRequest {
                 review_unit_id: resolved.review_unit_id.clone(),
                 input_request_id: input_request_id.clone(),
             });
@@ -179,7 +179,7 @@ fn resolve_intervention_ref(
     }
 
     Err(ShoreError::Message(format!(
-        "unknown intervention target: {}",
+        "unknown input request target: {}",
         input_request_id.as_str()
     )))
 }
@@ -219,7 +219,7 @@ pub(crate) fn review_unit_id_for_target(target: &ReviewTargetRef) -> &ReviewUnit
         | ReviewTargetRef::File { review_unit_id, .. }
         | ReviewTargetRef::Range { review_unit_id, .. }
         | ReviewTargetRef::Observation { review_unit_id, .. }
-        | ReviewTargetRef::Intervention { review_unit_id, .. }
+        | ReviewTargetRef::InputRequest { review_unit_id, .. }
         | ReviewTargetRef::Assessment { review_unit_id, .. }
         | ReviewTargetRef::Event { review_unit_id, .. } => review_unit_id,
     }

@@ -145,7 +145,7 @@ pub fn resolve_intervention(
             revision_id: request_event.target.revision_id.clone(),
             snapshot_id: request_event.target.snapshot_id.clone(),
             track_id: request_event.target.track_id.clone(),
-            subject: Some(TargetRef::Review(ReviewTargetRef::Intervention {
+            subject: Some(TargetRef::Review(ReviewTargetRef::InputRequest {
                 review_unit_id,
                 input_request_id: request_payload.input_request_id.clone(),
             })),

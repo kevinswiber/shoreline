@@ -73,7 +73,7 @@ pub struct AssessmentView {
     pub status: AssessmentRecordStatus,
     pub replaces: Vec<AssessmentId>,
     pub related_observations: Vec<ObservationId>,
-    pub related_interventions: Vec<InputRequestId>,
+    pub related_input_requests: Vec<InputRequestId>,
     pub created_at: String,
     pub writer: Writer,
 }
@@ -200,7 +200,7 @@ fn assessment_view_from_event(
     };
     let replaces = sorted_unique(payload.replaces_assessment_ids);
     let related_observations = sorted_unique(payload.related_observation_ids);
-    let related_interventions = sorted_unique(payload.related_intervention_ids);
+    let related_input_requests = sorted_unique(payload.related_input_request_ids);
 
     Ok(AssessmentView {
         id: payload.assessment_id,
@@ -213,7 +213,7 @@ fn assessment_view_from_event(
         status,
         replaces,
         related_observations,
-        related_interventions,
+        related_input_requests,
         created_at: event.occurred_at.clone(),
         writer: event.writer.clone(),
     })

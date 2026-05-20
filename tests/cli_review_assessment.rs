@@ -207,7 +207,7 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
         first["assessmentId"].as_str().unwrap(),
         "--related-observation",
         observation["observationId"].as_str().unwrap(),
-        "--related-intervention",
+        "--related-input-request",
         intervention["inputRequestId"].as_str().unwrap(),
     ]);
     assert!(
@@ -237,8 +237,154 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
         observation["observationId"]
     );
     assert_eq!(
-        current["relatedInterventions"][0],
+        current["relatedInputRequests"][0],
         intervention["inputRequestId"]
+    );
+}
+
+#[test]
+fn shore_review_assessment_add_targets_input_request_and_emits_related_input_requests() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", repo_arg]);
+    let request = request_intervention(&repo, "Needs clarification");
+    let request_id = request["inputRequestId"].as_str().unwrap();
+
+    let assessment = shore([
+        "review",
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "needs-clarification",
+        "--summary",
+        "Need a decision here",
+        "--input-request",
+        request_id,
+        "--related-input-request",
+        request_id,
+    ]);
+    assert!(
+        assessment.status.success(),
+        "assessment add failed: {}",
+        String::from_utf8_lossy(&assessment.stderr)
+    );
+    let assessment = parse_json(&assessment.stdout);
+
+    assert_eq!(assessment["target"]["kind"], "input_request");
+    assert_eq!(assessment["target"]["inputRequestId"], request_id);
+    assert!(assessment["target"].get("interventionId").is_none());
+
+    let show = assessment_show(&repo, &["--all"]);
+    let current = show["assessments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|view| view["status"] == "current")
+        .unwrap();
+    assert_eq!(current["relatedInputRequests"][0], request_id);
+    assert!(current.get("relatedInterventions").is_none());
+
+    let request = shore([
+        "review",
+        "intervention",
+        "fetch",
+        "--repo",
+        repo_arg,
+        request_id,
+    ]);
+    assert!(
+        request.status.success(),
+        "request fetch failed: {}",
+        String::from_utf8_lossy(&request.stderr)
+    );
+    let request = parse_json(&request.stdout);
+    assert_eq!(request["intervention"]["status"], "open");
+    assert!(
+        request["intervention"]["resolutions"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn shore_review_assessment_add_rejects_old_intervention_flags() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", repo_arg]);
+    let request = request_intervention(&repo, "Legacy flag target");
+    let request_id = request["inputRequestId"].as_str().unwrap();
+
+    let old_target_flag = shore([
+        "review",
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "needs-clarification",
+        "--intervention",
+        request_id,
+    ]);
+    let old_related_flag = shore([
+        "review",
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "needs-clarification",
+        "--related-intervention",
+        request_id,
+    ]);
+
+    assert!(!old_target_flag.status.success());
+    assert!(
+        String::from_utf8_lossy(&old_target_flag.stderr).contains("unexpected argument"),
+        "expected clap unknown-flag error; got stderr: {}",
+        String::from_utf8_lossy(&old_target_flag.stderr)
+    );
+    assert!(!old_related_flag.status.success());
+    assert!(
+        String::from_utf8_lossy(&old_related_flag.stderr).contains("unexpected argument"),
+        "expected clap unknown-flag error; got stderr: {}",
+        String::from_utf8_lossy(&old_related_flag.stderr)
+    );
+}
+
+#[test]
+fn shore_review_assessment_add_reports_unknown_input_request_target() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", repo_arg]);
+
+    let output = shore([
+        "review",
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "needs-clarification",
+        "--input-request",
+        "input-request:sha256:missing",
+    ]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unknown input request target"),
+        "expected input-request error; got stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

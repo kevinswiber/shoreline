@@ -599,7 +599,7 @@ mod tests {
                 summary_content_hash: Some("sha256:summary".to_owned()),
                 replaces_assessment_ids: vec![],
                 related_observation_ids: vec![],
-                related_intervention_ids: vec![],
+                related_input_request_ids: vec![],
             },
             FixedClock::at("2026-05-12T00:00:00Z"),
         )

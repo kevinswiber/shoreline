@@ -847,7 +847,7 @@ mod tests {
                 summary_content_hash: None,
                 replaces_assessment_ids: Vec::new(),
                 related_observation_ids: Vec::new(),
-                related_intervention_ids: Vec::new(),
+                related_input_request_ids: Vec::new(),
             },
             "2026-05-10T00:00:01Z",
         )

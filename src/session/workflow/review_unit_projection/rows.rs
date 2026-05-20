@@ -267,7 +267,7 @@ pub(super) fn build_assessment_rows(
                 file_path,
                 old_path,
                 related_observation_ids: assessment.related_observations.clone(),
-                related_intervention_ids: assessment.related_interventions.clone(),
+                related_intervention_ids: assessment.related_input_requests.clone(),
                 related_assessment_ids: vec![assessment.id.clone()],
             }
         })
@@ -350,7 +350,7 @@ pub(super) fn target_paths(target: &ReviewTargetRef) -> (Option<String>, Option<
         }
         ReviewTargetRef::ReviewUnit { .. }
         | ReviewTargetRef::Observation { .. }
-        | ReviewTargetRef::Intervention { .. }
+        | ReviewTargetRef::InputRequest { .. }
         | ReviewTargetRef::Assessment { .. }
         | ReviewTargetRef::Event { .. } => (None, None),
     }

@@ -34,7 +34,7 @@ pub struct ReviewAssessmentRecordedPayload {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related_observation_ids: Vec<ObservationId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub related_intervention_ids: Vec<InputRequestId>,
+    pub related_input_request_ids: Vec<InputRequestId>,
 }
 
 impl ReviewAssessmentRecordedPayload {
@@ -104,7 +104,7 @@ mod tests {
             summary_content_hash: Some("sha256:00".to_owned()),
             replaces_assessment_ids: vec![],
             related_observation_ids: vec![],
-            related_intervention_ids: vec![],
+            related_input_request_ids: vec![],
         };
 
         let json = serde_json::to_value(&payload).unwrap();
@@ -119,6 +119,33 @@ mod tests {
         assert!(
             json.get("overrides").is_none(),
             "no overrides field on assessment payload"
+        );
+    }
+
+    #[test]
+    fn review_assessment_payload_serializes_related_input_request_ids() {
+        let payload = ReviewAssessmentRecordedPayload {
+            assessment_id: AssessmentId::new("assess:sha256:one"),
+            target: ReviewTargetRef::InputRequest {
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                input_request_id: InputRequestId::new("input-request:sha256:one"),
+            },
+            assessment: ReviewAssessment::NeedsClarification,
+            summary: None,
+            summary_artifact_path: None,
+            summary_byte_size: None,
+            summary_content_hash: None,
+            replaces_assessment_ids: vec![],
+            related_observation_ids: vec![],
+            related_input_request_ids: vec![InputRequestId::new("input-request:sha256:one")],
+        };
+
+        let json = serde_json::to_value(&payload).unwrap();
+
+        assert!(json.get("relatedInterventionIds").is_none());
+        assert_eq!(
+            json["relatedInputRequestIds"][0],
+            "input-request:sha256:one"
         );
     }
 

@@ -611,7 +611,7 @@ mod tests {
             summary_content_hash: Some("sha256:summary".to_owned()),
             replaces_assessment_ids: vec![],
             related_observation_ids: vec![ObservationId::new("obs:sha256:one")],
-            related_intervention_ids: vec![InputRequestId::new("input-request:sha256:one")],
+            related_input_request_ids: vec![InputRequestId::new("input-request:sha256:one")],
         };
         tracked_event(
             EventType::ReviewAssessmentRecorded,

@@ -75,9 +75,9 @@ pub(super) struct AssessmentAddArgs {
     #[arg(long)]
     observation: Option<String>,
 
-    /// Existing intervention to assess.
+    /// Existing input request to assess.
     #[arg(long)]
-    intervention: Option<String>,
+    input_request: Option<String>,
 
     /// Earlier assessment to assess.
     #[arg(long)]
@@ -91,9 +91,9 @@ pub(super) struct AssessmentAddArgs {
     #[arg(long = "related-observation")]
     related_observations: Vec<String>,
 
-    /// Intervention that supports this assessment.
-    #[arg(long = "related-intervention")]
-    related_interventions: Vec<String>,
+    /// Input request that supports this assessment.
+    #[arg(long = "related-input-request")]
+    related_input_requests: Vec<String>,
 
     /// Stable key used to make a retry idempotent.
     #[arg(long)]
@@ -261,7 +261,7 @@ pub(super) fn assessment_add_options(
         args.start_line,
         args.end_line,
         args.observation.as_ref(),
-        args.intervention.as_ref(),
+        args.input_request.as_ref(),
         args.target_assessment.as_ref(),
     )?;
     let summary = read_body_input(
@@ -286,8 +286,8 @@ pub(super) fn assessment_add_options(
     for observation_id in args.related_observations {
         options = options.related_observation(ObservationId::new(observation_id));
     }
-    for input_request_id in args.related_interventions {
-        options = options.related_intervention(InputRequestId::new(input_request_id));
+    for input_request_id in args.related_input_requests {
+        options = options.related_input_request(InputRequestId::new(input_request_id));
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
@@ -315,11 +315,11 @@ pub(super) fn assessment_target(
     start_line: Option<u32>,
     end_line: Option<u32>,
     observation: Option<&String>,
-    intervention: Option<&String>,
+    input_request: Option<&String>,
     target_assessment: Option<&String>,
 ) -> Result<AssessmentTargetSelector, Box<dyn std::error::Error>> {
     let direct_target_count = usize::from(observation.is_some())
-        + usize::from(intervention.is_some())
+        + usize::from(input_request.is_some())
         + usize::from(target_assessment.is_some());
     let file_target_present =
         file.is_some() || side.is_some() || start_line.is_some() || end_line.is_some();
@@ -331,10 +331,10 @@ pub(super) fn assessment_target(
             observation_id.clone(),
         )));
     }
-    if let Some(input_request_id) = intervention {
-        return Ok(AssessmentTargetSelector::intervention(InputRequestId::new(
-            input_request_id.clone(),
-        )));
+    if let Some(input_request_id) = input_request {
+        return Ok(AssessmentTargetSelector::input_request(
+            InputRequestId::new(input_request_id.clone()),
+        ));
     }
     if let Some(assessment_id) = target_assessment {
         return Ok(AssessmentTargetSelector::assessment(AssessmentId::new(

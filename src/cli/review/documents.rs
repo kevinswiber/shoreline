@@ -87,7 +87,7 @@ pub(super) struct AssessmentViewDocument {
     status: &'static str,
     replaces: Vec<String>,
     related_observations: Vec<String>,
-    related_interventions: Vec<String>,
+    related_input_requests: Vec<String>,
     created_at: String,
     writer: Writer,
 }
@@ -207,8 +207,8 @@ impl From<AssessmentView> for AssessmentViewDocument {
                 .into_iter()
                 .map(|observation_id| observation_id.as_str().to_owned())
                 .collect(),
-            related_interventions: view
-                .related_interventions
+            related_input_requests: view
+                .related_input_requests
                 .into_iter()
                 .map(|input_request_id| input_request_id.as_str().to_owned())
                 .collect(),

@@ -1053,7 +1053,7 @@ mod tests {
                 revision_id: None,
                 snapshot_id: None,
                 track_id: Some(requested.track_id.clone()),
-                subject: Some(TargetRef::Review(ReviewTargetRef::Intervention {
+                subject: Some(TargetRef::Review(ReviewTargetRef::InputRequest {
                     review_unit_id: requested.review_unit_id.clone(),
                     input_request_id: requested.input_request_id.clone(),
                 })),
@@ -1146,7 +1146,7 @@ mod tests {
                 revision_id: None,
                 snapshot_id: None,
                 track_id: Some(track_id.clone()),
-                subject: Some(TargetRef::Review(ReviewTargetRef::Intervention {
+                subject: Some(TargetRef::Review(ReviewTargetRef::InputRequest {
                     review_unit_id: review_unit_id.clone(),
                     input_request_id: input_request_id.clone(),
                 })),
