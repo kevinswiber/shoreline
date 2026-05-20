@@ -536,11 +536,15 @@ pub(crate) fn agent_resumption_from_events(
         .and_then(|cp| cp.checkpoint_fingerprint.clone());
 
     let input_request_records = collect_task_input_request_records(events, task_attempt_id)?;
+    let operative_input_request_records = input_request_records
+        .iter()
+        .filter(|record| record.view.mode == AssertionMode::Operative)
+        .collect::<Vec<_>>();
 
     // Open (no representative response) input requests short-circuit to
     // Blocked. Pick the earliest by (occurred_at, event_id) as the selected
     // one so the diagnostic chain is deterministic.
-    let open_input_request = input_request_records
+    let open_input_request = operative_input_request_records
         .iter()
         .filter(|record| record.responses.is_empty())
         .min_by(|left, right| {
@@ -572,10 +576,10 @@ pub(crate) fn agent_resumption_from_events(
 
     // Ambiguous responses block resumption; the projection refuses to pick a
     // winner.
-    let ambiguous_input_request = input_request_records
+    let ambiguous_input_request = operative_input_request_records
         .iter()
         .find(|record| record.responses.len() > 1)
-        .cloned();
+        .copied();
 
     if let Some(ambiguous) = ambiguous_input_request {
         return Ok(AgentResumptionProjection {
@@ -607,7 +611,7 @@ pub(crate) fn agent_resumption_from_events(
         AgentInputRequestResponsePolicyView,
         FreshnessBasis,
     )> = None;
-    for record in &input_request_records {
+    for record in operative_input_request_records {
         let response = record
             .responses
             .first()
@@ -1445,7 +1449,7 @@ mod tests {
         input_request_id: &InputRequestId,
         source_key: &str,
         occurred_at: &str,
-        mode: AssertionMode,
+        assertion_mode: AssertionMode,
         reason_code: InputRequestReasonCode,
         title: &str,
     ) -> ShoreEvent {
@@ -1486,7 +1490,7 @@ mod tests {
         )
         .unwrap();
         event.source_ref = Some(SourceRef::new("claude_code", source_key));
-        event.assertion_mode = mode;
+        event.assertion_mode = assertion_mode;
         event
     }
 
@@ -1813,6 +1817,52 @@ mod tests {
         assert_eq!(ids.len(), 2, "no collapse by target");
     }
 
+    #[test]
+    fn open_task_input_requests_derives_mode_from_envelope_assertion_mode() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let advisory_id = InputRequestId::new("input-request:sha256:adv");
+        let operative_id = InputRequestId::new("input-request:sha256:op");
+
+        let advisory = task_input_request_event(
+            &task_attempt_id,
+            &session_id,
+            &advisory_id,
+            "source:adv",
+            "2026-05-18T00:00:00Z",
+            AssertionMode::Advisory,
+            InputRequestReasonCode::FailedGate,
+            "heads up",
+        );
+        let operative = task_input_request_event(
+            &task_attempt_id,
+            &session_id,
+            &operative_id,
+            "source:op",
+            "2026-05-18T00:00:01Z",
+            AssertionMode::Operative,
+            InputRequestReasonCode::ManualDecisionRequired,
+            "needs decision",
+        );
+
+        let projection = open_task_input_requests_from_events(
+            &[advisory, operative],
+            &task_attempt_id,
+            &reader_actor(),
+        )
+        .unwrap();
+
+        assert_eq!(projection.open_input_requests.len(), 2);
+        assert_eq!(
+            projection.open_input_requests[0].mode,
+            AssertionMode::Advisory
+        );
+        assert_eq!(
+            projection.open_input_requests[1].mode,
+            AssertionMode::Operative
+        );
+    }
+
     // -- agent_resumption --------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
@@ -1860,6 +1910,30 @@ mod tests {
         .unwrap();
         event.source_ref = Some(SourceRef::new("claude_code", source_key));
         event.assertion_mode = AssertionMode::Operative;
+        event
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn task_input_request_event_with_target_and_assertion_mode(
+        task_attempt_id: &WorkObjectId,
+        session_id: &SessionId,
+        input_request_id: &InputRequestId,
+        source_key: &str,
+        occurred_at: &str,
+        subject: TargetRef,
+        title: &str,
+        assertion_mode: AssertionMode,
+    ) -> ShoreEvent {
+        let mut event = task_input_request_event_with_target(
+            task_attempt_id,
+            session_id,
+            input_request_id,
+            source_key,
+            occurred_at,
+            subject,
+            title,
+        );
+        event.assertion_mode = assertion_mode;
         event
     }
 
@@ -1954,6 +2028,153 @@ mod tests {
         assert_eq!(projection.latest_checkpoint, Some(checkpoint));
         assert!(projection.selected_input_request.is_none());
         assert!(projection.selected_response.is_none());
+    }
+
+    #[test]
+    fn agent_resumption_ignores_open_advisory_task_input_request() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let input_request_id = InputRequestId::new("input-request:sha256:adv");
+        let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
+        events.push(task_input_request_event_with_target_and_assertion_mode(
+            &task_attempt_id,
+            &session_id,
+            &input_request_id,
+            "source:adv",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            "heads up",
+            AssertionMode::Advisory,
+        ));
+
+        let projection =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+        assert!(projection.selected_input_request.is_none());
+        assert!(projection.selected_response.is_none());
+    }
+
+    #[test]
+    fn agent_resumption_ignores_ambiguous_advisory_task_input_request_responses() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let input_request_id = InputRequestId::new("input-request:sha256:adv");
+        let r1 = InputRequestResponseId::new("input-request-response:sha256:r1");
+        let r2 = InputRequestResponseId::new("input-request-response:sha256:r2");
+        let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
+        events.push(task_input_request_event_with_target_and_assertion_mode(
+            &task_attempt_id,
+            &session_id,
+            &input_request_id,
+            "source:ambig-adv",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            "heads up",
+            AssertionMode::Advisory,
+        ));
+        events.push(user_response_event(
+            &input_request_id,
+            &r1,
+            InputRequestResponseOutcome::Approved,
+            AssertionMode::Operative,
+            WriterRole::User,
+            "2026-05-18T00:00:03Z",
+        ));
+        events.push(user_response_event(
+            &input_request_id,
+            &r2,
+            InputRequestResponseOutcome::Rejected,
+            AssertionMode::Operative,
+            WriterRole::User,
+            "2026-05-18T00:00:04Z",
+        ));
+
+        let projection =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+        assert!(projection.selected_input_request.is_none());
+        assert_ne!(projection.state, AgentResumptionState::Ambiguous);
+    }
+
+    #[test]
+    fn agent_resumption_ignores_stale_advisory_task_input_request_response() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
+        let cp_b = CheckpointId::new("checkpoint:sha256:cp-b");
+        let input_request_id = InputRequestId::new("input-request:sha256:adv");
+        let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
+
+        let mut events = attempt_with_checkpoints(
+            &task_attempt_id,
+            &session_id,
+            &[
+                (&cp_a, "msg_a", "2026-05-18T00:00:01Z"),
+                (&cp_b, "msg_b", "2026-05-18T00:00:05Z"),
+            ],
+        );
+        events.push(task_input_request_event_with_target_and_assertion_mode(
+            &task_attempt_id,
+            &session_id,
+            &input_request_id,
+            "source:stale-adv",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: cp_a.clone(),
+            }),
+            "heads up",
+            AssertionMode::Advisory,
+        ));
+        events.push(user_response_event(
+            &input_request_id,
+            &response_id,
+            InputRequestResponseOutcome::Approved,
+            AssertionMode::Operative,
+            WriterRole::User,
+            "2026-05-18T00:00:03Z",
+        ));
+
+        let projection =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+        assert!(projection.selected_input_request.is_none());
+        assert_ne!(projection.state, AgentResumptionState::Stale);
+    }
+
+    #[test]
+    fn agent_resumption_still_blocks_for_open_operative_task_input_request() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let input_request_id = InputRequestId::new("input-request:sha256:op");
+        let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
+        events.push(task_input_request_event_with_target_and_assertion_mode(
+            &task_attempt_id,
+            &session_id,
+            &input_request_id,
+            "source:op",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            "needs decision",
+            AssertionMode::Operative,
+        ));
+
+        let projection =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let selected = projection
+            .selected_input_request
+            .as_ref()
+            .expect("selected input request");
+        assert_eq!(selected.input_request_id, input_request_id);
+        assert_eq!(selected.mode, AssertionMode::Operative);
     }
 
     #[test]
