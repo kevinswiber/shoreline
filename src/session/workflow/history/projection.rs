@@ -7,9 +7,9 @@ use crate::error::{Result, ShoreError};
 use crate::model::TargetRef;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
-    EventType, InputRequestOpenedPayload, InputRequestRespondedPayload,
-    ReviewAssessmentRecordedPayload, ReviewInitializedPayload, ReviewNoteImportedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
+    EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
+    ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
+    ReviewUnitCapturedPayload, ShoreEvent, decode_input_request_opened_payload,
 };
 use crate::session::state::SessionState;
 
@@ -107,11 +107,11 @@ pub(super) fn history_entry_from_event(
             }
         }
         EventType::InputRequestOpened => {
-            let payload: InputRequestOpenedPayload = serde_json::from_value(event.payload.clone())?;
+            let payload = decode_input_request_opened_payload(event.payload.clone())?;
             ReviewHistorySummary::InputRequestOpened {
                 input_request_id: payload.input_request_id,
                 target: payload.target,
-                mode: payload.mode,
+                mode: event.assertion_mode,
                 reason_code: payload.reason_code,
                 title: payload.title,
                 body: optional_text(

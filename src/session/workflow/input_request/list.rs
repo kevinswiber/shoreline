@@ -7,7 +7,7 @@ use super::view::{
 use crate::error::Result;
 use crate::model::{ReviewUnitId, TrackId};
 use crate::session::EventStore;
-use crate::session::event::InputRequestMode;
+use crate::session::event::AssertionMode;
 use crate::session::observation::{resolve_review_unit, validated_track_id};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::ShoreStorePaths;
@@ -17,7 +17,7 @@ pub struct InputRequestListOptions {
     repo: PathBuf,
     review_unit_id: Option<ReviewUnitId>,
     track: Option<String>,
-    mode: Option<InputRequestMode>,
+    mode: Option<AssertionMode>,
     file: Option<String>,
     status: InputRequestStatusFilter,
     include_body: bool,
@@ -46,7 +46,7 @@ impl InputRequestListOptions {
         self
     }
 
-    pub fn with_mode(mut self, mode: InputRequestMode) -> Self {
+    pub fn with_mode(mut self, mode: AssertionMode) -> Self {
         self.mode = Some(mode);
         self
     }
@@ -70,7 +70,7 @@ impl InputRequestListOptions {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestListFilters {
     pub track_id: Option<TrackId>,
-    pub mode: Option<InputRequestMode>,
+    pub mode: Option<AssertionMode>,
     pub file: Option<String>,
     pub status: InputRequestStatusFilter,
     pub include_body: bool,

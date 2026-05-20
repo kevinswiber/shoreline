@@ -10,9 +10,9 @@ use crate::model::{
 };
 use crate::session::EventWriteOutcome;
 use crate::session::event::{
-    EventType, InputRequestMode, InputRequestOpenedPayload, InputRequestRespondedPayload,
-    ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-    ShoreEvent,
+    AssertionMode, EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
+    decode_input_request_opened_payload,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -133,7 +133,7 @@ struct StateReducer {
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
-    input_request_modes: BTreeMap<InputRequestId, InputRequestMode>,
+    input_request_modes: BTreeMap<InputRequestId, AssertionMode>,
     input_request_open_events: BTreeMap<InputRequestId, BTreeSet<EventId>>,
     input_request_response_events: BTreeMap<InputRequestResponseId, BTreeSet<EventId>>,
     responded_input_request_ids: BTreeSet<InputRequestId>,
@@ -231,7 +231,7 @@ impl StateReducer {
     }
 
     fn apply_input_request_opened(&mut self, event: &ShoreEvent) -> Result<()> {
-        let payload: InputRequestOpenedPayload = serde_json::from_value(event.payload.clone())?;
+        let payload = decode_input_request_opened_payload(event.payload.clone())?;
         let input_request_id = payload.input_request_id;
         self.input_request_open_events
             .entry(input_request_id.clone())
@@ -239,7 +239,7 @@ impl StateReducer {
             .insert(event.event_id.clone());
         self.input_request_modes
             .entry(input_request_id)
-            .or_insert(payload.mode);
+            .or_insert(event.assertion_mode);
         Ok(())
     }
 
@@ -284,7 +284,7 @@ impl StateReducer {
             .input_request_modes
             .iter()
             .filter(|(input_request_id, mode)| {
-                **mode == InputRequestMode::Blocking
+                **mode == AssertionMode::Operative
                     && !self.responded_input_request_ids.contains(*input_request_id)
             })
             .count();
@@ -381,9 +381,9 @@ mod tests {
     };
     use crate::session::EventWriteOutcome;
     use crate::session::event::{
-        AssertionMode, EventTarget, InputRequestReasonCode, InputRequestResponseOutcome,
-        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload,
-        Writer,
+        AssertionMode, EventTarget, InputRequestOpenedPayload, InputRequestReasonCode,
+        InputRequestResponseOutcome, ReviewAssessment, ReviewAssessmentRecordedPayload,
+        ReviewObservationRecordedPayload, Writer,
     };
 
     #[test]
@@ -705,7 +705,7 @@ mod tests {
         let events = vec![input_request_opened_event(
             "retry-a",
             "input-request:sha256:one",
-            InputRequestMode::Blocking,
+            AssertionMode::Operative,
         )];
 
         let state = SessionState::from_events(&events).unwrap();
@@ -728,7 +728,7 @@ mod tests {
             input_request_opened_event(
                 "retry-a",
                 "input-request:sha256:one",
-                InputRequestMode::Blocking,
+                AssertionMode::Operative,
             ),
             input_request_responded_event(
                 "retry-a",
@@ -750,12 +750,12 @@ mod tests {
             input_request_opened_event(
                 "retry-a",
                 "input-request:sha256:same",
-                InputRequestMode::Blocking,
+                AssertionMode::Operative,
             ),
             input_request_opened_event(
                 "retry-b",
                 "input-request:sha256:same",
-                InputRequestMode::Blocking,
+                AssertionMode::Operative,
             ),
             input_request_responded_event(
                 "retry-a",
@@ -945,7 +945,7 @@ mod tests {
     fn input_request_opened_event(
         source_key: &str,
         input_request_id: &str,
-        mode: InputRequestMode,
+        mode: AssertionMode,
     ) -> ShoreEvent {
         let mut target = EventTarget::for_review_unit(
             SessionId::new("session:default"),
@@ -964,7 +964,6 @@ mod tests {
                 target: ReviewTargetRef::ReviewUnit {
                     review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
                 },
-                mode,
                 reason_code: InputRequestReasonCode::ManualDecisionRequired,
                 title: "Need input".to_owned(),
                 body: None,
@@ -976,6 +975,7 @@ mod tests {
             "2026-05-10T00:00:02Z",
         )
         .unwrap()
+        .with_assertion_mode(mode)
     }
 
     fn input_request_responded_event(

@@ -30,7 +30,7 @@ use crate::model::{
 use crate::session::current_timestamp;
 #[cfg(test)]
 use crate::session::event::{
-    EventTarget, EventType, InputRequestMode, InputRequestOpenedPayload, InputRequestReasonCode,
+    AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, Writer,
 };
 
@@ -56,7 +56,7 @@ mod tests {
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
-                .with_mode(InputRequestMode::Blocking)
+                .with_mode(AssertionMode::Operative)
                 .with_target(InputRequestTargetSelector::review_unit()),
         )
         .unwrap();
@@ -68,7 +68,7 @@ mod tests {
                 .as_str()
                 .starts_with("input-request:sha256:")
         );
-        assert_eq!(result.mode, InputRequestMode::Blocking);
+        assert_eq!(result.mode, AssertionMode::Operative);
         assert_eq!(
             result.reason_code,
             InputRequestReasonCode::ManualDecisionRequired
@@ -114,7 +114,7 @@ mod tests {
         let options = InputRequestOpenOptions::new(repo.path())
             .with_track("agent:codex")
             .with_title("blocking-finding")
-            .with_mode(InputRequestMode::Blocking)
+            .with_mode(AssertionMode::Operative)
             .with_reason_code(InputRequestReasonCode::UnsafeAction);
 
         let first = open_input_request(options.clone()).unwrap();
@@ -150,7 +150,7 @@ mod tests {
             InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("to-resolve")
-                .with_mode(InputRequestMode::Blocking)
+                .with_mode(AssertionMode::Operative)
                 .with_reason_code(InputRequestReasonCode::UnsafeAction),
         )
         .unwrap();
@@ -560,21 +560,21 @@ mod tests {
         let matching = open_input_request(
             open_request(repo.path(), "Match")
                 .with_track("agent:codex")
-                .with_mode(InputRequestMode::Advisory)
+                .with_mode(AssertionMode::Advisory)
                 .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
         open_input_request(
             open_request(repo.path(), "Wrong track")
                 .with_track("agent:claude")
-                .with_mode(InputRequestMode::Advisory)
+                .with_mode(AssertionMode::Advisory)
                 .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
         open_input_request(
             open_request(repo.path(), "Wrong mode")
                 .with_track("agent:codex")
-                .with_mode(InputRequestMode::Blocking)
+                .with_mode(AssertionMode::Operative)
                 .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
@@ -582,7 +582,7 @@ mod tests {
         let result = list_input_requests(
             InputRequestListOptions::new(repo.path())
                 .with_track("agent:codex")
-                .with_mode(InputRequestMode::Advisory)
+                .with_mode(AssertionMode::Advisory)
                 .with_file("src/lib.rs"),
         )
         .unwrap();
@@ -1080,7 +1080,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: review_unit_id.clone(),
             },
-            mode: InputRequestMode::Advisory,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "projection".to_owned(),
             body: None,
@@ -1179,7 +1178,7 @@ mod tests {
             event_id: EventId::new(event_id),
             track_id: TrackId::new("agent:codex"),
             target: ReviewTargetRef::ReviewUnit { review_unit_id },
-            mode: InputRequestMode::Blocking,
+            mode: AssertionMode::Operative,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "sort".to_owned(),
             body: None,

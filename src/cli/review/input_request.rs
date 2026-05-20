@@ -3,9 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shore::model::{InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId};
-use shore::session::event::{
-    InputRequestMode, InputRequestReasonCode, InputRequestResponseOutcome,
-};
+use shore::session::event::{AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome};
 use shore::session::{
     InputRequestFetchOptions, InputRequestFetchResult, InputRequestListOptions,
     InputRequestListResult, InputRequestOpenOptions, InputRequestOpenResult,
@@ -158,7 +156,7 @@ struct InputRequestOpenBody {
     event_id: String,
     track_id: String,
     target: ReviewTargetRef,
-    mode: InputRequestMode,
+    mode: InputRequestModeDocument,
     reason_code: InputRequestReasonCode,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
@@ -195,7 +193,7 @@ struct InputRequestListFiltersDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     track_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    mode: Option<InputRequestMode>,
+    mode: Option<InputRequestModeDocument>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file: Option<String>,
     status: &'static str,
@@ -205,6 +203,13 @@ struct InputRequestListFiltersDocument {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 enum InputRequestModeArg {
+    Blocking,
+    Advisory,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InputRequestModeDocument {
     Blocking,
     Advisory,
 }
@@ -426,7 +431,7 @@ fn input_request_open_document(
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
             target: result.target,
-            mode: result.mode,
+            mode: result.mode.into(),
             reason_code: result.reason_code,
             body_content_hash: result.body_content_hash,
         },
@@ -449,7 +454,7 @@ fn input_request_list_document(
                     .filters
                     .track_id
                     .map(|track_id| track_id.as_str().to_owned()),
-                mode: result.filters.mode,
+                mode: result.filters.mode.map(InputRequestModeDocument::from),
                 file: result.filters.file,
                 status: result.filters.status.as_str(),
                 include_body: result.filters.include_body,
@@ -495,11 +500,20 @@ fn input_request_respond_document(
     )
 }
 
-impl From<InputRequestModeArg> for InputRequestMode {
+impl From<InputRequestModeArg> for AssertionMode {
     fn from(value: InputRequestModeArg) -> Self {
         match value {
-            InputRequestModeArg::Blocking => InputRequestMode::Blocking,
-            InputRequestModeArg::Advisory => InputRequestMode::Advisory,
+            InputRequestModeArg::Blocking => AssertionMode::Operative,
+            InputRequestModeArg::Advisory => AssertionMode::Advisory,
+        }
+    }
+}
+
+impl From<AssertionMode> for InputRequestModeDocument {
+    fn from(value: AssertionMode) -> Self {
+        match value {
+            AssertionMode::Operative => Self::Blocking,
+            AssertionMode::Advisory => Self::Advisory,
         }
     }
 }

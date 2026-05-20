@@ -5,7 +5,7 @@ use crate::model::{
     ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
 };
 use crate::session::event::{
-    EventType, ImportedNoteTarget, InputRequestMode, InputRequestReasonCode,
+    AssertionMode, EventType, ImportedNoteTarget, InputRequestReasonCode,
     InputRequestResponseOutcome, ReviewAssessment, SidecarSource, Writer,
 };
 
@@ -68,7 +68,8 @@ pub enum ReviewHistorySummary {
     InputRequestOpened {
         input_request_id: InputRequestId,
         target: ReviewTargetRef,
-        mode: InputRequestMode,
+        #[serde(serialize_with = "serialize_input_request_mode")]
+        mode: AssertionMode,
         reason_code: InputRequestReasonCode,
         title: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,4 +132,14 @@ pub enum ReviewHistorySummary {
         created_at: Option<String>,
         sidecar_content_hash: String,
     },
+}
+
+fn serialize_input_request_mode<S>(mode: &AssertionMode, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(match mode {
+        AssertionMode::Operative => "blocking",
+        AssertionMode::Advisory => "advisory",
+    })
 }

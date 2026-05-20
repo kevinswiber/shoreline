@@ -13,8 +13,8 @@ use crate::model::{
     TrackId,
 };
 use crate::session::event::{
-    EventTarget, EventType, InputRequestOpenedPayload, ReviewAssessment,
-    ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, ShoreEvent,
+    EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
+    ReviewObservationRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
 };
 use crate::session::observation::{resolve_review_unit, staged_body, validated_track_id};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -335,7 +335,7 @@ fn has_input_request(
         if event.target.review_unit_id.as_ref() != Some(review_unit_id) {
             continue;
         }
-        let payload: InputRequestOpenedPayload = serde_json::from_value(event.payload.clone())?;
+        let payload = decode_input_request_opened_payload(event.payload.clone())?;
         if &payload.input_request_id == input_request_id {
             return Ok(true);
         }

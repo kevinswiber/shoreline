@@ -8,7 +8,7 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{EventId, InputRequestId, ReviewTargetRef, ReviewUnitId, TargetRef, TrackId};
 use crate::session::event::{
-    EventTarget, EventType, InputRequestMode, InputRequestOpenedPayload, InputRequestReasonCode,
+    AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     ShoreEvent,
 };
 use crate::session::observation::{
@@ -27,7 +27,7 @@ pub struct InputRequestOpenOptions {
     title: Option<String>,
     body: Option<String>,
     target: InputRequestTargetSelector,
-    mode: InputRequestMode,
+    mode: AssertionMode,
     reason_code: Option<InputRequestReasonCode>,
     idempotency_key: Option<String>,
 }
@@ -41,7 +41,7 @@ impl InputRequestOpenOptions {
             title: None,
             body: None,
             target: InputRequestTargetSelector::review_unit(),
-            mode: InputRequestMode::Blocking,
+            mode: AssertionMode::Operative,
             reason_code: None,
             idempotency_key: None,
         }
@@ -72,7 +72,7 @@ impl InputRequestOpenOptions {
         self
     }
 
-    pub fn with_mode(mut self, mode: InputRequestMode) -> Self {
+    pub fn with_mode(mut self, mode: AssertionMode) -> Self {
         self.mode = mode;
         self
     }
@@ -95,7 +95,7 @@ pub struct InputRequestOpenResult {
     pub event_id: EventId,
     pub track_id: TrackId,
     pub target: ReviewTargetRef,
-    pub mode: InputRequestMode,
+    pub mode: AssertionMode,
     pub reason_code: InputRequestReasonCode,
     pub body_content_hash: Option<String>,
     pub events_created: usize,
@@ -177,7 +177,6 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
             target: target.clone(),
-            mode: options.mode,
             reason_code,
             title,
             body,
@@ -187,7 +186,8 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
             target_fingerprint: None,
         },
         current_timestamp(),
-    )?;
+    )?
+    .with_assertion_mode(options.mode);
     let event_id = event.event_id.clone();
 
     let mut events_created_by_type = BTreeMap::new();
@@ -223,7 +223,7 @@ struct InputRequestIdMaterial<'a> {
     review_unit_id: &'a ReviewUnitId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
-    mode: InputRequestMode,
+    mode: AssertionMode,
     reason_code: InputRequestReasonCode,
     title: &'a str,
     body_content_hash: Option<&'a str>,
@@ -235,11 +235,18 @@ fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputR
         "reviewUnitId": material.review_unit_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
-        "mode": material.mode,
+        "mode": input_request_mode_label(material.mode),
         "reasonCode": material.reason_code,
         "title": material.title,
         "bodyContentHash": material.body_content_hash,
         "writerActorId": material.writer_actor_id,
     }))?;
     Ok(InputRequestId::new(format!("input-request:{digest}")))
+}
+
+fn input_request_mode_label(mode: AssertionMode) -> &'static str {
+    match mode {
+        AssertionMode::Operative => "blocking",
+        AssertionMode::Advisory => "advisory",
+    }
 }

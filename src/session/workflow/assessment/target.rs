@@ -5,8 +5,8 @@ use crate::model::{
     AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId, Side,
 };
 use crate::session::event::{
-    EventType, InputRequestOpenedPayload, ReviewAssessmentRecordedPayload,
-    ReviewObservationRecordedPayload, ShoreEvent,
+    EventType, ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, ShoreEvent,
+    decode_input_request_opened_payload,
 };
 use crate::session::observation::{
     ObservationTargetSelector, ResolvedReviewUnit, resolve_observation_target,
@@ -169,7 +169,7 @@ fn resolve_input_request_ref(
             continue;
         }
 
-        let payload: InputRequestOpenedPayload = serde_json::from_value(event.payload.clone())?;
+        let payload = decode_input_request_opened_payload(event.payload.clone())?;
         if &payload.input_request_id == input_request_id {
             return Ok(ReviewTargetRef::InputRequest {
                 review_unit_id: resolved.review_unit_id.clone(),

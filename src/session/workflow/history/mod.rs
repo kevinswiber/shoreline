@@ -41,11 +41,11 @@ mod tests {
         Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        AssertionMode, EventTarget, EventType, ImportedNoteTarget, InputRequestMode,
-        InputRequestOpenedPayload, InputRequestReasonCode, InputRequestRespondedPayload,
-        InputRequestResponseOutcome, ReviewAssessment, ReviewAssessmentRecordedPayload,
-        ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
-        ReviewUnitCapturedPayload, ShoreEvent, SidecarSource, Writer,
+        AssertionMode, EventTarget, EventType, ImportedNoteTarget, InputRequestOpenedPayload,
+        InputRequestReasonCode, InputRequestRespondedPayload, InputRequestResponseOutcome,
+        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
+        ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
+        ShoreEvent, SidecarSource, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
 
@@ -661,7 +661,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: review_unit_id("one"),
             },
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need decision".to_owned(),
             body: Some("body".to_owned()),
@@ -677,6 +676,7 @@ mod tests {
             payload,
             "2026-05-13T10:00:02Z",
         )
+        .with_assertion_mode(AssertionMode::Operative)
     }
 
     fn input_request_responded_event() -> ShoreEvent {

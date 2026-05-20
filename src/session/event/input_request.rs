@@ -2,17 +2,11 @@ use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
 use super::payload::EventPayload;
+use crate::error::{Result, ShoreError};
 use crate::model::{
     InputRequestId, InputRequestResponseId, ReviewTargetRef, ReviewUnitId, TrackId, WorkObjectId,
     WorkObjectType,
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InputRequestMode {
-    Blocking,
-    Advisory,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -42,7 +36,6 @@ pub enum InputRequestResponseOutcome {
 pub struct InputRequestOpenedPayload {
     pub input_request_id: InputRequestId,
     pub target: ReviewTargetRef,
-    pub mode: InputRequestMode,
     pub reason_code: InputRequestReasonCode,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,6 +51,19 @@ pub struct InputRequestOpenedPayload {
     /// freshness rules; carries no semantics beyond `==` equality.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_fingerprint: Option<String>,
+}
+
+pub(crate) fn decode_input_request_opened_payload(
+    value: serde_json::Value,
+) -> Result<InputRequestOpenedPayload> {
+    if value.get("mode").is_some() {
+        return Err(ShoreError::InvalidEvent {
+            message: "input_request_opened payload mode is no longer supported; use envelope assertionMode"
+                .to_owned(),
+        });
+    }
+
+    Ok(serde_json::from_value(value)?)
 }
 
 impl InputRequestOpenedPayload {
@@ -200,21 +206,38 @@ mod tests {
     }
 
     #[test]
-    fn input_request_opened_payload_skips_target_fingerprint_when_none() {
-        let payload = InputRequestOpenedPayload {
-            input_request_id: InputRequestId::new("input-request:sha256:abc"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru-1"),
+    fn input_request_opened_payload_no_longer_serializes_mode() {
+        let payload = opened_input_request_payload();
+        let json = serde_json::to_value(&payload).unwrap();
+
+        assert!(json.get("mode").is_none(), "{json}");
+    }
+
+    #[test]
+    fn legacy_input_request_payload_mode_is_rejected() {
+        let legacy = serde_json::json!({
+            "inputRequestId": "input-request:sha256:abc",
+            "target": {
+                "kind": "review_unit",
+                "reviewUnitId": "review-unit:sha256:ru"
             },
-            mode: InputRequestMode::Blocking,
-            reason_code: InputRequestReasonCode::ManualDecisionRequired,
-            title: "t".to_owned(),
-            body: None,
-            body_artifact_path: None,
-            body_byte_size: None,
-            body_content_hash: None,
-            target_fingerprint: None,
-        };
+            "mode": "blocking",
+            "reasonCode": "manual_decision_required",
+            "title": "legacy"
+        });
+
+        let error = decode_input_request_opened_payload(legacy).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("payload mode is no longer supported")
+        );
+    }
+
+    #[test]
+    fn input_request_opened_payload_skips_target_fingerprint_when_none() {
+        let payload = opened_input_request_payload();
         let json = serde_json::to_value(&payload).unwrap();
         assert!(json.get("targetFingerprint").is_none());
     }
@@ -224,18 +247,8 @@ mod tests {
         let fp =
             "sha256:000000000000000000000000000000000000000000000000000000000000000b".to_owned();
         let payload = InputRequestOpenedPayload {
-            input_request_id: InputRequestId::new("input-request:sha256:abc"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru-1"),
-            },
-            mode: InputRequestMode::Blocking,
-            reason_code: InputRequestReasonCode::ManualDecisionRequired,
-            title: "t".to_owned(),
-            body: None,
-            body_artifact_path: None,
-            body_byte_size: None,
-            body_content_hash: None,
             target_fingerprint: Some(fp.clone()),
+            ..opened_input_request_payload()
         };
         let json = serde_json::to_value(&payload).unwrap();
         assert_eq!(json["targetFingerprint"], fp);
@@ -293,7 +306,6 @@ mod tests {
         let payload = InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
             target: target.clone(),
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
@@ -330,7 +342,6 @@ mod tests {
             sha256_json_prefixed(&serde_json::json!({
                 "inputRequestId": "input-request:sha256:abc",
                 "target": target,
-                "mode": "blocking",
                 "reasonCode": "manual_decision_required",
                 "title": "Need a decision",
                 "body": "Which path should win?",
@@ -412,5 +423,21 @@ mod tests {
             event.payload["inputRequestResponseId"],
             "input-request-response:sha256:def"
         );
+    }
+
+    fn opened_input_request_payload() -> InputRequestOpenedPayload {
+        InputRequestOpenedPayload {
+            input_request_id: InputRequestId::new("input-request:sha256:abc"),
+            target: ReviewTargetRef::ReviewUnit {
+                review_unit_id: ReviewUnitId::new("ru-1"),
+            },
+            reason_code: InputRequestReasonCode::ManualDecisionRequired,
+            title: "t".to_owned(),
+            body: None,
+            body_artifact_path: None,
+            body_byte_size: None,
+            body_content_hash: None,
+            target_fingerprint: None,
+        }
     }
 }

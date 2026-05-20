@@ -1,7 +1,7 @@
 // Shared view-document mappers used by review unit show and the leaf read commands.
 use shore::model::ReviewTargetRef;
 use shore::session::event::{
-    InputRequestMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment, Writer,
+    AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment, Writer,
 };
 use shore::session::{AssessmentView, CurrentAssessmentStatus, InputRequestView, ObservationView};
 
@@ -33,7 +33,7 @@ pub(super) struct InputRequestViewDocument {
     event_id: String,
     track_id: String,
     target: ReviewTargetRef,
-    mode: InputRequestMode,
+    mode: InputRequestModeDocument,
     reason_code: InputRequestReasonCode,
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,6 +58,13 @@ pub(super) struct InputRequestResponseViewDocument {
     reason_content_hash: Option<String>,
     created_at: String,
     writer: Writer,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InputRequestModeDocument {
+    Blocking,
+    Advisory,
 }
 
 #[derive(serde::Serialize)]
@@ -123,7 +130,7 @@ impl From<InputRequestView> for InputRequestViewDocument {
             event_id: view.event_id.as_str().to_owned(),
             track_id: view.track_id.as_str().to_owned(),
             target: view.target,
-            mode: view.mode,
+            mode: view.mode.into(),
             reason_code: view.reason_code,
             title: view.title,
             body: view.body,
@@ -136,6 +143,15 @@ impl From<InputRequestView> for InputRequestViewDocument {
                 .collect(),
             created_at: view.created_at,
             writer: view.writer,
+        }
+    }
+}
+
+impl From<AssertionMode> for InputRequestModeDocument {
+    fn from(mode: AssertionMode) -> Self {
+        match mode {
+            AssertionMode::Operative => Self::Blocking,
+            AssertionMode::Advisory => Self::Advisory,
         }
     }
 }

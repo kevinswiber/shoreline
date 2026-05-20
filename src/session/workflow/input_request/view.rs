@@ -5,8 +5,9 @@ use crate::error::{Result, ShoreError};
 use crate::model::{EventId, InputRequestId, InputRequestResponseId, ReviewTargetRef, TrackId};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
-    EventType, InputRequestMode, InputRequestOpenedPayload, InputRequestReasonCode,
+    AssertionMode, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, Writer,
+    decode_input_request_opened_payload,
 };
 use crate::session::observation::{ResolvedReviewUnit, target_matches_file};
 
@@ -15,7 +16,7 @@ pub(crate) struct InputRequestProjectionOptions<'a> {
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedReviewUnit,
     pub track_filter: Option<TrackId>,
-    pub mode_filter: Option<InputRequestMode>,
+    pub mode_filter: Option<AssertionMode>,
     pub file_filter: Option<&'a str>,
     pub status_filter: InputRequestStatusFilter,
     pub include_body: bool,
@@ -27,7 +28,7 @@ pub struct InputRequestView {
     pub event_id: EventId,
     pub track_id: TrackId,
     pub target: ReviewTargetRef,
-    pub mode: InputRequestMode,
+    pub mode: AssertionMode,
     pub reason_code: InputRequestReasonCode,
     pub title: String,
     pub body: Option<String>,
@@ -118,7 +119,7 @@ pub(crate) fn project_input_requests(
         }
         if options
             .mode_filter
-            .is_some_and(|mode| mode != record.payload.mode)
+            .is_some_and(|mode| mode != event.assertion_mode)
         {
             continue;
         }
@@ -177,8 +178,7 @@ pub(super) fn collect_input_request_projection_records<'a>(
     for event in events {
         match event.event_type {
             EventType::InputRequestOpened => {
-                let payload: InputRequestOpenedPayload =
-                    serde_json::from_value(event.payload.clone())?;
+                let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 let track_id = event.target.track_id.clone().ok_or_else(|| {
                     ShoreError::Message("input request event missing track id".to_owned())
                 })?;
@@ -271,7 +271,7 @@ pub(super) fn input_request_view_from_event(
         event_id: event.event_id.clone(),
         track_id,
         target: payload.target,
-        mode: payload.mode,
+        mode: event.assertion_mode,
         reason_code: payload.reason_code,
         title: payload.title,
         body,

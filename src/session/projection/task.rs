@@ -12,10 +12,10 @@ use crate::model::{
     ReviewTargetRef, TargetRef, TaskTargetRef, WorkObjectId, WorkObjectType,
 };
 use crate::session::event::{
-    AssertionMode, EventTarget, EventType, InputRequestMode, InputRequestOpenedPayload,
-    InputRequestReasonCode, InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent,
-    SourceRef, TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload,
-    TaskObservationRecordedPayload, Writer,
+    AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
+    InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, SourceRef,
+    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
+    Writer, decode_input_request_opened_payload,
 };
 
 /// Envelope-level fields preserved on every projected event, so the projection
@@ -288,7 +288,7 @@ pub(crate) struct TaskInputRequestView {
     pub envelope: TaskProjectionEventEnvelope,
     pub target: TargetRef,
     pub payload_review_target: ReviewTargetRef,
-    pub mode: InputRequestMode,
+    pub mode: AssertionMode,
     pub reason_code: InputRequestReasonCode,
     pub title: String,
     pub body: Option<String>,
@@ -339,8 +339,7 @@ pub(crate) fn open_task_input_requests_from_events(
                 if !matches!(subject, TargetRef::Task(_)) {
                     continue;
                 }
-                let payload: InputRequestOpenedPayload =
-                    serde_json::from_value(event.payload.clone())?;
+                let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 requests.push((
                     TaskProjectionEventEnvelope::from_event(event),
                     payload,
@@ -377,12 +376,13 @@ pub(crate) fn open_task_input_requests_from_events(
             event_id: Some(envelope.event_id.clone()),
         });
 
+        let mode = envelope.assertion_mode;
         open_input_requests.push(TaskInputRequestView {
             input_request_id: payload.input_request_id,
             envelope,
             target: subject,
             payload_review_target: payload.target,
-            mode: payload.mode,
+            mode,
             reason_code: payload.reason_code,
             title: payload.title,
             body: payload.body,
@@ -815,14 +815,13 @@ fn collect_task_input_request_records(
                 if !matches!(subject, TargetRef::Task(_)) {
                     continue;
                 }
-                let payload: InputRequestOpenedPayload =
-                    serde_json::from_value(event.payload.clone())?;
+                let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 request_views.push(TaskInputRequestView {
                     input_request_id: payload.input_request_id,
                     envelope: TaskProjectionEventEnvelope::from_event(event),
                     target: subject,
                     payload_review_target: payload.target,
-                    mode: payload.mode,
+                    mode: event.assertion_mode,
                     reason_code: payload.reason_code,
                     title: payload.title,
                     body: payload.body,
@@ -1435,8 +1434,8 @@ mod tests {
         InputRequestId, InputRequestResponseId, ReviewTargetRef, ReviewUnitId, TrackId,
     };
     use crate::session::event::{
-        InputRequestMode, InputRequestOpenedPayload, InputRequestReasonCode,
-        InputRequestRespondedPayload, InputRequestResponseOutcome,
+        InputRequestOpenedPayload, InputRequestReasonCode, InputRequestRespondedPayload,
+        InputRequestResponseOutcome,
     };
 
     #[allow(clippy::too_many_arguments)]
@@ -1446,7 +1445,7 @@ mod tests {
         input_request_id: &InputRequestId,
         source_key: &str,
         occurred_at: &str,
-        mode: InputRequestMode,
+        mode: AssertionMode,
         reason_code: InputRequestReasonCode,
         title: &str,
     ) -> ShoreEvent {
@@ -1464,7 +1463,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
             },
-            mode,
             reason_code,
             title: title.to_owned(),
             body: None,
@@ -1488,7 +1486,7 @@ mod tests {
         )
         .unwrap();
         event.source_ref = Some(SourceRef::new("claude_code", source_key));
-        event.assertion_mode = AssertionMode::Advisory;
+        event.assertion_mode = mode;
         event
     }
 
@@ -1552,7 +1550,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: review_unit_id.clone(),
             },
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "review-domain".to_owned(),
             body: None,
@@ -1572,6 +1569,7 @@ mod tests {
             occurred_at,
         )
         .unwrap()
+        .with_assertion_mode(AssertionMode::Operative)
     }
 
     #[test]
@@ -1586,7 +1584,7 @@ mod tests {
             &input_request_id,
             "source:1",
             "2026-05-18T00:00:00Z",
-            InputRequestMode::Blocking,
+            AssertionMode::Operative,
             InputRequestReasonCode::ManualDecisionRequired,
             "Need a call",
         )];
@@ -1628,7 +1626,7 @@ mod tests {
                 &input_request_id,
                 "source:1",
                 "2026-05-18T00:00:00Z",
-                InputRequestMode::Blocking,
+                AssertionMode::Operative,
                 InputRequestReasonCode::ManualDecisionRequired,
                 "Need a call",
             ),
@@ -1667,7 +1665,7 @@ mod tests {
                 &task_input_request_id,
                 "source:task",
                 "2026-05-18T00:00:00Z",
-                InputRequestMode::Advisory,
+                AssertionMode::Advisory,
                 InputRequestReasonCode::FailedGate,
                 "task-domain",
             ),
@@ -1706,7 +1704,7 @@ mod tests {
             &input_request_id,
             "source:1",
             "2026-05-18T00:00:00Z",
-            InputRequestMode::Blocking,
+            AssertionMode::Operative,
             InputRequestReasonCode::ManualDecisionRequired,
             "Need a call",
         )];
@@ -1739,7 +1737,7 @@ mod tests {
             &input_request_id,
             "source:1",
             "2026-05-18T00:00:00Z",
-            InputRequestMode::Blocking,
+            AssertionMode::Operative,
             InputRequestReasonCode::ManualDecisionRequired,
             "Need a call",
         );
@@ -1756,10 +1754,10 @@ mod tests {
         assert_eq!(view.envelope.occurred_at, request_event.occurred_at);
         assert_eq!(view.envelope.payload_hash, request_event.payload_hash);
         assert_eq!(view.envelope.writer, request_event.writer);
-        assert_eq!(view.envelope.assertion_mode, AssertionMode::Advisory);
+        assert_eq!(view.envelope.assertion_mode, AssertionMode::Operative);
         assert_eq!(view.envelope.source_ref, request_event.source_ref);
         assert_eq!(view.envelope.target, request_event.target);
-        assert_eq!(view.mode, InputRequestMode::Blocking);
+        assert_eq!(view.mode, AssertionMode::Operative);
         assert_eq!(
             view.reason_code,
             InputRequestReasonCode::ManualDecisionRequired
@@ -1785,7 +1783,7 @@ mod tests {
                 &a,
                 "source:a",
                 "2026-05-18T00:00:00Z",
-                InputRequestMode::Advisory,
+                AssertionMode::Advisory,
                 InputRequestReasonCode::FailedGate,
                 "first",
             ),
@@ -1795,7 +1793,7 @@ mod tests {
                 &b,
                 "source:b",
                 "2026-05-18T00:00:01Z",
-                InputRequestMode::Blocking,
+                AssertionMode::Operative,
                 InputRequestReasonCode::ManualDecisionRequired,
                 "second",
             ),
@@ -1838,7 +1836,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
             },
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: title.to_owned(),
             body: None,
@@ -1862,7 +1859,7 @@ mod tests {
         )
         .unwrap();
         event.source_ref = Some(SourceRef::new("claude_code", source_key));
-        event.assertion_mode = AssertionMode::Advisory;
+        event.assertion_mode = AssertionMode::Operative;
         event
     }
 
@@ -2416,7 +2413,7 @@ mod tests {
         }
 
         assert_eq!(selected_input_request.title, "needs approval");
-        assert_eq!(selected_input_request.mode, InputRequestMode::Blocking);
+        assert_eq!(selected_input_request.mode, AssertionMode::Operative);
         assert_eq!(
             selected_input_request.reason_code,
             InputRequestReasonCode::ManualDecisionRequired
@@ -2837,7 +2834,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
             },
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: title.to_owned(),
             body: None,
@@ -2861,7 +2857,7 @@ mod tests {
         )
         .unwrap();
         event.source_ref = Some(SourceRef::new("claude_code", source_key));
-        event.assertion_mode = AssertionMode::Advisory;
+        event.assertion_mode = AssertionMode::Operative;
         event
     }
 

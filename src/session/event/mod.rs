@@ -18,9 +18,10 @@ mod writer;
 
 pub use assertion::AssertionMode;
 pub use assessment::{ReviewAssessment, ReviewAssessmentRecordedPayload};
+pub(crate) use input_request::decode_input_request_opened_payload;
 pub use input_request::{
-    InputRequestMode, InputRequestOpenedPayload, InputRequestReasonCode,
-    InputRequestRespondedPayload, InputRequestResponseOutcome,
+    InputRequestOpenedPayload, InputRequestReasonCode, InputRequestRespondedPayload,
+    InputRequestResponseOutcome,
 };
 pub use kind::EventType;
 pub use observation::ReviewObservationRecordedPayload;
@@ -347,7 +348,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: ReviewUnitId::new("review-unit:sha256:unit"),
             },
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
@@ -360,7 +360,7 @@ mod tests {
         let json = serde_json::to_value(&payload).unwrap();
         let round: InputRequestOpenedPayload = serde_json::from_value(json).unwrap();
 
-        assert_eq!(round.mode, InputRequestMode::Blocking);
+        assert_eq!(round, payload);
         assert_eq!(
             InputRequestOpenedPayload::idempotency_key(
                 &ReviewUnitId::new("review-unit:sha256:unit"),
@@ -406,7 +406,6 @@ mod tests {
             target: ReviewTargetRef::ReviewUnit {
                 review_unit_id: ReviewUnitId::new("review-unit:sha256:unit"),
             },
-            mode: InputRequestMode::Blocking,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
@@ -420,7 +419,7 @@ mod tests {
 
         assert_eq!(json["inputRequestId"], "input-request:sha256:abc");
         assert_eq!(json["target"]["kind"], "review_unit");
-        assert_eq!(json["mode"], "blocking");
+        assert!(json.get("mode").is_none());
         assert_eq!(json["reasonCode"], "manual_decision_required");
         assert!(json.get("interventionId").is_none());
     }
