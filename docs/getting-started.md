@@ -25,8 +25,9 @@ Shoreline reviews a Git worktree diff. The repository needs a baseline commit so
 to compare against.
 
 ```bash
-TMP=$(mktemp -d)
-cd "$TMP"
+rm -rf shoreline-review-scratch
+mkdir shoreline-review-scratch
+cd shoreline-review-scratch
 
 git init -q
 git config user.email "reviewer@example.com"
@@ -34,23 +35,23 @@ git config user.name "Reviewer"
 git config commit.gpgsign false
 
 mkdir -p src
-cat > src/example.rs <<'RS'
-pub fn greeting() -> &'static str {
-    "hello"
-}
-RS
+printf '%s\n' \
+  "pub fn greeting() -> &'static str {" \
+  '    "hello"' \
+  '}' \
+  > src/example.rs
 git add src/example.rs
 git commit -q -m "baseline"
 
-cat > src/example.rs <<'RS'
-pub fn greeting(name: &str) -> String {
-    format!("hello, {name}")
-}
-
-pub fn fallback_name(input: Option<&str>) -> &str {
-    input.unwrap_or("reviewer")
-}
-RS
+printf '%s\n' \
+  'pub fn greeting(name: &str) -> String {' \
+  '    format!("hello, {name}")' \
+  '}' \
+  '' \
+  "pub fn fallback_name(input: Option<&str>) -> &str {" \
+  '    input.unwrap_or("reviewer")' \
+  '}' \
+  > src/example.rs
 ```
 
 Confirm the change is present:

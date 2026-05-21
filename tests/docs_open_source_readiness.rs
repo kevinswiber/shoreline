@@ -79,6 +79,18 @@ fn getting_started_walks_through_first_review() {
         );
     }
 
+    assert!(
+        !guide.contains("<<"),
+        "getting-started shell snippets should avoid heredocs"
+    );
+    assert!(
+        !guide.contains("TMP=$(mktemp -d)"),
+        "getting-started shell snippets should avoid POSIX-only assignment syntax"
+    );
+    assert!(
+        guide.contains("printf '%s\\n'"),
+        "getting-started should create sample files with shell-portable printf"
+    );
     assert!(normalized_guide.contains(
         "--start-line 6 \\\n  --body \"The fallback value is visible user-facing behavior"
     ));
