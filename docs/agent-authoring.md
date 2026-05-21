@@ -38,8 +38,8 @@ number, use the branch's distinctive segment as a fallback, and use a short rand
 exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps the lane legible when more than one
-agent run writes to the same `.shore/` store, while Shoreline records writer provenance separately in
-the event envelope.
+agent run writes to the same `.shore/` store. Shoreline command output also records local Git and
+tool provenance, but the track is the durable lane that names which agent run is writing.
 
 Observations explain what changed and why. They should call out the design choices, tests run, risk
 areas, follow-up edges, and files or line ranges a reviewer should inspect first. A useful observation
@@ -135,3 +135,87 @@ shore review assessment add \
 ```
 
 That separation keeps the author's explanation and the reviewer's call distinct.
+
+## Reviewer Loop
+
+The `shoreline-reviewer` skill is the reviewer-side pair to the author handoff. It starts from an
+existing ReviewUnit, reads the author's handoff with bounded list commands, reviews the change
+independently, records reviewer observations on a separate reviewer track, responds to any open
+operative input requests, opens advisory input requests for author decisions, and records exactly one
+assessment.
+
+The reviewer uses the author's observations as navigation context, not as proof. It should re-read
+the diff and rerun the project's relevant checks rather than trusting the author's verification
+claim. It should also compare the captured ReviewUnit with the live checkout it reviewed; if the
+ReviewUnit snapshot and live commit diverge, the reviewer records that divergence as an observation.
+
+Reviewer readback uses the same bounded surfaces as the author handoff:
+
+```bash
+shore review observation list --review-unit <review-unit-id> --track <author-track> \
+  --include-body --pretty
+shore review input-request list --review-unit <review-unit-id> --track <author-track> \
+  --status open --include-body --pretty
+```
+
+Reviewer follow-ups that need an author decision should be advisory input requests, not plain
+observations:
+
+```bash
+shore review input-request open \
+  --review-unit <review-unit-id> \
+  --track <reviewer-track> \
+  --title "Decide whether to split the parser cleanup" \
+  --reason manual-decision-required \
+  --mode advisory \
+  --body "The implementation is acceptable as written, but the cleanup decision should be recorded by the author."
+```
+
+The reviewer records the review call once:
+
+```bash
+shore review assessment add \
+  --review-unit <review-unit-id> \
+  --track <reviewer-track> \
+  --assessment accepted-with-follow-up \
+  --summary "The change is acceptable. I opened an advisory follow-up for the author to decide."
+```
+
+The reviewer should not write to the author's track. The author should not record this assessment.
+
+## Author Response Loop
+
+The `shoreline-author-response` skill closes the loop when the original author picks up the
+reviewer's pass. It attaches to the existing ReviewUnit with `--review-unit`; it does not run
+`shore review capture` again, and it does not add or replace assessments.
+
+The author reads the reviewer track with bounded commands:
+
+```bash
+shore review observation list --review-unit <review-unit-id> --track <reviewer-track> \
+  --include-body --pretty
+shore review assessment show --review-unit <review-unit-id> --track <reviewer-track> \
+  --include-summary --pretty
+shore review input-request list --review-unit <review-unit-id> --track <reviewer-track> \
+  --status open --include-body --pretty
+```
+
+If the assessment is `needs-changes` or `needs-clarification`, or if an open operative input request
+requires an author action, the response is actionable. The author makes the narrow requested change,
+runs the relevant checks, responds to any resolved input requests, and records author response
+observations on the author track. If an operative request is still a genuine blocker, the author
+leaves it open and records what remains unresolved rather than forcing a response.
+
+If the assessment is `accepted` or `accepted-with-follow-up` and the only open items are advisory or
+non-blocking, the author triages them without manufacturing work. Reviewer follow-ups that ask for an
+author decision should be answered structurally:
+
+```bash
+shore review input-request respond <input-request-id> \
+  --outcome approved \
+  --reason "tracking this as a separate follow-up because changing it here would widen the reviewed unit"
+```
+
+The author then records the response on the author track, referencing the reviewer observation,
+input request, and assessment IDs in the body. The reviewer remains responsible for any later
+assessment change.

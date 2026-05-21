@@ -1,0 +1,227 @@
+---
+name: shoreline-reviewer
+description: Use when a coding agent should review a Shoreline handoff or captured ReviewUnit that another agent left. Read the author's observations and input requests with bounded list commands, review the live change independently, respond to open operative input requests, record reviewer findings on your own track, open advisory input requests for author decisions, record exactly one assessment, then stand down.
+---
+
+# Shoreline Reviewer Handoff Review
+
+You are the reviewing agent for a Shoreline ReviewUnit another agent captured. Your job is to review
+the change independently, record durable review findings, answer any open operative requests you can
+answer, and make the review call.
+
+Record exactly one assessment with `shore review assessment add`. The assessment is the reviewer's
+call, so this role owns it. Never write to the author's track.
+
+Do not run `shore review unit show --pretty` as a readback surface. It includes the full captured
+snapshot and can emit megabytes for a real change. Use bounded list commands for the author's
+handoff, your reviewer notes, input requests, and assessment.
+
+## Workflow at a glance
+
+```text
+1. Identify the ReviewUnit and the author's track.
+2. Read the author's observations and input requests with bounded list commands.
+3. Choose one reviewer track for this review.
+4. Review the change independently from the handoff.
+5. Record review findings as observations on the reviewer track.
+6. Respond to open operative input requests when you can answer them.
+7. Open advisory input requests for follow-ups that need an author decision.
+8. Add exactly one assessment on the reviewer track.
+9. Read back the reviewer record with bounded list commands, then stop.
+```
+
+Treat the author's handoff as navigation context, not as proof. Re-run relevant checks, read the
+diff yourself, and verify the review result from the repository in front of you.
+
+## Identify the ReviewUnit
+
+If the ReviewUnit ID is not already known, list captured units and pick the one you were asked to
+review:
+
+```bash
+shore review unit list --pretty
+review_unit_id="<review-unit-id>"
+author_track="<author-track>"
+```
+
+If the author track is not supplied, use the bounded read surfaces to find the track that contains
+the authored handoff:
+
+```bash
+shore review observation list --review-unit "$review_unit_id" --pretty
+shore review input-request list --review-unit "$review_unit_id" --status open --pretty
+```
+
+## Read the author's handoff
+
+Read only the author's track. Include bodies so you can see the substance of the handoff:
+
+```bash
+shore review observation list \
+  --review-unit "$review_unit_id" \
+  --track "$author_track" \
+  --include-body --pretty
+
+shore review input-request list \
+  --review-unit "$review_unit_id" \
+  --track "$author_track" \
+  --status open \
+  --include-body --pretty
+```
+
+Use those observations to orient yourself, then form your own judgment. Do not repeat the author's
+claims as reviewer findings unless you have independently verified them.
+
+## Choose your track
+
+Choose one reviewer track for the whole review and reuse it for every reviewer write. Use the form
+`agent:<agent-name>-<id>`.
+
+`<agent-name>` is your own short lowercase agent name. `<id>` is usually the issue or PR number; use
+the branch's distinctive segment as a fallback, and use a short random tag if neither exists. Keep
+the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
+
+```bash
+agent_name="<agent-name>"
+run_id="<id>"
+reviewer_track="agent:${agent_name}-${run_id}"
+```
+
+## Review independently
+
+Before recording a finding, read the repository's applicable agent instructions and inspect the
+change directly. Use the project's normal review and verification surfaces: Git diff, targeted
+tests, full tests or checks when appropriate, lint, formatting, documentation checks, and remote
+status when the project uses it.
+
+The ReviewUnit snapshot is frozen at the author's capture moment, while your checkout may have moved
+since then. Compare the captured unit's endpoints from `shore review unit list --pretty` with the
+commit or branch head you actually review. If they diverge or you cannot prove they match, record a
+reviewer observation that names the live commit and the possible snapshot mismatch.
+
+```bash
+git status --short --branch
+git diff --stat
+git diff
+git rev-parse HEAD
+```
+
+## Record reviewer findings
+
+Record durable review findings as observations on the reviewer track. Use anchored observations for
+file or range-specific findings, and review-wide observations for verification, commit divergence, or
+cross-cutting conclusions.
+
+```bash
+shore review observation add \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --title "Parser test covers the new token path" \
+  --file tests/parser.rs --start-line 42 --end-line 71 \
+  --body "Verified the new regression test fails against the old parser behavior and passes with this change."
+
+shore review observation add \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --title "Verification reproduced the author's green checks" \
+  --body "Ran the repository's targeted parser test and full test suite from the reviewed checkout. Both passed."
+```
+
+Plain observations are for facts that need no response. If you need the author to make a decision,
+open an advisory input request instead.
+
+## Respond to operative input requests
+
+List the author's open operative requests and respond to each one you can answer. If you cannot
+answer one, leave it open and reflect that in the assessment.
+
+```bash
+shore review input-request list \
+  --review-unit "$review_unit_id" \
+  --track "$author_track" \
+  --mode operative \
+  --status open \
+  --include-body --pretty
+
+shore review input-request respond <input-request-id> \
+  --outcome approved \
+  --reason "verified the migration plan against the current test database fixture"
+```
+
+Use `approved`, `rejected`, `dismissed`, `superseded`, or `abandoned` for the response outcome. Do
+not respond to a request just to make the queue look clean; response events are durable review facts.
+
+## Ask the author for follow-up decisions
+
+When a non-blocking follow-up needs the author to decide, open an advisory input request on the
+reviewer track. Do not record decision-seeking follow-ups as plain observations.
+
+```bash
+shore review input-request open \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --title "Decide whether to split the parser follow-up" \
+  --reason manual-decision-required \
+  --mode advisory \
+  --file src/parser.rs --start-line 84 --end-line 123 \
+  --body "The change is acceptable as written, but the parser now has two extension paths. Please decide whether to split the cleanup into a follow-up issue or handle it before landing."
+```
+
+If the fact does not need an author response, record it as an observation instead.
+
+## Add exactly one assessment
+
+After you have reviewed the change and recorded your evidence, add one assessment on the reviewer
+track. Use `accepted`, `accepted-with-follow-up`, `needs-changes`, or `needs-clarification`.
+
+```bash
+shore review assessment add \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --assessment accepted-with-follow-up \
+  --related-observation <observation-id> \
+  --related-input-request <input-request-id> \
+  --summary "The implementation is acceptable. I opened an advisory follow-up for the author to decide how to handle parser cleanup."
+```
+
+Recording the assessment is the reviewer's role. Do not add a second assessment to clarify prose;
+record clarifying facts as observations before the single assessment, or choose
+`needs-clarification` if the review call is not ready.
+
+## Read back and stand down
+
+Verify the reviewer record with bounded read commands:
+
+```bash
+shore review observation list \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --include-body --pretty
+
+shore review input-request list \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --status all \
+  --include-body --pretty
+
+shore review assessment show \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --include-summary --pretty
+```
+
+Then stop. Report the ReviewUnit ID, reviewer track, assessment value, and any open input requests.
+Do not continue editing the code as part of the review unless the user explicitly switches you into
+an implementation role.
+
+## Common errors
+
+- **Using full ReviewUnit show for readback.** Use bounded observation, input-request, and
+  assessment read commands. Do not use `shore review unit show --pretty` for this review loop.
+- **Writing on the author's track.** The reviewer uses a separate reviewer track for every write.
+- **Rubber-stamping the handoff.** The author's observations are context. Verify claims yourself.
+- **Skipping the live commit check.** If your checkout differs from the captured snapshot, say so in
+  a reviewer observation.
+- **Recording author-decision follow-ups as observations.** Use an advisory input request when the
+  author should answer.
+- **Adding multiple assessments.** The reviewer records exactly one assessment for the review pass.

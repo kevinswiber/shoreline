@@ -13,6 +13,16 @@ npx skills add kevinswiber/shoreline
 Install the skill ahead of the work session where it should run, not after the implementation is
 already finished.
 
+## Included skills
+
+- `shoreline-author` records a durable author handoff at the end of a coherent implementation
+  change.
+- `shoreline-reviewer` reviews another agent's handoff, records reviewer findings, responds to
+  operative requests, opens advisory requests for author decisions, and records one assessment.
+- `shoreline-author-response` lets the original author pick up a reviewer pass, respond to advisory
+  requests, make actionable fixes when needed, and record author response observations without
+  assessing or recapturing.
+
 Manual fallback for agents that read the shared Agent Skills directory:
 
 ```bash
@@ -34,12 +44,14 @@ An optional `claude-extras/` overlay with Claude-only conveniences such as tool 
 added later. The canonical skills in this directory stay plain Markdown with only `name` and
 `description` frontmatter.
 
-CI validates the canonical skill with the upstream Python `skills-ref` validator. Run the same check
-locally with:
+CI validates the canonical skills with the upstream Python `skills-ref` validator. Run the same
+check locally with:
 
 ```bash
-uvx --from 'git+https://github.com/agentskills/agentskills#subdirectory=skills-ref' \
-  skills-ref validate skills/shoreline-author
+for skill in skills/shoreline-author skills/shoreline-reviewer skills/shoreline-author-response; do
+  uvx --from 'git+https://github.com/agentskills/agentskills#subdirectory=skills-ref' \
+    skills-ref validate "$skill"
+done
 ```
 
 Link the canonical skills into another project's agent-specific skill directories with:
