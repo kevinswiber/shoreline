@@ -12,4 +12,4 @@ pub use fingerprint::{ReviewUnitFingerprint, capture_worktree_fingerprint};
 #[cfg(test)]
 pub use snapshot_artifact::read_snapshot_artifact;
 pub(crate) use store_init::{ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files};
-pub use store_init::{ensure_shore_ignored, shore_dir_for_repo};
+pub use store_init::{ensure_shore_storage_excluded, shore_dir_for_repo};

@@ -15,7 +15,7 @@ pub(crate) use store::{
     sweep_stale_temp_files, worktree_fingerprint_for_files,
 };
 pub(in crate::session) use store::{body_artifact, fingerprint, snapshot_artifact, store_init};
-pub use store::{capture_worktree_fingerprint, ensure_shore_ignored, shore_dir_for_repo};
+pub use store::{capture_worktree_fingerprint, ensure_shore_storage_excluded, shore_dir_for_repo};
 #[cfg(test)]
 pub(crate) use store::{compute_review_unit_fingerprint, read_snapshot_artifact};
 pub use workflow::{

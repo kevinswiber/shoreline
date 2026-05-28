@@ -45,8 +45,12 @@ cd path/to/worktree
 git status        # confirm the changes you expect are present
 ```
 
-The first Shoreline command run in the worktree will create local `.shore/`
-storage and add `.shore/` to `.gitignore` when needed.
+The first Shoreline command run in the worktree creates local `.shore/`
+storage and registers `.shore/` in the repository-local `.git/info/exclude`
+when it is not already ignored. This keeps `.shore/` out of `git status`
+without modifying your tracked `.gitignore` or dirtying the working tree. If
+`.shore/` is already ignored — for example by a project `.gitignore` entry —
+Shoreline leaves the ignore files untouched.
 
 ## 2. Capture a ReviewUnit
 

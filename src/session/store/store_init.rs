@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::git::git_worktree_root;
+use crate::git::{git_info_exclude_path, git_path_is_ignored, git_worktree_root};
 use crate::storage::{LocalStorage, TempSweepAge};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,22 +57,40 @@ pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, shore_dir: &Path) -
 pub(crate) fn prepare_shore_writer(paths: &ShoreStorePaths, storage: &LocalStorage) -> Result<()> {
     sweep_stale_temp_files(storage, paths.shore_dir())?;
     ensure_store_dirs(paths.shore_dir())?;
-    ensure_shore_ignored(paths.worktree_root())
+    ensure_shore_storage_excluded(paths.worktree_root())
 }
 
-pub fn ensure_shore_ignored(worktree_root: &Path) -> Result<()> {
-    let gitignore_path = worktree_root.join(".gitignore");
-    let current = match fs::read_to_string(&gitignore_path) {
+/// Keeps `.shore/` storage out of Git status without modifying any tracked
+/// project file.
+///
+/// Shoreline registers `.shore/` in the repository-local `.git/info/exclude`
+/// rather than the worktree `.gitignore`, so initializing or writing review
+/// state never dirties the working tree and never leaks an ignore-file edit
+/// into a captured ReviewUnit. If `.shore/` is already ignored by any standard
+/// source — a project `.gitignore` entry, the global excludes file, or an
+/// existing local exclude entry — this is a no-op, so user-managed ignore files
+/// are respected and never rewritten.
+pub fn ensure_shore_storage_excluded(worktree_root: &Path) -> Result<()> {
+    // Probe a path under `.shore/` so directory-only patterns (`.shore/`) match
+    // regardless of whether the directory exists on disk yet, mirroring how
+    // untracked discovery applies `--exclude-standard`.
+    if git_path_is_ignored(worktree_root, ".shore/state.json")? {
+        return Ok(());
+    }
+
+    let exclude_path = git_info_exclude_path(worktree_root)?;
+    if let Some(parent) = exclude_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| io_error("create git info directory", parent, error))?;
+    }
+
+    let current = match fs::read_to_string(&exclude_path) {
         Ok(contents) => contents,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => {
-            return Err(io_error("read .gitignore", &gitignore_path, error));
+            return Err(io_error("read git exclude file", &exclude_path, error));
         }
     };
-
-    if has_shore_ignore_entry(&current) {
-        return Ok(());
-    }
 
     let mut updated = current;
     if !updated.is_empty() && !updated.ends_with('\n') {
@@ -80,15 +98,8 @@ pub fn ensure_shore_ignored(worktree_root: &Path) -> Result<()> {
     }
     updated.push_str(".shore/\n");
 
-    fs::write(&gitignore_path, updated)
-        .map_err(|error| io_error("write .gitignore", &gitignore_path, error))
-}
-
-fn has_shore_ignore_entry(contents: &str) -> bool {
-    contents
-        .lines()
-        .map(str::trim)
-        .any(|line| matches!(line, ".shore" | ".shore/" | "/.shore" | "/.shore/"))
+    fs::write(&exclude_path, updated)
+        .map_err(|error| io_error("write git exclude file", &exclude_path, error))
 }
 
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> ShoreError {
@@ -153,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_shore_writer_creates_current_store_dirs_and_ignore_entry() {
+    fn prepare_shore_writer_creates_current_store_dirs_and_local_exclude_entry() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.shore_dir());
@@ -164,9 +175,17 @@ mod tests {
         assert!(paths.shore_dir().join("artifacts/notes").is_dir());
         assert!(paths.shore_dir().join("artifacts/revisions").is_dir());
         assert!(paths.shore_dir().join("artifacts/snapshots").is_dir());
-        assert_eq!(
-            fs::read_to_string(repo.path().join(".gitignore")).unwrap(),
-            ".shore/\n"
+
+        // Storage is ignored via the repository-local exclude, never the
+        // tracked worktree .gitignore.
+        assert!(
+            !repo.path().join(".gitignore").exists(),
+            "writer setup must not create a tracked .gitignore"
+        );
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        assert!(
+            exclude.lines().any(|line| line.trim() == ".shore/"),
+            "local exclude should list .shore/, got:\n{exclude}"
         );
     }
 

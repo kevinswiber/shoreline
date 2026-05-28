@@ -2,8 +2,8 @@ use shoreline::git::{git_worktree_root, ingest_tracked_diff};
 use shoreline::session::event::{EventType, ShoreEvent};
 use shoreline::session::{
     CaptureOptions, ImportNotesOptions, SessionState, capture_worktree_fingerprint,
-    capture_worktree_review, ensure_shore_ignored, import_notes, load_durable_notes_for_repo,
-    read_events, rebuild_state, shore_dir_for_repo,
+    capture_worktree_review, ensure_shore_storage_excluded, import_notes,
+    load_durable_notes_for_repo, read_events, rebuild_state, shore_dir_for_repo,
 };
 
 use crate::support::assert_existing_paths_eq;
@@ -24,46 +24,90 @@ fn shore_dir_resolves_to_git_worktree_root_from_subdirectory() {
 }
 
 #[test]
-fn ensure_shore_ignored_creates_or_updates_root_gitignore_without_duplicates() {
+fn ensure_shore_storage_excluded_uses_local_exclude_without_dirtying_worktree() {
     let repo = GitRepo::new();
 
-    ensure_shore_ignored(repo.path()).expect("ignore entry is written");
-    ensure_shore_ignored(repo.path()).expect("ignore entry is idempotent");
+    ensure_shore_storage_excluded(repo.path()).expect("exclude entry is written");
+    ensure_shore_storage_excluded(repo.path()).expect("exclude entry is idempotent");
 
-    let gitignore = repo.read(".gitignore");
+    // The local exclude carries exactly one `.shore/` entry, even across repeats.
     assert_eq!(
-        gitignore
+        read_local_exclude(&repo)
             .lines()
-            .filter(|line| line.trim_end() == ".shore/")
+            .filter(|line| line.trim() == ".shore/")
             .count(),
         1
     );
+    // No tracked .gitignore is created, so the worktree stays clean.
+    assert!(
+        !repo.path().join(".gitignore").exists(),
+        "ensure must not create a tracked .gitignore"
+    );
+    assert!(
+        repo.git(["status", "--short"]).stdout.trim().is_empty(),
+        "worktree must stay clean after excluding storage"
+    );
+    // `.shore/` is now effectively ignored.
+    assert!(shore_is_ignored(&repo));
 }
 
 #[test]
-fn ensure_shore_ignored_appends_to_existing_gitignore_with_separator_newline() {
+fn ensure_shore_storage_excluded_leaves_tracked_gitignore_untouched() {
     let repo = GitRepo::new();
-    repo.write(".gitignore", "target/\n!.keep");
+    repo.write(".gitignore", "target/\n");
+    repo.commit_all("add gitignore");
 
-    ensure_shore_ignored(repo.path()).expect("ignore entry is appended");
+    ensure_shore_storage_excluded(repo.path()).expect("exclude entry is written");
 
-    assert_eq!(repo.read(".gitignore"), "target/\n!.keep\n.shore/\n");
+    // The tracked .gitignore is never rewritten.
+    assert_eq!(repo.read(".gitignore"), "target/\n");
+    assert!(
+        repo.git(["status", "--short"]).stdout.trim().is_empty(),
+        "excluding storage must not modify the tracked .gitignore"
+    );
+    // `.shore/` lands in the local exclude instead, and is ignored.
+    assert!(
+        read_local_exclude(&repo)
+            .lines()
+            .any(|line| line.trim() == ".shore/")
+    );
+    assert!(shore_is_ignored(&repo));
 }
 
 #[test]
-fn ensure_shore_ignored_treats_bare_shore_entry_as_existing_ignore() {
+fn ensure_shore_storage_excluded_is_noop_when_gitignore_already_ignores_storage() {
     let repo = GitRepo::new();
     repo.write(
         ".gitignore",
         "# .shore/ is intentionally ignored below\n.shore\n",
     );
+    repo.commit_all("ignore shore in gitignore");
 
-    ensure_shore_ignored(repo.path()).expect("bare ignore entry is recognized");
+    ensure_shore_storage_excluded(repo.path()).expect("existing ignore is respected");
 
+    // The user's .gitignore choice is respected, and no redundant local entry is added.
     assert_eq!(
         repo.read(".gitignore"),
         "# .shore/ is intentionally ignored below\n.shore\n"
     );
+    assert!(
+        !read_local_exclude(&repo)
+            .lines()
+            .any(|line| line.trim().contains(".shore")),
+        "must not add a redundant local exclude entry"
+    );
+}
+
+#[test]
+fn ensure_shore_storage_excluded_is_idempotent_against_existing_local_exclude_entry() {
+    let repo = GitRepo::new();
+    // Pre-seed the local exclude as a field-fix workaround would.
+    let exclude_path = repo.path().join(".git/info/exclude");
+    std::fs::write(&exclude_path, "# local excludes\n.shore/\n").expect("seed local exclude");
+
+    ensure_shore_storage_excluded(repo.path()).expect("existing local exclude is respected");
+
+    assert_eq!(read_local_exclude(&repo), "# local excludes\n.shore/\n");
 }
 
 #[test]
@@ -128,7 +172,7 @@ fn same_working_tree_diff_produces_same_revision_and_snapshot_ids() {
 #[test]
 fn shore_state_does_not_affect_revision_fingerprint() {
     let repo = modified_repo();
-    ensure_shore_ignored(repo.path()).expect("ignore shore state");
+    ensure_shore_storage_excluded(repo.path()).expect("ignore shore state");
 
     let before = capture_worktree_fingerprint(repo.path()).expect("capture before shore state");
     repo.write(".shore/state.json", "changed notes");
@@ -175,10 +219,16 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     assert!(repo.path().join(".shore/events").is_dir());
     assert!(repo.path().join(".shore/artifacts/snapshots").is_dir());
     assert!(repo.path().join(".shore/state.json").is_file());
+    // Storage is registered in the repository-local exclude, never the tracked
+    // worktree .gitignore.
     assert!(
-        repo.read(".gitignore")
+        read_local_exclude(&repo)
             .lines()
-            .any(|line| line == ".shore/")
+            .any(|line| line.trim() == ".shore/")
+    );
+    assert!(
+        !repo.path().join(".gitignore").exists(),
+        "capture must not create a tracked .gitignore"
     );
     assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
 
@@ -187,6 +237,47 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     assert_eq!(state.current_review_unit_id, Some(result.review_unit_id));
     assert_eq!(state.review_unit_count, 1);
     assert_eq!(state.event_count, 1);
+}
+
+#[test]
+fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
+    let repo = GitRepo::new();
+    repo.write("src.txt", "alpha\n");
+    repo.commit_all("base");
+
+    // The worktree is clean before any Shoreline command runs.
+    assert!(
+        repo.git(["status", "--short"]).stdout.trim().is_empty(),
+        "worktree should start clean"
+    );
+
+    capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
+
+    // Initializing review state leaves no tracked .gitignore edit, and the
+    // excluded `.shore/` storage stays out of git status.
+    assert!(
+        !repo.path().join(".gitignore").exists(),
+        "capture must not create a tracked .gitignore"
+    );
+    let status = repo.git(["status", "--short"]).stdout;
+    assert!(
+        status.trim().is_empty(),
+        "capture must keep the worktree clean, got:\n{status}"
+    );
+
+    // The captured snapshot carries no Shoreline storage or ignore-file rows.
+    let snapshot = ingest_tracked_diff(repo.path()).expect("ingest snapshot");
+    assert!(
+        snapshot.files.iter().all(|file| {
+            let mentions_shore_state = |path: &str| {
+                path == ".gitignore" || path == ".shore" || path.starts_with(".shore/")
+            };
+            !file.new_path.as_deref().is_some_and(mentions_shore_state)
+                && !file.old_path.as_deref().is_some_and(mentions_shore_state)
+        }),
+        "snapshot must not include Shoreline storage or .gitignore rows, got: {:?}",
+        snapshot.files
+    );
 }
 
 #[test]
@@ -560,6 +651,21 @@ fn bounded_ledger_repo() -> GitRepo {
     import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(sidecar))
         .expect("notes import succeeds");
     repo
+}
+
+fn read_local_exclude(repo: &GitRepo) -> String {
+    std::fs::read_to_string(repo.path().join(".git/info/exclude")).unwrap_or_default()
+}
+
+fn shore_is_ignored(repo: &GitRepo) -> bool {
+    // `git check-ignore` prints the path when it is ignored and exits 1 (no
+    // output) otherwise, so a non-empty stdout means storage is excluded.
+    let output = std::process::Command::new("git")
+        .args(["check-ignore", ".shore/state.json"])
+        .current_dir(repo.path())
+        .output()
+        .expect("run git check-ignore");
+    !output.stdout.is_empty()
 }
 
 fn event_file_count(repo: &std::path::Path) -> usize {

@@ -65,7 +65,8 @@ ls .shore/events/ .shore/artifacts/snapshots/
 - `.shore/events/` contains exactly one event file.
 - `.shore/artifacts/snapshots/` contains exactly one snapshot artifact.
 - `.shore/state.json` exists and reports `reviewUnitCount: 1`.
-- `.gitignore` has been updated to include `.shore/`.
+- `.shore/` is registered in `.git/info/exclude`; the worktree `.gitignore` is
+  unchanged and `git status --short` reports no `.gitignore` line.
 
 ## B. Capture with untracked files
 
@@ -80,8 +81,10 @@ shore dump | jq '.stream.rows[] | select(.kind.file_header) | .kind.file_header'
 
 - One `file_header` row per modified, added, or deleted path.
 - The untracked `new-file.txt` appears with `status: "added"`.
-- The auto-added `.gitignore` (from step A) also appears with `status: "added"` because it is part
-  of the working tree relative to `HEAD`.
+- No `.gitignore` row appears, because Shoreline records its storage-ignore entry in
+  `.git/info/exclude` rather than the worktree `.gitignore`.
+- No `.shore/` rows appear, because the local exclude keeps Shoreline's own storage out of the
+  captured snapshot.
 
 If you want a fresh capture that *only* sees the untracked file, run this in a different temp repo
 that has no other diff.

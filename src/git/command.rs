@@ -31,6 +31,36 @@ pub fn git_worktree_root(repo: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(root))
 }
 
+pub fn git_info_exclude_path(repo: &Path) -> Result<PathBuf> {
+    let output = run_git(repo, ["rev-parse", "--git-path", "info/exclude"])?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let relative = stdout.trim_end_matches(['\r', '\n']);
+    if relative.is_empty() {
+        return Err(ShoreError::Message(format!(
+            "git rev-parse returned empty info/exclude path for {}",
+            repo.display()
+        )));
+    }
+
+    // `git rev-parse --git-path` resolves against the working directory we ran
+    // it from (the worktree root). Joining keeps relative results anchored to
+    // `repo` while preserving absolute results (linked worktrees share the
+    // common `info/exclude`), since `Path::join` discards the base for an
+    // absolute child.
+    Ok(repo.join(relative))
+}
+
+/// Reports whether `pathspec` is ignored by the standard Git exclude sources
+/// (the worktree `.gitignore`, the global excludes file, and the repository
+/// `.git/info/exclude`). This mirrors the `--exclude-standard` rules used when
+/// Shoreline discovers untracked files.
+pub fn git_path_is_ignored(repo: &Path, pathspec: &str) -> Result<bool> {
+    // `git check-ignore` prints matching paths to stdout and exits 1 (no error)
+    // when nothing matches, so a non-empty stdout is the "ignored" signal.
+    let output = run_git_allowing_statuses(repo, ["check-ignore", pathspec], &[0, 1])?;
+    Ok(!output.stdout.is_empty())
+}
+
 pub fn git_head_oid(repo: &Path) -> Result<String> {
     let output = run_git(repo, ["rev-parse", "HEAD"])?;
     let stdout = String::from_utf8_lossy(&output.stdout);

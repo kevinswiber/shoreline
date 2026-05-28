@@ -81,7 +81,10 @@ captured diff snapshot. V1 captures the local Git worktree from `HEAD` to the wo
 including untracked files.
 
 - Durable state is created at the Git worktree root under `.shore/`.
-- The command adds `.shore/` to the worktree `.gitignore` when needed.
+- The command registers `.shore/` in the repository-local `.git/info/exclude`
+  when it is not already ignored, so it never modifies a tracked `.gitignore` or
+  dirties the working tree. This applies to every writer-initializing command
+  (capture, observation, input-request, assessment), not just `capture`.
 - `.shore/events/` stores immutable local event files.
 - `.shore/state.json` is a rebuildable projection, not the authority.
 - Full captured snapshots are Shoreline-owned immutable artifacts under
