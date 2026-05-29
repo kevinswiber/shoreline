@@ -260,6 +260,10 @@ impl StateReducer {
             0 => None,
             1 => self.captured_review_units.iter().next(),
             _ => {
+                // Expected whenever a store holds more than one capture: re-captures stack,
+                // and there is no supersede/canonical mechanism to retire stale or nested ones
+                // yet, so the set of current units only grows and reads/writes must disambiguate
+                // with --review-unit. See kevinswiber/shoreline#106.
                 diagnostics.push(ProjectionDiagnostic {
                     code: AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE.to_owned(),
                     message: "multiple captured review units remain current".to_owned(),

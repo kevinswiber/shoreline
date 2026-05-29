@@ -181,6 +181,11 @@ This is an interim convention pending a first-class landed-commit record
 (kevinswiber/shoreline#103; docs in kevinswiber/shoreline#104). Do not run `shore review capture`
 for the landing, and do not add or change the assessment.
 
+If more than one ReviewUnit is current, pin the landing to the one that was actually reviewed and
+accepted with `--review-unit`. The sibling captures stay current and the
+`ambiguous_current_review_unit` diagnostic keeps firing — that is expected today, with no way to
+retire a stale capture (kevinswiber/shoreline#106).
+
 ## Read back and stand down
 
 Verify the author response with bounded read commands:
@@ -223,3 +228,6 @@ did not change, and which input requests you responded to. Leave the assessment 
 - **Writing to the reviewer track.** The response observations belong on the author's track.
 - **Recording the landing commit on the reviewer track or as an assessment.** The landed-commit
   fact is an author observation; the reviewer owns the assessment.
+- **Pinning the landing to the wrong unit when captures are ambiguous.** With multiple current
+  ReviewUnits, `--review-unit` the one that was reviewed and accepted; the
+  `ambiguous_current_review_unit` diagnostic will persist (kevinswiber/shoreline#106).

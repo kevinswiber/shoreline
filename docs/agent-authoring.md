@@ -246,3 +246,11 @@ This is an interim convention
 ([#104](https://github.com/kevinswiber/shoreline/issues/104)). Do not run `shore review capture`
 again for the landing, and do not add or change the assessment — the resulting commit is an author
 fact, not a review call.
+
+When several captures are still current — re-captures stack, and Shoreline has no way to retire a
+stale one yet ([#106](https://github.com/kevinswiber/shoreline/issues/106)) — pin the landing to the
+ReviewUnit that was actually reviewed and accepted by passing `--review-unit` explicitly. The sibling
+captures remain and the `ambiguous_current_review_unit` diagnostic keeps firing; that is expected
+today. Note that one commit can correspond to more than one accepted unit (for example a sub-task
+capture nested inside a phase capture); the landing observation annotates only the unit you pin, not
+the relationship.
