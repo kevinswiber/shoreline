@@ -162,6 +162,25 @@ shore review observation add \
 Do not add, replace, or update an assessment. If the reviewer needs to revise the review call after
 your response, the reviewer records that later on the reviewer track.
 
+## Record the landing commit (optional)
+
+If you commit the reviewed change after the review reaches an accepting verdict, record the
+resulting commit as an observation on your author track. The commit is an author fact, not a review
+call: it never goes on the reviewer track and never becomes an assessment.
+
+```bash
+shore review observation add \
+  --review-unit "$review_unit_id" \
+  --track "$author_track" \
+  --tag state-change:landed \
+  --title "landed as <sha>" \
+  --body "ReviewUnit $review_unit_id (accepted by $reviewer_track) committed as <full-sha> on <branch>."
+```
+
+This is an interim convention pending a first-class landed-commit record
+(kevinswiber/shoreline#103; docs in kevinswiber/shoreline#104). Do not run `shore review capture`
+for the landing, and do not add or change the assessment.
+
 ## Read back and stand down
 
 Verify the author response with bounded read commands:
@@ -202,3 +221,5 @@ did not change, and which input requests you responded to. Leave the assessment 
 - **Closing operative requests mechanically.** Respond only when the request is genuinely answered;
   otherwise leave it open and record what is still blocked.
 - **Writing to the reviewer track.** The response observations belong on the author's track.
+- **Recording the landing commit on the reviewer track or as an assessment.** The landed-commit
+  fact is an author observation; the reviewer owns the assessment.

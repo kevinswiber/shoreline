@@ -219,3 +219,30 @@ shore review input-request respond <input-request-id> \
 The author then records the response on the author track, referencing the reviewer observation,
 input request, and assessment IDs in the body. The reviewer remains responsible for any later
 assessment change.
+
+## Landing the change
+
+Capture happens before any commit (see [The Capture Moment](#the-capture-moment)). Landing is the
+separate, later step where the reviewed change is actually committed. It happens after the reviewer
+reaches an accepting verdict and after any author response, and it belongs to the author, not the
+reviewer: the reviewer records its one assessment and stands down.
+
+Shoreline does not yet model landing as a first-class fact — a ReviewUnit is anchored to a base
+commit and the working tree, with no resulting-commit endpoint
+([#103](https://github.com/kevinswiber/shoreline/issues/103)). Until that exists, record the commit
+the work landed as with an observation on the author track, reusing the `state-change:*` tag
+convention:
+
+```bash
+shore review observation add \
+  --review-unit <review-unit-id> \
+  --track <author-track> \
+  --tag state-change:landed \
+  --title "landed as <sha>" \
+  --body "ReviewUnit <review-unit-id> (accepted by <reviewer-track>) committed as <full-sha> on <branch>."
+```
+
+This is an interim convention
+([#104](https://github.com/kevinswiber/shoreline/issues/104)). Do not run `shore review capture`
+again for the landing, and do not add or change the assessment — the resulting commit is an author
+fact, not a review call.
