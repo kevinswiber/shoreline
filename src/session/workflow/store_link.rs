@@ -39,9 +39,16 @@ pub fn link_clone_local_store(options: StoreLinkOptions) -> Result<StoreLinkResu
     let local_store_dir = paths.shore_dir().to_path_buf();
     let sensitivity = scan_worktree_sensitivity(paths.worktree_root())?;
     if sensitivity.policy_outcome == "block" {
-        return Err(ShoreError::Message(
-            "sensitivity scan blocked clone-local store link".to_owned(),
-        ));
+        let blocking_kinds = sensitivity
+            .findings
+            .iter()
+            .filter(|finding| finding.policy_outcome == "block")
+            .map(|finding| finding.kind.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(ShoreError::Message(format!(
+            "sensitivity scan blocked clone-local store link: {blocking_kinds}"
+        )));
     }
     let _worktrees = git_worktree_list(paths.worktree_root())?;
 

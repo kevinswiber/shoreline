@@ -450,30 +450,37 @@ fn event_artifact_refs(event: &ShoreEvent) -> Vec<String> {
         refs.insert(format!("snapshot:{snapshot_id}"));
     }
 
-    collect_note_body_artifact_refs(&event.payload, &mut refs);
+    for path in note_body_artifact_paths_for_event(event.event_type, &event.payload) {
+        if let Some(stem) = note_body_hash_from_path(path) {
+            refs.insert(format!("note-body:sha256:{stem}"));
+        }
+    }
     refs.into_iter().collect()
 }
 
-fn collect_note_body_artifact_refs(value: &serde_json::Value, refs: &mut BTreeSet<String>) {
-    match value {
-        serde_json::Value::Array(values) => {
-            for value in values {
-                collect_note_body_artifact_refs(value, refs);
-            }
+fn note_body_artifact_paths_for_event(
+    event_type: EventType,
+    payload: &serde_json::Value,
+) -> Vec<&str> {
+    match event_type {
+        EventType::ReviewObservationRecorded
+        | EventType::InputRequestOpened
+        | EventType::ReviewNoteImported
+        | EventType::TaskObservationRecorded => optional_payload_path(payload, "bodyArtifactPath"),
+        EventType::InputRequestResponded => optional_payload_path(payload, "reasonArtifactPath"),
+        EventType::ReviewAssessmentRecorded => {
+            optional_payload_path(payload, "summaryArtifactPath")
         }
-        serde_json::Value::Object(object) => {
-            for (key, value) in object {
-                if key.ends_with("ArtifactPath")
-                    && let Some(path) = value.as_str()
-                    && let Some(stem) = note_body_hash_from_path(path)
-                {
-                    refs.insert(format!("note-body:sha256:{stem}"));
-                }
-                collect_note_body_artifact_refs(value, refs);
-            }
-        }
-        _ => {}
+        _ => Vec::new(),
     }
+}
+
+fn optional_payload_path<'a>(payload: &'a serde_json::Value, field: &str) -> Vec<&'a str> {
+    payload
+        .get(field)
+        .and_then(|value| value.as_str())
+        .into_iter()
+        .collect()
 }
 
 fn note_body_hash_from_path(path: &str) -> Option<&str> {
@@ -788,6 +795,35 @@ mod tests {
     }
 
     #[test]
+    fn artifact_refs_ignore_unenumerated_artifact_path_payload_fields() {
+        let path = note_body_path_for_hash("0".repeat(64));
+        let mut event = review_initialized_event("schema-enumeration", 1);
+        event.payload = json!({
+            "unexpectedArtifactPath": path,
+            "nested": {
+                "anotherArtifactPath": note_body_path_for_hash("1".repeat(64))
+            }
+        });
+
+        assert_eq!(event_artifact_refs(&event), Vec::<String>::new());
+    }
+
+    #[test]
+    fn artifact_refs_collect_enumerated_note_body_payload_fields() {
+        let path = note_body_path_for_hash("2".repeat(64));
+        let mut event = review_initialized_event("known-note-body-field", 1);
+        event.event_type = EventType::ReviewObservationRecorded;
+        event.payload = json!({
+            "bodyArtifactPath": path,
+        });
+
+        assert_eq!(
+            event_artifact_refs(&event),
+            vec![format!("note-body:sha256:{}", "2".repeat(64))]
+        );
+    }
+
+    #[test]
     fn export_manifest_marks_missing_artifacts_as_not_full_fidelity() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -943,6 +979,10 @@ mod tests {
                 fs::remove_file(path).unwrap();
             }
         }
+    }
+
+    fn note_body_path_for_hash(hash: String) -> String {
+        format!("artifacts/notes/{hash}.json")
     }
 
     struct TestRepo {

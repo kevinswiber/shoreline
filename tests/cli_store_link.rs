@@ -90,6 +90,28 @@ fn store_link_imports_local_facts_into_clone_local_store_for_other_worktrees() {
     assert!(!status_stdout.contains(".shore"));
 }
 
+#[test]
+fn store_link_refuses_blocked_sensitivity_findings_end_to_end() {
+    let fixture = CloneWorktreeFixture::new();
+    let secret = "sk-test-0123456789abcdef0123456789";
+    fs::create_dir_all(fixture.seed.join("src")).unwrap();
+    fs::write(
+        fixture.seed.join("src/token.txt"),
+        format!("api token = {secret}\n"),
+    )
+    .unwrap();
+
+    let link = shore(["store", "link", "--repo", fixture.seed.to_str().unwrap()]);
+
+    assert!(!link.status.success(), "link unexpectedly succeeded");
+    let stderr = String::from_utf8(link.stderr).unwrap();
+    assert!(stderr.contains("sensitivity scan blocked clone-local store link"));
+    assert!(stderr.contains("known_token"));
+    assert!(!stderr.contains(secret));
+    assert!(!stderr.contains(fixture.seed.to_str().unwrap()));
+    assert!(!stderr.contains("src/token.txt"));
+}
+
 struct CloneWorktreeFixture {
     main: GitRepo,
     _worktree_parent: tempfile::TempDir,
