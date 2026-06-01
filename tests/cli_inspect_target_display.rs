@@ -16,6 +16,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -205,6 +207,8 @@ impl WorktreeCapture {
 struct Inspector {
     child: Child,
     addr: String,
+    stderr: Arc<Mutex<String>>,
+    _stdout_drain: thread::JoinHandle<()>,
 }
 
 impl Inspector {
@@ -222,32 +226,84 @@ impl Inspector {
             .env_remove("SHORE_LOG")
             .env_remove("RUST_LOG")
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .expect("spawn shore inspect");
 
+        // Drain stderr in the background so it never blocks the server and is
+        // available to explain a failure.
+        let stderr = Arc::new(Mutex::new(String::new()));
+        let mut child_stderr = child.stderr.take().expect("inspector stderr");
+        {
+            let sink = Arc::clone(&stderr);
+            thread::spawn(move || {
+                let mut buffer = String::new();
+                let _ = child_stderr.read_to_string(&mut buffer);
+                if let Ok(mut guard) = sink.lock() {
+                    *guard = buffer;
+                }
+            });
+        }
+
+        // Read the bound URL from stdout, then keep draining stdout in the
+        // background so the server never stalls on a full pipe.
         let stdout = child.stdout.take().expect("inspector stdout");
         let mut reader = BufReader::new(stdout);
         let mut addr = String::new();
         for _ in 0..8 {
             let mut line = String::new();
-            if reader.read_line(&mut line).expect("read inspector stdout") == 0 {
-                break;
-            }
-            if let Some(index) = line.find("http://") {
-                addr = line[index + "http://".len()..]
-                    .trim()
-                    .trim_end_matches('/')
-                    .to_owned();
-                break;
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if let Some(index) = line.find("http://") {
+                        addr = line[index + "http://".len()..]
+                            .trim()
+                            .trim_end_matches('/')
+                            .to_owned();
+                        break;
+                    }
+                }
             }
         }
+        let stdout_drain = thread::spawn(move || {
+            let mut sink = String::new();
+            let _ = reader.read_to_string(&mut sink);
+        });
+
         assert!(
             !addr.is_empty(),
-            "inspector did not print a bound url on stdout"
+            "inspector did not print a bound url; stderr: {}",
+            drained(&stderr)
         );
 
-        Self { child, addr }
+        // Wait until the server actually accepts connections, failing fast with
+        // diagnostics if it exits before listening.
+        let mut ready = false;
+        for _ in 0..100 {
+            if TcpStream::connect(&addr).is_ok() {
+                ready = true;
+                break;
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!(
+                    "inspector exited before listening (status {status}) at {addr}; stderr: {}",
+                    drained(&stderr)
+                );
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            ready,
+            "inspector never accepted a connection at {addr}; stderr: {}",
+            drained(&stderr)
+        );
+
+        Self {
+            child,
+            addr,
+            stderr,
+            _stdout_drain: stdout_drain,
+        }
     }
 
     fn get_json(&self, path: &str) -> Value {
@@ -262,11 +318,14 @@ impl Inspector {
                 Ok(value) => return value,
                 Err(error) => {
                     last_error = error;
-                    std::thread::sleep(Duration::from_millis(20 * (attempt + 1)));
+                    thread::sleep(Duration::from_millis(20 * (attempt + 1)));
                 }
             }
         }
-        panic!("GET {path} failed after retries: {last_error}");
+        panic!(
+            "GET {path} failed after retries: {last_error}; server stderr: {}",
+            drained(&self.stderr)
+        );
     }
 
     fn try_get(&self, path: &str) -> Result<Value, String> {
@@ -303,6 +362,13 @@ impl Drop for Inspector {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Snapshot the background-captured server stderr, after a brief flush window so
+/// an early-exiting server's output has a chance to land.
+fn drained(stderr: &Arc<Mutex<String>>) -> String {
+    thread::sleep(Duration::from_millis(50));
+    stderr.lock().map(|guard| guard.clone()).unwrap_or_default()
 }
 
 /// Run `shore review capture` against a repo, returning the captured ReviewUnit id.
