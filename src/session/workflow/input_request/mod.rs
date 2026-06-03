@@ -73,6 +73,108 @@ mod tests {
     }
 
     #[test]
+    fn open_with_actor_id_attributes_override_and_changes_derived_id() {
+        use crate::model::ActorId;
+
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let with_a = open_input_request(
+            open_request(repo.path(), "Need approval")
+                .with_actor_id(ActorId::new("actor:agent:opener-a")),
+        )
+        .unwrap();
+        let with_b = open_input_request(
+            open_request(repo.path(), "Need approval")
+                .with_actor_id(ActorId::new("actor:agent:opener-b")),
+        )
+        .unwrap();
+
+        // The override flows into the content-addressed input-request id.
+        assert_ne!(with_a.input_request_id, with_b.input_request_id);
+
+        let opened = input_request_opened_events(repo.path());
+        let actor_for = |id: &InputRequestId| {
+            opened
+                .iter()
+                .find(|event| event.payload["inputRequestId"] == serde_json::json!(id.as_str()))
+                .map(|event| event.writer.actor_id.as_str().to_owned())
+                .unwrap()
+        };
+        assert_eq!(actor_for(&with_a.input_request_id), "actor:agent:opener-a");
+        assert_eq!(actor_for(&with_b.input_request_id), "actor:agent:opener-b");
+    }
+
+    #[test]
+    fn respond_with_actor_id_attributes_override_and_changes_derived_id() {
+        use crate::model::ActorId;
+
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let request = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
+
+        let with_a = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id.clone())
+                .with_outcome(InputRequestResponseOutcome::Approved)
+                .with_actor_id(ActorId::new("actor:agent:reviewer-a")),
+        )
+        .unwrap();
+        let with_b = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id.clone())
+                .with_outcome(InputRequestResponseOutcome::Approved)
+                .with_actor_id(ActorId::new("actor:agent:reviewer-b")),
+        )
+        .unwrap();
+
+        // The override flows into the content-addressed response id.
+        assert_ne!(
+            with_a.input_request_response_id,
+            with_b.input_request_response_id
+        );
+
+        // Each durable event credits the chosen actor.
+        let responded = responded_events(repo.path());
+        let actor_for = |id: &InputRequestResponseId| {
+            responded
+                .iter()
+                .find(|event| {
+                    event.payload["inputRequestResponseId"] == serde_json::json!(id.as_str())
+                })
+                .map(|event| event.writer.actor_id.as_str().to_owned())
+                .unwrap()
+        };
+        assert_eq!(
+            actor_for(&with_a.input_request_response_id),
+            "actor:agent:reviewer-a"
+        );
+        assert_eq!(
+            actor_for(&with_b.input_request_response_id),
+            "actor:agent:reviewer-b"
+        );
+    }
+
+    #[test]
+    fn respond_without_actor_id_uses_git_identity() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let request = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
+
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id)
+                .with_outcome(InputRequestResponseOutcome::Approved),
+        )
+        .unwrap();
+
+        let responded = responded_events(repo.path());
+        assert_eq!(responded.len(), 1);
+        // modified_repo() configures user.email shore-tests@example.com.
+        assert_eq!(
+            responded[0].writer.actor_id.as_str(),
+            "actor:git-email:shore-tests@example.com"
+        );
+    }
+
+    #[test]
     fn open_input_request_writes_event_and_updates_state() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -1199,6 +1301,15 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter(|event| event.event_type == EventType::InputRequestOpened)
+            .collect::<Vec<_>>()
+    }
+
+    fn responded_events(repo: &Path) -> Vec<ShoreEvent> {
+        EventStore::open(repo.join(".shore"))
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::InputRequestResponded)
             .collect::<Vec<_>>()
     }
 

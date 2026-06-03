@@ -13,34 +13,57 @@ use crate::session::event::{Writer, WriterRole, WriterTool};
 pub(crate) const SHORE_ACTOR_ID_ENV: &str = "SHORE_ACTOR_ID";
 
 pub(crate) fn writer_from_git_config(repo: &Path) -> Writer {
+    writer_from_options(repo, None)
+}
+
+/// Build an author `Writer`, honoring an optional per-call actor override.
+///
+/// Precedence: an explicit override wins, then the `SHORE_ACTOR_ID` env var,
+/// then the local Git identity. A malformed override (or env value) is ignored
+/// and falls through to the next source, so a bad value can never silently
+/// corrupt provenance. `None` reproduces the prior env-then-Git behavior
+/// exactly.
+pub(crate) fn writer_from_options(repo: &Path, explicit: Option<&ActorId>) -> Writer {
     Writer {
-        actor_id: actor_id_for_repo(repo),
+        actor_id: actor_id_for_repo(explicit.map(ActorId::as_str), repo),
         role: WriterRole::Author,
         tool: shore_tool(),
     }
 }
 
-pub(crate) fn reviewer_from_git_config(repo: &Path) -> Writer {
+/// Build a reviewer `Writer`, honoring an optional per-call actor override.
+///
+/// Same precedence as [`writer_from_options`]: explicit override >
+/// `SHORE_ACTOR_ID` > Git identity.
+pub(crate) fn reviewer_from_options(repo: &Path, explicit: Option<&ActorId>) -> Writer {
     Writer {
-        actor_id: actor_id_for_repo(repo),
+        actor_id: actor_id_for_repo(explicit.map(ActorId::as_str), repo),
         role: WriterRole::Reviewer,
         tool: shore_tool(),
     }
 }
 
-/// Resolve the writing actor for `repo`: an explicit `SHORE_ACTOR_ID` wins;
-/// otherwise fall back to the Git identity.
-fn actor_id_for_repo(repo: &Path) -> ActorId {
-    resolve_actor_id(std::env::var(SHORE_ACTOR_ID_ENV).ok().as_deref(), repo)
+/// Resolve the writing actor for `repo`, reading `SHORE_ACTOR_ID` as the
+/// process-level default beneath an optional explicit override.
+fn actor_id_for_repo(explicit: Option<&str>, repo: &Path) -> ActorId {
+    resolve_actor_id(
+        explicit,
+        std::env::var(SHORE_ACTOR_ID_ENV).ok().as_deref(),
+        repo,
+    )
 }
 
-/// Pure resolution seam (kept env-free for testing): use `explicit` when it is
-/// a valid fully-qualified actor id, otherwise derive from Git config.
-fn resolve_actor_id(explicit: Option<&str>, repo: &Path) -> ActorId {
-    if let Some(value) = explicit {
-        let value = value.trim();
-        if is_valid_actor_id(value) {
-            return ActorId::new(value.to_owned());
+/// Pure resolution seam (kept env-free for testing): the first of `explicit`
+/// then `env` that is a valid fully-qualified actor id wins; otherwise derive
+/// from Git config. Each candidate is validated independently, so a malformed
+/// override falls through to the env value (then Git) rather than being trusted.
+fn resolve_actor_id(explicit: Option<&str>, env: Option<&str>, repo: &Path) -> ActorId {
+    for candidate in [explicit, env] {
+        if let Some(value) = candidate {
+            let value = value.trim();
+            if is_valid_actor_id(value) {
+                return ActorId::new(value.to_owned());
+            }
         }
     }
     actor_id_from_git_config(repo)
@@ -50,7 +73,7 @@ fn resolve_actor_id(explicit: Option<&str>, repo: &Path) -> ActorId {
 /// remainder, bounded length, and no whitespace or control characters. An
 /// invalid value is ignored rather than trusted, so a malformed override can
 /// never silently corrupt provenance.
-fn is_valid_actor_id(value: &str) -> bool {
+pub(crate) fn is_valid_actor_id(value: &str) -> bool {
     value.len() <= 256
         && value.strip_prefix("actor:").is_some_and(|rest| {
             !rest.is_empty() && rest.chars().all(|c| !c.is_whitespace() && !c.is_control())
@@ -129,7 +152,7 @@ mod tests {
             .current_dir(email_repo.path())
             .output()
             .unwrap();
-        let email_writer = super::reviewer_from_git_config(email_repo.path());
+        let email_writer = super::reviewer_from_options(email_repo.path(), None);
         assert_eq!(
             email_writer.actor_id.as_str(),
             "actor:git-email:reviewer@example.com"
@@ -155,7 +178,7 @@ mod tests {
             .current_dir(name_repo.path())
             .output()
             .unwrap();
-        let name_writer = super::reviewer_from_git_config(name_repo.path());
+        let name_writer = super::reviewer_from_options(name_repo.path(), None);
         assert_eq!(
             name_writer.actor_id.as_str(),
             "actor:git-name:reviewer-name"
@@ -181,7 +204,7 @@ mod tests {
             .current_dir(local_repo.path())
             .output()
             .unwrap();
-        let local_writer = super::reviewer_from_git_config(local_repo.path());
+        let local_writer = super::reviewer_from_options(local_repo.path(), None);
         assert_eq!(local_writer.actor_id.as_str(), "actor:local");
         assert_eq!(
             local_writer.role,
@@ -205,14 +228,37 @@ mod tests {
     }
 
     #[test]
-    fn explicit_actor_id_overrides_git_identity() {
+    fn explicit_actor_id_overrides_env_and_git_identity() {
         let repo = git_repo_with_email("host@example.com");
-        let actor = super::resolve_actor_id(Some("actor:agent:remote-reviewer"), repo.path());
+        let actor = super::resolve_actor_id(
+            Some("actor:agent:remote-reviewer"),
+            Some("actor:env:from-env"),
+            repo.path(),
+        );
         assert_eq!(actor.as_str(), "actor:agent:remote-reviewer");
     }
 
     #[test]
-    fn invalid_explicit_actor_id_falls_back_to_git_identity() {
+    fn env_actor_id_overrides_git_identity_when_no_explicit() {
+        let repo = git_repo_with_email("host@example.com");
+        let actor = super::resolve_actor_id(None, Some("actor:env:from-env"), repo.path());
+        assert_eq!(actor.as_str(), "actor:env:from-env");
+    }
+
+    #[test]
+    fn invalid_explicit_actor_id_falls_through_to_valid_env() {
+        let repo = git_repo_with_email("host@example.com");
+        let actor =
+            super::resolve_actor_id(Some("not-an-actor"), Some("actor:env:from-env"), repo.path());
+        assert_eq!(
+            actor.as_str(),
+            "actor:env:from-env",
+            "a malformed explicit override must fall through to the valid env value"
+        );
+    }
+
+    #[test]
+    fn invalid_explicit_and_env_actor_ids_fall_back_to_git_identity() {
         let repo = git_repo_with_email("host@example.com");
         for bad in [
             "",
@@ -221,19 +267,19 @@ mod tests {
             "actor:has space",
             "actor:line\nbreak",
         ] {
-            let actor = super::resolve_actor_id(Some(bad), repo.path());
+            let actor = super::resolve_actor_id(Some(bad), Some("also bad"), repo.path());
             assert_eq!(
                 actor.as_str(),
                 "actor:git-email:host@example.com",
-                "invalid override {bad:?} should fall back to the Git identity"
+                "invalid override {bad:?} and invalid env should fall back to the Git identity"
             );
         }
     }
 
     #[test]
-    fn missing_explicit_actor_id_uses_git_identity() {
+    fn missing_explicit_and_env_actor_id_uses_git_identity() {
         let repo = git_repo_with_email("host@example.com");
-        let actor = super::resolve_actor_id(None, repo.path());
+        let actor = super::resolve_actor_id(None, None, repo.path());
         assert_eq!(actor.as_str(), "actor:git-email:host@example.com");
     }
 }

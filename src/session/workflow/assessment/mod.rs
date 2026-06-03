@@ -59,6 +59,46 @@ mod tests {
     }
 
     #[test]
+    fn record_assessment_with_actor_id_attributes_override_and_changes_derived_id() {
+        use crate::model::ActorId;
+
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let with_a = record_assessment(
+            AssessmentAddOptions::new(repo.path())
+                .with_track("human:kevin")
+                .with_assessment(ReviewAssessment::Accepted)
+                .with_actor_id(ActorId::new("actor:agent:assess-a")),
+        )
+        .unwrap();
+        let with_b = record_assessment(
+            AssessmentAddOptions::new(repo.path())
+                .with_track("human:kevin")
+                .with_assessment(ReviewAssessment::Accepted)
+                .with_actor_id(ActorId::new("actor:agent:assess-b")),
+        )
+        .unwrap();
+
+        // The override flows into the content-addressed assessment id.
+        assert_ne!(with_a.assessment_id, with_b.assessment_id);
+
+        let events = EventStore::open(repo.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let actor_for = |id: &crate::model::AssessmentId| {
+            events
+                .iter()
+                .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
+                .find(|event| event.payload["assessmentId"] == serde_json::json!(id.as_str()))
+                .map(|event| event.writer.actor_id.as_str().to_owned())
+                .unwrap()
+        };
+        assert_eq!(actor_for(&with_a.assessment_id), "actor:agent:assess-a");
+        assert_eq!(actor_for(&with_b.assessment_id), "actor:agent:assess-b");
+    }
+
+    #[test]
     fn record_review_assessment_event_uses_assertion_mode_operative() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();

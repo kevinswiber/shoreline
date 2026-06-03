@@ -6,14 +6,16 @@ use serde_json::json;
 use super::view::{InputRequestProjectionRecords, collect_input_request_projection_records};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::{EventId, InputRequestId, InputRequestResponseId, ReviewTargetRef, TargetRef};
+use crate::model::{
+    ActorId, EventId, InputRequestId, InputRequestResponseId, ReviewTargetRef, TargetRef,
+};
 use crate::session::event::{
     EventTarget, EventType, InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent,
 };
 use crate::session::observation::staged_body;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_from_git_config};
+use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_from_options};
 use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +25,7 @@ pub struct InputRequestRespondOptions {
     outcome: Option<InputRequestResponseOutcome>,
     reason: Option<String>,
     idempotency_key: Option<String>,
+    actor_id: Option<ActorId>,
 }
 
 impl InputRequestRespondOptions {
@@ -33,7 +36,18 @@ impl InputRequestRespondOptions {
             outcome: None,
             reason: None,
             idempotency_key: None,
+            actor_id: None,
         }
+    }
+
+    /// Attribute the durable write to an explicit actor, overriding the
+    /// `SHORE_ACTOR_ID` env var and the local Git identity. A malformed id is
+    /// ignored (falls back to env, then Git); `None` keeps the default
+    /// resolution. The chosen actor is part of the response's content-addressed
+    /// identity, so distinct actors produce distinct responses.
+    pub fn with_actor_id(mut self, actor_id: ActorId) -> Self {
+        self.actor_id = Some(actor_id);
+        self
     }
 
     pub fn with_outcome(mut self, outcome: InputRequestResponseOutcome) -> Self {
@@ -95,7 +109,7 @@ pub fn respond_input_request(
         .ok_or_else(|| ShoreError::WorkflowInputInvalid {
             reason: "outcome is required".to_owned(),
         })?;
-    let writer = reviewer_from_git_config(worktree_root);
+    let writer = reviewer_from_options(worktree_root, options.actor_id.as_ref());
     let reason_content_hash = options
         .reason
         .as_ref()

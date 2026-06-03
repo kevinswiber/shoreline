@@ -238,6 +238,70 @@ mod tests {
     }
 
     #[test]
+    fn record_observation_with_actor_id_attributes_override_and_changes_derived_id() {
+        use crate::model::ActorId;
+
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let with_a = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("Check return value")
+                .with_actor_id(ActorId::new("actor:agent:obs-a")),
+        )
+        .unwrap();
+        let with_b = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("Check return value")
+                .with_actor_id(ActorId::new("actor:agent:obs-b")),
+        )
+        .unwrap();
+
+        // The override flows into the content-addressed observation id.
+        assert_ne!(with_a.observation_id, with_b.observation_id);
+
+        let events = EventStore::open(repo.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let actor_for = |id: &crate::model::ObservationId| {
+            events
+                .iter()
+                .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
+                .find(|event| event.payload["observationId"] == serde_json::json!(id.as_str()))
+                .map(|event| event.writer.actor_id.as_str().to_owned())
+                .unwrap()
+        };
+        assert_eq!(actor_for(&with_a.observation_id), "actor:agent:obs-a");
+        assert_eq!(actor_for(&with_b.observation_id), "actor:agent:obs-b");
+    }
+
+    #[test]
+    fn record_observation_without_actor_id_uses_git_identity() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("Check return value"),
+        )
+        .unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let observation = events
+            .iter()
+            .find(|event| event.event_type == EventType::ReviewObservationRecorded)
+            .unwrap();
+        assert_eq!(
+            observation.writer.actor_id.as_str(),
+            "actor:git-email:shore-tests@example.com"
+        );
+    }
+
+    #[test]
     fn record_observation_is_idempotent_for_same_logical_input() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();

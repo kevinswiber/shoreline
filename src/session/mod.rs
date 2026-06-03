@@ -5,7 +5,9 @@ mod projection;
 mod store;
 mod workflow;
 
-pub(crate) use identity::{current_timestamp, reviewer_from_git_config, writer_from_git_config};
+pub(crate) use identity::{
+    current_timestamp, reviewer_from_options, writer_from_git_config, writer_from_options,
+};
 pub(crate) use projection::state;
 pub use projection::{
     ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, read_events, rebuild_state,

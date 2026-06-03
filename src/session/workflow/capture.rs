@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 use crate::error::Result;
 use crate::git::{IngestOptions, ingest_tracked_diff_with_options};
 use crate::model::{
-    DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-    SnapshotId,
+    ActorId, DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource, RevisionId,
+    SessionId, SnapshotId,
 };
 use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent};
 use crate::session::store::resolution::{StoreResolutionMode, resolve_store};
 use crate::session::{
     EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, ShoreStorePaths,
-    current_timestamp, prepare_shore_writer, writer_from_git_config,
+    current_timestamp, prepare_shore_writer, writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -21,6 +21,7 @@ const CLONE_LOCAL_CAPTURE_BATCH_ONLY_CODE: &str = "clone_local_capture_batch_onl
 pub struct CaptureOptions {
     repo: PathBuf,
     excluded_helper_paths: Vec<PathBuf>,
+    actor_id: Option<ActorId>,
 }
 
 impl CaptureOptions {
@@ -28,7 +29,18 @@ impl CaptureOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             excluded_helper_paths: Vec::new(),
+            actor_id: None,
         }
+    }
+
+    /// Attribute the captured `review_unit_captured` event to an explicit actor
+    /// (author role), overriding the `SHORE_ACTOR_ID` env var and the local Git
+    /// identity. A malformed id is ignored (falls back to env, then Git);
+    /// `None` keeps the default resolution. The ReviewUnit id is derived from
+    /// snapshot content, so the override changes attribution only, not identity.
+    pub fn with_actor_id(mut self, actor_id: ActorId) -> Self {
+        self.actor_id = Some(actor_id);
+        self
     }
 
     /// Excludes an explicit command-helper path from the captured snapshot.
@@ -86,7 +98,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
 
     let event_store = EventStore::open(shore_dir);
     let mut recorder = CaptureRecorder::default();
-    let writer = writer_from_git_config(worktree_root);
+    let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
     let occurred_at = current_timestamp();
     recorder.record(
         &event_store,
@@ -212,6 +224,54 @@ mod tests {
             !result
                 .events_created_by_type
                 .contains_key("review_initialized")
+        );
+    }
+
+    #[test]
+    fn capture_worktree_review_with_actor_id_attributes_override_as_author() {
+        use crate::model::ActorId;
+        use crate::session::event::WriterRole;
+
+        let repo = modified_repo();
+        let result = capture_worktree_review(
+            CaptureOptions::new(repo.path()).with_actor_id(ActorId::new("actor:agent:capturer")),
+        )
+        .unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let event = events
+            .iter()
+            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .unwrap();
+
+        // Attribution changes; the ReviewUnit id is derived from snapshot content, not the writer.
+        assert_eq!(event.writer.actor_id.as_str(), "actor:agent:capturer");
+        assert_eq!(event.writer.role, WriterRole::Author);
+        assert!(
+            result
+                .review_unit_id
+                .as_str()
+                .starts_with("review-unit:sha256:")
+        );
+    }
+
+    #[test]
+    fn capture_worktree_review_without_actor_id_uses_git_identity() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let event = events
+            .iter()
+            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .unwrap();
+        assert_eq!(
+            event.writer.actor_id.as_str(),
+            "actor:git-email:shore-tests@example.com"
         );
     }
 

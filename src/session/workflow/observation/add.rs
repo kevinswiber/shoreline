@@ -7,11 +7,13 @@ use super::target::{ObservationTargetSelector, resolve_observation_target, resol
 use super::util::{required_title, staged_body, validated_track_id};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::{EventId, ObservationId, ReviewTargetRef, ReviewUnitId, TargetRef, TrackId};
+use crate::model::{
+    ActorId, EventId, ObservationId, ReviewTargetRef, ReviewUnitId, TargetRef, TrackId,
+};
 use crate::session::event::{EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_from_git_config};
+use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_from_options};
 use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,6 +28,7 @@ pub struct ObservationAddOptions {
     confidence: Option<String>,
     supersedes_observation_ids: Vec<ObservationId>,
     idempotency_key: Option<String>,
+    actor_id: Option<ActorId>,
 }
 
 impl ObservationAddOptions {
@@ -41,7 +44,18 @@ impl ObservationAddOptions {
             confidence: None,
             supersedes_observation_ids: Vec::new(),
             idempotency_key: None,
+            actor_id: None,
         }
+    }
+
+    /// Attribute the durable write to an explicit actor, overriding the
+    /// `SHORE_ACTOR_ID` env var and the local Git identity. A malformed id is
+    /// ignored (falls back to env, then Git); `None` keeps the default
+    /// resolution. The chosen actor is part of the observation's
+    /// content-addressed identity.
+    pub fn with_actor_id(mut self, actor_id: ActorId) -> Self {
+        self.actor_id = Some(actor_id);
+        self
     }
 
     pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
@@ -126,6 +140,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
         confidence: options.confidence,
         supersedes_observation_ids: options.supersedes_observation_ids,
         idempotency_key: options.idempotency_key,
+        actor_id: options.actor_id,
     })
 }
 
@@ -140,6 +155,7 @@ struct ObservationWriteInput {
     confidence: Option<String>,
     supersedes_observation_ids: Vec<ObservationId>,
     idempotency_key: Option<String>,
+    actor_id: Option<ActorId>,
 }
 
 fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAddResult> {
@@ -156,7 +172,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
             reason: "track is required".to_owned(),
         }
     })?)?;
-    let writer = reviewer_from_git_config(worktree_root);
+    let writer = reviewer_from_options(worktree_root, input.actor_id.as_ref());
     let body_content_hash = input
         .body
         .as_ref()
