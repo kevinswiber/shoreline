@@ -4,9 +4,17 @@ use std::process::Command;
 use crate::model::ActorId;
 use crate::session::event::{Writer, WriterRole, WriterTool};
 
+/// Environment variable that pins the writing actor to an explicit, fully
+/// qualified `actor:<scheme>:<id>` identity, taking precedence over the local
+/// Git identity. Intended for callers that drive `shore` on behalf of a known
+/// actor — for example a federation bridge forwarding a remote reviewer's
+/// decision, where the local Git identity would otherwise mis-attribute the
+/// durable write to the host running the command.
+pub(crate) const SHORE_ACTOR_ID_ENV: &str = "SHORE_ACTOR_ID";
+
 pub(crate) fn writer_from_git_config(repo: &Path) -> Writer {
     Writer {
-        actor_id: actor_id_from_git_config(repo),
+        actor_id: actor_id_for_repo(repo),
         role: WriterRole::Author,
         tool: shore_tool(),
     }
@@ -14,10 +22,39 @@ pub(crate) fn writer_from_git_config(repo: &Path) -> Writer {
 
 pub(crate) fn reviewer_from_git_config(repo: &Path) -> Writer {
     Writer {
-        actor_id: actor_id_from_git_config(repo),
+        actor_id: actor_id_for_repo(repo),
         role: WriterRole::Reviewer,
         tool: shore_tool(),
     }
+}
+
+/// Resolve the writing actor for `repo`: an explicit `SHORE_ACTOR_ID` wins;
+/// otherwise fall back to the Git identity.
+fn actor_id_for_repo(repo: &Path) -> ActorId {
+    resolve_actor_id(std::env::var(SHORE_ACTOR_ID_ENV).ok().as_deref(), repo)
+}
+
+/// Pure resolution seam (kept env-free for testing): use `explicit` when it is
+/// a valid fully-qualified actor id, otherwise derive from Git config.
+fn resolve_actor_id(explicit: Option<&str>, repo: &Path) -> ActorId {
+    if let Some(value) = explicit {
+        let value = value.trim();
+        if is_valid_actor_id(value) {
+            return ActorId::new(value.to_owned());
+        }
+    }
+    actor_id_from_git_config(repo)
+}
+
+/// A safe, fully-qualified actor id: an `actor:` prefix, a non-empty
+/// remainder, bounded length, and no whitespace or control characters. An
+/// invalid value is ignored rather than trusted, so a malformed override can
+/// never silently corrupt provenance.
+fn is_valid_actor_id(value: &str) -> bool {
+    value.len() <= 256
+        && value.strip_prefix("actor:").is_some_and(|rest| {
+            !rest.is_empty() && rest.chars().all(|c| !c.is_whitespace() && !c.is_control())
+        })
 }
 
 fn shore_tool() -> WriterTool {
@@ -150,5 +187,53 @@ mod tests {
             local_writer.role,
             crate::session::event::WriterRole::Reviewer
         );
+    }
+
+    fn git_repo_with_email(email: &str) -> tempfile::TempDir {
+        let repo = tempfile::tempdir().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", email])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        repo
+    }
+
+    #[test]
+    fn explicit_actor_id_overrides_git_identity() {
+        let repo = git_repo_with_email("host@example.com");
+        let actor = super::resolve_actor_id(Some("actor:agent:remote-reviewer"), repo.path());
+        assert_eq!(actor.as_str(), "actor:agent:remote-reviewer");
+    }
+
+    #[test]
+    fn invalid_explicit_actor_id_falls_back_to_git_identity() {
+        let repo = git_repo_with_email("host@example.com");
+        for bad in [
+            "",
+            "no-prefix",
+            "actor:",
+            "actor:has space",
+            "actor:line\nbreak",
+        ] {
+            let actor = super::resolve_actor_id(Some(bad), repo.path());
+            assert_eq!(
+                actor.as_str(),
+                "actor:git-email:host@example.com",
+                "invalid override {bad:?} should fall back to the Git identity"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_explicit_actor_id_uses_git_identity() {
+        let repo = git_repo_with_email("host@example.com");
+        let actor = super::resolve_actor_id(None, repo.path());
+        assert_eq!(actor.as_str(), "actor:git-email:host@example.com");
     }
 }
