@@ -4,6 +4,7 @@ use crate::model::FileStatus;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RawFile {
     pub status: FileStatus,
+    pub type_change: bool,
     pub old_mode: Option<String>,
     pub new_mode: Option<String>,
     pub old_oid: Option<String>,
@@ -26,7 +27,7 @@ impl RawFile {
         self.old_mode.as_deref() == Some("160000") || self.new_mode.as_deref() == Some("160000")
     }
 
-    pub fn is_mode_only(&self) -> bool {
+    pub fn has_mode_change(&self) -> bool {
         self.status == FileStatus::Modified
             && self.old_mode != self.new_mode
             && !self.is_submodule()
@@ -82,6 +83,7 @@ pub(crate) fn parse_raw(raw: &[u8]) -> Result<Vec<RawFile>> {
         };
         files.push(RawFile {
             status: parsed_header.status,
+            type_change: parsed_header.type_change,
             old_mode: mode(parsed_header.old_mode),
             new_mode: mode(parsed_header.new_mode),
             old_oid: oid(parsed_header.old_oid),
@@ -102,6 +104,7 @@ struct RawHeader<'a> {
     old_oid: &'a str,
     new_oid: &'a str,
     status: FileStatus,
+    type_change: bool,
     similarity: Option<u16>,
 }
 
@@ -114,12 +117,14 @@ fn parse_header(header: &str) -> Result<RawHeader<'_>> {
         )));
     }
     let status = parts[4];
-    let file_status = match status.chars().next() {
+    let raw_status = status.chars().next();
+    let file_status = match raw_status {
         Some('M') => FileStatus::Modified,
         Some('A') => FileStatus::Added,
         Some('D') => FileStatus::Deleted,
         Some('R') => FileStatus::Renamed,
         Some('C') => FileStatus::Copied,
+        Some('T') => FileStatus::Modified,
         _ => {
             return Err(ShoreError::Message(format!(
                 "unsupported raw status {status}"
@@ -142,6 +147,7 @@ fn parse_header(header: &str) -> Result<RawHeader<'_>> {
         old_oid: parts[2],
         new_oid: parts[3],
         status: file_status,
+        type_change: raw_status == Some('T'),
         similarity,
     })
 }

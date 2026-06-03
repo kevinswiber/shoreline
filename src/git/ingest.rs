@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -130,10 +131,8 @@ pub(crate) fn capture_worktree_diff_files(repo: &Path) -> Result<Vec<DiffFile>> 
     )?;
 
     let raw_files = parse_raw(&raw_output.stdout)?;
-    let patch_files = parse_patch(&String::from_utf8_lossy(&patch_output.stdout))?
-        .into_iter()
-        .map(|file| (file.key(), file))
-        .collect::<BTreeMap<_, _>>();
+    let patch_files =
+        patch_files_by_key(parse_patch(&String::from_utf8_lossy(&patch_output.stdout))?);
 
     let mut files = raw_files
         .into_iter()
@@ -186,6 +185,7 @@ fn synthesize_untracked_file(repo: &Path, path: &str) -> Result<DiffFile> {
         status: crate::model::FileStatus::Added,
         old_mode: None,
         new_mode: patch_file.new_mode.clone(),
+        type_change: false,
         old_oid: None,
         new_oid: None,
         similarity: None,
@@ -211,13 +211,14 @@ fn no_index_patch(repo: &Path, path: &str) -> Result<crate::git::command::GitOut
 
 fn diff_file(raw_file: RawFile, patch_file: &PatchFile, synthetic: bool) -> Result<DiffFile> {
     let is_submodule = raw_file.is_submodule();
-    let is_mode_only = raw_file.is_mode_only();
     let is_binary = patch_file.is_binary;
+    let is_mode_only = is_mode_only(&raw_file, patch_file);
     let metadata_rows = metadata_rows(&raw_file, patch_file);
-    let hunks = if metadata_rows.is_empty() {
-        patch_file.hunks.clone()
-    } else {
+    let omit_hunks = is_binary || is_submodule || is_mode_only;
+    let hunks = if omit_hunks {
         Vec::new()
+    } else {
+        patch_file.hunks.clone()
     };
 
     Ok(DiffFile {
@@ -237,6 +238,44 @@ fn diff_file(raw_file: RawFile, patch_file: &PatchFile, synthetic: bool) -> Resu
         metadata_rows,
         hunks,
     })
+}
+
+fn patch_files_by_key(files: Vec<PatchFile>) -> BTreeMap<String, PatchFile> {
+    let mut by_key = BTreeMap::new();
+    for file in files {
+        match by_key.entry(file.key()) {
+            Entry::Vacant(entry) => {
+                entry.insert(file);
+            }
+            Entry::Occupied(mut entry) => {
+                merge_patch_file(entry.get_mut(), file);
+            }
+        }
+    }
+    by_key
+}
+
+fn merge_patch_file(existing: &mut PatchFile, next: PatchFile) {
+    fill_missing(&mut existing.old_path, next.old_path);
+    fill_missing(&mut existing.new_path, next.new_path);
+    fill_missing(&mut existing.old_mode, next.old_mode);
+    fill_missing(&mut existing.new_mode, next.new_mode);
+    fill_missing(&mut existing.similarity, next.similarity);
+    existing.is_binary |= next.is_binary;
+    existing.hunks.extend(next.hunks);
+}
+
+fn fill_missing<T>(current: &mut Option<T>, next: Option<T>) {
+    if current.is_none() {
+        *current = next;
+    }
+}
+
+fn is_mode_only(raw_file: &RawFile, patch_file: &PatchFile) -> bool {
+    raw_file.has_mode_change()
+        && !raw_file.type_change
+        && !patch_file.is_binary
+        && patch_file.hunks.is_empty()
 }
 
 fn metadata_rows(
@@ -265,7 +304,7 @@ fn metadata_rows(
             text: "binary files differ".to_owned(),
         });
     }
-    if raw_file.is_mode_only() {
+    if raw_file.has_mode_change() {
         rows.push(FileMetadataRow {
             kind: FileMetadataKind::ModeChange,
             text: match (&raw_file.old_mode, &raw_file.new_mode) {

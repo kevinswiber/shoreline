@@ -193,6 +193,44 @@ fn file_level_git_entries_are_preserved_as_metadata_rows() {
     assert!(submodule.hunks.is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn tracked_file_replaced_by_symlink_ingests_as_type_change() {
+    let repo = GitRepo::new();
+    repo.write("docs/linkable.txt", "hello\nworld\n");
+    repo.commit_all("base");
+
+    repo.remove("docs/linkable.txt");
+    std::os::unix::fs::symlink("target-file", repo.path().join("docs/linkable.txt"))
+        .expect("create symlink fixture");
+
+    let raw = repo.git(["diff", "--raw", "HEAD", "--", "docs/linkable.txt"]);
+    assert!(
+        raw.stdout.contains(" T\t"),
+        "expected git to report a type change:\n{}",
+        raw.stdout
+    );
+
+    let snapshot = ingest_tracked_diff(repo.path()).expect("type change ingests");
+    let type_change = file_by_path(&snapshot.files, "docs/linkable.txt");
+
+    assert_eq!(type_change.status, FileStatus::Modified);
+    assert_eq!(type_change.old_path.as_deref(), Some("docs/linkable.txt"));
+    assert_eq!(type_change.new_path.as_deref(), Some("docs/linkable.txt"));
+    assert_eq!(type_change.old_mode.as_deref(), Some("100644"));
+    assert_eq!(type_change.new_mode.as_deref(), Some("120000"));
+    assert!(!type_change.is_mode_only);
+    assert_eq!(
+        metadata_kinds(type_change),
+        vec![FileMetadataKind::ModeChange]
+    );
+    assert_eq!(type_change.hunks.len(), 2);
+    assert_eq!(type_change.hunks[0].rows[0].kind, DiffRowKind::Removed);
+    assert_eq!(type_change.hunks[0].rows[0].text, "hello");
+    assert_eq!(type_change.hunks[1].rows[0].kind, DiffRowKind::Added);
+    assert_eq!(type_change.hunks[1].rows[0].text, "target-file");
+}
+
 #[test]
 fn executable_fixture_reports_git_mode_change() {
     let repo = GitRepo::new();
