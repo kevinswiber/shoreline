@@ -1,15 +1,14 @@
 // Shared view-document mappers used by review unit show and the leaf read commands.
-use shoreline::model::ReviewTargetRef;
-use shoreline::session::event::{
+use crate::model::ReviewTargetRef;
+use crate::session::event::{
     AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment, Writer,
 };
-use shoreline::session::{
-    AssessmentView, CurrentAssessmentStatus, InputRequestView, ObservationView,
-};
+use crate::session::{AssessmentView, CurrentAssessmentStatus, InputRequestView, ObservationView};
 
+/// Documented per-item shape for one observation.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ObservationViewDocument {
+pub struct ObservationViewDocument {
     id: String,
     event_id: String,
     track_id: String,
@@ -20,7 +19,7 @@ pub(super) struct ObservationViewDocument {
     tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     confidence: Option<String>,
-    status: shoreline::session::ObservationStatus,
+    status: crate::session::ObservationStatus,
     supersedes: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
@@ -28,9 +27,10 @@ pub(super) struct ObservationViewDocument {
     writer: Writer,
 }
 
+/// Documented per-item shape for one input request and its responses.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct InputRequestViewDocument {
+pub struct InputRequestViewDocument {
     id: String,
     event_id: String,
     track_id: String,
@@ -48,9 +48,10 @@ pub(super) struct InputRequestViewDocument {
     writer: Writer,
 }
 
+/// Documented per-item shape for one input-request response.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct InputRequestResponseViewDocument {
+pub struct InputRequestResponseViewDocument {
     id: String,
     event_id: String,
     outcome: InputRequestResponseOutcome,
@@ -62,16 +63,19 @@ pub(super) struct InputRequestResponseViewDocument {
     writer: Writer,
 }
 
+/// Documented snake_case assertion mode for input requests, shared by the
+/// view documents and the list filter.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-enum InputRequestAssertionModeDocument {
+pub enum InputRequestAssertionModeDocument {
     Operative,
     Advisory,
 }
 
+/// Documented current-assessment summary for a ReviewUnit.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct CurrentAssessmentDocument {
+pub struct CurrentAssessmentDocument {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     assessment_id: Option<String>,
@@ -81,9 +85,10 @@ pub(super) struct CurrentAssessmentDocument {
     candidates: Vec<AssessmentViewDocument>,
 }
 
+/// Documented per-item shape for one assessment.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct AssessmentViewDocument {
+pub struct AssessmentViewDocument {
     id: String,
     event_id: String,
     track_id: String,
@@ -158,8 +163,8 @@ impl From<AssertionMode> for InputRequestAssertionModeDocument {
     }
 }
 
-impl From<shoreline::session::InputRequestResponseView> for InputRequestResponseViewDocument {
-    fn from(view: shoreline::session::InputRequestResponseView) -> Self {
+impl From<crate::session::InputRequestResponseView> for InputRequestResponseViewDocument {
+    fn from(view: crate::session::InputRequestResponseView) -> Self {
         Self {
             id: view.id.as_str().to_owned(),
             event_id: view.event_id.as_str().to_owned(),
@@ -172,8 +177,8 @@ impl From<shoreline::session::InputRequestResponseView> for InputRequestResponse
     }
 }
 
-impl From<shoreline::session::CurrentAssessmentView> for CurrentAssessmentDocument {
-    fn from(current: shoreline::session::CurrentAssessmentView) -> Self {
+impl From<crate::session::CurrentAssessmentView> for CurrentAssessmentDocument {
+    fn from(current: crate::session::CurrentAssessmentView) -> Self {
         let status = current.status;
         let mut records = current.records.into_iter();
         match status {
@@ -233,5 +238,25 @@ impl From<AssessmentView> for AssessmentViewDocument {
             created_at: view.created_at,
             writer: view.writer,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_request_assertion_mode_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_value(InputRequestAssertionModeDocument::Operative).unwrap(),
+            serde_json::json!("operative")
+        );
+        assert_eq!(
+            serde_json::to_value(InputRequestAssertionModeDocument::from(
+                AssertionMode::Advisory
+            ))
+            .unwrap(),
+            serde_json::json!("advisory")
+        );
     }
 }

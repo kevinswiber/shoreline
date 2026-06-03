@@ -2,8 +2,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use shoreline::model::ReviewEndpoint;
-use shoreline::session::{CaptureOptions, CaptureResult, capture_worktree_review};
+use shoreline::documents::capture_document;
+use shoreline::session::{CaptureOptions, capture_worktree_review};
 
 use crate::cli::json;
 use crate::cli_tracing::TracingArgs;
@@ -12,23 +12,6 @@ use crate::cli_tracing::TracingArgs;
 pub(super) struct CaptureArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CaptureBody {
-    review_unit: CaptureReviewUnitDocument,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CaptureReviewUnitDocument {
-    id: String,
-    base: ReviewEndpoint,
-    target: ReviewEndpoint,
-    revision_id: String,
-    snapshot_id: String,
-    snapshot_artifact_content_hash: String,
 }
 
 pub(super) fn run(
@@ -50,24 +33,4 @@ fn capture_options(args: &CaptureArgs, tracing: &TracingArgs) -> CaptureOptions 
         options = options.with_excluded_helper_path(log_file);
     }
     options
-}
-
-fn capture_document(result: CaptureResult) -> json::EventWriteDocument<CaptureBody> {
-    json::EventWriteDocument::new(
-        "shore.review-capture",
-        CaptureBody {
-            review_unit: CaptureReviewUnitDocument {
-                id: result.review_unit_id.as_str().to_owned(),
-                base: result.base,
-                target: result.target,
-                revision_id: result.revision_id.as_str().to_owned(),
-                snapshot_id: result.snapshot_id.as_str().to_owned(),
-                snapshot_artifact_content_hash: result.snapshot_artifact_content_hash,
-            },
-        },
-        result.events_created,
-        result.events_existing,
-        result.events_created_by_type,
-        result.diagnostics,
-    )
 }

@@ -1,3 +1,4 @@
+pub mod documents;
 pub mod dump;
 pub mod error;
 pub mod git;

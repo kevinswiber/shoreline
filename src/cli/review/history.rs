@@ -2,12 +2,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
+use shoreline::documents::history_document;
 use shoreline::model::ReviewUnitId;
 use shoreline::session::event::EventType;
-use shoreline::session::{
-    ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
-    review_history,
-};
+use shoreline::session::{ReviewHistoryOptions, review_history};
 
 use crate::cli::json;
 
@@ -40,16 +38,6 @@ pub(super) struct HistoryArgs {
     /// Emit compact JSON explicitly.
     #[arg(long)]
     compact: bool,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct HistoryBody {
-    event_set_hash: String,
-    event_count: usize,
-    history_count: usize,
-    filters: ReviewHistoryFilters,
-    entries: Vec<ReviewHistoryEntry>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -89,21 +77,6 @@ fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
         options = options.with_event_type(event_type.into());
     }
     options
-}
-
-fn history_document(result: ReviewHistoryResult) -> json::DiagnosticDocument<HistoryBody> {
-    let history_count = result.history_count();
-    json::DiagnosticDocument::new(
-        "shore.review-history",
-        HistoryBody {
-            event_set_hash: result.event_set_hash,
-            event_count: result.event_count,
-            history_count,
-            filters: result.filters,
-            entries: result.entries,
-        },
-        result.diagnostics,
-    )
 }
 
 impl From<HistoryEventTypeArg> for EventType {

@@ -2,15 +2,15 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use shoreline::model::{ObservationId, ReviewTargetRef, ReviewUnitId};
+use shoreline::documents::{observation_add_document, observation_list_document};
+use shoreline::model::{ObservationId, ReviewUnitId};
 use shoreline::session::{
-    ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,
-    ObservationTargetSelector, list_observations, record_observation,
+    ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, list_observations,
+    record_observation,
 };
 
 use crate::cli::json;
 use crate::cli::review::common::{SideArg, read_body_input};
-use crate::cli::review::documents::ObservationViewDocument;
 
 #[derive(Debug, Args)]
 pub(super) struct ObservationArgs {
@@ -97,37 +97,6 @@ struct ObservationListArgs {
 
     #[arg(long)]
     compact: bool,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ObservationAddBody {
-    review_unit_id: String,
-    observation_id: String,
-    event_id: String,
-    track_id: String,
-    target: ReviewTargetRef,
-    body_content_hash: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ObservationListBody {
-    review_unit_id: String,
-    filters: ObservationListFiltersDocument,
-    observations: Vec<ObservationViewDocument>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ObservationListFiltersDocument {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    track_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tags: Vec<String>,
-    include_body: bool,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -241,52 +210,6 @@ fn observation_target(args: &ObservationAddArgs) -> ObservationTargetSelector {
         (Some(file), None) => ObservationTargetSelector::file(file.clone()),
         (None, _) => ObservationTargetSelector::review_unit(),
     }
-}
-
-fn observation_add_document(
-    result: ObservationAddResult,
-) -> json::EventWriteDocument<ObservationAddBody> {
-    json::EventWriteDocument::new(
-        "shore.review-observation-add",
-        ObservationAddBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
-            observation_id: result.observation_id.as_str().to_owned(),
-            event_id: result.event_id.as_str().to_owned(),
-            track_id: result.track_id.as_str().to_owned(),
-            target: result.target,
-            body_content_hash: result.body_content_hash,
-        },
-        result.events_created,
-        result.events_existing,
-        result.events_created_by_type,
-        result.diagnostics,
-    )
-}
-
-fn observation_list_document(
-    result: ObservationListResult,
-) -> json::DiagnosticDocument<ObservationListBody> {
-    json::DiagnosticDocument::new(
-        "shore.review-observation-list",
-        ObservationListBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
-            filters: ObservationListFiltersDocument {
-                track_id: result
-                    .filters
-                    .track_id
-                    .map(|track_id| track_id.as_str().to_owned()),
-                file: result.filters.file,
-                tags: result.filters.tags,
-                include_body: result.filters.include_body,
-            },
-            observations: result
-                .observations
-                .into_iter()
-                .map(ObservationViewDocument::from)
-                .collect(),
-        },
-        result.diagnostics,
-    )
 }
 
 impl ConfidenceArg {

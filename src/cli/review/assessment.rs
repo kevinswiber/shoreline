@@ -2,18 +2,16 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use shoreline::model::{
-    AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId,
-};
+use shoreline::documents::{assessment_add_document, assessment_show_document};
+use shoreline::model::{AssessmentId, InputRequestId, ObservationId, ReviewUnitId};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
-    AssessmentAddOptions, AssessmentAddResult, AssessmentShowFilters, AssessmentShowOptions,
-    AssessmentShowResult, AssessmentTargetSelector, record_assessment, show_assessments,
+    AssessmentAddOptions, AssessmentShowOptions, AssessmentTargetSelector, record_assessment,
+    show_assessments,
 };
 
 use crate::cli::json;
 use crate::cli::review::common::{SideArg, read_body_input};
-use crate::cli::review::documents::{AssessmentViewDocument, CurrentAssessmentDocument};
 
 #[derive(Debug, Args)]
 pub(super) struct AssessmentArgs {
@@ -133,37 +131,6 @@ pub(super) struct AssessmentShowArgs {
     compact: bool,
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct AssessmentAddBody {
-    review_unit_id: String,
-    assessment_id: String,
-    event_id: String,
-    track_id: String,
-    target: ReviewTargetRef,
-    assessment: ReviewAssessment,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    summary_content_hash: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct AssessmentShowBody {
-    review_unit_id: String,
-    filters: AssessmentShowFiltersDocument,
-    current: CurrentAssessmentDocument,
-    assessments: Vec<AssessmentViewDocument>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AssessmentShowFiltersDocument {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    track_id: Option<String>,
-    all: bool,
-    include_summary: bool,
-}
-
 #[derive(Clone, Copy, Debug, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 enum ReviewAssessmentArg {
@@ -210,48 +177,6 @@ fn review_assessment_show(
     let result = show_assessments(assessment_show_options(args));
     let document = assessment_show_document("shore.review-assessment-show", result?);
     json::write_json(stdout, &document, pretty)
-}
-
-pub(super) fn assessment_add_document(
-    schema: &'static str,
-    result: AssessmentAddResult,
-) -> json::EventWriteDocument<AssessmentAddBody> {
-    json::EventWriteDocument::new(
-        schema,
-        AssessmentAddBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
-            assessment_id: result.assessment_id.as_str().to_owned(),
-            event_id: result.event_id.as_str().to_owned(),
-            track_id: result.track_id.as_str().to_owned(),
-            target: result.target,
-            assessment: result.assessment,
-            summary_content_hash: result.summary_content_hash,
-        },
-        result.events_created,
-        result.events_existing,
-        result.events_created_by_type,
-        result.diagnostics,
-    )
-}
-
-pub(super) fn assessment_show_document(
-    schema: &'static str,
-    result: AssessmentShowResult,
-) -> json::DiagnosticDocument<AssessmentShowBody> {
-    json::DiagnosticDocument::new(
-        schema,
-        AssessmentShowBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
-            filters: AssessmentShowFiltersDocument::from(result.filters),
-            current: CurrentAssessmentDocument::from(result.current),
-            assessments: result
-                .assessments
-                .into_iter()
-                .map(AssessmentViewDocument::from)
-                .collect(),
-        },
-        result.diagnostics,
-    )
 }
 
 pub(super) fn assessment_add_options(
@@ -365,18 +290,6 @@ pub(super) fn assessment_target(
         (Some(file), None) => Ok(AssessmentTargetSelector::file(file.clone())),
         (None, Some(_)) => Err("file is required when selecting assessment lines".into()),
         (None, None) => Ok(AssessmentTargetSelector::review_unit()),
-    }
-}
-
-impl From<AssessmentShowFilters> for AssessmentShowFiltersDocument {
-    fn from(filters: AssessmentShowFilters) -> Self {
-        Self {
-            track_id: filters
-                .track_id
-                .map(|track_id| track_id.as_str().to_owned()),
-            all: filters.include_all,
-            include_summary: filters.include_summary,
-        }
     }
 }
 

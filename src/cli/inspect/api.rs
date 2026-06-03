@@ -9,14 +9,13 @@
 use std::path::Path;
 
 use serde::Serialize;
+use shoreline::documents::unit_show_document;
 use shoreline::model::{ReviewEndpoint, ReviewUnitId, SnapshotId};
 use shoreline::session::{
     ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions, ReviewUnitListEntry,
     ReviewUnitListOptions, ReviewUnitShowOptions, list_review_units, read_snapshot_artifact,
     review_history, show_review_unit,
 };
-
-use crate::cli::review::unit::unit_show_document;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
