@@ -6,13 +6,13 @@ use super::freshness::event_set_hash_for_events;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId, ReviewUnitId,
-    RevisionId, SessionId, SnapshotId, WorkUnitId,
+    RevisionId, SessionId, SnapshotId, ValidationCheckId, WorkUnitId,
 };
 use crate::session::EventWriteOutcome;
 use crate::session::event::{
     AssertionMode, EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
-    decode_input_request_opened_payload,
+    ValidationCheckRecordedPayload, decode_input_request_opened_payload,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -23,6 +23,7 @@ pub const DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE: &str =
 pub const DUPLICATE_SEMANTIC_INPUT_REQUEST_RESPONSE_EVENT_CODE: &str =
     "duplicate_semantic_input_request_response_event";
 pub const DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE: &str = "duplicate_semantic_assessment_event";
+pub const DUPLICATE_SEMANTIC_VALIDATION_EVENT_CODE: &str = "duplicate_semantic_validation_event";
 const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -46,6 +47,8 @@ pub struct SessionState {
     pub observation_count: usize,
     #[serde(default)]
     pub assessment_count: usize,
+    #[serde(default)]
+    pub validation_check_count: usize,
     #[serde(default)]
     pub input_request_count: usize,
     #[serde(default)]
@@ -132,6 +135,7 @@ struct StateReducer {
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
+    validation_check_events: BTreeMap<ValidationCheckId, BTreeSet<EventId>>,
     input_request_modes: BTreeMap<InputRequestId, AssertionMode>,
     input_request_open_events: BTreeMap<InputRequestId, BTreeSet<EventId>>,
     input_request_response_events: BTreeMap<InputRequestResponseId, BTreeSet<EventId>>,
@@ -147,6 +151,7 @@ impl Default for StateReducer {
             note_count: 0,
             observation_events: BTreeMap::new(),
             assessment_events: BTreeMap::new(),
+            validation_check_events: BTreeMap::new(),
             input_request_modes: BTreeMap::new(),
             input_request_open_events: BTreeMap::new(),
             input_request_response_events: BTreeMap::new(),
@@ -182,9 +187,7 @@ impl StateReducer {
             EventType::ReviewUnitLineageDeclared | EventType::ReviewUnitLineageRoundRecorded => {
                 // Lineage projections are derived by the dedicated lineage reducer.
             }
-            EventType::ValidationCheckRecorded => {
-                // Validation evidence state lands in the dedicated validation reducer task.
-            }
+            EventType::ValidationCheckRecorded => self.apply_validation_check_recorded(event)?,
             EventType::TaskAttemptCaptured
             | EventType::TaskCheckpointCaptured
             | EventType::TaskObservationRecorded => {
@@ -230,6 +233,16 @@ impl StateReducer {
             serde_json::from_value(event.payload.clone())?;
         self.assessment_events
             .entry(payload.assessment_id)
+            .or_default()
+            .insert(event.event_id.clone());
+        Ok(())
+    }
+
+    fn apply_validation_check_recorded(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: ValidationCheckRecordedPayload =
+            serde_json::from_value(event.payload.clone())?;
+        self.validation_check_events
+            .entry(payload.validation_check_id)
             .or_default()
             .insert(event.event_id.clone());
         Ok(())
@@ -320,6 +333,14 @@ impl StateReducer {
                 .iter()
                 .map(|(assessment_id, event_ids)| (assessment_id.as_str(), event_ids)),
         );
+        append_duplicate_semantic_diagnostics(
+            &mut diagnostics,
+            DUPLICATE_SEMANTIC_VALIDATION_EVENT_CODE,
+            "validation check",
+            self.validation_check_events
+                .iter()
+                .map(|(validation_check_id, event_ids)| (validation_check_id.as_str(), event_ids)),
+        );
         Ok(SessionState {
             schema: STATE_SCHEMA.to_owned(),
             version: STATE_VERSION,
@@ -334,6 +355,7 @@ impl StateReducer {
             note_count: self.note_count,
             observation_count: self.observation_events.len(),
             assessment_count: self.assessment_events.len(),
+            validation_check_count: self.validation_check_events.len(),
             input_request_count: self.input_request_modes.len(),
             open_input_request_count,
             open_operative_input_request_count,
@@ -376,13 +398,14 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        AssessmentId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, WorktreeCaptureMode,
+        AssessmentId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, ValidationCheckId,
+        ValidationStatus, ValidationTarget, ValidationTrigger, WorktreeCaptureMode,
     };
     use crate::session::EventWriteOutcome;
     use crate::session::event::{
         AssertionMode, EventTarget, InputRequestOpenedPayload, InputRequestReasonCode,
         InputRequestResponseOutcome, ReviewAssessment, ReviewAssessmentRecordedPayload,
-        ReviewObservationRecordedPayload, Writer,
+        ReviewObservationRecordedPayload, ValidationCheckRecordedPayload, Writer,
     };
 
     #[test]
@@ -668,6 +691,44 @@ mod tests {
     }
 
     #[test]
+    fn session_state_increments_validation_check_count_for_validation_check_recorded_event() {
+        let events = vec![
+            review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one"),
+            validation_event("retry-a", "validation:sha256:one"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.validation_check_count, 1);
+        assert_eq!(state.event_count, 2);
+        assert!(state.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn session_state_serializes_validation_check_count_wire_key() {
+        let state = SessionState::from_events(&[]).unwrap();
+        let value = serde_json::to_value(state).unwrap();
+
+        assert_eq!(value["validationCheckCount"], 0);
+    }
+
+    #[test]
+    fn duplicate_semantic_validation_events_are_counted_once_with_validation_diagnostic_code() {
+        let events = vec![
+            validation_event("retry-a", "validation:sha256:same"),
+            validation_event("retry-b", "validation:sha256:same"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.validation_check_count, 1);
+        assert!(state.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DUPLICATE_SEMANTIC_VALIDATION_EVENT_CODE
+                && diagnostic.message.contains("validation:sha256:same")
+        }));
+    }
+
+    #[test]
     fn session_state_omits_legacy_outcome_count_wire_key_after_split() {
         let state = SessionState::from_events(&[assessment_event("assess:sha256:one")]).unwrap();
         let json = serde_json::to_value(&state).unwrap();
@@ -886,6 +947,7 @@ mod tests {
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
         assert_eq!(state.input_request_count, 0);
+        assert_eq!(state.validation_check_count, 0);
     }
 
     fn review_unit_captured_event(
@@ -985,6 +1047,41 @@ mod tests {
                 related_input_request_ids: Vec::new(),
             },
             "2026-05-10T00:00:01Z",
+        )
+        .unwrap()
+    }
+
+    fn validation_event(source_key: &str, validation_check_id: &str) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ValidationCheckRecorded,
+            format!("validation_check_recorded:{source_key}"),
+            EventTarget::for_review_unit(
+                SessionId::new("session:default"),
+                ReviewUnitId::new("review-unit:sha256:one"),
+                RevisionId::new("rev:one"),
+                SnapshotId::new("snap:one"),
+            ),
+            Writer::shore_local_author("0.1.0"),
+            ValidationCheckRecordedPayload {
+                validation_check_id: ValidationCheckId::new(validation_check_id),
+                target: ValidationTarget::ReviewUnit {
+                    review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                },
+                check_name: "cargo test".to_owned(),
+                command: None,
+                status: ValidationStatus::Passed,
+                exit_code: Some(0),
+                trigger: ValidationTrigger::Manual,
+                source_fingerprint: None,
+                summary: None,
+                summary_artifact_path: None,
+                summary_byte_size: None,
+                summary_content_hash: None,
+                started_at: None,
+                completed_at: None,
+                log_artifact_content_hashes: Vec::new(),
+            },
+            "2026-05-10T00:00:02Z",
         )
         .unwrap()
     }
