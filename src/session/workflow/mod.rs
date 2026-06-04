@@ -67,5 +67,7 @@ pub use store_status::{
     store_status,
 };
 pub use validation::{
-    ValidationCheckProjectionOptions, ValidationCheckView, project_validation_checks,
+    ValidationAddOptions, ValidationAddResult, ValidationCheckProjectionOptions,
+    ValidationCheckView, ValidationListFilters, ValidationListOptions, ValidationListResult,
+    list_validation_checks, project_validation_checks, record_validation_check,
 };
