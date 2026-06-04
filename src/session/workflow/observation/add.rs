@@ -3,13 +3,16 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::target::{ObservationTargetSelector, resolve_observation_target, resolve_review_unit};
+use super::target::{
+    ObservationTargetSelector, ReviewUnitSelection, resolve_observation_target, resolve_review_unit,
+};
 use super::util::{required_title, staged_body, validated_track_id};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, ObservationId, ReviewTargetRef, ReviewUnitId, TargetRef, TrackId,
+    ActorId, EventId, ObservationId, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, TargetRef,
+    TrackId,
 };
 use crate::session::event::{EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -24,6 +27,7 @@ use crate::storage::{Durability, LocalStorage};
 pub struct ObservationAddOptions {
     repo: PathBuf,
     review_unit_id: Option<ReviewUnitId>,
+    lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     title: Option<String>,
     body: Option<String>,
@@ -41,6 +45,7 @@ impl ObservationAddOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             review_unit_id: None,
+            lineage_id: None,
             track: None,
             title: None,
             body: None,
@@ -66,6 +71,11 @@ impl ObservationAddOptions {
 
     pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
         self.review_unit_id = Some(id);
+        self
+    }
+
+    pub fn with_lineage_id(mut self, id: ReviewUnitLineageId) -> Self {
+        self.lineage_id = Some(id);
         self
     }
 
@@ -139,7 +149,13 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     let shore_dir = paths.shore_dir();
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(
+        &events,
+        ReviewUnitSelection::from_review_unit_or_lineage(
+            options.review_unit_id.as_ref(),
+            options.lineage_id.as_ref(),
+        )?,
+    )?;
     let target = resolve_observation_target(worktree_root, &resolved, &options.target)?;
     let title = required_title(options.title.as_deref())?;
 

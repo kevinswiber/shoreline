@@ -1,8 +1,11 @@
 use std::path::Path;
 
 use crate::error::{Result, ShoreError};
-use crate::model::{ReviewTargetRef, ReviewUnitId, RevisionId, SessionId, Side, SnapshotId};
+use crate::model::{
+    ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, RevisionId, SessionId, Side, SnapshotId,
+};
 use crate::session::event::{EventType, ReviewUnitCapturedPayload, ShoreEvent};
+use crate::session::projection::lineage::ReviewUnitLineageProjection;
 use crate::session::snapshot_artifact::read_snapshot_artifact;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -11,6 +14,29 @@ pub(crate) struct ResolvedReviewUnit {
     pub review_unit_id: ReviewUnitId,
     pub revision_id: RevisionId,
     pub snapshot_id: SnapshotId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ReviewUnitSelection<'a> {
+    Current,
+    Exact(&'a ReviewUnitId),
+    LineageHead(&'a ReviewUnitLineageId),
+}
+
+impl<'a> ReviewUnitSelection<'a> {
+    pub(crate) fn from_review_unit_or_lineage(
+        review_unit_id: Option<&'a ReviewUnitId>,
+        lineage_id: Option<&'a ReviewUnitLineageId>,
+    ) -> Result<Self> {
+        match (review_unit_id, lineage_id) {
+            (Some(_), Some(_)) => Err(ShoreError::WorkflowInputInvalid {
+                reason: "cannot combine --review-unit and --lineage".to_owned(),
+            }),
+            (Some(review_unit_id), None) => Ok(Self::Exact(review_unit_id)),
+            (None, Some(lineage_id)) => Ok(Self::LineageHead(lineage_id)),
+            (None, None) => Ok(Self::Current),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,8 +83,31 @@ impl ObservationTargetSelector {
 
 pub(crate) fn resolve_review_unit(
     events: &[ShoreEvent],
-    requested: Option<&ReviewUnitId>,
+    selection: ReviewUnitSelection<'_>,
 ) -> Result<ResolvedReviewUnit> {
+    if let ReviewUnitSelection::LineageHead(lineage_id) = selection {
+        let projection = ReviewUnitLineageProjection::from_events(events)?;
+        let lineage = projection.lineage(lineage_id).ok_or_else(|| {
+            ShoreError::Message(format!(
+                "unknown ReviewUnit lineage: {}",
+                lineage_id.as_str()
+            ))
+        })?;
+        if !lineage.diagnostics.is_empty() {
+            return Err(ShoreError::Message(format!(
+                "ReviewUnit lineage {} is malformed",
+                lineage_id.as_str()
+            )));
+        }
+        let head = lineage.head_review_unit_id.as_ref().ok_or_else(|| {
+            ShoreError::Message(format!(
+                "ReviewUnit lineage {} has no current head",
+                lineage_id.as_str()
+            ))
+        })?;
+        return resolve_review_unit(events, ReviewUnitSelection::Exact(head));
+    }
+
     let mut captured = Vec::new();
     for event in events
         .iter()
@@ -71,13 +120,14 @@ pub(crate) fn resolve_review_unit(
             revision_id: payload.revision_id,
             snapshot_id: payload.snapshot_id,
         };
-        if requested.is_some_and(|requested| requested == &resolved.review_unit_id) {
+        if matches!(selection, ReviewUnitSelection::Exact(requested) if requested == &resolved.review_unit_id)
+        {
             return Ok(resolved);
         }
         captured.push(resolved);
     }
 
-    if let Some(requested) = requested {
+    if let ReviewUnitSelection::Exact(requested) = selection {
         return Err(ShoreError::Message(format!(
             "unknown review unit: {}",
             requested.as_str()

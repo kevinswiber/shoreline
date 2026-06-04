@@ -2,6 +2,7 @@ mod cursor;
 mod file;
 mod hunk;
 mod ids;
+mod lineage;
 mod review;
 mod review_note;
 mod review_unit;
@@ -20,9 +21,11 @@ pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;
 pub use ids::{
     ActorId, AssessmentId, CheckpointId, EventId, FileId, HunkId, InputRequestId,
-    InputRequestResponseId, ObservationId, ReviewId, ReviewNoteId, ReviewUnitId, RevisionId, RowId,
-    SessionId, SnapshotId, TrackId, WorkObjectId, WorkUnitId,
+    InputRequestResponseId, ObservationId, ReviewId, ReviewNoteId, ReviewUnitId,
+    ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId, RowId, SessionId, SnapshotId,
+    TrackId, WorkObjectId, WorkUnitId,
 };
+pub use lineage::ReviewUnitLineageBasisV1;
 pub use review::{DiffSnapshot, Review, ReviewStream};
 pub use review_note::{
     Anchor, AnchorResolution, AnchorResolutionReason, LineRange, ResolutionStatus, ReviewNote,

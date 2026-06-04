@@ -229,6 +229,8 @@ fn referenced_artifacts_for_event(
             insert_body_ref(refs, payload.body_artifact_path.as_deref())
         }
         EventType::ReviewInitialized
+        | EventType::ReviewUnitLineageDeclared
+        | EventType::ReviewUnitLineageRoundRecorded
         | EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured => Ok(()),
     }

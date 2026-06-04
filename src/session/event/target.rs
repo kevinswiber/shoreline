@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ReviewTargetRef, ReviewUnitId, RevisionId, SessionId, SnapshotId, TargetRef, TrackId,
-    WorkObjectId, WorkObjectType, WorkUnitId,
+    ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, RevisionId, SessionId, SnapshotId,
+    TargetRef, TrackId, WorkObjectId, WorkObjectType, WorkUnitId,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -87,6 +87,25 @@ impl EventTarget {
             snapshot_id: None,
             track_id: None,
             subject: None,
+        }
+    }
+
+    pub fn for_review_unit_lineage(
+        session_id: SessionId,
+        review_unit_lineage_id: ReviewUnitLineageId,
+    ) -> Self {
+        Self {
+            session_id,
+            work_unit_id: None,
+            work_object_id: None,
+            work_object_type: None,
+            review_unit_id: None,
+            revision_id: None,
+            snapshot_id: None,
+            track_id: None,
+            subject: Some(TargetRef::Review(ReviewTargetRef::Lineage {
+                review_unit_lineage_id,
+            })),
         }
     }
 }

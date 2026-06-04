@@ -78,6 +78,35 @@ ReviewUnit capture follows the same authority split:
 command reports ReviewUnit, revision, and snapshot IDs plus the snapshot artifact content hash,
 without making snapshot artifact paths a user-facing API.
 
+ReviewUnit lineage follows the same event/projection split. A lineage links already-stored
+`review_unit_captured` events through path-free lineage facts; it never edits captured ReviewUnit
+payloads or snapshot artifacts. The lineage event family includes
+`review_unit_lineage_declared` and `review_unit_lineage_round_recorded`. Derived read documents use
+domain fields such as `lineageId`, `roundIndex`, and `headReviewUnitId` to describe the thread and
+its current head. `shore review lineage show` emits the compact `shore.review-lineage` document;
+`shore review lineage attach` emits `shore.review-lineage-attach`. The capture convenience
+`shore review capture --lineage <id> [--predecessor <review-unit-id>]` keeps capture counts at the
+top level and reports lineage attach counts, the post-attach head, and lineage diagnostics in a
+nested `lineageAttach` object. Malformed lineages have no head, so `headReviewUnitId` is `null`
+until the lineage projection is well formed again.
+
+Lineage identity must not depend on worktree paths, raw `.git` layout, raw `.shore` paths, or
+clone-local store paths. Change-Id optional enrichment only: it may help readers display or correlate
+rounds, but it is not required and is not the lineage identity. Lineage events remain ordinary
+producer facts signable by the generic `EventToBeSigned` contract from
+[ADR-0004](./adr/adr-0004-event-signatures.md), including its Dead Simple Signing Envelope (DSSE)
+and pre-authentication encoding rules.
+
+Lineage introduces scoped current semantics. A lineage-scoped read resolves to the lineage's
+`headReviewUnitId`; no implicit newest capture globally wins. Routine list, history, exact
+ReviewUnit, and lineage-scoped projections have no always-on ambiguous-current warning for routine
+multi-capture reads. Unscoped current selection still fails clearly when the caller asks for one
+current ReviewUnit in a store with multiple captures. The `stale_by_newer_round` diagnostic is a
+thread-level freshness fact for older lineage rounds, not an exact-ReviewUnit read error.
+
+The first lineage slice has no interdiff or stack DAG in this slice. Public export, relay/network
+forwarding, visual stack rendering, and stacked-work graph semantics remain out of scope.
+
 When the inspector lists captured ReviewUnits, it shows a derived label for each working-tree
 target — the worktree's name together with the short base commit — instead of a generic
 "working tree". This label is computed at read time from the capture's existing endpoint data; the

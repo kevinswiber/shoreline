@@ -583,6 +583,41 @@ fn event_signature_contract_docs_exist_and_reserve_deferred_surfaces() {
 }
 
 #[test]
+fn review_unit_lineage_contract_docs_exist() {
+    let adr = std::fs::read_to_string("docs/adr/adr-0005-review-unit-lineage.md")
+        .expect("ADR-0005 exists");
+    let storage = std::fs::read_to_string("docs/storage-model.md").expect("read storage model");
+    let workflow =
+        std::fs::read_to_string("docs/review-workflow.md").expect("read review workflow");
+    let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
+    let combined = format!("{adr}\n{storage}\n{workflow}\n{cli}");
+
+    for required in [
+        "review_unit_lineage_round_recorded",
+        "lineageId",
+        "roundIndex",
+        "headReviewUnitId",
+        "stale_by_newer_round",
+        "no implicit newest capture globally wins",
+        "no always-on ambiguous-current warning for routine multi-capture reads",
+        "Change-Id optional enrichment only",
+        "no interdiff or stack DAG in this slice",
+        "EventToBeSigned",
+        "Dead Simple Signing Envelope (DSSE)",
+        "pre-authentication encoding",
+    ] {
+        assert!(
+            combined.contains(required),
+            "lineage contract docs should mention {required}"
+        );
+    }
+
+    for forbidden in ["Plan 0055", "Gumbo"] {
+        assert!(!combined.contains(forbidden));
+    }
+}
+
+#[test]
 fn library_api_documents_event_signing_surface() {
     let api = std::fs::read_to_string("docs/library-api.md").expect("read library API docs");
 

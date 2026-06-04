@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use super::target::resolve_review_unit;
+use super::target::{ReviewUnitSelection, resolve_review_unit};
 use super::util::validated_track_id;
 use super::view::{ObservationProjectionOptions, ObservationView, project_observations};
 use crate::error::Result;
-use crate::model::{ReviewUnitId, TrackId};
+use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::ShoreStorePaths;
@@ -13,6 +13,7 @@ use crate::session::store_init::ShoreStorePaths;
 pub struct ObservationListOptions {
     repo: PathBuf,
     review_unit_id: Option<ReviewUnitId>,
+    lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     file: Option<String>,
     tags: Vec<String>,
@@ -24,6 +25,7 @@ impl ObservationListOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             review_unit_id: None,
+            lineage_id: None,
             track: None,
             file: None,
             tags: Vec::new(),
@@ -33,6 +35,11 @@ impl ObservationListOptions {
 
     pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
         self.review_unit_id = Some(id);
+        self
+    }
+
+    pub fn with_lineage_id(mut self, id: ReviewUnitLineageId) -> Self {
+        self.lineage_id = Some(id);
         self
     }
 
@@ -78,7 +85,13 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
     let shore_dir = paths.shore_dir();
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(
+        &events,
+        ReviewUnitSelection::from_review_unit_or_lineage(
+            options.review_unit_id.as_ref(),
+            options.lineage_id.as_ref(),
+        )?,
+    )?;
     let track_filter = options
         .track
         .as_deref()

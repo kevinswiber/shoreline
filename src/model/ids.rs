@@ -21,6 +21,8 @@ macro_rules! id_type {
 id_type!(ReviewId);
 id_type!(SessionId);
 id_type!(ReviewUnitId);
+id_type!(ReviewUnitLineageId);
+id_type!(ReviewUnitLineageRoundId);
 id_type!(EventId);
 id_type!(FileId);
 id_type!(ReviewNoteId);
@@ -124,5 +126,21 @@ mod tests {
         assert_eq!(json, "\"checkpoint:sha256:abc\"");
         assert_eq!(parsed, id);
         assert_eq!(parsed.as_str(), "checkpoint:sha256:abc");
+    }
+
+    #[test]
+    fn lineage_ids_round_trip_through_serde_and_string() {
+        let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:sha256:abc");
+        let round_id = ReviewUnitLineageRoundId::new("review-unit-lineage-round:sha256:def");
+
+        let lineage_json = serde_json::to_string(&lineage_id).unwrap();
+        let round_json = serde_json::to_string(&round_id).unwrap();
+        let parsed_lineage: ReviewUnitLineageId = serde_json::from_str(&lineage_json).unwrap();
+        let parsed_round: ReviewUnitLineageRoundId = serde_json::from_str(&round_json).unwrap();
+
+        assert_eq!(lineage_json, "\"review-unit-lineage:sha256:abc\"");
+        assert_eq!(round_json, "\"review-unit-lineage-round:sha256:def\"");
+        assert_eq!(parsed_lineage, lineage_id);
+        assert_eq!(parsed_round, round_id);
     }
 }

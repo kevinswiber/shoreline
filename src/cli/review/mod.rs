@@ -9,6 +9,7 @@ pub(super) mod capture;
 pub(super) mod common;
 pub(super) mod history;
 pub(super) mod input_request;
+pub(super) mod lineage;
 pub(super) mod observation;
 pub(super) mod unit;
 
@@ -24,6 +25,7 @@ enum ReviewCommand {
     Capture(capture::CaptureArgs),
     History(history::HistoryArgs),
     InputRequest(input_request::InputRequestArgs),
+    Lineage(lineage::LineageArgs),
     Observation(observation::ObservationArgs),
     Unit(unit::UnitArgs),
 }
@@ -38,6 +40,7 @@ pub(super) fn run(
         ReviewCommand::Capture(args) => capture::run(args, tracing, stdout),
         ReviewCommand::History(args) => history::run(args, stdout),
         ReviewCommand::InputRequest(args) => input_request::run(args, stdout),
+        ReviewCommand::Lineage(args) => lineage::run(args, stdout),
         ReviewCommand::Observation(args) => observation::run(args, stdout),
         ReviewCommand::Unit(args) => unit::run(args, stdout),
     }

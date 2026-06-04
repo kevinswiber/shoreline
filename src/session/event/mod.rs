@@ -9,6 +9,7 @@ mod assertion;
 mod assessment;
 mod input_request;
 mod kind;
+mod lineage;
 mod observation;
 mod payload;
 mod review;
@@ -27,6 +28,7 @@ pub use input_request::{
     InputRequestResponseOutcome,
 };
 pub use kind::EventType;
+pub use lineage::{ReviewUnitLineageDeclaredPayload, ReviewUnitLineageRoundRecordedPayload};
 pub use observation::ReviewObservationRecordedPayload;
 pub use payload::EventPayload;
 pub use review::{

@@ -2,7 +2,8 @@ use serde::Serialize;
 
 use crate::model::{
     AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId, ReviewEndpoint,
-    ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
+    ReviewTargetRef, ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
+    ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
 };
 use crate::session::EventVerificationStatus;
 use crate::session::event::{
@@ -134,6 +135,19 @@ pub enum ReviewHistorySummary {
         #[serde(skip_serializing_if = "Option::is_none")]
         created_at: Option<String>,
         sidecar_content_hash: String,
+    },
+    ReviewUnitLineageDeclared {
+        lineage_id: ReviewUnitLineageId,
+        basis: ReviewUnitLineageBasisV1,
+    },
+    ReviewUnitLineageRoundRecorded {
+        lineage_id: ReviewUnitLineageId,
+        round_id: ReviewUnitLineageRoundId,
+        review_unit_id: ReviewUnitId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        predecessor_review_unit_id: Option<ReviewUnitId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        change_id: Option<String>,
     },
 }
 

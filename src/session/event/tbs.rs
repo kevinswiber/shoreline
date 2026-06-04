@@ -230,6 +230,8 @@ mod tests {
             EventType::InputRequestOpened,
             EventType::InputRequestResponded,
             EventType::ReviewNoteImported,
+            EventType::ReviewUnitLineageDeclared,
+            EventType::ReviewUnitLineageRoundRecorded,
             EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,

@@ -4,6 +4,7 @@ mod capture;
 mod history;
 mod import;
 mod ingest;
+mod lineage;
 mod reload;
 mod review_unit_list;
 mod review_unit_projection;
@@ -37,6 +38,10 @@ pub use input_request::{
     InputRequestRespondOptions, InputRequestRespondResult, InputRequestResponseView,
     InputRequestStatus, InputRequestStatusFilter, InputRequestTargetSelector, InputRequestView,
     fetch_input_request, list_input_requests, open_input_request, respond_input_request,
+};
+pub use lineage::{
+    LineageAttachOptions, LineageAttachResult, LineageRoundView, LineageShowOptions,
+    LineageShowResult, attach_review_unit_to_lineage, show_lineage,
 };
 pub use observation::{
     ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,

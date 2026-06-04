@@ -22,6 +22,7 @@ mod assessment;
 mod capture;
 mod history;
 mod input_request;
+mod lineage;
 mod observation;
 mod unit;
 mod view;
@@ -29,12 +30,17 @@ mod view;
 pub use assessment::{
     AssessmentAddBody, AssessmentShowBody, assessment_add_document, assessment_show_document,
 };
-pub use capture::{CaptureBody, capture_document};
+pub use capture::{
+    CaptureBody, CaptureWithLineageBody, capture_document, capture_with_lineage_document,
+};
 pub use history::{HistoryBody, history_document};
 pub use input_request::{
     InputRequestFetchBody, InputRequestListBody, InputRequestOpenBody, InputRequestRespondBody,
     input_request_fetch_document, input_request_list_document, input_request_open_document,
     input_request_respond_document,
+};
+pub use lineage::{
+    LineageAttachBody, LineageShowBody, lineage_attach_document, lineage_show_document,
 };
 pub use observation::{
     ObservationAddBody, ObservationListBody, observation_add_document, observation_list_document,
@@ -165,5 +171,88 @@ mod tests {
             write_compact(&doc),
             "{\"schema\":\"shore.test-read\",\"version\":1,\"reviewUnitId\":\"unit:1\",\"count\":3,\"diagnostics\":[]}"
         );
+    }
+
+    #[test]
+    fn lineage_show_document_serializes_head_and_rounds_without_paths() {
+        use crate::documents::lineage_show_document;
+        use crate::model::{ReviewUnitId, ReviewUnitLineageId, ReviewUnitLineageRoundId};
+        use crate::session::{LineageRoundView, LineageShowResult};
+
+        let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:sha256:abc");
+        let document = lineage_show_document(LineageShowResult {
+            event_set_hash: "sha256:events".to_owned(),
+            event_count: 4,
+            lineage_id: lineage_id.clone(),
+            head_review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:two")),
+            rounds: vec![LineageRoundView {
+                lineage_id,
+                round_id: ReviewUnitLineageRoundId::new("review-unit-lineage-round:sha256:two"),
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:two"),
+                predecessor_review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:one")),
+                round_index: Some(1),
+                is_head: true,
+            }],
+            diagnostics: Vec::new(),
+        });
+        let json = write_compact(&document);
+
+        assert!(json.contains("\"schema\":\"shore.review-lineage\""));
+        assert!(json.contains("\"headReviewUnitId\""));
+        assert!(json.contains("\"rounds\""));
+        assert!(!json.contains("worktreeRoot"));
+        assert!(!json.contains(".shore"));
+        assert!(!json.contains(".git"));
+    }
+
+    #[test]
+    fn capture_with_lineage_document_nests_attach_counts() {
+        use crate::documents::capture_with_lineage_document;
+        use crate::model::{
+            ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, ReviewUnitSource, RevisionId,
+            SessionId, SnapshotId, WorktreeCaptureMode,
+        };
+        use crate::session::{CaptureResult, LineageAttachResult};
+
+        let document = capture_with_lineage_document(
+            CaptureResult {
+                session_id: SessionId::new("session:default"),
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                revision_id: RevisionId::new("rev:sha256:one"),
+                snapshot_id: SnapshotId::new("snapshot:sha256:one"),
+                source: ReviewUnitSource::GitWorktree {
+                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                    include_untracked: true,
+                },
+                base: ReviewEndpoint::GitCommit {
+                    commit_oid: "abc".to_owned(),
+                    tree_oid: "def".to_owned(),
+                },
+                target: ReviewEndpoint::GitWorkingTree {
+                    worktree_root: "/tmp/repo".to_owned(),
+                },
+                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                events_created: 1,
+                events_existing: 0,
+                events_created_by_type: BTreeMap::from([("review_unit_captured".to_owned(), 1)]),
+                diagnostics: Vec::new(),
+            },
+            LineageAttachResult {
+                lineage_id: ReviewUnitLineageId::new("review-unit-lineage:sha256:abc"),
+                head_review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:one")),
+                events_created: 2,
+                events_existing: 0,
+                events_created_by_type: BTreeMap::from([
+                    ("review_unit_lineage_declared".to_owned(), 1),
+                    ("review_unit_lineage_round_recorded".to_owned(), 1),
+                ]),
+                diagnostics: Vec::new(),
+            },
+        );
+        let json = write_compact(&document);
+
+        assert!(json.contains("\"schema\":\"shore.review-capture\""));
+        assert!(json.contains("\"lineageAttach\""));
+        assert!(json.contains("\"review_unit_lineage_round_recorded\":1"));
     }
 }

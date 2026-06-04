@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use shoreline::documents::{unit_list_document, unit_show_document};
-use shoreline::model::ReviewUnitId;
+use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
 use shoreline::session::{
     ReviewUnitListOptions, ReviewUnitShowOptions, list_review_units, show_review_unit,
 };
@@ -46,6 +46,10 @@ pub(super) struct UnitShowArgs {
     /// Select one ReviewUnit by id.
     #[arg(long)]
     review_unit: Option<String>,
+
+    /// Select the current head of one ReviewUnit lineage.
+    #[arg(long)]
+    lineage: Option<String>,
 
     /// Filter narrative facts to one review track.
     #[arg(long)]
@@ -108,6 +112,9 @@ fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {
     let mut options = ReviewUnitShowOptions::new(&args.repo).with_include_body(args.include_body);
     if let Some(review_unit) = &args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit.clone()));
+    }
+    if let Some(lineage) = &args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage.clone()));
     }
     if let Some(track) = &args.track {
         options = options.with_track(track.clone());

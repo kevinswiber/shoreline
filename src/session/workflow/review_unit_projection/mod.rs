@@ -5,7 +5,8 @@ use crate::session::input_request::{
     InputRequestProjectionOptions, InputRequestStatusFilter, project_input_requests,
 };
 use crate::session::observation::{
-    ObservationProjectionOptions, project_observations, resolve_review_unit, validated_track_id,
+    ObservationProjectionOptions, ReviewUnitSelection, project_observations, resolve_review_unit,
+    validated_track_id,
 };
 use crate::session::state::SessionState;
 use crate::session::store_init::ShoreStorePaths;
@@ -38,7 +39,13 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         .map(validated_track_id)
         .transpose()?;
     let events = EventStore::open(paths.shore_dir()).list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(
+        &events,
+        ReviewUnitSelection::from_review_unit_or_lineage(
+            options.review_unit_id.as_ref(),
+            options.lineage_id.as_ref(),
+        )?,
+    )?;
     let review_unit = selected_review_unit_capture(&events, &resolved)?;
     let snapshot = load_bound_snapshot_artifact(paths.worktree_root(), &review_unit)?;
     let observations = project_observations(ObservationProjectionOptions {

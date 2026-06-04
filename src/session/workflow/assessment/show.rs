@@ -4,9 +4,9 @@ use super::{
     AssessmentProjectionOptions, AssessmentView, CurrentAssessmentView, project_assessments,
 };
 use crate::error::Result;
-use crate::model::{ReviewUnitId, TrackId};
+use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
 use crate::session::EventStore;
-use crate::session::observation::{resolve_review_unit, validated_track_id};
+use crate::session::observation::{ReviewUnitSelection, resolve_review_unit, validated_track_id};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::ShoreStorePaths;
 
@@ -14,6 +14,7 @@ use crate::session::store_init::ShoreStorePaths;
 pub struct AssessmentShowOptions {
     pub(super) repo: PathBuf,
     pub(super) review_unit_id: Option<ReviewUnitId>,
+    pub(super) lineage_id: Option<ReviewUnitLineageId>,
     pub(super) track: Option<String>,
     pub(super) include_summary: bool,
     pub(super) include_all: bool,
@@ -24,6 +25,7 @@ impl AssessmentShowOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             review_unit_id: None,
+            lineage_id: None,
             track: None,
             include_summary: false,
             include_all: false,
@@ -32,6 +34,11 @@ impl AssessmentShowOptions {
 
     pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
         self.review_unit_id = Some(id);
+        self
+    }
+
+    pub fn with_lineage_id(mut self, id: ReviewUnitLineageId) -> Self {
+        self.lineage_id = Some(id);
         self
     }
 
@@ -71,7 +78,13 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let shore_dir = paths.shore_dir();
     let events = EventStore::open(shore_dir).list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(
+        &events,
+        ReviewUnitSelection::from_review_unit_or_lineage(
+            options.review_unit_id.as_ref(),
+            options.lineage_id.as_ref(),
+        )?,
+    )?;
     let track_filter = options
         .track
         .as_deref()

@@ -47,6 +47,9 @@ pub enum ReviewTargetRef {
     ReviewUnit {
         review_unit_id: ReviewUnitId,
     },
+    Lineage {
+        review_unit_lineage_id: super::ReviewUnitLineageId,
+    },
     File {
         review_unit_id: ReviewUnitId,
         file_path: String,

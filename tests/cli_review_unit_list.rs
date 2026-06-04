@@ -207,7 +207,7 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
 }
 
 #[test]
-fn review_unit_list_keeps_ambiguous_current_diagnostic_from_linked_store() {
+fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_linked_store() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed once\n").unwrap();
     let first = parse_json(
@@ -264,14 +264,14 @@ fn review_unit_list_keeps_ambiguous_current_diagnostic_from_linked_store() {
     assert!(ids.contains(&first["reviewUnit"]["id"].as_str().unwrap()));
     assert!(ids.contains(&second["reviewUnit"]["id"].as_str().unwrap()));
     assert!(
-        json["diagnostics"]
+        !json["diagnostics"]
             .as_array()
             .unwrap()
             .iter()
             .any(|diagnostic| {
                 diagnostic["code"].as_str() == Some("ambiguous_current_review_unit")
             }),
-        "expected ambiguous current ReviewUnit diagnostic"
+        "routine ReviewUnit list should not emit ambient current ambiguity diagnostics"
     );
 }
 

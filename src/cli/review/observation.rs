@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{observation_add_document, observation_list_document};
-use shoreline::model::{ObservationId, ReviewUnitId};
+use shoreline::model::{ObservationId, ReviewUnitId, ReviewUnitLineageId};
 use shoreline::session::{
     ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, list_observations,
     record_observation,
@@ -31,6 +31,9 @@ struct ObservationAddArgs {
 
     #[arg(long)]
     review_unit: Option<String>,
+
+    #[arg(long)]
+    lineage: Option<String>,
 
     #[arg(long)]
     track: String,
@@ -79,6 +82,9 @@ struct ObservationListArgs {
 
     #[arg(long)]
     review_unit: Option<String>,
+
+    #[arg(long)]
+    lineage: Option<String>,
 
     #[arg(long)]
     track: Option<String>,
@@ -163,6 +169,9 @@ fn observation_add_options(
     if let Some(review_unit) = args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
     }
+    if let Some(lineage) = args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
+    }
     if let Some(body) = body {
         options = options.with_body(body);
     }
@@ -186,6 +195,9 @@ fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions
     let mut options = ObservationListOptions::new(&args.repo).with_include_body(args.include_body);
     if let Some(review_unit) = args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(lineage) = args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);

@@ -6,7 +6,7 @@ use shoreline::documents::{
     input_request_fetch_document, input_request_list_document, input_request_open_document,
     input_request_respond_document,
 };
-use shoreline::model::{InputRequestId, ObservationId, ReviewUnitId};
+use shoreline::model::{InputRequestId, ObservationId, ReviewUnitId, ReviewUnitLineageId};
 use shoreline::session::event::{
     AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome,
 };
@@ -40,6 +40,9 @@ struct InputRequestOpenArgs {
 
     #[arg(long)]
     review_unit: Option<String>,
+
+    #[arg(long)]
+    lineage: Option<String>,
 
     #[arg(long)]
     track: String,
@@ -88,6 +91,9 @@ struct InputRequestListArgs {
 
     #[arg(long)]
     review_unit: Option<String>,
+
+    #[arg(long)]
+    lineage: Option<String>,
 
     #[arg(long)]
     track: Option<String>,
@@ -282,6 +288,9 @@ fn input_request_open_options(
     if let Some(review_unit) = args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
     }
+    if let Some(lineage) = args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
+    }
     if let Some(body) = body {
         options = options.with_body(body);
     }
@@ -298,6 +307,9 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
         .with_include_body(args.include_body);
     if let Some(review_unit) = args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(lineage) = args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);

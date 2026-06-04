@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{assessment_add_document, assessment_show_document};
-use shoreline::model::{AssessmentId, InputRequestId, ObservationId, ReviewUnitId};
+use shoreline::model::{
+    AssessmentId, InputRequestId, ObservationId, ReviewUnitId, ReviewUnitLineageId,
+};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
     AssessmentAddOptions, AssessmentShowOptions, AssessmentTargetSelector, record_assessment,
@@ -34,6 +36,10 @@ pub(super) struct AssessmentAddArgs {
     /// Captured ReviewUnit to assess; defaults to the single captured unit.
     #[arg(long)]
     review_unit: Option<String>,
+
+    /// Assess the current head of one ReviewUnit lineage.
+    #[arg(long)]
+    lineage: Option<String>,
 
     /// Review lane that owns this assessment.
     #[arg(long)]
@@ -109,6 +115,10 @@ pub(super) struct AssessmentShowArgs {
     /// Captured ReviewUnit to read; defaults to the single captured unit.
     #[arg(long)]
     review_unit: Option<String>,
+
+    /// Read assessments from the current head of one ReviewUnit lineage.
+    #[arg(long)]
+    lineage: Option<String>,
 
     /// Only show assessments from this review lane.
     #[arg(long)]
@@ -204,6 +214,9 @@ pub(super) fn assessment_add_options(
     if let Some(review_unit) = args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
     }
+    if let Some(lineage) = args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
+    }
     if let Some(summary) = summary {
         options = options.with_summary(summary);
     }
@@ -229,6 +242,9 @@ pub(super) fn assessment_show_options(args: AssessmentShowArgs) -> AssessmentSho
         .with_include_summary(args.include_summary);
     if let Some(review_unit) = args.review_unit {
         options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(lineage) = args.lineage {
+        options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);

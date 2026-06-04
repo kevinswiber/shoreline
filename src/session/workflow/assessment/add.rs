@@ -11,13 +11,15 @@ use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     ActorId, AssessmentId, EventId, InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId,
-    TargetRef, TrackId,
+    ReviewUnitLineageId, TargetRef, TrackId,
 };
 use crate::session::event::{
     EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
     ReviewObservationRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
 };
-use crate::session::observation::{resolve_review_unit, staged_body, validated_track_id};
+use crate::session::observation::{
+    ReviewUnitSelection, resolve_review_unit, staged_body, validated_track_id,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::session::{
@@ -30,6 +32,7 @@ use crate::storage::{Durability, LocalStorage};
 pub struct AssessmentAddOptions {
     repo: PathBuf,
     review_unit_id: Option<ReviewUnitId>,
+    lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     assessment: Option<ReviewAssessment>,
     summary: Option<String>,
@@ -47,6 +50,7 @@ impl AssessmentAddOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             review_unit_id: None,
+            lineage_id: None,
             track: None,
             assessment: None,
             summary: None,
@@ -72,6 +76,11 @@ impl AssessmentAddOptions {
 
     pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
         self.review_unit_id = Some(id);
+        self
+    }
+
+    pub fn with_lineage_id(mut self, id: ReviewUnitLineageId) -> Self {
+        self.lineage_id = Some(id);
         self
     }
 
@@ -153,7 +162,13 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(
+        &events,
+        ReviewUnitSelection::from_review_unit_or_lineage(
+            options.review_unit_id.as_ref(),
+            options.lineage_id.as_ref(),
+        )?,
+    )?;
     let target = resolve_assessment_target(worktree_root, &events, &resolved, &options.target)?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {

@@ -16,6 +16,10 @@ Each ReviewUnit gets its own immutable snapshot artifact. Anything you record
 afterwards — observations, input requests, assessments — attaches to that
 ReviewUnit and lives in the durable `.shore/events/` log.
 
+Several captured ReviewUnits can also be linked as one ReviewUnit lineage. A lineage records
+successive review rounds without mutating the captured snapshots. The lineage head is explicit
+within that lineage; no implicit newest capture globally wins.
+
 ## The workflow at a glance
 
 1. Start from a Git worktree containing the change you want to review.
@@ -68,18 +72,39 @@ captured snapshot as an immutable Shoreline-owned artifact. The output document 
 - the snapshot artifact's canonical content hash
 
 You can pin later commands to the captured ReviewUnit with `--review-unit
-<id>`. When only one ReviewUnit exists in `.shore/`, the read commands pick
-it automatically. When multiple exist, list them with
-`shore review unit list` and pass the ID you want.
+<id>`. When only one ReviewUnit exists in `.shore/`, commands that need a
+current ReviewUnit pick it automatically. When multiple exist, list them with
+`shore review unit list` and pass either the exact ReviewUnit ID or a lineage
+scope.
 
 The snapshot is now frozen. Re-running `shore review capture` later creates a
 new ReviewUnit; it does not mutate the previous one.
+
+Lineage-aware command paths attach immutable captures with
+`review_unit_lineage_round_recorded` facts:
+
+```bash
+shore review lineage attach --lineage <lineage-id> --review-unit <id>
+shore review lineage attach --lineage <lineage-id> --review-unit <next-id> --predecessor <id>
+shore review capture --lineage <lineage-id> [--predecessor <id>]
+```
+
+The derived fields `lineageId`, `roundIndex`, and `headReviewUnitId` identify the thread, the
+round, and the current lineage head. Change-Id is optional enrichment only: it can help display or
+correlate rounds, but it is not required and never replaces the lineage ID.
 
 Write commands such as `shore review observation add`,
 `shore review input-request open`, and `shore review assessment add` accept
 `--review-unit <id>`. When more than one captured ReviewUnit is current, pass
 the ID from capture output or `shore review unit list`; otherwise writes fail
 with an ambiguity error.
+
+Lineage makes that ambiguity contextual. A lineage-scoped current read or write resolves to the
+lineage `headReviewUnitId`; unscoped current selection remains ambiguous when multiple captures
+exist. Routine list, history, exact ReviewUnit, and lineage-scoped reads have no always-on
+ambiguous-current warning for routine multi-capture reads. Thread-level reads may report
+`stale_by_newer_round` when a fact targets an older round than the lineage head, but exact
+ReviewUnit reads remain valid for old rounds.
 
 ## 3. Inspect what was captured
 
@@ -112,6 +137,11 @@ time so the newest ReviewUnit appears last.
 shore review unit list --pretty
 ```
 
+When lineage facts exist, list/read projections can include lineage metadata. That metadata is a
+thread view over immutable captures, not an interdiff renderer; there is no interdiff or stack DAG in
+this slice. Lineage events remain signable through the generic `EventToBeSigned` producer-fact view
+and ADR-0004's Dead Simple Signing Envelope (DSSE) pre-authentication encoding.
+
 ### `shore review unit show`
 
 `shore review unit show` is the composite view of one ReviewUnit. It returns
@@ -131,9 +161,14 @@ without changing snapshot completeness.
 
 ```bash
 shore review unit show --pretty
+shore review unit show --lineage <lineage-id>
 shore review unit show --track agent:codex
 shore review unit show --include-body
 ```
+
+Use `shore review lineage show --lineage <lineage-id>` for the compact thread document. It returns
+`shore.review-lineage` JSON with `eventSetHash`, `eventCount`, `lineageId`, `headReviewUnitId`,
+`rounds`, and diagnostics.
 
 ### `shore review history`
 

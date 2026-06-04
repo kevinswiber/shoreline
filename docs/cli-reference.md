@@ -102,7 +102,8 @@ small JSON API the page consumes (`/api/history`, `/api/units`, `/api/unit`, `/a
 ## `shore review capture`
 
 ```bash
-shore review capture [--repo <path>]
+shore review capture [--repo <path>] [--lineage <lineage-id>] [--predecessor <review-unit-id>] \
+  [--change-id <change-id>]
 ```
 
 `shore review capture` records the current V1 ReviewUnit: the base endpoint, target endpoint, and
@@ -121,6 +122,8 @@ including untracked files.
 - The `review_unit_captured` event binds to the snapshot artifact's canonical content hash.
 - Output is compact `shore.review-capture` JSON and includes ReviewUnit, revision, and snapshot IDs
   plus `snapshotArtifactContentHash`.
+- With `--lineage`, capture immediately records lineage declaration/round facts for the newly
+  captured ReviewUnit. `--predecessor` is allowed only with `--lineage`.
 
 V1 `.shore/` storage is local and synchronous. It assumes one active Shoreline writer per `.shore/`
 directory and does not add a daemon, delivery queue, approval flow, async storage, remote storage,
@@ -181,16 +184,17 @@ paths, `.git` paths, `.shore` paths, and `state.json` remain internal storage de
 
 ```bash
 shore review observation add --track <track-id> --title <title> \
-  [--review-unit <review-unit-id>] [target options]
-shore review observation list [--review-unit <review-unit-id>] [--track <track-id>] \
+  [--review-unit <review-unit-id> | --lineage <lineage-id>] [target options]
+shore review observation list [--review-unit <review-unit-id> | --lineage <lineage-id>] [--track <track-id>] \
   [--file <path>] [--tag <tag>] [--include-body] [--pretty|--compact]
 ```
 
 Observations are append-only review notes for a captured ReviewUnit.
 
 - `observation add` requires `--track` and `--title`.
-- `--review-unit` pins the observation to one captured ReviewUnit; without it, the command defaults
-  to the single captured unit and errors if multiple captured ReviewUnits are current.
+- `--review-unit` pins the observation to one captured ReviewUnit. `--lineage` targets the current
+  lineage head. Without either, the command defaults to the single captured unit and errors if
+  multiple captured ReviewUnits exist.
 - Tracks are review lanes, not actor or tool provenance.
 - Without `--file`, the observation targets the whole ReviewUnit.
 - With `--file <path>`, it targets a captured file.
@@ -211,8 +215,8 @@ default. `observation list` also accepts `--pretty` and `--compact`.
 
 ```bash
 shore review input-request open --track <track-id> --title <title> --reason <reason> \
-  [--review-unit <review-unit-id>] [--mode operative|advisory]
-shore review input-request list [--review-unit <review-unit-id>] [--track <track-id>] \
+  [--review-unit <review-unit-id> | --lineage <lineage-id>] [--mode operative|advisory]
+shore review input-request list [--review-unit <review-unit-id> | --lineage <lineage-id>] [--track <track-id>] \
   [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
   [--include-body] [--pretty|--compact]
 shore review input-request fetch <input-request-id> [--include-body]
@@ -222,8 +226,9 @@ shore review input-request respond <input-request-id> --outcome <outcome> [reaso
 Input requests are durable pause or decision requests for a captured ReviewUnit.
 
 - `input-request open` requires `--track`, `--title`, and `--reason`.
-- `--review-unit` pins the request to one captured ReviewUnit; without it, the command defaults to
-  the single captured unit and errors if multiple captured ReviewUnits are current.
+- `--review-unit` pins the request to one captured ReviewUnit. `--lineage` targets the current
+  lineage head. Without either, the command defaults to the single captured unit and errors if
+  multiple captured ReviewUnits exist.
 - `--mode` defaults to `operative`; `advisory` requests are durable and visible but do not imply a
   cooperative client must pause.
 - Targets mirror observations: review-wide by default, captured file, captured range, or an
@@ -250,16 +255,17 @@ notification transport, or cancellation/escalation event.
 
 ```bash
 shore review assessment add --track <track-id> --assessment <assessment> \
-  [--review-unit <review-unit-id>] [target options]
-shore review assessment show [--review-unit <review-unit-id>] [--all] [--track <track-id>] \
+  [--review-unit <review-unit-id> | --lineage <lineage-id>] [target options]
+shore review assessment show [--review-unit <review-unit-id> | --lineage <lineage-id>] [--all] [--track <track-id>] \
   [--include-summary] [--pretty|--compact]
 ```
 
 Assessments record review calls for a captured ReviewUnit.
 
 - `assessment add` requires `--track` and `--assessment`.
-- `--review-unit` pins the assessment to one captured ReviewUnit; without it, the command defaults
-  to the single captured unit and errors if multiple captured ReviewUnits are current.
+- `--review-unit` pins the assessment to one captured ReviewUnit. `--lineage` targets the current
+  lineage head. Without either, the command defaults to the single captured unit and errors if
+  multiple captured ReviewUnits exist.
 - V1 assessment values are `accepted`, `accepted-with-follow-up`, `needs-changes`, and
   `needs-clarification`.
 - Targets mirror the ReviewUnit ledger: review-wide by default, captured file, captured range,
@@ -296,6 +302,8 @@ shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
 - `historyCount` is the number of returned entries after filters.
 - Entries are sorted by `occurredAt`, then `eventId`, as display chronology.
 - `--review-unit`, `--track`, and repeated `--event-type` narrow the returned entries.
+- Lineage event filters are `review-unit-lineage-declared` and
+  `review-unit-lineage-round-recorded`.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies, input request response reasons, assessment summaries, and imported-note bodies.
 - Duplicate semantic events remain visible as separate entries while shared duplicate diagnostics
@@ -308,7 +316,7 @@ narrative-first plus snapshot-complete view of one captured ReviewUnit.
 
 ```bash
 shore review unit list [--repo <path>] [--pretty | --compact]
-shore review unit show [--repo <path>] [--review-unit <id>] [--track <track-id>] \
+shore review unit show [--repo <path>] [--review-unit <id> | --lineage <lineage-id>] [--track <track-id>] \
   [--include-body] [--pretty | --compact]
 ```
 
@@ -316,11 +324,15 @@ shore review unit show [--repo <path>] [--review-unit <id>] [--track <track-id>]
 `shore.review-unit-list` JSON with `eventSetHash`, `eventCount`, `reviewUnitCount`, and entries
 sorted by capture time.
 
+ReviewUnit lineage metadata is reported by lineage-aware read surfaces. The lineage round event is
+`review_unit_lineage_round_recorded`; it links an already-stored captured ReviewUnit into an ordered
+thread. Change-Id optional enrichment only: it is not required and is not the lineage identity.
+
 `shore review unit show` is the composite view for one ReviewUnit. It emits compact
 `shore.review-unit` v1 JSON by default.
 
 - When exactly one ReviewUnit has been captured, Shoreline selects it automatically.
-- If multiple ReviewUnits exist, pass `--review-unit <id>`.
+- If multiple ReviewUnits exist, pass `--review-unit <id>` or `--lineage <lineage-id>`.
 - The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
   current assessment status, native observations, input requests, assessments, imported adapter
   notes, projection rows, and diagnostics.
@@ -330,8 +342,44 @@ sorted by capture time.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies and response reasons, assessment summaries, and imported-note bodies.
 
+Lineage-scoped current selection resolves to `headReviewUnitId`; no implicit newest capture globally
+wins. Unscoped current selection with multiple captured ReviewUnits still errors at the selection
+boundary, but routine list, history, exact ReviewUnit, and lineage-scoped reads should have no
+always-on ambiguous-current warning for routine multi-capture reads. Thread-level lineage reads may
+surface `stale_by_newer_round` for facts attached to older rounds. There is no interdiff or stack DAG
+in this slice.
+
+Lineage event families stay signable under ADR-0004's generic `EventToBeSigned` contract with the
+Dead Simple Signing Envelope (DSSE) and pre-authentication encoding rules.
+
 `shore review unit show` is distinct from `shore review history`: history is the chronological raw
 event listing, while unit show is the composite ReviewUnit view for agents and future frontends.
+
+## `shore review lineage`
+
+```bash
+shore review lineage attach --repo <path> --lineage <lineage-id> --review-unit <id> \
+  [--predecessor <id>] [--change-id <change-id>]
+shore review lineage show --repo <path> --lineage <lineage-id> [--pretty | --compact]
+```
+
+`shore review lineage attach` records path-free lineage declaration and round facts over
+already-stored `review_unit_captured` events. The output is compact
+`shore.review-lineage-attach` JSON with `lineageId`, `headReviewUnitId`, event write counts, and
+diagnostics. If the write leaves the lineage malformed, `headReviewUnitId` is `null` and diagnostics
+describe the malformed lineage.
+
+`shore review lineage show` emits compact `shore.review-lineage` JSON by default. The document
+includes `eventSetHash`, `eventCount`, `lineageId`, `headReviewUnitId`, `rounds`, and diagnostics.
+Round entries include `reviewUnitId`, optional `predecessorReviewUnitId`, `roundIndex`, and
+`isHead`. Thread-level diagnostics may include `stale_by_newer_round` when facts target an older
+round than the lineage head. This slice does not render interdiffs, stack graphs, or a stacked-work
+DAG.
+
+`shore review capture --lineage <lineage-id> [--predecessor <id>]` is a convenience that captures a
+new ReviewUnit and then attaches that captured ReviewUnit to the lineage. Its `shore.review-capture`
+output keeps capture event counts at the top level and places lineage attach counts under
+`lineageAttach`, including the post-attach lineage head and lineage diagnostics.
 
 ## `shore notes apply`
 

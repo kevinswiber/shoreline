@@ -9,7 +9,8 @@ use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
-    ReviewUnitCapturedPayload, ShoreEvent, decode_input_request_opened_payload,
+    ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
+    ReviewUnitLineageRoundRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
 };
 use crate::session::state::SessionState;
 use crate::session::verify_event_signature;
@@ -164,6 +165,25 @@ pub(super) fn history_entry_from_event(
                 author: payload.author,
                 created_at: payload.created_at,
                 sidecar_content_hash: payload.sidecar_content_hash,
+            }
+        }
+        EventType::ReviewUnitLineageDeclared => {
+            let payload: ReviewUnitLineageDeclaredPayload =
+                serde_json::from_value(event.payload.clone())?;
+            ReviewHistorySummary::ReviewUnitLineageDeclared {
+                lineage_id: payload.lineage_id,
+                basis: payload.basis,
+            }
+        }
+        EventType::ReviewUnitLineageRoundRecorded => {
+            let payload: ReviewUnitLineageRoundRecordedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            ReviewHistorySummary::ReviewUnitLineageRoundRecorded {
+                lineage_id: payload.lineage_id,
+                round_id: payload.round_id,
+                review_unit_id: payload.review_unit_id,
+                predecessor_review_unit_id: payload.predecessor_review_unit_id,
+                change_id: payload.change_id,
             }
         }
         EventType::TaskAttemptCaptured

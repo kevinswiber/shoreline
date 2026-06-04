@@ -8,7 +8,7 @@ pub use self::add::{ObservationAddOptions, ObservationAddResult, record_observat
 pub use self::list::{ObservationListOptions, ObservationListResult, list_observations};
 pub use self::target::ObservationTargetSelector;
 pub(crate) use self::target::{
-    ResolvedReviewUnit, resolve_observation_target, resolve_review_unit,
+    ResolvedReviewUnit, ReviewUnitSelection, resolve_observation_target, resolve_review_unit,
 };
 pub(crate) use self::util::{required_title, staged_body, validated_track_id};
 #[cfg(test)]
@@ -25,11 +25,13 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        EventId, ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId,
-        SessionId, Side, SnapshotId, TrackId, WorktreeCaptureMode,
+        EventId, ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageBasisV1,
+        ReviewUnitLineageId, ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId,
+        Side, SnapshotId, TrackId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent, Writer,
+        EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
+        ReviewUnitLineageRoundRecordedPayload, ShoreEvent, Writer,
     };
     use crate::session::{
         CaptureOptions, CaptureResult, EventStore, SessionState, capture_worktree_review,
@@ -81,7 +83,7 @@ mod tests {
         let event_store = EventStore::open(repo.path().join(".shore"));
         let events = event_store.list_events().unwrap();
 
-        let resolved = resolve_review_unit(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, ReviewUnitSelection::Current).unwrap();
 
         assert_eq!(resolved.review_unit_id, capture.review_unit_id);
         assert_eq!(resolved.revision_id, capture.revision_id);
@@ -92,7 +94,7 @@ mod tests {
     fn resolving_current_review_unit_errors_when_none_captured() {
         let events = Vec::new();
 
-        let error = resolve_review_unit(&events, None).unwrap_err();
+        let error = resolve_review_unit(&events, ReviewUnitSelection::Current).unwrap_err();
 
         assert!(error.to_string().contains("no captured review unit"));
     }
@@ -104,7 +106,7 @@ mod tests {
             review_unit_captured_event_with_ids("review-unit:sha256:two", "rev:two", "snap:two"),
         ];
 
-        let error = resolve_review_unit(&events, None).unwrap_err();
+        let error = resolve_review_unit(&events, ReviewUnitSelection::Current).unwrap_err();
 
         assert!(error.to_string().contains("multiple captured review units"));
     }
@@ -119,11 +121,73 @@ mod tests {
 
         let error = resolve_review_unit(
             &events,
-            Some(&ReviewUnitId::new("review-unit:sha256:missing")),
+            ReviewUnitSelection::Exact(&ReviewUnitId::new("review-unit:sha256:missing")),
         )
         .unwrap_err();
 
         assert!(error.to_string().contains("unknown review unit"));
+    }
+
+    #[test]
+    fn resolving_current_with_lineage_uses_lineage_head_even_when_global_is_ambiguous() {
+        let events = two_captures_same_lineage();
+
+        let resolved = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::LineageHead(&review_unit_lineage_id("lineage-a")),
+        )
+        .unwrap();
+
+        assert_eq!(resolved.review_unit_id, review_unit_id("two"));
+    }
+
+    #[test]
+    fn explicit_review_unit_still_selects_exact_old_round() {
+        let events = two_captures_same_lineage();
+
+        let resolved =
+            resolve_review_unit(&events, ReviewUnitSelection::Exact(&review_unit_id("one")))
+                .unwrap();
+
+        assert_eq!(resolved.review_unit_id, review_unit_id("one"));
+    }
+
+    #[test]
+    fn resolving_current_with_missing_lineage_fails_closed() {
+        let events = two_captures_same_lineage();
+
+        let error = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::LineageHead(&review_unit_lineage_id("missing")),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown ReviewUnit lineage"));
+    }
+
+    #[test]
+    fn resolving_current_with_malformed_lineage_fails_closed() {
+        let events = vec![
+            review_unit_captured_event_with_ids("review-unit:sha256:one", "rev:one", "snap:one"),
+            review_unit_captured_event_with_ids("review-unit:sha256:two", "rev:two", "snap:two"),
+            review_unit_captured_event_with_ids(
+                "review-unit:sha256:three",
+                "rev:three",
+                "snap:three",
+            ),
+            lineage_declared("lineage-a"),
+            lineage_round("lineage-a", "one", None),
+            lineage_round("lineage-a", "two", Some("one")),
+            lineage_round("lineage-a", "three", Some("one")),
+        ];
+
+        let error = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::LineageHead(&review_unit_lineage_id("lineage-a")),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("is malformed"));
     }
 
     #[test]
@@ -687,6 +751,81 @@ mod tests {
             "2026-05-12T00:00:00Z",
         )
         .unwrap()
+    }
+
+    fn two_captures_same_lineage() -> Vec<ShoreEvent> {
+        vec![
+            review_unit_captured_event_with_ids("review-unit:sha256:one", "rev:one", "snap:one"),
+            review_unit_captured_event_with_ids("review-unit:sha256:two", "rev:two", "snap:two"),
+            lineage_declared("lineage-a"),
+            lineage_round("lineage-a", "one", None),
+            lineage_round("lineage-a", "two", Some("one")),
+        ]
+    }
+
+    fn lineage_declared(suffix: &str) -> ShoreEvent {
+        let lineage_id = review_unit_lineage_id(suffix);
+        ShoreEvent::new(
+            EventType::ReviewUnitLineageDeclared,
+            ReviewUnitLineageDeclaredPayload::idempotency_key(&lineage_id),
+            EventTarget::for_review_unit_lineage(
+                SessionId::new("session:default"),
+                lineage_id.clone(),
+            ),
+            Writer::shore_local_author("0.1.0"),
+            ReviewUnitLineageDeclaredPayload {
+                lineage_id,
+                basis: ReviewUnitLineageBasisV1::new(
+                    ReviewUnitSource::GitWorktree {
+                        mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                        include_untracked: true,
+                    },
+                    ReviewEndpoint::GitCommit {
+                        commit_oid: "abc".to_owned(),
+                        tree_oid: "def".to_owned(),
+                    },
+                ),
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
+    }
+
+    fn lineage_round(
+        lineage_suffix: &str,
+        review_unit_suffix: &str,
+        predecessor_suffix: Option<&str>,
+    ) -> ShoreEvent {
+        let lineage_id = review_unit_lineage_id(lineage_suffix);
+        let unit_id = review_unit_id(review_unit_suffix);
+        ShoreEvent::new(
+            EventType::ReviewUnitLineageRoundRecorded,
+            ReviewUnitLineageRoundRecordedPayload::idempotency_key(&lineage_id, &unit_id),
+            EventTarget::for_review_unit_lineage(
+                SessionId::new("session:default"),
+                lineage_id.clone(),
+            ),
+            Writer::shore_local_author("0.1.0"),
+            ReviewUnitLineageRoundRecordedPayload {
+                lineage_id,
+                round_id: ReviewUnitLineageRoundId::new(format!(
+                    "review-unit-lineage-round:sha256:{review_unit_suffix}"
+                )),
+                review_unit_id: unit_id,
+                predecessor_review_unit_id: predecessor_suffix.map(review_unit_id),
+                change_id: None,
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
+    }
+
+    fn review_unit_id(suffix: &str) -> ReviewUnitId {
+        ReviewUnitId::new(format!("review-unit:sha256:{suffix}"))
+    }
+
+    fn review_unit_lineage_id(suffix: &str) -> ReviewUnitLineageId {
+        ReviewUnitLineageId::new(format!("review-unit-lineage:sha256:{suffix}"))
     }
 
     fn observation_view_for_sort(

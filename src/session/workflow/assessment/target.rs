@@ -222,5 +222,8 @@ pub(crate) fn review_unit_id_for_target(target: &ReviewTargetRef) -> &ReviewUnit
         | ReviewTargetRef::InputRequest { review_unit_id, .. }
         | ReviewTargetRef::Assessment { review_unit_id, .. }
         | ReviewTargetRef::Event { review_unit_id, .. } => review_unit_id,
+        ReviewTargetRef::Lineage { .. } => {
+            unreachable!("lineage targets do not identify an exact ReviewUnit")
+        }
     }
 }

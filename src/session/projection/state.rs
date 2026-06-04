@@ -17,7 +17,6 @@ use crate::session::event::{
 
 const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;
-pub const AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE: &str = "ambiguous_current_review_unit";
 pub const DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE: &str = "duplicate_semantic_observation_event";
 pub const DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE: &str =
     "duplicate_semantic_input_request_open_event";
@@ -180,6 +179,9 @@ impl StateReducer {
             EventType::ReviewNoteImported => {
                 self.note_count += 1;
             }
+            EventType::ReviewUnitLineageDeclared | EventType::ReviewUnitLineageRoundRecorded => {
+                // Lineage projections are derived by the dedicated lineage reducer.
+            }
             EventType::TaskAttemptCaptured
             | EventType::TaskCheckpointCaptured
             | EventType::TaskObservationRecorded => {
@@ -259,17 +261,7 @@ impl StateReducer {
         let current_review_unit = match self.captured_review_units.len() {
             0 => None,
             1 => self.captured_review_units.iter().next(),
-            _ => {
-                // Expected whenever a store holds more than one capture: re-captures stack,
-                // and there is no supersede/canonical mechanism to retire stale or nested ones
-                // yet, so the set of current units only grows and reads/writes must disambiguate
-                // with --review-unit. See kevinswiber/shoreline#106.
-                diagnostics.push(ProjectionDiagnostic {
-                    code: AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE.to_owned(),
-                    message: "multiple captured review units remain current".to_owned(),
-                });
-                None
-            }
+            _ => None,
         };
         let current_review_unit_id =
             current_review_unit.map(|(review_unit_id, _)| review_unit_id.clone());
@@ -470,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn projection_reports_ambiguous_current_review_unit() {
+    fn projection_keeps_multi_capture_current_unset_without_ambient_diagnostic() {
         let events = vec![
             review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one"),
             review_unit_captured_event("review-unit:sha256:two", "rev:two", "snap:two"),
@@ -481,12 +473,12 @@ mod tests {
         assert_eq!(state.current_review_unit_id, None);
         assert_eq!(state.current_revision_id, None);
         assert_eq!(state.current_snapshot_id, None);
-        assert!(state.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE
-                && diagnostic
-                    .message
-                    .contains("multiple captured review units")
-        }));
+        assert!(
+            !state
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ambiguous_current_review_unit")
+        );
     }
 
     #[test]

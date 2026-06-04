@@ -10,6 +10,8 @@ pub enum EventType {
     InputRequestOpened,
     InputRequestResponded,
     ReviewNoteImported,
+    ReviewUnitLineageDeclared,
+    ReviewUnitLineageRoundRecorded,
     TaskAttemptCaptured,
     TaskCheckpointCaptured,
     TaskObservationRecorded,
@@ -27,6 +29,8 @@ impl EventType {
             Self::InputRequestOpened => "input_request_opened",
             Self::InputRequestResponded => "input_request_responded",
             Self::ReviewNoteImported => "review_note_imported",
+            Self::ReviewUnitLineageDeclared => "review_unit_lineage_declared",
+            Self::ReviewUnitLineageRoundRecorded => "review_unit_lineage_round_recorded",
             Self::TaskAttemptCaptured => "task_attempt_captured",
             Self::TaskCheckpointCaptured => "task_checkpoint_captured",
             Self::TaskObservationRecorded => "task_observation_recorded",
@@ -48,6 +52,8 @@ mod tests {
             EventType::InputRequestOpened,
             EventType::InputRequestResponded,
             EventType::ReviewNoteImported,
+            EventType::ReviewUnitLineageDeclared,
+            EventType::ReviewUnitLineageRoundRecorded,
             EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
@@ -100,6 +106,8 @@ mod tests {
             EventType::InputRequestOpened,
             EventType::InputRequestResponded,
             EventType::ReviewNoteImported,
+            EventType::ReviewUnitLineageDeclared,
+            EventType::ReviewUnitLineageRoundRecorded,
         ];
         let task_domain = [
             EventType::TaskAttemptCaptured,
@@ -165,6 +173,18 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&EventType::InputRequestResponded).unwrap(),
             "\"input_request_responded\""
+        );
+    }
+
+    #[test]
+    fn lineage_event_types_serialize_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&EventType::ReviewUnitLineageDeclared).unwrap(),
+            "\"review_unit_lineage_declared\""
+        );
+        assert_eq!(
+            serde_json::to_string(&EventType::ReviewUnitLineageRoundRecorded).unwrap(),
+            "\"review_unit_lineage_round_recorded\""
         );
     }
 }

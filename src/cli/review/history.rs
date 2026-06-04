@@ -50,6 +50,8 @@ enum HistoryEventTypeArg {
     InputRequestOpened,
     InputRequestResponded,
     ReviewNoteImported,
+    ReviewUnitLineageDeclared,
+    ReviewUnitLineageRoundRecorded,
 }
 
 pub(super) fn run(
@@ -89,6 +91,10 @@ impl From<HistoryEventTypeArg> for EventType {
             HistoryEventTypeArg::InputRequestOpened => Self::InputRequestOpened,
             HistoryEventTypeArg::InputRequestResponded => Self::InputRequestResponded,
             HistoryEventTypeArg::ReviewNoteImported => Self::ReviewNoteImported,
+            HistoryEventTypeArg::ReviewUnitLineageDeclared => Self::ReviewUnitLineageDeclared,
+            HistoryEventTypeArg::ReviewUnitLineageRoundRecorded => {
+                Self::ReviewUnitLineageRoundRecorded
+            }
         }
     }
 }
