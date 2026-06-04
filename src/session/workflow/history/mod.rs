@@ -40,14 +40,15 @@ mod tests {
     use crate::model::{
         AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId,
         ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-        Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
+        Side, SnapshotId, TargetRef, TrackId, ValidationCheckId, ValidationStatus,
+        ValidationTarget, ValidationTrigger, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         AssertionMode, EventTarget, EventType, ImportedNoteTarget, InputRequestOpenedPayload,
         InputRequestReasonCode, InputRequestRespondedPayload, InputRequestResponseOutcome,
         ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
         ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-        ShoreEvent, SidecarSource, Writer,
+        ShoreEvent, SidecarSource, ValidationCheckRecordedPayload, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
 
@@ -120,6 +121,11 @@ mod tests {
                 EventType::ReviewNoteImported,
                 "review_note_imported",
             ),
+            (
+                validation_check_recorded_event(),
+                EventType::ValidationCheckRecorded,
+                "validation_check_recorded",
+            ),
         ];
 
         for (event, event_type, summary_kind) in cases {
@@ -156,6 +162,20 @@ mod tests {
             serde_json::json!(["input-request:sha256:one"])
         );
         assert!(json["summary"].get("relatedInterventions").is_none());
+    }
+
+    #[test]
+    fn history_includes_validation_check_recorded_summary() {
+        let event = validation_check_recorded_event();
+
+        let entry =
+            history_entry_from_event(&event, &ResolvedHistoryFilters::default(), None).unwrap();
+        let json = serde_json::to_value(&entry.summary).unwrap();
+
+        assert_eq!(json["kind"], "validation_check_recorded");
+        assert_eq!(json["validationCheckId"], "validation:sha256:one");
+        assert_eq!(json["checkName"], "cargo test");
+        assert_eq!(json["status"], "passed");
     }
 
     #[test]
@@ -712,6 +732,35 @@ mod tests {
             "human:kevin",
             payload,
             "2026-05-13T10:00:03Z",
+        )
+    }
+
+    fn validation_check_recorded_event() -> ShoreEvent {
+        let payload = ValidationCheckRecordedPayload {
+            validation_check_id: ValidationCheckId::new("validation:sha256:one"),
+            target: ValidationTarget::ReviewUnit {
+                review_unit_id: review_unit_id("one"),
+            },
+            check_name: "cargo test".to_owned(),
+            command: None,
+            status: ValidationStatus::Passed,
+            exit_code: Some(0),
+            trigger: ValidationTrigger::Manual,
+            source_fingerprint: None,
+            summary: Some("tests passed".to_owned()),
+            summary_artifact_path: None,
+            summary_byte_size: Some(12),
+            summary_content_hash: Some("sha256:summary".to_owned()),
+            started_at: Some("2026-05-13T09:59:00Z".to_owned()),
+            completed_at: Some("2026-05-13T10:00:00Z".to_owned()),
+            log_artifact_content_hashes: vec!["sha256:log".to_owned()],
+        };
+        tracked_event(
+            EventType::ValidationCheckRecorded,
+            "validation:one",
+            "agent:codex",
+            payload,
+            "2026-05-13T10:00:04Z",
         )
     }
 

@@ -10,7 +10,8 @@ use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
     ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
-    ReviewUnitLineageRoundRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
+    ReviewUnitLineageRoundRecordedPayload, ShoreEvent, ValidationCheckRecordedPayload,
+    decode_input_request_opened_payload,
 };
 use crate::session::state::SessionState;
 use crate::session::verify_event_signature;
@@ -187,9 +188,28 @@ pub(super) fn history_entry_from_event(
             }
         }
         EventType::ValidationCheckRecorded => {
-            return Err(ShoreError::Message(
-                "review history validation summaries are not yet projected".to_owned(),
-            ));
+            let payload: ValidationCheckRecordedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            ReviewHistorySummary::ValidationCheckRecorded {
+                validation_check_id: payload.validation_check_id,
+                target: payload.target,
+                check_name: payload.check_name,
+                command: payload.command,
+                status: payload.status,
+                exit_code: payload.exit_code,
+                trigger: payload.trigger,
+                source_fingerprint: payload.source_fingerprint,
+                summary: optional_text(
+                    shore_dir,
+                    filters.include_body,
+                    payload.summary,
+                    payload.summary_artifact_path.as_deref(),
+                )?,
+                summary_content_hash: payload.summary_content_hash,
+                started_at: payload.started_at,
+                completed_at: payload.completed_at,
+                log_artifact_content_hashes: payload.log_artifact_content_hashes,
+            }
         }
         EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured

@@ -9,6 +9,7 @@ use crate::session::assessment::{AssessmentView, CurrentAssessmentView};
 use crate::session::input_request::InputRequestView;
 use crate::session::observation::ObservationView;
 use crate::session::state::ProjectionDiagnostic;
+use crate::session::workflow::ValidationCheckView;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowOptions {
@@ -63,6 +64,7 @@ pub struct ReviewUnitShowResult {
     pub observations: Vec<ObservationView>,
     pub input_requests: Vec<InputRequestView>,
     pub assessments: Vec<AssessmentView>,
+    pub validation_checks: Vec<ValidationCheckView>,
     pub adapter_notes: Vec<AdapterNoteView>,
     pub rows: Vec<ReviewUnitProjectionRow>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -97,5 +99,6 @@ pub struct ReviewUnitProjectionSummary {
     pub observation_count: usize,
     pub input_request_count: usize,
     pub assessment_count: usize,
+    pub validation_check_count: usize,
     pub adapter_note_count: usize,
 }

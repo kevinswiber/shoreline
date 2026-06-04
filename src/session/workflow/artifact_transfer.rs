@@ -10,7 +10,8 @@ use crate::session::body_artifact::{
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-    ShoreEvent, TaskObservationRecordedPayload, decode_input_request_opened_payload,
+    ShoreEvent, TaskObservationRecordedPayload, ValidationCheckRecordedPayload,
+    decode_input_request_opened_payload,
 };
 use crate::session::snapshot_artifact::{
     read_snapshot_artifact_bytes, snapshot_artifact_path, validate_snapshot_artifact_content_hash,
@@ -219,6 +220,11 @@ fn referenced_artifacts_for_event(
                 serde_json::from_value(event.payload.clone())?;
             insert_body_ref(refs, payload.summary_artifact_path.as_deref())
         }
+        EventType::ValidationCheckRecorded => {
+            let payload: ValidationCheckRecordedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            insert_body_ref(refs, payload.summary_artifact_path.as_deref())
+        }
         EventType::ReviewNoteImported => {
             let payload: ReviewNoteImportedPayload = serde_json::from_value(event.payload.clone())?;
             insert_body_ref(refs, payload.body_artifact_path.as_deref())
@@ -231,7 +237,6 @@ fn referenced_artifacts_for_event(
         EventType::ReviewInitialized
         | EventType::ReviewUnitLineageDeclared
         | EventType::ReviewUnitLineageRoundRecorded
-        | EventType::ValidationCheckRecorded
         | EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured => Ok(()),
     }
@@ -357,5 +362,64 @@ fn import_body_artifact(
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{
+        ReviewUnitId, RevisionId, SessionId, SnapshotId, TrackId, ValidationCheckId,
+        ValidationStatus, ValidationTarget, ValidationTrigger,
+    };
+    use crate::session::event::{EventTarget, EventType, ValidationCheckRecordedPayload, Writer};
+
+    #[test]
+    fn referenced_artifacts_includes_validation_summary_body() {
+        let hash = "a".repeat(64);
+        let event = validation_event_with_summary_path(&format!("artifacts/notes/{hash}.json"));
+
+        let refs = referenced_artifacts(&[event]).unwrap();
+
+        assert!(refs.iter().any(|artifact| {
+            artifact.kind() == ArtifactKind::Body
+                && artifact.content_hash() == format!("sha256:{hash}")
+        }));
+    }
+
+    fn validation_event_with_summary_path(path: &str) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let mut target = EventTarget::for_review_unit(
+            SessionId::new("session:default"),
+            review_unit_id.clone(),
+            RevisionId::new("rev:one"),
+            SnapshotId::new("snap:one"),
+        );
+        target.track_id = Some(TrackId::new("agent:codex"));
+        ShoreEvent::new(
+            EventType::ValidationCheckRecorded,
+            "validation_check_recorded:one",
+            target,
+            Writer::shore_local_author("0.1.0"),
+            ValidationCheckRecordedPayload {
+                validation_check_id: ValidationCheckId::new("validation:sha256:one"),
+                target: ValidationTarget::ReviewUnit { review_unit_id },
+                check_name: "cargo test".to_owned(),
+                command: None,
+                status: ValidationStatus::Passed,
+                exit_code: Some(0),
+                trigger: ValidationTrigger::Manual,
+                source_fingerprint: None,
+                summary: None,
+                summary_artifact_path: Some(path.to_owned()),
+                summary_byte_size: Some(10),
+                summary_content_hash: Some("sha256:summary".to_owned()),
+                started_at: None,
+                completed_at: None,
+                log_artifact_content_hashes: Vec::new(),
+            },
+            "2026-05-13T10:00:00Z",
+        )
+        .unwrap()
     }
 }

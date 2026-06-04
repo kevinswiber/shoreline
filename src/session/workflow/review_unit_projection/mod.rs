@@ -10,6 +10,7 @@ use crate::session::observation::{
 };
 use crate::session::state::SessionState;
 use crate::session::store_init::ShoreStorePaths;
+use crate::session::workflow::{ValidationCheckProjectionOptions, project_validation_checks};
 
 mod adapter_notes;
 mod identity;
@@ -27,7 +28,7 @@ use self::resolving::selected_review_unit_capture;
 pub use self::rows::{ReviewUnitProjectionRow, SnapshotOrder};
 use self::rows::{
     build_adapter_note_rows, build_assessment_rows, build_input_request_rows,
-    build_observation_rows, build_snapshot_rows, renumber_projection_rows,
+    build_observation_rows, build_snapshot_rows, build_validation_rows, renumber_projection_rows,
 };
 use self::snapshot::load_bound_snapshot_artifact;
 
@@ -75,6 +76,14 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         include_summary: options.include_body,
         include_all: true,
     })?;
+    let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
+        shore_dir: paths.shore_dir(),
+        events: &events,
+        review_unit_id: &resolved.review_unit_id,
+        track_filter: track_id.clone(),
+        status_filter: None,
+        include_body: options.include_body,
+    })?;
     let adapter_notes =
         project_adapter_notes(&events, paths.shore_dir(), &snapshot, options.include_body)?;
     let (snapshot_rows, mut summary) = build_snapshot_rows(&snapshot, &review_unit.id);
@@ -88,6 +97,9 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let assessment_rows = build_assessment_rows(&assessments);
     summary.assessment_count = assessments.len();
     narrative_rows.extend(assessment_rows);
+    let validation_rows = build_validation_rows(&validation_checks);
+    summary.validation_check_count = validation_checks.len();
+    narrative_rows.extend(validation_rows);
     let adapter_note_rows = build_adapter_note_rows(&adapter_notes, &review_unit.id);
     summary.adapter_note_count = adapter_notes.len();
     narrative_rows.extend(adapter_note_rows);
@@ -117,6 +129,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         observations,
         input_requests,
         assessments,
+        validation_checks,
         adapter_notes,
         rows,
         diagnostics: state.diagnostics,
@@ -130,20 +143,25 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
+    use super::rows::ReviewUnitProjectionRowKind;
     use super::*;
     use crate::canonical_hash::sha256_json_prefixed;
-    use crate::model::{DiffSnapshot, ReviewId, ReviewUnitId, SnapshotId};
+    use crate::model::{
+        DiffSnapshot, ReviewId, ReviewUnitId, SnapshotId, ValidationCheckId, ValidationStatus,
+        ValidationTarget, ValidationTrigger,
+    };
     use crate::session::event::{
-        InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment,
+        EventTarget, EventType, InputRequestReasonCode, InputRequestResponseOutcome,
+        ReviewAssessment, ShoreEvent, ValidationCheckRecordedPayload, Writer,
     };
     use crate::session::{
-        AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CurrentAssessmentStatus,
-        ImportNotesOptions, InputRequestListOptions, InputRequestOpenOptions,
-        InputRequestRespondOptions, InputRequestStatus, InputRequestStatusFilter,
-        ObservationAddOptions, ObservationListOptions, ObservationTargetSelector,
-        capture_worktree_review, import_notes, list_input_requests, list_observations,
-        open_input_request, record_assessment, record_observation, respond_input_request,
-        show_assessments,
+        AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CaptureResult,
+        CurrentAssessmentStatus, EventStore, ImportNotesOptions, InputRequestListOptions,
+        InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
+        InputRequestStatusFilter, ObservationAddOptions, ObservationListOptions,
+        ObservationTargetSelector, capture_worktree_review, import_notes, list_input_requests,
+        list_observations, open_input_request, record_assessment, record_observation,
+        respond_input_request, show_assessments,
     };
 
     #[test]
@@ -169,6 +187,58 @@ mod tests {
         assert_eq!(result.filters.review_unit_id, capture.review_unit_id);
         assert_eq!(result.event_count, 1);
         assert!(result.event_set_hash.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn show_review_unit_includes_validation_checks() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_validation_event(repo.path(), &capture, "validation:sha256:one");
+
+        let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
+
+        assert_eq!(result.validation_checks.len(), 1);
+        assert_eq!(result.summary.validation_check_count, 1);
+        let row = result
+            .rows
+            .iter()
+            .find(|row| row.kind == ReviewUnitProjectionRowKind::ValidationEvidence)
+            .expect("validation evidence row");
+        assert_eq!(
+            row.related_validation_check_ids,
+            vec![result.validation_checks[0].id.clone()]
+        );
+        let first_snapshot_remainder = result
+            .rows
+            .iter()
+            .position(|row| row.projection_phase.as_str() == "snapshot_remainder")
+            .expect("snapshot remainder starts");
+        let validation_row = result
+            .rows
+            .iter()
+            .position(|row| row.kind == ReviewUnitProjectionRowKind::ValidationEvidence)
+            .unwrap();
+        assert!(validation_row < first_snapshot_remainder);
+    }
+
+    #[test]
+    fn non_validation_rows_have_empty_related_validation_check_ids() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_review_unit_id(capture.review_unit_id)
+                .with_track("agent:codex")
+                .with_title("Observation"),
+        )
+        .unwrap();
+
+        let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
+
+        assert!(result.rows.iter().all(|row| {
+            row.kind == ReviewUnitProjectionRowKind::ValidationEvidence
+                || row.related_validation_check_ids.is_empty()
+        }));
     }
 
     #[test]
@@ -646,6 +716,47 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
         repo
+    }
+
+    fn record_validation_event(repo: &Path, capture: &CaptureResult, validation_check_id: &str) {
+        let mut target = EventTarget::for_review_unit(
+            crate::model::SessionId::new("session:default"),
+            capture.review_unit_id.clone(),
+            capture.revision_id.clone(),
+            capture.snapshot_id.clone(),
+        );
+        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+        let event = ShoreEvent::new(
+            EventType::ValidationCheckRecorded,
+            format!("validation_check_recorded:{validation_check_id}"),
+            target,
+            Writer::shore_local_author("0.1.0"),
+            ValidationCheckRecordedPayload {
+                validation_check_id: ValidationCheckId::new(validation_check_id),
+                target: ValidationTarget::ReviewUnit {
+                    review_unit_id: capture.review_unit_id.clone(),
+                },
+                check_name: "cargo test".to_owned(),
+                command: None,
+                status: ValidationStatus::Passed,
+                exit_code: Some(0),
+                trigger: ValidationTrigger::Manual,
+                source_fingerprint: None,
+                summary: Some("tests passed".to_owned()),
+                summary_artifact_path: None,
+                summary_byte_size: Some(12),
+                summary_content_hash: Some("sha256:summary".to_owned()),
+                started_at: None,
+                completed_at: Some("2026-05-10T00:00:00Z".to_owned()),
+                log_artifact_content_hashes: Vec::new(),
+            },
+            "2026-05-10T00:00:00Z",
+        )
+        .unwrap();
+
+        EventStore::open(repo.join(".shore"))
+            .record_event_once(&event)
+            .unwrap();
     }
 
     fn multi_file_repo() -> TestRepo {

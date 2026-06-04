@@ -2,11 +2,12 @@ use super::ReviewUnitProjectionSummary;
 use super::adapter_notes::AdapterNoteView;
 use crate::model::{
     AssessmentId, DiffFile, DiffSnapshot, InputRequestId, ObservationId, ReviewTargetRef,
-    ReviewUnitId, RowId,
+    ReviewUnitId, RowId, ValidationCheckId, ValidationTarget,
 };
 use crate::session::assessment::AssessmentView;
 use crate::session::input_request::InputRequestView;
 use crate::session::observation::ObservationView;
+use crate::session::workflow::ValidationCheckView;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitProjectionRow {
@@ -22,6 +23,7 @@ pub struct ReviewUnitProjectionRow {
     pub related_observation_ids: Vec<ObservationId>,
     pub related_input_request_ids: Vec<InputRequestId>,
     pub related_assessment_ids: Vec<AssessmentId>,
+    pub related_validation_check_ids: Vec<ValidationCheckId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +35,7 @@ pub enum ReviewUnitProjectionRowKind {
     Observation,
     InputRequest,
     Assessment,
+    ValidationEvidence,
     AdapterNote,
     EmptyState,
 }
@@ -47,6 +50,7 @@ impl ReviewUnitProjectionRowKind {
             Self::Observation => "observation",
             Self::InputRequest => "input_request",
             Self::Assessment => "assessment",
+            Self::ValidationEvidence => "validation_evidence",
             Self::AdapterNote => "adapter_note",
             Self::EmptyState => "empty_state",
         }
@@ -217,6 +221,7 @@ pub(super) fn build_observation_rows(
                 related_observation_ids: vec![observation.id.clone()],
                 related_input_request_ids: Vec::new(),
                 related_assessment_ids: Vec::new(),
+                related_validation_check_ids: Vec::new(),
             }
         })
         .collect()
@@ -243,6 +248,7 @@ pub(super) fn build_input_request_rows(
                 related_observation_ids: Vec::new(),
                 related_input_request_ids: vec![input_request.id.clone()],
                 related_assessment_ids: Vec::new(),
+                related_validation_check_ids: Vec::new(),
             }
         })
         .collect()
@@ -269,6 +275,35 @@ pub(super) fn build_assessment_rows(
                 related_observation_ids: assessment.related_observations.clone(),
                 related_input_request_ids: assessment.related_input_requests.clone(),
                 related_assessment_ids: vec![assessment.id.clone()],
+                related_validation_check_ids: Vec::new(),
+            }
+        })
+        .collect()
+}
+
+pub(super) fn build_validation_rows(
+    validations: &[ValidationCheckView],
+) -> Vec<ReviewUnitProjectionRow> {
+    validations
+        .iter()
+        .enumerate()
+        .map(|(index, validation)| {
+            let target = validation_target_to_review_target(&validation.target);
+            let (file_path, old_path) = target_paths(&target);
+            ReviewUnitProjectionRow {
+                id: RowId::new(format!("row:{index:06}")),
+                kind: ReviewUnitProjectionRowKind::ValidationEvidence,
+                projection_phase: ProjectionPhase::Narrative,
+                projection_order: index,
+                snapshot_order: None,
+                coverage: ProjectionCoverage::Reviewed,
+                target: Some(target),
+                file_path,
+                old_path,
+                related_observation_ids: Vec::new(),
+                related_input_request_ids: Vec::new(),
+                related_assessment_ids: Vec::new(),
+                related_validation_check_ids: vec![validation.id.clone()],
             }
         })
         .collect()
@@ -302,6 +337,7 @@ pub(super) fn build_adapter_note_rows(
                 related_observation_ids: Vec::new(),
                 related_input_request_ids: Vec::new(),
                 related_assessment_ids: Vec::new(),
+                related_validation_check_ids: Vec::new(),
             }
         })
         .collect()
@@ -329,6 +365,7 @@ pub(super) fn snapshot_row(
         related_observation_ids: Vec::new(),
         related_input_request_ids: Vec::new(),
         related_assessment_ids: Vec::new(),
+        related_validation_check_ids: Vec::new(),
     }
 }
 
@@ -354,5 +391,26 @@ pub(super) fn target_paths(target: &ReviewTargetRef) -> (Option<String>, Option<
         | ReviewTargetRef::InputRequest { .. }
         | ReviewTargetRef::Assessment { .. }
         | ReviewTargetRef::Event { .. } => (None, None),
+    }
+}
+
+fn validation_target_to_review_target(target: &ValidationTarget) -> ReviewTargetRef {
+    match target {
+        ValidationTarget::ReviewUnit { review_unit_id } => ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_unit_projection_row_kind_validation_evidence_wire_string() {
+        assert_eq!(
+            ReviewUnitProjectionRowKind::ValidationEvidence.as_str(),
+            "validation_evidence"
+        );
     }
 }

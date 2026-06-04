@@ -4,6 +4,7 @@ use crate::model::{
     AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId, ReviewEndpoint,
     ReviewTargetRef, ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
     ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
+    ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::EventVerificationStatus;
 use crate::session::event::{
@@ -148,6 +149,29 @@ pub enum ReviewHistorySummary {
         predecessor_review_unit_id: Option<ReviewUnitId>,
         #[serde(skip_serializing_if = "Option::is_none")]
         change_id: Option<String>,
+    },
+    ValidationCheckRecorded {
+        validation_check_id: ValidationCheckId,
+        target: ValidationTarget,
+        check_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command: Option<String>,
+        status: ValidationStatus,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i64>,
+        trigger: ValidationTrigger,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_fingerprint: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        summary_content_hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        started_at: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        completed_at: Option<String>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        log_artifact_content_hashes: Vec<String>,
     },
 }
 
