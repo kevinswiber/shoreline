@@ -234,6 +234,38 @@ storage details, not command-output API. Native assessments also appear in the c
 State-change outcomes such as deferred, split-out, overridden, and superseded are represented as
 native observations tagged with `state-change:*`, not as assessment values.
 
+Validation evidence follows the same ReviewUnit ledger model:
+
+- immutable `validation_check_recorded` events in `events/` carry durable facts about completed
+  checks
+- each validation check targets one exact captured ReviewUnit through opaque, content-addressed
+  ReviewUnit identity
+- each validation check belongs to a required track; actor/tool provenance remains in the event
+  writer envelope
+- bounded `state.json` summarizes validation evidence with `validationCheckCount`, but it does not
+  embed validation history, summary content, logs, or reports
+
+Validation evidence is advisory. It may support review judgment in `shore review unit show`,
+`shore review history`, and `shore review validation list`, but it never grants review acceptance,
+merge authority, or write authority. It never changes `currentAssessment`, assessment ambiguity,
+operative input-request counts, or any other operative projection.
+
+Validation identity is path-free. Event targets, validation targets, and stable identity fields carry
+opaque IDs such as `reviewUnitId`, `trackId`, and `validationCheckId`; they must not derive from
+worktree paths, raw `.git` layout, raw `.shore` paths, clone-local store paths, raw artifact paths,
+or machine-local route names.
+
+Validation summaries use the shared inline-or-artifact mechanics. Summaries under or equal to
+`BODY_INLINE_LIMIT` (4096 bytes today) stay inline in the event payload; summaries above the
+threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the `shore.note-body`
+envelope (schema `shore.note-body`, version `1`). Large logs and reports are referenced by
+`sha256:<hex>` content hashes only; they are never inlined in validation events.
+
+Validation events remain ordinary producer facts signable by the generic `EventToBeSigned` contract
+from [ADR-0004](./adr/adr-0004-event-signatures.md). The validation family adds no signing payload
+type, `sigVersion`, or family-specific signing path. See
+[ADR-0006](./adr/adr-0006-validation-evidence.md) for the accepted validation evidence contract.
+
 Review history is the chronological read surface over durable events:
 
 - `shore review history` returns `shore.review-history` JSON derived from a validated scan of

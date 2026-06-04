@@ -91,9 +91,14 @@ different architecture.
 | review note | imported assertion | A note imported from an external review source. |
 | input request | assertion | A durable request for another actor's input, such as attention, decision, or explicit response. |
 | input request response | assertion | A durable answer to an input request. |
+| validation evidence | evidence | A completed check's facts attached to an exact captured review unit. |
 
 Review-domain terms remain correct in command names and user-facing JSON. Do not rename user-facing
 surfaces to substrate terms just because the underlying pattern generalizes.
+
+The domain surface is `shore review validation` and documents such as
+`shore.review-validation-list`. Internally, those records are evidence supporting an assertion, but
+public commands and JSON stay review-domain named.
 
 ## Current Prototype Domain: Task Supervision
 
