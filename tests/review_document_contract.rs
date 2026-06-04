@@ -227,7 +227,7 @@ fn repo_arg(repo: &GitRepo) -> String {
     repo.path().to_str().unwrap().to_owned()
 }
 
-/// One test exercises all twelve documented `shore review-*` commands against a
+/// One test exercises the documented `shore review-*` commands against a
 /// single deterministic fixture, snapshotting the full normalized document for
 /// each. Driving them in sequence keeps content-addressed ids stable across
 /// commands (each new write references the same captured ReviewUnit).
@@ -417,4 +417,51 @@ fn review_documents_are_byte_stable() {
         &["review", "history", "--repo", &repo_path, "--include-body"],
     );
     assert_snapshot("history", &history);
+
+    // 13. review validation add
+    let validation_add = run_command(
+        &repo,
+        &[
+            "review",
+            "validation",
+            "add",
+            "--repo",
+            &repo_path,
+            "--track",
+            "agent:codex",
+            "--check-name",
+            "cargo test",
+            "--status",
+            "passed",
+            "--command",
+            "cargo test --all",
+            "--exit-code",
+            "0",
+            "--source-fingerprint",
+            "rev:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "--summary",
+            "all tests passed",
+            "--started-at",
+            "2026-05-10T00:00:00Z",
+            "--completed-at",
+            "2026-05-10T00:01:00Z",
+            "--log-content-hash",
+            "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        ],
+    );
+    assert_snapshot("validation_add", &validation_add);
+
+    // 14. review validation list
+    let validation_list = run_command(
+        &repo,
+        &[
+            "review",
+            "validation",
+            "list",
+            "--repo",
+            &repo_path,
+            "--include-body",
+        ],
+    );
+    assert_snapshot("validation_list", &validation_list);
 }
