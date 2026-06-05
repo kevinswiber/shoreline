@@ -41,10 +41,15 @@ Tracks are review lanes, not actor identity. The unique tag keeps the lane legib
 agent run writes to the same `.shore/` store. Shoreline command output also records local Git and
 tool provenance, but the track is the durable lane that names which agent run is writing.
 
-Observations explain what changed and why. They should call out the design choices, tests run, risk
-areas, follow-up edges, and files or line ranges a reviewer should inspect first. A useful observation
-is specific enough that someone can understand the change without scrolling back through the agent's
+Observations explain what changed and why. They should call out the design choices, risk areas,
+follow-up edges, and files or line ranges a reviewer should inspect first. A useful observation is
+specific enough that someone can understand the change without scrolling back through the agent's
 transcript.
+
+Validation evidence records concrete check results for the captured ReviewUnit: tests, lint, builds,
+format checks, or equivalent verification commands the agent actually ran. Validation evidence is
+advisory review context only. It does not accept, reject, merge, block, or replace the reviewer's
+assessment, and it targets the whole captured ReviewUnit rather than a file or range.
 
 Input requests are for genuine open questions. Use them when the agent could not responsibly decide
 something on its own: ambiguous requirements, a risky choice that needs approval, or a manual decision
@@ -83,6 +88,15 @@ shore review observation add \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
+shore review validation add \
+  --review-unit "$review_unit_id" \
+  --track "$track" \
+  --check-name "just check" \
+  --status passed \
+  --command "just check" \
+  --exit-code 0 \
+  --summary "Completed after the final edit. This covered commit checks, build, lint, and tests."
+
 shore review input-request open \
   --review-unit "$review_unit_id" \
   --track "$track" \
@@ -92,6 +106,7 @@ shore review input-request open \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
 shore review observation list --review-unit "$review_unit_id" --track "$track" --pretty
+shore review validation list --review-unit "$review_unit_id" --track "$track" --include-body --pretty
 shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open --pretty
 ```
 
@@ -108,8 +123,9 @@ ReviewUnit only when exactly one current capture exists. If `jq` is not availabl
 
 A good handoff is short, concrete, and review-oriented. It names the files that matter, the reason
 the shape of the change is acceptable, what validation actually ran, and where the author is least
-certain. Verification observations should report only checks the author actually performed. It does
-not repeat every diff hunk, and it does not bury the reviewer in generic status updates.
+certain. Concrete check results should be recorded with `shore review validation add`; observations
+should explain the surrounding decision, risk, or interpretation. It does not repeat every diff hunk,
+and it does not bury the reviewer in generic status updates.
 
 Prefer anchored observations when the fact belongs to a file or line range. Use review-wide
 observations for cross-cutting decisions, verification notes, and risks that do not live in one file.
@@ -120,6 +136,7 @@ After the author stops, a reviewer can read the handoff with:
 
 ```bash
 shore review observation list --review-unit <review-unit-id> --track <track> --include-body --pretty
+shore review validation list --review-unit <review-unit-id> --track <track> --include-body --pretty
 shore review input-request list --review-unit <review-unit-id> --track <track> --status open \
   --include-body --pretty
 ```
@@ -146,16 +163,33 @@ assessment.
 
 The reviewer uses the author's observations as navigation context, not as proof. It should re-read
 the diff and rerun the project's relevant checks rather than trusting the author's verification
-claim. It should also compare the captured ReviewUnit with the live checkout it reviewed; if the
-ReviewUnit snapshot and live commit diverge, the reviewer records that divergence as an observation.
+claim. It should also read the author's validation evidence as context, then rerun relevant checks
+and record reviewer-run checks as validation evidence on the reviewer track. The reviewer compares
+the captured ReviewUnit with the live checkout it reviewed; if the ReviewUnit snapshot and live
+commit diverge, the reviewer records that divergence as an observation.
 
 Reviewer readback uses the same bounded surfaces as the author handoff:
 
 ```bash
 shore review observation list --review-unit <review-unit-id> --track <author-track> \
   --include-body --pretty
+shore review validation list --review-unit <review-unit-id> --track <author-track> \
+  --include-body --pretty
 shore review input-request list --review-unit <review-unit-id> --track <author-track> \
   --status open --include-body --pretty
+```
+
+When the reviewer runs checks, it records those concrete results separately from the assessment:
+
+```bash
+shore review validation add \
+  --review-unit <review-unit-id> \
+  --track <reviewer-track> \
+  --check-name "just check" \
+  --status passed \
+  --command "just check" \
+  --exit-code 0 \
+  --summary "Reproduced the repository check from the reviewed checkout."
 ```
 
 Reviewer follow-ups that need an author decision should be advisory input requests, not plain
@@ -194,6 +228,8 @@ The author reads the reviewer track with bounded commands:
 ```bash
 shore review observation list --review-unit <review-unit-id> --track <reviewer-track> \
   --include-body --pretty
+shore review validation list --review-unit <review-unit-id> --track <reviewer-track> \
+  --include-body --pretty
 shore review assessment show --review-unit <review-unit-id> --track <reviewer-track> \
   --include-summary --pretty
 shore review input-request list --review-unit <review-unit-id> --track <reviewer-track> \
@@ -205,6 +241,10 @@ requires an author action, the response is actionable. The author makes the narr
 runs the relevant checks, responds to any resolved input requests, and records author response
 observations on the author track. If an operative request is still a genuine blocker, the author
 leaves it open and records what remains unresolved rather than forcing a response.
+
+The original ReviewUnit snapshot remains frozen. If the author makes response edits and reruns
+checks against live code that no longer matches that snapshot, those rerun checks belong in author
+response observations unless the author can prove the captured ReviewUnit still matches the checkout.
 
 If the assessment is `accepted` or `accepted-with-follow-up` and the only open items are advisory or
 non-blocking, the author triages them without manufacturing work. Reviewer follow-ups that ask for an

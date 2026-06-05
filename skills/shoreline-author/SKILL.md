@@ -1,6 +1,6 @@
 ---
 name: shoreline-author
-description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Shoreline review record. Capture with shore review capture, record what changed and why as observations, open input requests for genuine unresolved questions, and then stand down.
+description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Shoreline review record. Capture with shore review capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
 ---
 
 # Shoreline Author Handoff
@@ -18,10 +18,11 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 1. Confirm the full task diff you intend to hand off is still in the worktree.
 2. Capture the current ReviewUnit with `shore review capture`.
 3. Choose one author track for this handoff.
-4. Add observations on that track for what changed, why, tests run, and review risks.
-5. Open input requests on that track only for genuine unanswered decisions.
-6. Read back the authored observations and open input requests with bounded list commands.
-7. Stop and tell the user the Shoreline handoff record exists.
+4. Add observations on that track for what changed, why, and review risks.
+5. Record validation evidence on that track for checks you actually ran.
+6. Open input requests on that track only for genuine unanswered decisions.
+7. Read back the authored observations, validation evidence, and open input requests.
+8. Stop and tell the user the Shoreline handoff record exists.
 ```
 
 Run this loop when you are about to say the task is complete, before committing any part of the
@@ -72,9 +73,9 @@ track="agent:${agent_name}-${run_id}"
 
 ## Record observations
 
-Use observations for durable author context, including decisions, trade-offs, validation, risk areas,
-and files the reviewer should inspect first. Prefer file and line anchors when the observation belongs
-to a specific part of the diff.
+Use observations for durable author context, including decisions, trade-offs, risk areas, and files
+the reviewer should inspect first. Prefer file and line anchors when the observation belongs to a
+specific part of the diff.
 
 ```bash
 shore review observation add \
@@ -94,6 +95,38 @@ shore review observation add \
 Good observation titles are short and specific. The body should explain why the fact matters for the
 reviewer. Do not paste a transcript, summarize every hunk, or claim verification that you did not
 actually run.
+
+## Record validation evidence
+
+Use validation evidence for concrete check results: tests, lint, builds, format checks, or equivalent
+verification commands that ran against the captured ReviewUnit. Validation evidence is advisory
+review context only. It never accepts, rejects, merges, blocks, or replaces the reviewer's
+assessment.
+
+```bash
+shore review validation add \
+  --review-unit "$review_unit_id" \
+  --track "$track" \
+  --check-name "just check" \
+  --status passed \
+  --command "just check" \
+  --exit-code 0 \
+  --summary "Completed after the final edit. This covered commit checks, build, lint, and tests."
+
+shore review validation add \
+  --review-unit "$review_unit_id" \
+  --track "$track" \
+  --check-name "targeted parser test" \
+  --status failed \
+  --command "cargo +stable nextest run -p shoreline --test parser" \
+  --exit-code 1 \
+  --summary "Initial red run failed before the parser change, confirming the test covered the old behavior."
+```
+
+Validation checks target the whole captured ReviewUnit. Do not add file, range, or path targets; if
+the reviewer needs to know where a check matters, add an anchored observation separately. Do not
+record checks you did not run. If a planned check was intentionally skipped, record it as `skipped`
+only when the summary says why.
 
 ## Open input requests
 
@@ -128,6 +161,7 @@ Verify that the handoff is visible before you stop:
 
 ```bash
 shore review observation list --review-unit "$review_unit_id" --track "$track" --pretty
+shore review validation list --review-unit "$review_unit_id" --track "$track" --include-body --pretty
 shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open --pretty
 ```
 
@@ -142,15 +176,17 @@ Then stand down with a concise message:
 Created the Shoreline handoff record on `<track>`. Read it with
 `shore review observation list --review-unit <id> --track <track> --include-body --pretty`
 and
+`shore review validation list --review-unit <id> --track <track> --include-body --pretty`
+and
 `shore review input-request list --review-unit <id> --track <track> --status open --include-body --pretty`.
 I did not add an assessment; that is for the reviewer.
 ```
 
 ## Standing down
 
-After the capture, observations, any input requests, and readback are complete, stop. Do not keep
-editing or make a commit as part of this handoff; wait for the user's next instruction. Do not add an
-assessment from this authoring role.
+After the capture, observations, validation evidence, any input requests, and readback are complete,
+stop. Do not keep editing or make a commit as part of this handoff; wait for the user's next
+instruction. Do not add an assessment from this authoring role.
 
 If the user immediately asks for another implementation task, treat that as a new unit of work and
 capture a separate handoff when that task reaches its own end.
@@ -161,6 +197,10 @@ capture a separate handoff when that task reaches its own end.
   the full current-task change is still uncommitted in the worktree.
 - **Claiming verification you did not run.** Record only checks you actually performed, including
   failures or skipped checks when they matter.
+- **Putting check results only in observations.** Record concrete command results with
+  `shore review validation add`; use observations for the surrounding decision or risk context.
+- **Treating validation as acceptance.** Validation evidence is advisory and never replaces the
+  reviewer's assessment.
 - **Forgetting `--review-unit`.** If more than one ReviewUnit is current, write commands fail until
   you pass the captured ReviewUnit ID.
 - **Self-assessing.** The authoring agent records observations and input requests only. A reviewer

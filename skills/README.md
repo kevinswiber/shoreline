@@ -16,12 +16,13 @@ already finished.
 ## Included skills
 
 - `shoreline-author` records a durable author handoff at the end of a coherent implementation
-  change.
-- `shoreline-reviewer` reviews another agent's handoff, records reviewer findings, responds to
-  operative requests, opens advisory requests for author decisions, and records one assessment.
+  change, including advisory validation evidence for checks the author actually ran.
+- `shoreline-reviewer` reviews another agent's handoff, reads author validation evidence as context,
+  records reviewer findings and reviewer-run checks, responds to operative requests, opens advisory
+  requests for author decisions, and records one assessment.
 - `shoreline-author-response` lets the original author pick up a reviewer pass, respond to advisory
-  requests, make actionable fixes when needed, and record author response observations without
-  assessing or recapturing.
+  requests, read reviewer validation evidence, make actionable fixes when needed, and record author
+  response observations without assessing or recapturing.
 
 Manual fallback for agents that read the shared Agent Skills directory:
 

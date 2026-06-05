@@ -1,6 +1,6 @@
 ---
 name: shoreline-reviewer
-description: Use when a coding agent should review a Shoreline handoff or captured ReviewUnit that another agent left. Read the author's observations and input requests with bounded list commands, review the live change independently, respond to open operative input requests, record reviewer findings on your own track, open advisory input requests for author decisions, record exactly one assessment, then stand down.
+description: Use when a coding agent should review a Shoreline handoff or captured ReviewUnit that another agent left. Read the author's observations, validation evidence, and input requests with bounded list commands, review the live change independently, respond to open operative input requests, record reviewer findings and validation evidence on your own track, open advisory input requests for author decisions, record exactly one assessment, then stand down.
 ---
 
 # Shoreline Reviewer Handoff Review
@@ -20,10 +20,10 @@ handoff, your reviewer notes, input requests, and assessment.
 
 ```text
 1. Identify the ReviewUnit and the author's track.
-2. Read the author's observations and input requests with bounded list commands.
+2. Read the author's observations, validation evidence, and input requests with bounded commands.
 3. Choose one reviewer track for this review.
 4. Review the change independently from the handoff.
-5. Record review findings as observations on the reviewer track.
+5. Record review findings as observations and concrete check results as validation evidence.
 6. Respond to open operative input requests when you can answer them.
 7. Open advisory input requests for follow-ups that need an author decision.
 8. Add exactly one assessment on the reviewer track.
@@ -49,6 +49,7 @@ the authored handoff:
 
 ```bash
 shore review observation list --review-unit "$review_unit_id" --pretty
+shore review validation list --review-unit "$review_unit_id" --include-body --pretty
 shore review input-request list --review-unit "$review_unit_id" --status open --pretty
 ```
 
@@ -62,6 +63,11 @@ shore review observation list \
   --track "$author_track" \
   --include-body --pretty
 
+shore review validation list \
+  --review-unit "$review_unit_id" \
+  --track "$author_track" \
+  --include-body --pretty
+
 shore review input-request list \
   --review-unit "$review_unit_id" \
   --track "$author_track" \
@@ -69,7 +75,8 @@ shore review input-request list \
   --include-body --pretty
 ```
 
-Use those observations to orient yourself, then form your own judgment. Do not repeat the author's
+Use those observations and validation checks to orient yourself, then form your own judgment.
+Validation evidence is advisory context, not proof and not an assessment. Do not repeat the author's
 claims as reviewer findings unless you have independently verified them.
 
 ## Choose your track
@@ -129,6 +136,26 @@ shore review observation add \
 
 Plain observations are for facts that need no response. If you need the author to make a decision,
 open an advisory input request instead.
+
+## Record reviewer validation checks
+
+When you run checks during review, record the concrete result on the reviewer track. Use validation
+evidence for command results, and observations for the reasoning around those results.
+
+```bash
+shore review validation add \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --check-name "just check" \
+  --status passed \
+  --command "just check" \
+  --exit-code 0 \
+  --summary "Reproduced the repository check from the reviewed checkout."
+```
+
+Validation checks target the whole captured ReviewUnit. Do not add file, range, or path targets. If
+your live checkout differs from the captured snapshot, say so in a reviewer observation before
+recording any check result, and avoid implying that a live-only check proves the frozen snapshot.
 
 ## Respond to operative input requests
 
@@ -198,6 +225,11 @@ shore review observation list \
   --track "$reviewer_track" \
   --include-body --pretty
 
+shore review validation list \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --include-body --pretty
+
 shore review input-request list \
   --review-unit "$review_unit_id" \
   --track "$reviewer_track" \
@@ -220,6 +252,10 @@ an implementation role.
   assessment read commands. Do not use `shore review unit show --pretty` for this review loop.
 - **Writing on the author's track.** The reviewer uses a separate reviewer track for every write.
 - **Rubber-stamping the handoff.** The author's observations are context. Verify claims yourself.
+- **Treating validation evidence as an assessment.** Check records are advisory context. The
+  reviewer still records exactly one assessment.
+- **Hiding reviewer-run checks in observations.** Use `shore review validation add` for concrete
+  command results, and observations for interpretation or risks.
 - **Skipping the live commit check.** If your checkout differs from the captured snapshot, say so in
   a reviewer observation.
 - **Recording author-decision follow-ups as observations.** Use an advisory input request when the

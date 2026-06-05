@@ -1,6 +1,6 @@
 ---
 name: shoreline-author-response
-description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing ReviewUnit. Read the reviewer's observations, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore review input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
+description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing ReviewUnit. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore review input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
 ---
 
 # Shoreline Author Review Response
@@ -20,7 +20,7 @@ reviewer's observations, input requests, and assessment.
 
 ```text
 1. Identify the existing ReviewUnit, reviewer track, and your author track.
-2. Read the reviewer's observations, assessment, and input requests with bounded commands.
+2. Read the reviewer's observations, validation evidence, assessment, and input requests.
 3. Classify the verdict as actionable or non-blocking triage.
 4. Respond to reviewer advisory input requests with input-request respond.
 5. Handle open operative input requests only when they are genuinely answerable.
@@ -53,6 +53,11 @@ shore review observation list \
   --track "$reviewer_track" \
   --include-body --pretty
 
+shore review validation list \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --include-body --pretty
+
 shore review assessment show \
   --review-unit "$review_unit_id" \
   --track "$reviewer_track" \
@@ -65,7 +70,8 @@ shore review input-request list \
   --include-body --pretty
 ```
 
-Use the assessment and open requests to decide what kind of response is needed.
+Use the assessment, validation evidence, and open requests to decide what kind of response is needed.
+Validation evidence is advisory context only; it does not replace the reviewer's assessment.
 
 ## Classify the verdict
 
@@ -139,6 +145,10 @@ The ReviewUnit snapshot remains the original captured snapshot. Do not run a fre
 of this response. When your live code has moved beyond the snapshot, say so in the author response
 observation and reference the reviewer IDs you are addressing.
 
+If you rerun checks after making response edits, be precise about what those checks validated. Checks
+against live code that no longer matches the frozen ReviewUnit should be recorded as author response
+observations, not misleading validation evidence for the old snapshot.
+
 ## Record author response observations
 
 Record responses on your author track. Reference the reviewer observation IDs, input request IDs,
@@ -197,6 +207,11 @@ shore review observation list \
   --track "$author_track" \
   --include-body --pretty
 
+shore review validation list \
+  --review-unit "$review_unit_id" \
+  --track "$reviewer_track" \
+  --include-body --pretty
+
 shore review input-request list \
   --review-unit "$review_unit_id" \
   --track "$reviewer_track" \
@@ -220,6 +235,10 @@ did not change, and which input requests you responded to. Leave the assessment 
   `shore review capture` for the response leg.
 - **Using full ReviewUnit show for readback.** Use bounded observation, input-request, and
   assessment read commands. Do not use `shore review unit show --pretty` for this response loop.
+- **Ignoring reviewer validation evidence.** Read `shore review validation list` on the reviewer
+  track before deciding what checks to rerun.
+- **Attaching live-code checks to an old snapshot.** If response edits moved the checkout beyond the
+  captured ReviewUnit, record rerun checks as observations unless you can prove the snapshot matches.
 - **Manufacturing work after an accepted review.** Accepted follow-ups often need triage, not a new
   code change.
 - **Answering advisory requests only in prose.** Use `shore review input-request respond` so the
