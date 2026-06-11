@@ -24,6 +24,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             claude_session_uuid,
             initial_prompt_hash,
             predecessor,
+            source_speaker,
         } => {
             let target = EventTarget::for_work_object(
                 session_id.clone(),
@@ -37,7 +38,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 initial_prompt_hash: initial_prompt_hash.clone(),
                 predecessor: predecessor.clone(),
                 base_snapshot_fingerprint: None,
-                source_speaker: None,
+                source_speaker: Some(*source_speaker),
             };
             let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
                 task_attempt_id,
@@ -71,6 +72,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             occurred_at,
             assistant_message_id,
             tool_use_ids,
+            source_speaker,
         } => {
             let mut target = EventTarget::for_work_object(
                 session_id.clone(),
@@ -86,7 +88,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 assistant_message_id: assistant_message_id.clone(),
                 tool_use_ids: tool_use_ids.clone(),
                 checkpoint_fingerprint: None,
-                source_speaker: None,
+                source_speaker: Some(*source_speaker),
             };
             let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
                 parent_task_attempt_id,
@@ -114,6 +116,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             writer,
             occurred_at,
             title,
+            source_speaker,
         } => {
             // source_ref is required: observation_id is derived from source_id
             // so replays match. Without a source_ref, two no-source observations
@@ -158,7 +161,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 body_artifact_path: None,
                 body_byte_size: None,
                 body_content_hash: None,
-                source_speaker: None,
+                source_speaker: Some(*source_speaker),
             };
             let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
                 parent_task_attempt_id,
@@ -211,7 +214,8 @@ mod tests {
     };
     use crate::session::EventStore;
     use crate::session::event::{
-        AssertionMode, EventType, ShoreEvent, SourceRef, Writer, WriterRole, WriterTool,
+        AssertionMode, EventType, ShoreEvent, SourceRef, SourceSpeaker, Writer, WriterRole,
+        WriterTool,
     };
 
     fn writer_user_for_test() -> Writer {
@@ -242,6 +246,7 @@ mod tests {
             claude_session_uuid: "uuid-1".to_owned(),
             initial_prompt_hash: "sha256:prompt".to_owned(),
             predecessor: None,
+            source_speaker: SourceSpeaker::User,
         }
     }
 
@@ -258,6 +263,7 @@ mod tests {
             occurred_at: "2026-05-18T00:00:01Z".to_owned(),
             assistant_message_id: "msg_1".to_owned(),
             tool_use_ids: vec!["tu_1".to_owned()],
+            source_speaker: SourceSpeaker::Agent,
         }
     }
 
@@ -272,6 +278,7 @@ mod tests {
             writer: Writer::shore_local_reviewer("test"),
             occurred_at: "2026-05-18T00:00:02Z".to_owned(),
             title: "tool_result: Bash".to_owned(),
+            source_speaker: SourceSpeaker::Agent,
         }
     }
 
@@ -362,6 +369,27 @@ mod tests {
     }
 
     #[test]
+    fn intent_to_event_maps_source_speaker_into_payloads() {
+        let event = intent_to_event(&task_attempt_intent_basic()).unwrap();
+        let payload: TaskAttemptCapturedPayload =
+            serde_json::from_value(serde_json::to_value(&event).unwrap()["payload"].clone())
+                .unwrap();
+        assert_eq!(payload.source_speaker, Some(SourceSpeaker::User));
+
+        let event = intent_to_event(&checkpoint_intent_basic()).unwrap();
+        let payload: TaskCheckpointCapturedPayload =
+            serde_json::from_value(serde_json::to_value(&event).unwrap()["payload"].clone())
+                .unwrap();
+        assert_eq!(payload.source_speaker, Some(SourceSpeaker::Agent));
+
+        let event = intent_to_event(&observation_intent_basic()).unwrap();
+        let payload: TaskObservationRecordedPayload =
+            serde_json::from_value(serde_json::to_value(&event).unwrap()["payload"].clone())
+                .unwrap();
+        assert_eq!(payload.source_speaker, Some(SourceSpeaker::Agent));
+    }
+
+    #[test]
     fn intent_to_event_propagates_operative_assertion_mode() {
         let intent = AdapterIntent::TaskAttemptCaptured {
             task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
@@ -374,6 +402,7 @@ mod tests {
             claude_session_uuid: "uuid-1".to_owned(),
             initial_prompt_hash: "sha256:prompt".to_owned(),
             predecessor: None,
+            source_speaker: SourceSpeaker::User,
         };
 
         let event = intent_to_event(&intent).unwrap();
@@ -408,6 +437,7 @@ mod tests {
             occurred_at: "2026-05-18T00:00:01Z".to_owned(),
             assistant_message_id: "msg_x".to_owned(),
             tool_use_ids: vec![],
+            source_speaker: SourceSpeaker::Agent,
         };
 
         let event = intent_to_event(&intent).unwrap();
@@ -436,6 +466,7 @@ mod tests {
             writer: Writer::shore_local_reviewer("test"),
             occurred_at: "2026-05-18T00:00:02Z".to_owned(),
             title: "tool_result: Bash".to_owned(),
+            source_speaker: SourceSpeaker::Agent,
         };
 
         let error = intent_to_event(&intent).expect_err("missing source_ref rejected");

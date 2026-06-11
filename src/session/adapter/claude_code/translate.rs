@@ -9,7 +9,9 @@
 use super::parse::{AssistantMessage, ParsedMessage, ParsedSession, ToolUse, UserMessage};
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::model::{ActorId, CheckpointId, SessionId, TargetRef, TaskTargetRef, WorkObjectId};
-use crate::session::event::{AssertionMode, SourceRef, Writer, WriterRole, WriterTool};
+use crate::session::event::{
+    AssertionMode, SourceRef, SourceSpeaker, Writer, WriterRole, WriterTool,
+};
 
 const SOURCE_SYSTEM_CLAUDE_CODE: &str = "claude_code";
 
@@ -51,6 +53,7 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
         claude_session_uuid: parsed.claude_session_uuid.clone(),
         initial_prompt_hash,
         predecessor: None,
+        source_speaker: SourceSpeaker::User,
     });
 
     for msg in &parsed.messages {
@@ -90,6 +93,7 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
             occurred_at: occurred_at.clone(),
             assistant_message_id: a.message_id.clone(),
             tool_use_ids,
+            source_speaker: SourceSpeaker::Agent,
         });
 
         for tu in &a.tool_uses {
@@ -111,6 +115,7 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
                 writer: writer_agent(),
                 occurred_at: occurred_at.clone(),
                 title: format!("tool_result: {}", tu.name),
+                source_speaker: SourceSpeaker::Agent,
             });
         }
     }
@@ -131,6 +136,7 @@ pub enum AdapterIntent {
         claude_session_uuid: String,
         initial_prompt_hash: String,
         predecessor: Option<WorkObjectId>,
+        source_speaker: SourceSpeaker,
     },
     CheckpointCaptured {
         checkpoint_id: CheckpointId,
@@ -143,6 +149,7 @@ pub enum AdapterIntent {
         occurred_at: String,
         assistant_message_id: String,
         tool_use_ids: Vec<String>,
+        source_speaker: SourceSpeaker,
     },
     ObservationRecorded {
         parent_task_attempt_id: WorkObjectId,
@@ -153,6 +160,7 @@ pub enum AdapterIntent {
         writer: Writer,
         occurred_at: String,
         title: String,
+        source_speaker: SourceSpeaker,
     },
     /// Reserved variant. The Claude Code session adapter never emits this:
     /// fabricating input-request structure from a transcript would cross from
@@ -231,6 +239,9 @@ fn content_carries_hook_output(content: &str) -> bool {
     content.contains("<system-reminder>")
 }
 
+// The speaker fact these writers encode as a role also rides in the task
+// payloads as `sourceSpeaker` (ADR-0007); the role stamping here is removed
+// once `writer.role` is dropped from the envelope.
 fn writer_user() -> Writer {
     Writer {
         actor_id: ActorId::new("actor:claude_code:user"),
@@ -259,6 +270,7 @@ mod tests {
 
     use super::super::parse::parse_session;
     use super::*;
+    use crate::session::event::SourceSpeaker;
 
     const FIXTURE_UUID: &str = "a0ce57f0-485d-45b7-98fc-f0f13f467d72";
     const FIRST_USER_PROMPT: &str = "Can we update the README.md to use `boardwalk::transitions!` like the drivers/boardwalk-mock-led/src/lib.rs?";
@@ -543,6 +555,31 @@ mod tests {
         assert_eq!(task_writer.role, WriterRole::User);
         assert_eq!(assistant_writer.role, WriterRole::Agent);
         assert_ne!(task_writer.actor_id, assistant_writer.actor_id);
+    }
+
+    #[test]
+    fn translate_records_source_speaker_on_each_intent() {
+        let parsed = parse_session(&fixture_path()).expect("parses");
+        let intents = translate_session(&parsed);
+
+        match &intents[0] {
+            AdapterIntent::TaskAttemptCaptured { source_speaker, .. } => {
+                assert_eq!(*source_speaker, SourceSpeaker::User);
+            }
+            other => panic!("first intent must be TaskAttemptCaptured, got {other:?}"),
+        }
+        let mut saw_assistant_intent = false;
+        for intent in &intents[1..] {
+            match intent {
+                AdapterIntent::CheckpointCaptured { source_speaker, .. }
+                | AdapterIntent::ObservationRecorded { source_speaker, .. } => {
+                    saw_assistant_intent = true;
+                    assert_eq!(*source_speaker, SourceSpeaker::Agent);
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_assistant_intent, "fixture yields assistant intents");
     }
 
     #[test]
