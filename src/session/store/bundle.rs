@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::session::event::{EventType, ShoreEvent};
+use crate::session::event::{EventType, IngestVia, ShoreEvent, stamp_ingest_provenance};
 use crate::session::store::body_artifact::NoteBodyEnvelope;
 use crate::session::store::{EventStore, SnapshotArtifact};
 use crate::session::{
-    EventVerificationPolicy, IngestEventVerification, SessionState, TrustSet,
+    EventVerificationPolicy, IngestEventVerification, SessionState, TrustSet, current_timestamp,
     verify_events_for_ingest,
 };
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
@@ -367,11 +367,14 @@ fn commit_artifacts(
 }
 
 fn commit_events(target_store: &EventStore, events: &[SourceEvent]) -> Result<(usize, usize)> {
+    let source_events: Vec<ShoreEvent> = events.iter().map(|source| source.event.clone()).collect();
+    let stamped =
+        stamp_ingest_provenance(&source_events, IngestVia::BundleApply, &current_timestamp());
     let mut created = 0;
     let mut existing = 0;
 
-    for source in events {
-        match target_store.record_event_once(&source.event)? {
+    for event in &stamped {
+        match target_store.record_event_once(event)? {
             crate::session::EventWriteOutcome::Created => created += 1,
             crate::session::EventWriteOutcome::Existing
             | crate::session::EventWriteOutcome::ExistingDivergentSignature => existing += 1,
@@ -718,12 +721,13 @@ mod tests {
     };
     use crate::session::body_artifact::BODY_INLINE_LIMIT;
     use crate::session::event::{
-        AssertionMode, EventSignature, EventTarget, EventType, ShoreEvent,
-        ValidationCheckRecordedPayload, Writer,
+        AssertionMode, EventSignature, EventTarget, EventType, IngestProvenance, IngestVia,
+        ShoreEvent, ValidationCheckRecordedPayload, Writer,
     };
     use crate::session::{
         CaptureOptions, EventStore, EventVerificationPolicy, ObservationAddOptions, TrustSet,
-        capture_worktree_review, record_observation,
+        capture_worktree_review, event_signature_trust_set, record_observation,
+        verify_event_signature,
     };
 
     #[test]
@@ -1052,6 +1056,137 @@ mod tests {
         let rebuilt_state = fs::read_to_string(target_store_dir.join("state.json")).unwrap();
         assert!(!rebuilt_state.contains("must not be imported"));
         assert!(rebuilt_state.contains("sessionId"));
+    }
+
+    #[test]
+    fn bundle_apply_stamps_bundle_apply_provenance_on_target_events() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let target_store_dir = target.path().join(".shore");
+
+        import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+
+        let stored = EventStore::open(&target_store_dir).list_events().unwrap();
+        assert!(!stored.is_empty());
+        for event in &stored {
+            let stamp = event
+                .ingest
+                .as_ref()
+                .expect("every bundle-applied event is stamped");
+            assert_eq!(stamp.via, IngestVia::BundleApply);
+            assert!(stamp.received_at.starts_with("unix-ms:"));
+        }
+        // The source store is never modified.
+        let source = EventStore::open(repo.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert!(source.iter().all(|event| event.ingest.is_none()));
+    }
+
+    #[test]
+    fn bundle_apply_overwrites_inbound_ingest_stamp() {
+        // The source store's copy carries its own importer's stamp; the target
+        // re-stamps with via: bundle-apply — foreign bookkeeping is not a fact.
+        let source = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let mut event = review_initialized_event("inbound-stamped", 1);
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1".to_owned(),
+        });
+        write_event_to_store(&source.path().join(".shore"), event);
+
+        import_store_bundle(source.path().join(".shore"), target.path().join(".shore")).unwrap();
+
+        let stored = EventStore::open(target.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let stamp = stored[0].ingest.as_ref().unwrap();
+        assert_eq!(stamp.via, IngestVia::BundleApply);
+        assert_ne!(stamp.received_at, "unix-ms:1");
+    }
+
+    #[test]
+    fn bundle_apply_reimport_keeps_first_stamp_and_reports_existing() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let target_store_dir = target.path().join(".shore");
+
+        import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        let first_stamps: Vec<_> = EventStore::open(&target_store_dir)
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .map(|event| event.ingest)
+            .collect();
+        assert!(first_stamps.iter().all(Option::is_some));
+
+        let second = import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        assert_eq!(second.events_created, 0);
+        assert!(second.events_existing > 0);
+
+        let second_stamps: Vec<_> = EventStore::open(&target_store_dir)
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .map(|event| event.ingest)
+            .collect();
+        assert_eq!(second_stamps, first_stamps);
+    }
+
+    #[test]
+    fn bundle_apply_preflight_and_signature_semantics_unaffected_by_stamps() {
+        let source = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let signed: ShoreEvent = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/event_signatures/friendly-valid-event.json"
+        ))
+        .unwrap();
+        write_event_to_store(&source.path().join(".shore"), signed);
+        let trust = event_signature_trust_set(
+            serde_json::from_str(include_str!(
+                "../../../tests/fixtures/event_signatures/did-key-ed25519.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let result = import_store_bundle_with_verification(
+            source.path().join(".shore"),
+            target.path().join(".shore"),
+            EventVerificationPolicy::advisory(),
+            trust.clone(),
+        )
+        .unwrap();
+        assert_eq!(result.events_created, 1);
+        assert_eq!(
+            result.verification[0].status,
+            EventVerificationStatus::Valid
+        );
+
+        // The stamped target copy still verifies valid.
+        let stored = EventStore::open(target.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert!(stored[0].ingest.is_some());
+        assert_eq!(
+            verify_event_signature(&stored[0], &trust).unwrap(),
+            EventVerificationStatus::Valid
+        );
+
+        // Preflight does not treat the stamp difference (target stamped,
+        // source unstamped) as a conflict: payload_hash comparison only.
+        let again = import_store_bundle_with_verification(
+            source.path().join(".shore"),
+            target.path().join(".shore"),
+            EventVerificationPolicy::advisory(),
+            trust,
+        )
+        .unwrap();
+        assert_eq!(again.events_created, 0);
+        assert_eq!(again.events_existing, 1);
     }
 
     fn modified_repo() -> TestRepo {
