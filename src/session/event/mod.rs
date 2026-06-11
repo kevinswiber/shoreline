@@ -40,7 +40,8 @@ pub use signature::{EffectiveSignerError, EventSignature, resolve_effective_sign
 pub use source::SourceRef;
 pub use target::EventTarget;
 pub use task::{
-    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
+    SourceSpeaker, TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload,
+    TaskObservationRecordedPayload,
 };
 pub use tbs::{
     EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE, EventToBeSigned,

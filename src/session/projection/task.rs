@@ -968,6 +968,7 @@ mod tests {
             initial_prompt_hash: "sha256:prompt".to_owned(),
             predecessor: None,
             base_snapshot_fingerprint: None,
+            source_speaker: None,
         };
         let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
             task_attempt_id,
@@ -1010,6 +1011,7 @@ mod tests {
             assistant_message_id: assistant_message_id.to_owned(),
             tool_use_ids,
             checkpoint_fingerprint: None,
+            source_speaker: None,
         };
         let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
             task_attempt_id,
@@ -1064,6 +1066,7 @@ mod tests {
             body_artifact_path: None,
             body_byte_size: None,
             body_content_hash: None,
+            source_speaker: None,
         };
         let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
             task_attempt_id,
@@ -3010,6 +3013,7 @@ mod tests {
             assistant_message_id: assistant_message_id.to_owned(),
             tool_use_ids,
             checkpoint_fingerprint: fingerprint.map(str::to_owned),
+            source_speaker: None,
         };
         let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
             task_attempt_id,
@@ -3552,6 +3556,7 @@ mod tests {
             initial_prompt_hash: "sha256:prompt".to_owned(),
             predecessor: None,
             base_snapshot_fingerprint: base_snapshot_fingerprint.map(str::to_owned),
+            source_speaker: None,
         };
         let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
             task_attempt_id,

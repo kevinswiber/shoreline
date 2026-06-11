@@ -37,6 +37,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 initial_prompt_hash: initial_prompt_hash.clone(),
                 predecessor: predecessor.clone(),
                 base_snapshot_fingerprint: None,
+                source_speaker: None,
             };
             let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
                 task_attempt_id,
@@ -85,6 +86,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 assistant_message_id: assistant_message_id.clone(),
                 tool_use_ids: tool_use_ids.clone(),
                 checkpoint_fingerprint: None,
+                source_speaker: None,
             };
             let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
                 parent_task_attempt_id,
@@ -156,6 +158,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 body_artifact_path: None,
                 body_byte_size: None,
                 body_content_hash: None,
+                source_speaker: None,
             };
             let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
                 parent_task_attempt_id,
