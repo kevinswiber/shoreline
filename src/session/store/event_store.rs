@@ -216,9 +216,9 @@ mod tests {
         TrackId, WorkUnitId,
     };
     use crate::session::event::{
-        AssertionMode, EventSignature, EventTarget, EventType, ReviewAssessment,
-        ReviewAssessmentRecordedPayload, ReviewInitializedPayload, ReviewNoteImportedPayload,
-        ShoreEvent, Writer,
+        AssertionMode, EventSignature, EventTarget, EventType, IngestProvenance, IngestVia,
+        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
+        ReviewNoteImportedPayload, ShoreEvent, Writer,
     };
 
     #[test]
@@ -457,6 +457,49 @@ mod tests {
         fs::write(store.events_dir().join("README.txt"), b"ignore me").unwrap();
 
         assert_eq!(store.list_events().unwrap(), vec![event]);
+    }
+
+    #[test]
+    fn record_event_once_is_existing_across_ingest_stamp_differences_first_stored_wins() {
+        // A locally authored stored event can never acquire a stamp after the
+        // fact; an ingested event can never lose (or swap) its first stamp.
+        let (_root, store) = temp_event_store();
+        let unstamped = review_initialized_event();
+        let mut stamped = unstamped.clone();
+        stamped.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1760000000000".to_owned(),
+        });
+
+        // stored unstamped + incoming stamped => Existing, stored file stays unstamped
+        assert_eq!(
+            store.record_event_once(&unstamped).unwrap(),
+            EventWriteOutcome::Created
+        );
+        assert_eq!(
+            store.record_event_once(&stamped).unwrap(),
+            EventWriteOutcome::Existing
+        );
+        let path = store.event_path_for_idempotency_key(&unstamped.idempotency_key);
+        assert!(store.read_event(&path).unwrap().ingest.is_none());
+
+        // stored stamped + incoming differently-stamped => Existing, first stamp kept
+        let (_root_two, store_two) = temp_event_store();
+        let mut later_stamp = unstamped.clone();
+        later_stamp.ingest = Some(IngestProvenance {
+            via: IngestVia::BundleApply,
+            received_at: "unix-ms:1760000000001".to_owned(),
+        });
+        assert_eq!(
+            store_two.record_event_once(&stamped).unwrap(),
+            EventWriteOutcome::Created
+        );
+        assert_eq!(
+            store_two.record_event_once(&later_stamp).unwrap(),
+            EventWriteOutcome::Existing
+        );
+        let path_two = store_two.event_path_for_idempotency_key(&stamped.idempotency_key);
+        assert_eq!(store_two.read_event(&path_two).unwrap().ingest, stamped.ingest);
     }
 
     fn temp_event_store() -> (tempfile::TempDir, EventStore) {

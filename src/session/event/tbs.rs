@@ -109,7 +109,9 @@ mod tests {
     };
     use crate::crypto::{EventVerificationStatus, SignerId};
     use crate::model::{ActorId, EventId};
-    use crate::session::event::{AssertionMode, EventType, ShoreEvent, SourceRef};
+    use crate::session::event::{
+        AssertionMode, EventType, IngestProvenance, IngestVia, ShoreEvent, SourceRef,
+    };
 
     const FRIENDLY_SIGNER: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
 
@@ -149,6 +151,10 @@ mod tests {
     fn event_to_be_signed_excludes_payload_and_hop_metadata() {
         let mut event = fixture_event();
         event.source_ref = Some(SourceRef::new("remote", "evt:remote"));
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1760000000000".to_owned(),
+        });
         let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
         let tbs = EventToBeSigned::from_event(&event, &signer).unwrap();
 
@@ -160,6 +166,25 @@ mod tests {
         assert!(value.get("signature").is_none());
         assert!(value.get("sigVersion").is_none());
         assert!(value.get("role").is_none());
+        assert!(value.get("ingest").is_none());
+    }
+
+    #[test]
+    fn stamped_event_canonical_tbs_bytes_match_unstamped_fixture() {
+        // The ingest stamp is hop-added metadata: stamping the golden fixture event
+        // must leave the canonical to-be-signed bytes byte-identical.
+        let mut event = fixture_event();
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::BundleApply,
+            received_at: "unix-ms:1760000000000".to_owned(),
+        });
+        let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
+        let tbs = EventToBeSigned::from_event(&event, &signer).unwrap();
+
+        assert_eq!(
+            tbs.canonical_bytes().unwrap(),
+            fixture_bytes("canonical-tbs-v1.bytes")
+        );
     }
 
     #[test]

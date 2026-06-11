@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use shoreline::session::event::ShoreEvent;
+use shoreline::session::event::{IngestProvenance, IngestVia, ShoreEvent};
 use shoreline::session::{
     EventVerificationStatus, event_signature_pre_authentication_encoding,
     event_signature_trust_set, event_to_be_signed, verify_event_signature,
@@ -108,6 +108,24 @@ fn golden_verification_statuses_match_fixtures() {
     assert_status(
         "unsupported-sig-version-event.json",
         EventVerificationStatus::Invalid,
+    );
+}
+
+#[test]
+fn stamped_signed_fixture_event_still_verifies_valid() {
+    // ADR-0009: the ingest stamp is outside the to-be-signed view, so stamping
+    // a signed event cannot invalidate its signature.
+    let mut event = fixture_event("friendly-valid-event.json");
+    event.ingest = Some(IngestProvenance {
+        via: IngestVia::IngestEvents,
+        received_at: "unix-ms:1760000000000".to_owned(),
+    });
+    let trust_set =
+        event_signature_trust_set(fixture_json("did-key-ed25519.json")).expect("build trust set");
+
+    assert_eq!(
+        verify_event_signature(&event, &trust_set).expect("verify stamped fixture event"),
+        EventVerificationStatus::Valid
     );
 }
 

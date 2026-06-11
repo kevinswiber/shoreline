@@ -6,7 +6,9 @@ mod signing;
 mod store;
 mod workflow;
 
-pub use event::{event_signature_pre_authentication_encoding, event_to_be_signed};
+pub use event::{
+    IngestProvenance, IngestVia, event_signature_pre_authentication_encoding, event_to_be_signed,
+};
 pub(crate) use identity::{
     current_timestamp, is_valid_actor_id, writer_from_git_config, writer_from_options,
 };

@@ -268,6 +268,7 @@ mod tests {
             signer: None,
             signature: None,
             source_ref: None,
+            ingest: None,
             payload: serde_json::Value::Null,
         };
 
@@ -306,6 +307,7 @@ mod tests {
             signer: None,
             signature: None,
             source_ref: None,
+            ingest: None,
             payload: serde_json::Value::Null,
         });
 
@@ -337,6 +339,7 @@ mod tests {
             signer: None,
             signature: None,
             source_ref: None,
+            ingest: None,
             payload: serde_json::Value::Null,
         };
 

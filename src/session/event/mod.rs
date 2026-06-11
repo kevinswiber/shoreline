@@ -12,6 +12,7 @@ mod kind;
 mod lineage;
 mod observation;
 mod payload;
+mod provenance;
 mod review;
 mod signature;
 mod source;
@@ -32,6 +33,7 @@ pub use kind::EventType;
 pub use lineage::{ReviewUnitLineageDeclaredPayload, ReviewUnitLineageRoundRecordedPayload};
 pub use observation::ReviewObservationRecordedPayload;
 pub use payload::EventPayload;
+pub use provenance::{IngestProvenance, IngestVia};
 pub use review::{
     ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload,
     ReviewUnitCapturedPayload, SidecarSource,
@@ -81,6 +83,8 @@ pub struct ShoreEvent {
     pub signature: Option<EventSignature>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<SourceRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingest: Option<IngestProvenance>,
     pub payload: serde_json::Value,
 }
 
@@ -134,6 +138,7 @@ impl ShoreEvent {
             signer: None,
             signature: None,
             source_ref: None,
+            ingest: None,
             payload,
         })
     }
@@ -855,6 +860,64 @@ mod tests {
 
         // Writer.tool keeps its identity at the envelope level.
         assert_eq!(json["writer"]["tool"]["name"], "shore");
+    }
+
+    #[test]
+    fn event_envelope_round_trips_ingest_provenance() {
+        let mut event = valid_review_unit_captured_event();
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1760000000000".to_owned(),
+        });
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["ingest"]["via"], "ingest-events");
+        assert_eq!(json["ingest"]["receivedAt"], "unix-ms:1760000000000");
+
+        let round: ShoreEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(round.ingest, event.ingest);
+    }
+
+    #[test]
+    fn event_envelope_skip_serializes_absent_ingest_and_defaults_missing_to_none() {
+        let event = valid_review_unit_captured_event();
+        assert!(event.ingest.is_none());
+        let mut json = serde_json::to_value(&event).unwrap();
+        assert!(
+            json.get("ingest").is_none(),
+            "absent ingest must skip-serialize, got {json}"
+        );
+
+        json.as_object_mut().unwrap().remove("ingest"); // no-op; pins decode default
+        let round: ShoreEvent = serde_json::from_value(json).unwrap();
+        assert!(round.ingest.is_none());
+    }
+
+    #[test]
+    fn ingest_via_vocabulary_is_bounded() {
+        assert_eq!(
+            serde_json::to_string(&IngestVia::IngestEvents).unwrap(),
+            "\"ingest-events\""
+        );
+        assert_eq!(
+            serde_json::to_string(&IngestVia::BundleApply).unwrap(),
+            "\"bundle-apply\""
+        );
+        assert!(serde_json::from_str::<IngestVia>("\"relay-forward\"").is_err());
+    }
+
+    #[test]
+    fn ingest_stamp_does_not_change_event_id_or_payload_hash() {
+        let unstamped = valid_review_unit_captured_event();
+        let mut stamped = unstamped.clone();
+        stamped.ingest = Some(IngestProvenance {
+            via: IngestVia::BundleApply,
+            received_at: "unix-ms:1760000000000".to_owned(),
+        });
+
+        assert_eq!(stamped.event_id, unstamped.event_id);
+        assert_eq!(stamped.payload_hash, unstamped.payload_hash);
+        assert_eq!(stamped.idempotency_key, unstamped.idempotency_key);
     }
 
     fn valid_review_unit_captured_event() -> ShoreEvent {
