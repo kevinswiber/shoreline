@@ -37,8 +37,8 @@ impl CaptureOptions {
         }
     }
 
-    /// Attribute the captured `review_unit_captured` event to an explicit actor
-    /// (author role), overriding the `SHORE_ACTOR_ID` env var and the local Git
+    /// Attribute the captured `review_unit_captured` event to an explicit
+    /// actor, overriding the `SHORE_ACTOR_ID` env var and the local Git
     /// identity. A malformed id is ignored (falls back to env, then Git);
     /// `None` keeps the default resolution. The ReviewUnit id is derived from
     /// snapshot content, so the override changes attribution only, not identity.
