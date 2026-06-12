@@ -539,9 +539,6 @@ pub(crate) fn agent_resumption_from_events(
     trust_set: &TrustSet,
     binding_policy: ResumptionBindingPolicy,
 ) -> Result<AgentResumptionProjection> {
-    // Held for the two-arm predicate slice (Task 2.2); the predicate is still
-    // constant false here, so the policy has no observable effect yet.
-    let _ = binding_policy.permits_local_possession();
     let attempt_summary =
         task_attempt_summary_from_events(events, task_attempt_id, reader_actor_id)?;
 
@@ -665,11 +662,8 @@ pub(crate) fn agent_resumption_from_events(
             latest_checkpoint_fingerprint.as_deref(),
             response.target_fingerprint.as_deref(),
         );
-        // The seam takes the response's claimed actor and effective signer;
-        // the signer stays unresolved while the predicate is constant — no
-        // binding trust source exists to resolve it against.
         let identity_binding =
-            response_identity_is_binding(&response.envelope.writer.actor_id, None);
+            response_identity_is_binding(response.verification, response.ingested, binding_policy);
         let outcome_allows = matches!(response.outcome, InputRequestResponseOutcome::Approved);
         let operative = response.envelope.assertion_mode == AssertionMode::Operative;
 
@@ -834,10 +828,8 @@ struct TaskInputRequestResponseRecord {
     reason_content_hash: Option<String>,
     target_fingerprint: Option<String>,
     /// Binding evidence (ADR-0009), computed at collection where the full
-    /// `ShoreEvent` is in hand. Consumed by the two-arm predicate (Task 2.2).
-    #[allow(dead_code)]
+    /// `ShoreEvent` is in hand; consumed by the two-arm predicate.
     verification: EventVerificationStatus,
-    #[allow(dead_code)]
     ingested: bool,
 }
 
@@ -975,15 +967,26 @@ fn freshness_for_task_target(
     }
 }
 
-/// ADR-0007: binding decisions key on verified identity (claimed actor +
-/// effective signer resolved against a binding trust source), never on a
-/// self-asserted vocabulary or payload field. The concrete trust source is
-/// settled by the federation-gate plan; until it exists, no response binds.
+/// ADR-0009: binding(event, policy) — true iff either arm holds. Neither arm
+/// reads a field the writer asserted; the claimed actorId is reported in the
+/// projection but is never the basis of the decision (ADR-0007 invariant).
+/// Verification `Valid` already folds in allowed-signers authorization
+/// (ADR-0004); binding consults no `EventVerificationPolicy` preset.
 fn response_identity_is_binding(
-    _claimed_actor: &ActorId,
-    _effective_signer: Option<&crate::crypto::SignerId>,
+    verification: EventVerificationStatus,
+    ingested: bool,
+    policy: ResumptionBindingPolicy,
 ) -> bool {
-    false
+    // Arm (b): verified signer.
+    if verification == EventVerificationStatus::Valid {
+        return true;
+    }
+    // Arm (a): local possession. An invalid signature is affirmative
+    // evidence of tampering and defeats this arm; Unsigned and any status
+    // better are accepted.
+    policy.permits_local_possession()
+        && !ingested
+        && verification != EventVerificationStatus::Invalid
 }
 
 #[cfg(test)]
@@ -2317,11 +2320,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn operative_response_does_not_bind_without_binding_trust_source() {
-        // The previously-binding shape: fresh operative approved response from
-        // the claude_code user actor. With no binding trust source configured,
-        // identity cannot be verified as binding, so resumption is denied.
+    /// The headline fixture: a fresh operative Approved response from the
+    /// local claude_code user actor, unsigned and unstamped. The last event
+    /// is the response, for tests that need to mutate it.
+    fn approved_local_response_events() -> (Vec<ShoreEvent>, WorkObjectId) {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
         let session_id = SessionId::new("session:claude:uuid-1");
         let checkpoint = CheckpointId::new("checkpoint:sha256:cp");
@@ -2351,6 +2353,75 @@ mod tests {
             AssertionMode::Operative,
             "2026-05-18T00:00:03Z",
         ));
+        (events, task_attempt_id)
+    }
+
+    #[test]
+    fn local_unsigned_operative_approved_response_binds_with_zero_configuration() {
+        // The deny-all discharge (ADR-0009): the exact fixture that asserted
+        // Blocked while the interim predicate was constant false now projects
+        // Ready under the default policy — zero keys, zero configuration.
+        let (events, task_attempt_id) = approved_local_response_events();
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        )
+        .unwrap();
+
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+        let response_view = projection
+            .selected_response
+            .as_ref()
+            .expect("selected response");
+        assert!(response_view.identity_treated_as_binding);
+        assert!(projection.treated_as_operative);
+        assert!(
+            projection
+                .diagnostics
+                .iter()
+                .all(|d| d.code != "agent_resumption_response_identity_not_binding"),
+            "no identity diagnostic for a binding response; got {:?}",
+            projection.diagnostics
+        );
+    }
+
+    #[test]
+    fn verified_only_policy_blocks_local_unsigned_response() {
+        // verified-only: nothing binds without a key — including the store's
+        // own unsigned responses.
+        let (events, task_attempt_id) = approved_local_response_events();
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::VerifiedOnly,
+        )
+        .unwrap();
+
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let response_view = projection
+            .selected_response
+            .as_ref()
+            .expect("selected response");
+        assert!(!response_view.identity_treated_as_binding);
+    }
+
+    #[test]
+    fn ingested_unsigned_response_does_not_bind_even_under_default_policy() {
+        let (mut events, task_attempt_id) = approved_local_response_events();
+        let response = events.last_mut().expect("response event");
+        response.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1".to_owned(),
+        });
 
         let projection = agent_resumption_from_events(
             &events,
@@ -2368,20 +2439,83 @@ mod tests {
             .as_ref()
             .expect("selected response");
         assert!(!response_view.identity_treated_as_binding);
-        assert!(
-            projection
-                .diagnostics
-                .iter()
-                .any(|d| d.code == "agent_resumption_response_identity_not_binding"),
-            "diagnostic explains the unverified identity; got {:?}",
-            projection.diagnostics
+    }
+
+    #[test]
+    fn invalid_signature_defeats_local_possession_arm() {
+        // An invalid signature is affirmative evidence of tampering: a local
+        // (unstamped) response carrying one never binds, even under the
+        // default policy.
+        let (mut events, task_attempt_id) = approved_local_response_events();
+        let response = events.last_mut().expect("response event");
+        response.signer = Some(
+            crate::crypto::SignerId::parse(
+                "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+            )
+            .unwrap(),
         );
+        response.signature = Some(
+            crate::session::event::EventSignature::new_ed25519_v1(
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            )
+            .unwrap(),
+        );
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        )
+        .unwrap();
+
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let response_view = projection
+            .selected_response
+            .as_ref()
+            .expect("selected response");
+        assert!(!response_view.identity_treated_as_binding);
+    }
+
+    #[test]
+    fn binding_predicate_two_arm_truth_table() {
+        use EventVerificationStatus::{Invalid, Unsigned, UntrustedKey, Valid};
+        use ResumptionBindingPolicy::{LocalAndVerified, VerifiedOnly};
+        let cases = [
+            // (verification, ingested, policy,           binds)
+            (Valid, false, LocalAndVerified, true), // arm (b)
+            (Valid, true, LocalAndVerified, true),  // arm (b): stamp irrelevant
+            (Valid, true, VerifiedOnly, true),      // arm (b): policy irrelevant
+            (Valid, false, VerifiedOnly, true),     // arm (b)
+            (Unsigned, false, LocalAndVerified, true), // arm (a): the local-first product
+            (UntrustedKey, false, LocalAndVerified, true), // arm (a): != invalid suffices
+            (Invalid, false, LocalAndVerified, false), // invalid defeats arm (a)
+            (Unsigned, true, LocalAndVerified, false), // ingested unsigned never binds
+            (UntrustedKey, true, LocalAndVerified, false), // ingested untrusted never binds
+            (Invalid, true, LocalAndVerified, false),
+            (Unsigned, false, VerifiedOnly, false), // policy excludes local
+            (UntrustedKey, false, VerifiedOnly, false),
+            (Invalid, false, VerifiedOnly, false),
+            (Unsigned, true, VerifiedOnly, false),
+            (UntrustedKey, true, VerifiedOnly, false),
+            (Invalid, true, VerifiedOnly, false),
+        ];
+        for (verification, ingested, policy, expected) in cases {
+            assert_eq!(
+                response_identity_is_binding(verification, ingested, policy),
+                expected,
+                "({verification:?}, ingested: {ingested}, {policy:?})"
+            );
+        }
     }
 
     #[test]
     fn binding_predicate_ignores_source_speaker_payload_fact() {
         // A self-asserted sourceSpeaker: user payload fact must never drive
-        // binding; payload facts are writer-asserted, not verified identity.
+        // binding in either direction; payload facts are writer-asserted, not
+        // verified identity (preserved non-input pin from plan 0059).
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
         let session_id = SessionId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
@@ -2407,6 +2541,7 @@ mod tests {
         response.payload["sourceSpeaker"] = serde_json::json!("user");
         events.push(response);
 
+        // Local: binds via arm (a) — with or without the payload fact.
         let projection = agent_resumption_from_events(
             &events,
             &task_attempt_id,
@@ -2415,14 +2550,37 @@ mod tests {
             ResumptionBindingPolicy::default(),
         )
         .unwrap();
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+        assert!(
+            projection
+                .selected_response
+                .as_ref()
+                .expect("selected response")
+                .identity_treated_as_binding
+        );
 
-        assert!(!projection.may_resume);
+        // Ingested: does not bind — sourceSpeaker: "user" cannot rescue it.
+        let response = events.last_mut().expect("response event");
+        response.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1".to_owned(),
+        });
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        )
+        .unwrap();
         assert_eq!(projection.state, AgentResumptionState::Blocked);
-        let response_view = projection
-            .selected_response
-            .as_ref()
-            .expect("selected response");
-        assert!(!response_view.identity_treated_as_binding);
+        assert!(
+            !projection
+                .selected_response
+                .as_ref()
+                .expect("selected response")
+                .identity_treated_as_binding
+        );
     }
 
     #[test]
@@ -2900,11 +3058,11 @@ mod tests {
         // Once responded, the input request drops out of the open set.
         assert!(input_requests.open_input_requests.is_empty());
 
-        // Identity-based binding has no trust source, so resumption is
-        // blocked; envelope/payload preservation above is the pin here.
-        assert!(!resumption.may_resume);
-        assert_eq!(resumption.state, AgentResumptionState::Blocked);
-        assert!(!resumption.treated_as_operative);
+        // The local unsigned response binds via arm (a); envelope/payload
+        // preservation above is the pin here.
+        assert!(resumption.may_resume);
+        assert_eq!(resumption.state, AgentResumptionState::Ready);
+        assert!(resumption.treated_as_operative);
         assert_eq!(
             resumption.freshness,
             Some(FreshnessBasis::CheckpointMatchesLatest)
@@ -3146,10 +3304,9 @@ mod tests {
         .unwrap();
 
         // The retry pair collapses to one representative response (not
-        // Ambiguous); identity-based binding then blocks resumption because
-        // no binding trust source is configured.
+        // Ambiguous); the local unsigned representative binds via arm (a).
         assert_ne!(projection.state, AgentResumptionState::Ambiguous);
-        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
         assert!(
             projection.selected_response.is_some(),
             "collapsed representative response is surfaced"
@@ -3213,10 +3370,10 @@ mod tests {
         )
         .unwrap();
 
-        // Collapsed to one representative (not Ambiguous); identity-based
-        // binding then blocks resumption — no binding trust source exists.
+        // Collapsed to one representative (not Ambiguous); the local unsigned
+        // representative binds via arm (a).
         assert_ne!(projection.state, AgentResumptionState::Ambiguous);
-        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
         let view = projection
             .selected_response
             .as_ref()
@@ -3528,9 +3685,8 @@ mod tests {
         )
         .unwrap();
 
-        // Freshness pin: agreement on the opaque fingerprint is the signal.
-        // Resumption itself stays blocked — identity-based binding has no
-        // trust source — but the response is not classified stale.
+        // Freshness pin: agreement on the opaque fingerprint is the signal;
+        // the response is not classified stale.
         assert_ne!(projection.state, AgentResumptionState::Stale);
         assert_eq!(
             projection.freshness,
