@@ -6,6 +6,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
+use shoreline::model::SnapshotId;
+use shoreline::session::{
+    ArtifactKind, ArtifactRef, ImportArtifactOptions, export_artifact, import_artifact,
+    read_events, read_snapshot_artifact, referenced_artifacts,
+};
 use support::git_repo::GitRepo;
 use support::shore;
 
@@ -13,11 +18,12 @@ use support::shore;
 /// links it into the clone-local store, then the reader worktree links with
 /// nothing local to push. Reads from the reader exercise the linked store.
 struct LinkedFixture {
-    _main: GitRepo,
+    main: GitRepo,
     _worktree_parent: tempfile::TempDir,
     seed: PathBuf,
     reader: PathBuf,
     seed_review_unit_id: String,
+    seed_snapshot_id: String,
 }
 
 impl LinkedFixture {
@@ -33,17 +39,22 @@ impl LinkedFixture {
         add_worktree(main.path(), &reader, "reader");
 
         let mut fixture = Self {
-            _main: main,
+            main,
             _worktree_parent: worktree_parent,
             seed,
             reader,
             seed_review_unit_id: String::new(),
+            seed_snapshot_id: String::new(),
         };
         fs::write(fixture.seed.join("README.md"), "changed in seed\n").unwrap();
         let capture = fixture.capture(&fixture.seed);
         fixture.seed_review_unit_id = capture["reviewUnit"]["id"]
             .as_str()
             .expect("capture has review unit id")
+            .to_owned();
+        fixture.seed_snapshot_id = capture["reviewUnit"]["snapshotId"]
+            .as_str()
+            .expect("capture has snapshot id")
             .to_owned();
         fixture.link(&fixture.seed);
         fixture.link(&fixture.reader);
@@ -56,6 +67,28 @@ impl LinkedFixture {
 
     fn link(&self, worktree: &Path) -> Value {
         run_shore_json(&["store", "link", "--repo", worktree.to_str().unwrap()])
+    }
+
+    fn observation_add(&self, worktree: &Path, review_unit_id: &str, body: &str) -> Value {
+        run_shore_json(&[
+            "review",
+            "observation",
+            "add",
+            "--repo",
+            worktree.to_str().unwrap(),
+            "--review-unit",
+            review_unit_id,
+            "--track",
+            "agent:test-fixture",
+            "--title",
+            "linked body artifact",
+            "--body",
+            body,
+        ])
+    }
+
+    fn linked_store_dir(&self) -> PathBuf {
+        self.main.path().join(".git/shoreline")
     }
 
     fn unit_list_json(&self, worktree: &Path) -> Value {
@@ -185,6 +218,84 @@ fn linked_unit_list_without_local_events_has_no_divergence_diagnostic() {
         "diagnostics: {}",
         json["diagnostics"]
     );
+}
+
+#[test]
+fn snapshot_artifact_reads_from_linked_store() {
+    let fixture = LinkedFixture::new();
+    let snapshot_id = SnapshotId::new(fixture.seed_snapshot_id.clone());
+
+    let artifact = read_snapshot_artifact(&fixture.reader, &snapshot_id)
+        .expect("snapshot artifact reads from the linked store");
+
+    assert_eq!(artifact.snapshot.snapshot_id, snapshot_id);
+    assert_eq!(
+        artifact.review_unit_id.as_str(),
+        fixture.seed_review_unit_id
+    );
+}
+
+#[test]
+fn export_artifact_body_reads_from_linked_store() {
+    let fixture = LinkedFixture::new();
+    let body = "x".repeat(5000);
+    fixture.observation_add(&fixture.seed, &fixture.seed_review_unit_id, &body);
+    fixture.link(&fixture.seed);
+
+    let body_ref = seed_body_artifact_ref(&fixture);
+    let bytes = export_artifact(&fixture.reader, &body_ref)
+        .expect("body artifact exports from the linked store");
+
+    assert!(!bytes.is_empty());
+}
+
+#[test]
+fn import_artifact_still_writes_worktree_local_in_linked_mode() {
+    let fixture = LinkedFixture::new();
+    let body = "y".repeat(5000);
+    fixture.observation_add(&fixture.seed, &fixture.seed_review_unit_id, &body);
+
+    let body_ref = seed_body_artifact_ref(&fixture);
+    let artifact_relative_path = format!(
+        "artifacts/notes/{}.json",
+        body_ref
+            .content_hash()
+            .strip_prefix("sha256:")
+            .expect("body content hash is sha256-prefixed")
+    );
+    let bytes = fs::read(fixture.seed.join(".shore").join(&artifact_relative_path)).unwrap();
+
+    import_artifact(ImportArtifactOptions::new(
+        &fixture.reader,
+        body_ref,
+        bytes,
+    ))
+    .expect("import into the linked reader succeeds");
+
+    // Writes stay worktree-local until shared-store writes land: the artifact
+    // lands in the reader's own .shore, not the linked clone-local store.
+    assert!(
+        fixture
+            .reader
+            .join(".shore")
+            .join(&artifact_relative_path)
+            .is_file()
+    );
+    assert!(
+        !fixture
+            .linked_store_dir()
+            .join(&artifact_relative_path)
+            .exists()
+    );
+}
+
+fn seed_body_artifact_ref(fixture: &LinkedFixture) -> ArtifactRef {
+    let events = read_events(&fixture.seed).expect("read seed worktree events");
+    referenced_artifacts(&events)
+        .expect("derive artifact refs from seed events")
+        .into_iter()
+        .find(|artifact| artifact.kind() == ArtifactKind::Body)
+        .expect("seed events reference a body artifact")
 }
 
 #[test]

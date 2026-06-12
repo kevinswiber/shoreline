@@ -17,6 +17,7 @@ use crate::session::snapshot_artifact::{
     read_snapshot_artifact_bytes, snapshot_artifact_path, validate_snapshot_artifact_content_hash,
 };
 use crate::session::store::SnapshotArtifact;
+use crate::session::store::resolution::resolve_read_store;
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
@@ -129,6 +130,9 @@ pub fn referenced_artifacts(events: &[ShoreEvent]) -> Result<Vec<ArtifactRef>> {
 }
 
 /// Export an artifact's validated bytes from a source repo.
+///
+/// Reads resolve through the linked clone-local store when one is registered
+/// for the worktree. Imports stay worktree-local; see [`import_artifact`].
 pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result<Vec<u8>> {
     match &artifact.locator {
         ArtifactLocator::Snapshot { snapshot_id } => {
@@ -144,8 +148,8 @@ pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result
             Ok(bytes)
         }
         ArtifactLocator::Body { relative_path } => {
-            let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-            read_body_artifact_bytes(paths.shore_dir(), relative_path, &artifact.content_hash)
+            let read_store = resolve_read_store(repo.as_ref())?;
+            read_body_artifact_bytes(read_store.store_dir(), relative_path, &artifact.content_hash)
         }
     }
 }

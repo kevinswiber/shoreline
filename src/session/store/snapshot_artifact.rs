@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::{Result, ShoreError};
 use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, SnapshotId};
+use crate::session::store::resolution::resolve_read_store;
 use crate::session::{ReviewUnitFingerprint, ShoreStorePaths};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
@@ -71,6 +72,10 @@ pub fn write_snapshot_artifact(
     }
 }
 
+/// Read and hash-validate a stored snapshot artifact.
+///
+/// Reads resolve through the linked clone-local store when one is registered
+/// for the worktree; otherwise they read the worktree-local `.shore` store.
 pub fn read_snapshot_artifact(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
@@ -85,9 +90,8 @@ pub(crate) fn read_snapshot_artifact_bytes(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
 ) -> Result<Vec<u8>> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    let shore_dir = paths.shore_dir();
-    let path = snapshot_artifact_path(shore_dir, snapshot_id);
+    let read_store = resolve_read_store(repo.as_ref())?;
+    let path = snapshot_artifact_path(read_store.store_dir(), snapshot_id);
     std::fs::read(&path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             return ShoreError::Message(format!(
