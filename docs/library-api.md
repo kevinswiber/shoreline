@@ -114,8 +114,8 @@ claims and remain different events.
 `EventToBeSigned` is not "the whole event minus `signature`." It is the canonical producer-fact
 view described by [ADR-0004](adr/adr-0004-event-signatures.md): schema, version, event type, event
 id, payload hash, target, writer actor id, effective signer, occurrence timestamp, and
-assertion mode. `sourceRef` is unsigned hop metadata; bridges may add or change it without changing
-the producer signature. The protocol media type still contains `event-tbs.v1` for
+assertion mode. `sourceRef` and `ingest` are unsigned hop metadata; bridges may add or change
+`sourceRef`, and import seams stamp `ingest`, without changing the producer signature. The protocol media type still contains `event-tbs.v1` for
 "event to be signed" compatibility, but public Rust names spell out `EventToBeSigned`.
 
 Verification is advisory by default. Callers can select:
@@ -145,6 +145,7 @@ the producer facts; they do not choose an automatic conflict winner.
 | `ingest_events` + `IngestEventsOptions` / `IngestEventsResult` | Ingest pre-formed `ShoreEvent`s (forwarded over a network or merged from another clone), preserving append-only / content-addressed / idempotent + conflict semantics. |
 | `import_event` + `ImportEventOptions` | Single-event convenience over `ingest_events`. |
 | `shoreline::session::event::ShoreEvent` (+ `EventType`, `Writer`, payload types) | The event envelope; `Serialize` + `Deserialize`, so events can be forwarded as JSON. |
+| `IngestProvenance` / `IngestVia` | The optional `ingest: { via, receivedAt }` envelope sibling stamped by import seams ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)). |
 
 Ingest validates each envelope (`eventId`/`payloadHash`/schema) and validates the whole batch's
 attribution before any write. Per-event Ed25519 signatures are optional and additive: signed events
@@ -161,6 +162,12 @@ keys, or unsigned events should remain diagnostics or reject ingest. Read surfac
 verification status without changing the stored event or projection. A re-ingest of an
 already-present event is a no-op; a conflicting payload under the same idempotency key is rejected.
 The projection (`state.json`) is rebuilt once after the batch.
+
+Every event written through `ingest_events` / `import_event` or store bundle import is stamped
+with ingest provenance — `ingest: { via, receivedAt }`, with `via` naming the seam
+(`ingest-events` or `bundle-apply`) — overwriting any inbound stamp. The stamp is outside the
+to-be-signed view, so stamping never invalidates a signature, and re-ingest keeps the first
+stored stamp state ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)).
 
 ### Artifacts — `shoreline::session`
 

@@ -382,6 +382,43 @@ content-derived IDs.
 Do not add a global sequence number until Shoreline has a concrete allocator that does not create a
 shared mutable counter. Deterministic event ordering can start from event metadata and filenames.
 
+## Ingest Provenance
+
+Events that enter a store through a foreign-event seam carry an optional top-level envelope
+sibling stamped by the local importer
+([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)):
+
+```json
+"ingest": { "via": "ingest-events", "receivedAt": "unix-ms:1760000000000" }
+```
+
+`via` is a bounded vocabulary naming the seam: `ingest-events` (the `ingest_events` /
+`import_event` workflow) or `bundle-apply` (store bundle import). `receivedAt` uses the store's
+`unix-ms:` timestamp format. Consumers read presence; `via` and `receivedAt` are operator-facing
+detail.
+
+Both import seams stamp unconditionally and **overwrite** any inbound stamp. A stamp in arriving
+bytes is some other store's bookkeeping — the same honesty rule that applies to `sourceRef`: hop
+metadata from elsewhere is not a fact.
+
+The stamp participates in nothing that identifies or authenticates the event. It is excluded from
+the to-be-signed view, so stamping a signed event cannot invalidate its signature, and it
+contributes to neither idempotency keys nor `eventId`. Exclusive event creation gives the stamp
+first-stored-wins mechanically: a locally authored stored event can never acquire a stamp after
+the fact, and an ingested event can never lose or swap its first stamp on re-ingest.
+
+The marker is local bookkeeping written by the store owner's own importer. It is trustworthy to
+this store under the single-writer contract; it is never a signed fact, and it is never
+trustworthy to a third party reading a mirrored or copied store. Note the seam boundary: bundle
+apply stamps, but a wholesale filesystem copy (`cp -r`) carries unstamped events into the new
+store. Stores whose possession does not imply authorship should prefer the `verified-only`
+binding posture described in
+[ADR-0009](adr/adr-0009-resumption-binding-trust-source.md).
+
+Events imported before the marker landed are unstamped and indistinguishable from local-authored
+events — a store owner who imported events earlier possesses a store whose history they chose.
+The marker discriminates from its landing forward.
+
 ## Artifact Files
 
 Artifact filenames follow two deliberate rules, paired to what the file represents:

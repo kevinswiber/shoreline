@@ -86,10 +86,14 @@ contains:
 - `signer` is the resolved effective signer and is always a `did:key`.
 - `payloadHash` binds the payload without signing raw payload bytes.
 - `sourceRef` is excluded because it is hop metadata.
+- `ingest` (the import-seam provenance stamp,
+  [ADR-0009](./adr-0009-resumption-binding-trust-source.md)) is a realized instance of the
+  hop-added metadata this exclusion anticipated; stamping a signed event cannot invalidate its
+  signature.
 - `sigVersion` is not inside the to-be-signed view; it selects the verifier path and payload type.
 
-The to-be-signed view excludes `payload`, `sourceRef`, `signature`, `sigVersion`, and future
-hop-added metadata.
+The to-be-signed view excludes `payload`, `sourceRef`, `ingest`, `signature`, `sigVersion`, and
+future hop-added metadata.
 
 ## Identity And Trust
 
