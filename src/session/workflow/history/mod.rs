@@ -11,10 +11,11 @@ pub use self::summary::ReviewHistoryEntry;
 use crate::error::Result;
 use crate::session::EventStore;
 use crate::session::observation::validated_track_id;
-use crate::session::store_init::ShoreStorePaths;
+use crate::session::store::resolution::resolve_read_store;
+use crate::session::workflow::read_store::divergence_diagnostics;
 
 pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let read_store = resolve_read_store(&options.repo)?;
     let track_id = options
         .track
         .as_deref()
@@ -28,8 +29,12 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         verification_policy: options.verification_policy,
         trust_set: options.trust_set,
     };
-    let events = EventStore::open(paths.shore_dir()).list_events()?;
-    history_from_events(&events, filters, Some(paths.shore_dir()))
+    let events = EventStore::open(read_store.store_dir()).list_events()?;
+    let mut result = history_from_events(&events, filters, Some(read_store.store_dir()))?;
+    result
+        .diagnostics
+        .extend(divergence_diagnostics(&read_store));
+    Ok(result)
 }
 
 #[cfg(test)]

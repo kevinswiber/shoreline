@@ -91,6 +91,14 @@ impl LinkedFixture {
         self.main.path().join(".git/shoreline")
     }
 
+    fn history_json(&self, worktree: &Path, include_body: bool) -> Value {
+        let mut args = vec!["review", "history", "--repo", worktree.to_str().unwrap()];
+        if include_body {
+            args.push("--include-body");
+        }
+        run_shore_json(&args)
+    }
+
     fn unit_list_json(&self, worktree: &Path) -> Value {
         run_shore_json(&[
             "review",
@@ -218,6 +226,52 @@ fn linked_unit_list_without_local_events_has_no_divergence_diagnostic() {
         "diagnostics: {}",
         json["diagnostics"]
     );
+}
+
+#[test]
+fn linked_history_reads_full_timeline_from_linked_store() {
+    let fixture = LinkedFixture::new();
+    let body = "h".repeat(5000);
+    fixture.observation_add(&fixture.seed, &fixture.seed_review_unit_id, &body);
+    fixture.link(&fixture.seed);
+
+    let json = fixture.history_json(&fixture.reader, true);
+
+    assert_eq!(json["eventCount"], 2);
+    let event_types: Vec<&str> = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["eventType"].as_str())
+        .collect();
+    assert!(event_types.contains(&"review_unit_captured"), "{event_types:?}");
+    assert!(
+        event_types.contains(&"review_observation_recorded"),
+        "{event_types:?}"
+    );
+    assert!(
+        json.to_string().contains(&body),
+        "hydrated observation body loads from the linked store"
+    );
+}
+
+#[test]
+fn linked_history_emits_divergence_diagnostic_with_local_only_events() {
+    let fixture = LinkedFixture::new();
+    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
+    let local_capture = fixture.capture(&fixture.reader);
+    let local_unit_id = local_capture["reviewUnit"]["id"].as_str().unwrap();
+
+    let json = fixture.history_json(&fixture.reader, false);
+
+    assert!(
+        diagnostic_codes(&json).contains(&"clone_local_unsynced_local_events"),
+        "diagnostics: {}",
+        json["diagnostics"]
+    );
+    // Store-only: the reader's unsynced local capture is not in the timeline.
+    assert_eq!(json["eventCount"], 1);
+    assert!(!json["entries"].to_string().contains(local_unit_id));
 }
 
 #[test]
