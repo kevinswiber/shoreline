@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -5,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
 use crate::git::{git_absolute_git_dir, git_common_dir, git_object_format};
+use crate::session::store::event_store::EventStore;
 use crate::session::store::manifest::{
     StoreGitProvenance, StoreManifest, load_or_create_store_manifest, read_store_manifest,
 };
@@ -98,6 +100,50 @@ pub(crate) struct StoreResolutionView {
     pub clone_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_family_ref: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ReadStore {
+    pub resolution: StoreResolution,
+    /// Event file names present in the worktree-local `.shore/events/` but
+    /// absent from the resolved linked store. Always empty in WorktreeLocal
+    /// mode. Filenames are content-addressed (eventId-derived), so a name
+    /// match is an identity match.
+    pub local_only_event_files: Vec<String>,
+}
+
+impl ReadStore {
+    pub(crate) fn store_dir(&self) -> &Path {
+        self.resolution.store_dir()
+    }
+}
+
+/// The read seam: read surfaces resolve their store here so linked mode reads
+/// the clone-local store; write surfaces keep `ShoreStorePaths::resolve` and
+/// stay worktree-local per the batch-only contract.
+pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let resolution = resolve_store(repo)?;
+    let local_only_event_files = match resolution.mode {
+        StoreResolutionMode::WorktreeLocal => Vec::new(),
+        StoreResolutionMode::CloneLocal => {
+            let local = EventStore::open(paths.shore_dir()).list_event_file_names()?;
+            let linked: HashSet<String> = EventStore::open(resolution.store_dir())
+                .list_event_file_names()?
+                .into_iter()
+                .collect();
+            let mut local_only: Vec<String> = local
+                .into_iter()
+                .filter(|name| !linked.contains(name))
+                .collect();
+            local_only.sort();
+            local_only
+        }
+    };
+    Ok(ReadStore {
+        resolution,
+        local_only_event_files,
+    })
 }
 
 pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
@@ -269,6 +315,66 @@ mod tests {
             registration.repository_family_ref,
             manifest.repository_family_id
         );
+    }
+
+    #[test]
+    fn resolve_read_store_worktree_local_has_no_local_only_events() {
+        let repo = GitRepo::new();
+        write_event_file(&repo.path().join(".shore"), 'a');
+
+        let read_store = resolve_read_store(repo.path()).unwrap();
+
+        assert_eq!(
+            read_store.resolution.mode,
+            StoreResolutionMode::WorktreeLocal
+        );
+        assert_eq!(path_file_name(read_store.store_dir()), ".shore");
+        assert!(read_store.local_only_event_files.is_empty());
+    }
+
+    #[test]
+    fn resolve_read_store_linked_reports_local_events_absent_from_linked_store() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let local_name = write_event_file(&fixture.linked_path.join(".shore"), 'a');
+
+        let read_store = resolve_read_store(&fixture.linked_path).unwrap();
+
+        assert_eq!(read_store.resolution.mode, StoreResolutionMode::CloneLocal);
+        assert_eq!(read_store.local_only_event_files, vec![local_name]);
+    }
+
+    #[test]
+    fn resolve_read_store_linked_with_synced_events_reports_none() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+        write_event_file(&fixture.linked_path.join(".shore"), 'b');
+        write_event_file(resolution.store_dir(), 'b');
+
+        let read_store = resolve_read_store(&fixture.linked_path).unwrap();
+
+        assert_eq!(read_store.resolution.mode, StoreResolutionMode::CloneLocal);
+        assert!(read_store.local_only_event_files.is_empty());
+    }
+
+    #[test]
+    fn resolve_read_store_linked_without_local_events_dir_reports_none() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+
+        let read_store = resolve_read_store(&fixture.linked_path).unwrap();
+
+        assert_eq!(read_store.resolution.mode, StoreResolutionMode::CloneLocal);
+        assert!(read_store.local_only_event_files.is_empty());
+    }
+
+    fn write_event_file(store_dir: &Path, fill: char) -> String {
+        let name = format!("{}.json", fill.to_string().repeat(64));
+        let events_dir = store_dir.join("events");
+        fs::create_dir_all(&events_dir).unwrap();
+        fs::write(events_dir.join(&name), b"{}").unwrap();
+        name
     }
 
     #[test]

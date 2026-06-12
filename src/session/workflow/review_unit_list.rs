@@ -9,7 +9,8 @@ use crate::model::{
 use crate::session::EventStore;
 use crate::session::event::{EventType, ReviewUnitCapturedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store::resolution::resolve_store;
+use crate::session::store::resolution::resolve_read_store;
+use crate::session::workflow::read_store::divergence_diagnostics;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitListOptions {
@@ -49,9 +50,13 @@ pub struct ReviewUnitListResult {
 }
 
 pub fn list_review_units(options: ReviewUnitListOptions) -> Result<ReviewUnitListResult> {
-    let resolution = resolve_store(&options.repo)?;
-    let events = EventStore::open(resolution.store_dir()).list_events()?;
-    list_from_events(&events)
+    let read_store = resolve_read_store(&options.repo)?;
+    let events = EventStore::open(read_store.store_dir()).list_events()?;
+    let mut result = list_from_events(&events)?;
+    result
+        .diagnostics
+        .extend(divergence_diagnostics(&read_store));
+    Ok(result)
 }
 
 fn list_from_events(events: &[ShoreEvent]) -> Result<ReviewUnitListResult> {

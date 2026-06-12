@@ -5,6 +5,7 @@ mod history;
 mod import;
 mod ingest;
 mod lineage;
+mod read_store;
 mod reload;
 mod review_unit_list;
 mod review_unit_projection;

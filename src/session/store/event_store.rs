@@ -111,12 +111,27 @@ impl EventStore {
     }
 
     pub fn list_events(&self) -> Result<Vec<ShoreEvent>> {
-        self.storage
+        self.list_event_file_names()?
+            .into_iter()
+            .map(|name| self.read_event(&self.events_dir().join(name)))
+            .collect()
+    }
+
+    /// Event file names in this store, with the same accept/skip rules as
+    /// `list_events` but without parsing event JSON. Sorted; a missing events
+    /// directory lists as empty.
+    pub(crate) fn list_event_file_names(&self) -> Result<Vec<String>> {
+        Ok(self
+            .storage
             .list_dir(&self.events_dir())?
             .into_iter()
             .filter(|path| is_event_file(path))
-            .map(|path| self.read_event(&path))
-            .collect()
+            .filter_map(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_owned)
+            })
+            .collect())
     }
 
     pub(crate) fn event_exists(&self, idempotency_key: &str) -> Result<bool> {
@@ -457,6 +472,29 @@ mod tests {
         fs::write(store.events_dir().join("README.txt"), b"ignore me").unwrap();
 
         assert_eq!(store.list_events().unwrap(), vec![event]);
+    }
+
+    #[test]
+    fn list_event_file_names_ignores_temp_files_and_unknown_suffixes() {
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        store.record_event_once(&event).unwrap();
+        fs::write(
+            store.events_dir().join(".shore-write.partial.tmp"),
+            b"partial",
+        )
+        .unwrap();
+        fs::write(store.events_dir().join("README.txt"), b"ignore me").unwrap();
+
+        let expected = format!("{}.json", event_filename_stem(&event.idempotency_key));
+        assert_eq!(store.list_event_file_names().unwrap(), vec![expected]);
+    }
+
+    #[test]
+    fn list_event_file_names_with_missing_events_dir_is_empty() {
+        let (_root, store) = temp_event_store();
+
+        assert_eq!(store.list_event_file_names().unwrap(), Vec::<String>::new());
     }
 
     #[test]
