@@ -738,6 +738,86 @@ fn worktree_local_observation_add_has_no_fact_batch_only_diagnostic() {
     );
 }
 
+#[test]
+fn linked_reader_opens_input_request_against_linked_only_unit() {
+    let fixture = LinkedFixture::new();
+
+    // RED today: open_input_request validates against the reader's empty local
+    // store and fails with "unknown review unit".
+    let result = run_shore_json(&[
+        "review",
+        "input-request",
+        "open",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+        "--track",
+        "agent:test-fixture",
+        "--title",
+        "cross-worktree question",
+        "--reason",
+        "manual-decision-required",
+        "--body",
+        "approve?",
+    ]);
+
+    assert_eq!(result["eventsCreated"], 1);
+    assert!(result["inputRequestId"].as_str().is_some());
+    assert!(
+        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "diagnostics: {}",
+        result["diagnostics"]
+    );
+}
+
+#[test]
+fn linked_reader_opens_input_request_with_observation_ref_target() {
+    let fixture = LinkedFixture::new();
+
+    // The seed records an observation on its unit and links it; the observation
+    // now lives only in the linked store.
+    let observation = fixture.observation_add(
+        &fixture.seed,
+        &fixture.seed_review_unit_id,
+        "observation to reference",
+    );
+    let observation_id = observation["observationId"]
+        .as_str()
+        .expect("seed observation has an id")
+        .to_owned();
+    fixture.link(&fixture.seed);
+
+    // RED today: resolve_input_request_target cannot see the linked-only
+    // observation from the reader's local store.
+    let result = run_shore_json(&[
+        "review",
+        "input-request",
+        "open",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+        "--observation",
+        &observation_id,
+        "--track",
+        "agent:test-fixture",
+        "--title",
+        "question about that observation",
+        "--reason",
+        "manual-decision-required",
+        "--body",
+        "is this right?",
+    ]);
+
+    assert_eq!(result["eventsCreated"], 1);
+    assert_eq!(result["target"]["kind"], "observation");
+    assert_eq!(
+        result["target"]["observationId"],
+        Value::String(observation_id)
+    );
+}
+
 fn event_set_hash(json: &Value) -> &str {
     json["eventSetHash"].as_str().expect("eventSetHash present")
 }

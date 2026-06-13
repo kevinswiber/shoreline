@@ -19,7 +19,9 @@ use crate::session::observation::{
     ReviewUnitSelection, required_title, resolve_review_unit, staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::resolution::resolve_write_validation_store;
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
+use crate::session::workflow::write_store::fact_batch_only_diagnostics;
 use crate::session::{
     EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, sign_event_if_requested,
     writer_from_options,
@@ -147,16 +149,28 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let storage = LocalStorage::new(shore_dir);
     prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(shore_dir);
-    let events = event_store.list_events()?;
+    // Validation/derivation reads resolve the writer-visible union (linked store
+    // ∪ unsynced local events) so a request opened in a linked checkout validates
+    // its unit and observation-ref/file targets against everything the writer sees.
+    let validation_store = resolve_write_validation_store(&options.repo)?;
+    let validation_events = validation_store.validation_events()?;
     let resolved = resolve_review_unit(
-        &events,
+        &validation_events,
         ReviewUnitSelection::from_review_unit_or_lineage(
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
     )?;
-    let target = resolve_input_request_target(worktree_root, &events, &resolved, &options.target)?;
+    let target = resolve_input_request_target(
+        worktree_root,
+        &validation_events,
+        &resolved,
+        &options.target,
+    )?;
+
+    // The write half keeps the LOCAL prior batch for the single-writer state.json.
+    let event_store = EventStore::open(shore_dir);
+    let events = event_store.list_events()?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {
             reason: "track is required".to_owned(),
@@ -246,7 +260,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
     storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
-    Ok(InputRequestOpenResult {
+    let mut result = InputRequestOpenResult {
         review_unit_id: resolved.review_unit_id,
         input_request_id,
         event_id,
@@ -259,7 +273,11 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         events_existing,
         events_created_by_type,
         diagnostics: state.diagnostics,
-    })
+    };
+    result
+        .diagnostics
+        .extend(fact_batch_only_diagnostics(&validation_store));
+    Ok(result)
 }
 
 struct InputRequestIdMaterial<'a> {
