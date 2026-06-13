@@ -6,7 +6,7 @@ use crate::model::{
 };
 use crate::session::event::{EventType, ReviewUnitCapturedPayload, ShoreEvent};
 use crate::session::projection::lineage::ReviewUnitLineageProjection;
-use crate::session::snapshot_artifact::read_snapshot_artifact;
+use crate::session::snapshot_artifact::read_snapshot_artifact_for_write_validation;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedReviewUnit {
@@ -159,7 +159,7 @@ pub(crate) fn resolve_observation_target(
         });
     };
 
-    let artifact = read_snapshot_artifact(repo, &resolved.snapshot_id)?;
+    let artifact = read_snapshot_artifact_for_write_validation(repo, &resolved.snapshot_id)?;
     if !artifact.snapshot.files.iter().any(|file| {
         file.new_path.as_deref() == Some(file_path) || file.old_path.as_deref() == Some(file_path)
     }) {

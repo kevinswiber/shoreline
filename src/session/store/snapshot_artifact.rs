@@ -92,15 +92,64 @@ pub(crate) fn read_snapshot_artifact_bytes(
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
     let path = snapshot_artifact_path(read_store.store_dir(), snapshot_id);
-    std::fs::read(&path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            return ShoreError::Message(format!(
-                "missing artifact for snapshot {}; import referenced artifacts before reading",
-                snapshot_id.as_str()
-            ));
+    std::fs::read(&path).map_err(|error| missing_artifact_or_io(error, snapshot_id, &path))
+}
+
+/// Read a snapshot artifact for WRITE-PATH target validation. Resolves the
+/// linked store first (matching read surfaces), then falls back to the
+/// worktree-local `.shore/` when the artifact has not yet been copied by
+/// `store link`. Both sources are content-addressed and the hash is validated,
+/// so the choice is invisible to the caller. This closes a split-brain where a
+/// locally captured, unsynced unit validated (write-path unit validation reads
+/// local events) but its file target could not resolve its artifact, because
+/// the artifact read resolved only the linked store the unit was not yet in.
+pub(crate) fn read_snapshot_artifact_for_write_validation(
+    repo: impl AsRef<Path>,
+    snapshot_id: &SnapshotId,
+) -> Result<SnapshotArtifact> {
+    let bytes = read_snapshot_artifact_bytes_with_local_fallback(repo, snapshot_id)?;
+    let artifact: SnapshotArtifact = serde_json::from_slice(&bytes)?;
+    validate_snapshot_artifact_content_hash(&artifact)?;
+    Ok(artifact)
+}
+
+fn read_snapshot_artifact_bytes_with_local_fallback(
+    repo: impl AsRef<Path>,
+    snapshot_id: &SnapshotId,
+) -> Result<Vec<u8>> {
+    let read_store = resolve_read_store(repo.as_ref())?;
+    let resolved_path = snapshot_artifact_path(read_store.store_dir(), snapshot_id);
+    match std::fs::read(&resolved_path) {
+        Ok(bytes) => Ok(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Fall back to the worktree-local store: the unsynced-local case
+            // where the unit was captured here but `store link` has not yet
+            // copied its content-addressed artifact into the linked store.
+            let local = ShoreStorePaths::resolve(repo.as_ref())?;
+            let local_path = snapshot_artifact_path(local.shore_dir(), snapshot_id);
+            std::fs::read(&local_path)
+                .map_err(|error| missing_artifact_or_io(error, snapshot_id, &local_path))
         }
-        ShoreError::Message(format!("read file {}: {error}", path.display()))
-    })
+        Err(error) => Err(missing_artifact_or_io(error, snapshot_id, &resolved_path)),
+    }
+}
+
+/// Shared error mapping for snapshot-artifact byte reads: a missing file yields
+/// the canonical "import referenced artifacts" message; any other I/O error is
+/// reported with its path. The read surface and the write-validation fallback
+/// differ only in whether a `NotFound` triggers the local fallback before this.
+fn missing_artifact_or_io(
+    error: std::io::Error,
+    snapshot_id: &SnapshotId,
+    path: &Path,
+) -> ShoreError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return ShoreError::Message(format!(
+            "missing artifact for snapshot {}; import referenced artifacts before reading",
+            snapshot_id.as_str()
+        ));
+    }
+    ShoreError::Message(format!("read file {}: {error}", path.display()))
 }
 
 pub(crate) fn validate_snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<()> {
@@ -153,6 +202,7 @@ mod tests {
     use super::*;
     use crate::git::capture_worktree_diff_files;
     use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewId};
+    use crate::session::store::resolution::register_clone_local_store;
     use crate::session::{compute_review_unit_fingerprint, read_snapshot_artifact};
 
     #[test]
@@ -298,6 +348,63 @@ mod tests {
             .unwrap();
 
         assert_eq!(read, artifact);
+    }
+
+    #[test]
+    fn write_validation_artifact_read_prefers_resolved_store_when_present() {
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+
+        // Unlinked: the resolved store IS the worktree-local `.shore`, and the
+        // artifact is there, so the read resolves it without any fallback.
+        let read = read_snapshot_artifact_for_write_validation(
+            repo.path(),
+            &artifact.snapshot.snapshot_id,
+        )
+        .unwrap();
+
+        assert_eq!(read, artifact);
+    }
+
+    #[test]
+    fn write_validation_artifact_read_falls_back_to_worktree_local() {
+        let repo = modified_repo();
+        // The artifact lands in the worktree-local `.shore` (write_snapshot_artifact
+        // always writes worktree-local).
+        let artifact = write_current_snapshot_artifact(&repo);
+        // Register clone-local AFTER writing: linked mode now resolves the empty
+        // `.git/shoreline` store, which lacks this unsynced-local artifact.
+        register_clone_local_store(repo.path()).unwrap();
+
+        let read = read_snapshot_artifact_for_write_validation(
+            repo.path(),
+            &artifact.snapshot.snapshot_id,
+        )
+        .unwrap();
+
+        // Read via the worktree-local fallback, content-hash validated.
+        assert_eq!(read, artifact);
+    }
+
+    #[test]
+    fn write_validation_artifact_read_missing_everywhere_errors_clearly() {
+        let repo = modified_repo();
+        let fingerprint = compute_review_unit_fingerprint(repo.path()).unwrap();
+
+        let error =
+            read_snapshot_artifact_for_write_validation(repo.path(), &fingerprint.snapshot_id)
+                .expect_err("an artifact absent from both stores errors");
+
+        assert!(
+            error.to_string().contains("missing artifact for snapshot"),
+            "got: {error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("import referenced artifacts before reading"),
+            "got: {error}"
+        );
     }
 
     fn write_current_snapshot_artifact(repo: &TestRepo) -> SnapshotArtifact {

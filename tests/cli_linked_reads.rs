@@ -631,6 +631,45 @@ fn reads_racing_store_link_always_see_consistent_event_sets() {
     assert_eq!(final_list.event_set_hash, seed_after_link.event_set_hash);
 }
 
+#[test]
+fn linked_local_capture_file_target_observation_resolves_artifact() {
+    let fixture = LinkedFixture::new();
+
+    // The reader captures locally: unit C and its snapshot artifact land in the
+    // reader's worktree-local .shore and are NOT yet copied by store link.
+    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
+    let capture = fixture.capture(&fixture.reader);
+    let local_unit_id = capture["reviewUnit"]["id"]
+        .as_str()
+        .expect("local capture has review unit id")
+        .to_owned();
+
+    // A file-targeted observation against that locally captured unit. Before the
+    // fallback fix this is RED: resolve_observation_target reads the snapshot
+    // artifact from the linked store, where store link has not copied it, so it
+    // fails with "missing artifact for snapshot ...". After the fix it succeeds,
+    // reading the artifact from the reader's worktree-local .shore.
+    let json = run_shore_json(&[
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &local_unit_id,
+        "--track",
+        "agent:test-fixture",
+        "--title",
+        "file targeted on local capture",
+        "--file",
+        "README.md",
+    ]);
+
+    assert_eq!(json["target"]["kind"], "file");
+    assert_eq!(json["target"]["filePath"], "README.md");
+    assert_eq!(json["target"]["reviewUnitId"], Value::String(local_unit_id));
+}
+
 fn event_set_hash(json: &Value) -> &str {
     json["eventSetHash"].as_str().expect("eventSetHash present")
 }
