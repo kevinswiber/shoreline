@@ -1199,9 +1199,9 @@ fn linked_fact_write_does_not_copy_snapshot_artifacts_to_linked_store() {
     let local_unit = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
 
     let snapshots_before = snapshot_artifact_names(&fixture.linked_store_dir());
-    // File-targeted observation against the locally captured unit (the task 1.2
-    // fallback path). The write must not push the snapshot artifact to the linked
-    // store — only `store link` copies artifacts.
+    // File-targeted observation against the locally captured unit (the artifact
+    // worktree-local fallback path). The write must not push the snapshot
+    // artifact to the linked store — only `store link` copies artifacts.
     run_shore_json(&[
         "review",
         "observation",
@@ -1262,6 +1262,162 @@ fn state_diagnostic_codes(state: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[test]
+fn cross_worktree_fact_is_invisible_until_store_link_then_visible() {
+    let fixture = LinkedFixture::new();
+    let added =
+        fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "cross note");
+    let observation_id = added["observationId"].as_str().unwrap().to_owned();
+
+    // Before link: the seed (a separate checkout reading the linked store) does
+    // NOT see the reader's observation, and the reader's own store-only reads
+    // surface the divergence diagnostic.
+    let before = observation_list_json(&fixture.seed, &fixture.seed_review_unit_id);
+    assert!(!contains_observation(&before, &observation_id));
+    assert!(
+        diagnostic_codes(&fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id))
+            .contains(&"clone_local_unsynced_local_events"),
+        "reader's read surfaces the unsynced-local diagnostic before link"
+    );
+
+    // store link from the reader copies exactly one event.
+    let link = fixture.link(&fixture.reader);
+    assert_eq!(link["eventsCreated"], 1);
+
+    // After link: the seed sees it and the divergence diagnostic clears.
+    let after = observation_list_json(&fixture.seed, &fixture.seed_review_unit_id);
+    assert!(contains_observation(&after, &observation_id));
+    assert!(
+        !diagnostic_codes(&fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id))
+            .contains(&"clone_local_unsynced_local_events"),
+        "the divergence diagnostic clears once the fact is synced"
+    );
+}
+
+#[test]
+fn re_linking_a_synced_fact_copies_zero_events() {
+    let fixture = LinkedFixture::new();
+    fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "n");
+    assert_eq!(fixture.link(&fixture.reader)["eventsCreated"], 1);
+
+    // Idempotent: the second link copies nothing and reports no conflict.
+    let second = fixture.link(&fixture.reader);
+    assert_eq!(second["eventsCreated"], 0);
+}
+
+#[test]
+fn re_running_the_same_fact_command_after_link_is_idempotent() {
+    let fixture = LinkedFixture::new();
+    let first = fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "same body");
+    assert_eq!(first["eventsCreated"], 1);
+    fixture.link(&fixture.reader);
+
+    // Content-addressed: the identical command re-run after link yields
+    // eventsCreated 0 / eventsExisting 1, with no event conflict.
+    let again = fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "same body");
+    assert_eq!(again["eventsCreated"], 0);
+    assert_eq!(again["eventsExisting"], 1);
+}
+
+#[test]
+fn file_targeted_cross_worktree_fact_copies_artifact_on_link() {
+    let fixture = LinkedFixture::new();
+    // The reader captures a unit locally and records a file-targeted observation
+    // with a body against it (the artifact worktree-local fallback path).
+    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
+    let capture = fixture.capture(&fixture.reader);
+    let local_unit = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let body = "z".repeat(5000);
+    run_shore_json(&[
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &local_unit,
+        "--track",
+        "agent:test-fixture",
+        "--title",
+        "file note",
+        "--file",
+        "README.md",
+        "--body",
+        &body,
+    ]);
+
+    // store link copies the events and their artifacts (capture snapshot + body).
+    let link = fixture.link(&fixture.reader);
+    assert!(
+        link["artifactsCreated"].as_u64().unwrap() >= 2,
+        "snapshot and body artifacts copied: {}",
+        link["artifactsCreated"]
+    );
+
+    // A third checkout reads the fact's body from the linked store.
+    let listed = run_shore_json(&[
+        "review",
+        "observation",
+        "list",
+        "--repo",
+        fixture.seed.to_str().unwrap(),
+        "--review-unit",
+        &local_unit,
+        "--include-body",
+    ]);
+    assert_eq!(listed["observations"][0]["body"], Value::String(body));
+}
+
+#[test]
+fn input_request_response_round_trips_through_link() {
+    let fixture = LinkedFixture::new();
+    let request_id = fixture.seed_full_facts("seed body");
+    fixture.link(&fixture.seed);
+    fixture.respond_input_request(&fixture.reader, &request_id);
+    fixture.link(&fixture.reader);
+
+    // A third checkout (the seed) sees the reader's response.
+    let listed = run_shore_json(&[
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        fixture.seed.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+        "--status",
+        "all",
+    ]);
+    let request = listed["inputRequests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == Value::String(request_id.clone()))
+        .expect("the seeded request is listed");
+    assert_eq!(request["responses"].as_array().unwrap().len(), 1);
+    assert_eq!(request["responses"][0]["outcome"], "approved");
+}
+
+fn observation_list_json(worktree: &Path, review_unit_id: &str) -> Value {
+    run_shore_json(&[
+        "review",
+        "observation",
+        "list",
+        "--repo",
+        worktree.to_str().unwrap(),
+        "--review-unit",
+        review_unit_id,
+    ])
+}
+
+fn contains_observation(list: &Value, observation_id: &str) -> bool {
+    list["observations"].as_array().is_some_and(|observations| {
+        observations
+            .iter()
+            .any(|observation| observation["id"] == Value::String(observation_id.to_owned()))
+    })
 }
 
 fn event_set_hash(json: &Value) -> &str {
