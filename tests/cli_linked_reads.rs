@@ -818,6 +818,59 @@ fn linked_reader_opens_input_request_with_observation_ref_target() {
     );
 }
 
+#[test]
+fn linked_reader_responds_to_linked_only_input_request() {
+    let fixture = LinkedFixture::new();
+    let request_id = fixture.seed_full_facts("seed body");
+    // The opened request lives in the seed's local store until link; copy it to
+    // the linked store so the reader can see it.
+    fixture.link(&fixture.seed);
+
+    // RED today: respond_input_request reads the reader's empty local store and
+    // fails with "unknown input request".
+    let result = fixture.respond_input_request(&fixture.reader, &request_id);
+
+    assert_eq!(result["eventsCreated"], 1);
+    assert_eq!(result["outcome"], "approved");
+    assert!(
+        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "diagnostics: {}",
+        result["diagnostics"]
+    );
+}
+
+#[test]
+fn linked_reader_respond_copies_request_event_target_fields() {
+    let fixture = LinkedFixture::new();
+    let request_id = fixture.seed_full_facts("seed body");
+    fixture.link(&fixture.seed);
+
+    fixture.respond_input_request(&fixture.reader, &request_id);
+
+    // The reader had nothing local; responding writes exactly the response event
+    // to its worktree-local store. Its EventTarget must be copied verbatim from
+    // the union-read request, not fabricated.
+    let events = read_events(&fixture.reader).expect("read reader worktree events");
+    assert_eq!(events.len(), 1, "only the response event is local");
+    let response = &events[0];
+    assert_eq!(
+        response
+            .target
+            .review_unit_id
+            .as_ref()
+            .map(|id| id.as_str()),
+        Some(fixture.seed_review_unit_id.as_str())
+    );
+    assert_eq!(
+        response.target.snapshot_id.as_ref().map(|id| id.as_str()),
+        Some(fixture.seed_snapshot_id.as_str())
+    );
+    assert_eq!(
+        response.target.track_id.as_ref().map(|id| id.as_str()),
+        Some("agent:test-fixture")
+    );
+}
+
 fn event_set_hash(json: &Value) -> &str {
     json["eventSetHash"].as_str().expect("eventSetHash present")
 }

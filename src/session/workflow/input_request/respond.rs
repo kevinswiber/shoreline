@@ -15,7 +15,9 @@ use crate::session::event::{
 };
 use crate::session::observation::staged_body;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::resolution::resolve_write_validation_store;
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
+use crate::session::workflow::write_store::fact_batch_only_diagnostics;
 use crate::session::{
     EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, sign_event_if_requested,
     writer_from_options,
@@ -102,12 +104,19 @@ pub fn respond_input_request(
     let storage = LocalStorage::new(shore_dir);
     prepare_shore_writer(&paths, &storage)?;
 
+    // The write half keeps the LOCAL prior batch for the single-writer state.json.
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
+
+    // The request being responded to may live only in the linked store: its
+    // EventTarget fields are copied verbatim into the response, so the lookup
+    // resolves the writer-visible union.
+    let validation_store = resolve_write_validation_store(&options.repo)?;
+    let validation_events = validation_store.validation_events()?;
     let InputRequestProjectionRecords {
         mut request_records,
         ..
-    } = collect_input_request_projection_records(&events)?;
+    } = collect_input_request_projection_records(&validation_events)?;
     let request_record = request_records
         .remove(&options.input_request_id)
         .ok_or_else(|| {
@@ -207,7 +216,7 @@ pub fn respond_input_request(
     let state = SessionState::from_prior_events_and_committed(&events, &event, write_outcome)?;
     storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
-    Ok(InputRequestRespondResult {
+    let mut result = InputRequestRespondResult {
         input_request_id: request_payload.input_request_id,
         input_request_response_id,
         event_id,
@@ -217,7 +226,11 @@ pub fn respond_input_request(
         events_existing,
         events_created_by_type,
         diagnostics: state.diagnostics,
-    })
+    };
+    result
+        .diagnostics
+        .extend(fact_batch_only_diagnostics(&validation_store));
+    Ok(result)
 }
 
 struct InputRequestResponseIdMaterial<'a> {
