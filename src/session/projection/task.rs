@@ -2381,6 +2381,9 @@ mod tests {
         )
     }
 
+    // The linked-read fixtures in workflow/ingest.rs (the linked_read_* and
+    // authoring_worktree_* tests) extend this matrix through a real worktree
+    // pair, `store link`, and the read seam — keep the two in step.
     #[test]
     fn binding_outcome_matrix_status_by_ingest_by_policy() {
         use EventVerificationStatus::{Invalid, Unsigned, UntrustedKey, Valid};

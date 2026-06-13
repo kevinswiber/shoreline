@@ -1085,4 +1085,153 @@ mod tests {
             Some("policy_excludes_local")
         );
     }
+
+    // ADR-0009 through the linked-read seam: `store link` stamps every copied
+    // event with ingest provenance, and the binding predicate is a pure
+    // function of the events actually read — never of which store reads them.
+    // The linked store's copies therefore behave exactly like any ingested
+    // events, with no special case for "my own link import". These fixtures
+    // extend the binding outcome matrix in projection/task.rs through a real
+    // worktree pair and the read seam.
+
+    /// A committed main repo plus seed and reader worktrees, with `events`
+    /// written into the seed's worktree-local store.
+    fn linked_resumption_pair(
+        events: &[ShoreEvent],
+    ) -> (
+        TestRepo,
+        tempfile::TempDir,
+        std::path::PathBuf,
+        std::path::PathBuf,
+    ) {
+        let main = TestRepo::new();
+        main.write("README.md", "base\n");
+        main.commit_all("base");
+
+        let parent = tempfile::tempdir().unwrap();
+        let seed = parent.path().join("seed");
+        let reader = parent.path().join("reader");
+        main.git(["worktree", "add", "-b", "seed", seed.to_str().unwrap()]);
+        main.git(["worktree", "add", "-b", "reader", reader.to_str().unwrap()]);
+
+        let seed_store = EventStore::open(seed.join(".shore"));
+        for event in events {
+            seed_store.record_event_once(event).unwrap();
+        }
+        (main, parent, seed, reader)
+    }
+
+    /// Events as a linked checkout's reads see them: through the read seam,
+    /// asserting the resolution actually went clone-local.
+    fn linked_store_events(repo: &Path) -> Vec<ShoreEvent> {
+        use crate::session::store::resolution::{StoreResolutionMode, resolve_read_store};
+        let read_store = resolve_read_store(repo).unwrap();
+        assert_eq!(read_store.resolution.mode, StoreResolutionMode::CloneLocal);
+        EventStore::open(read_store.store_dir())
+            .list_events()
+            .unwrap()
+    }
+
+    fn link(repo: &Path) {
+        use crate::session::{StoreLinkOptions, link_clone_local_store};
+        link_clone_local_store(StoreLinkOptions::new(repo)).unwrap();
+    }
+
+    #[test]
+    fn linked_read_unsigned_response_is_non_binding_ingested_unsigned() {
+        let (events, task_attempt_id) = task_resumption_events();
+        let (_main, _parent, seed, reader) = linked_resumption_pair(&events);
+
+        // Baseline: before linking, possession binds in the seed's own store.
+        let local = EventStore::open(seed.join(".shore")).list_events().unwrap();
+        assert!(local.iter().all(|event| event.ingest.is_none()));
+        let baseline = resumption_projection(
+            &local,
+            &task_attempt_id,
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        );
+        assert!(baseline.may_resume);
+
+        link(&seed);
+        link(&reader);
+
+        let stored = linked_store_events(&reader);
+        assert!(stored.iter().all(|event| event.ingest.is_some()));
+        let projection = resumption_projection(
+            &stored,
+            &task_attempt_id,
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        );
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        assert_eq!(
+            identity_reason(&projection).as_deref(),
+            Some("ingested_unsigned")
+        );
+    }
+
+    #[test]
+    fn linked_read_signed_authorized_response_binds_via_verified_signer() {
+        let (mut events, task_attempt_id) = task_resumption_events();
+        let signer = DeterministicSigner::fixture();
+        crate::session::sign_event_if_requested(
+            events.last_mut().expect("response event"),
+            &crate::session::EventSigningOptions::sign_with(signer.clone()),
+        )
+        .unwrap();
+        let trust = trust_for_actor(&ActorId::new("actor:claude_code:user"), &signer);
+        let (_main, _parent, seed, reader) = linked_resumption_pair(&events);
+        link(&seed);
+        link(&reader);
+
+        let stored = linked_store_events(&reader);
+        let projection = resumption_projection(
+            &stored,
+            &task_attempt_id,
+            &trust,
+            ResumptionBindingPolicy::default(),
+        );
+
+        // Arm (b) verified-signer binds identically from any store.
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+    }
+
+    #[test]
+    fn authoring_worktree_linked_reads_see_their_own_unsigned_response_as_ingested() {
+        let (events, task_attempt_id) = task_resumption_events();
+        let (_main, _parent, seed, _reader) = linked_resumption_pair(&events);
+
+        let local = EventStore::open(seed.join(".shore")).list_events().unwrap();
+        let baseline = resumption_projection(
+            &local,
+            &task_attempt_id,
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        );
+        assert!(baseline.may_resume);
+
+        link(&seed);
+
+        // The sharp edge, pinned deliberately: once the author's checkout is
+        // linked, its reads resolve the linked store, whose copy is stamped —
+        // so even the author projects ingested_unsigned for its own unsigned
+        // response. The unstamped original still sits in .shore/, but reads
+        // are store-only. Sign responses that must stay binding after linking.
+        let stored = linked_store_events(&seed);
+        assert!(stored.iter().all(|event| event.ingest.is_some()));
+        let projection = resumption_projection(
+            &stored,
+            &task_attempt_id,
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        );
+        assert!(!projection.may_resume);
+        assert_eq!(
+            identity_reason(&projection).as_deref(),
+            Some("ingested_unsigned")
+        );
+    }
 }
