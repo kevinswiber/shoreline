@@ -114,7 +114,7 @@ command stays `shore` because command names should remain short and practical.
 
 The current focus is a headless, durable review model first:
 
-- Git working-tree capture into a ReviewUnit
+- Git working-tree or commit-range (`--base`) capture into a ReviewUnit
 - append-only local events under `.shore/events/`
 - immutable snapshot and note-body artifacts under `.shore/artifacts/`
 - rebuildable projections and command-output JSON
