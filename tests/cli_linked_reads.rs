@@ -408,6 +408,86 @@ fn deleted_worktree_lineage_list_and_show_render() {
     assert_no_deleted_path_in_diagnostics(&fixture, &show);
 }
 
+#[test]
+fn linked_reads_agree_on_event_set_hash_across_surfaces() {
+    let fixture = LinkedFixture::new();
+    fixture.seed_full_facts("short body");
+    fixture.link(&fixture.seed);
+
+    let reader_units = fixture.unit_list_json(&fixture.reader);
+    let reader_history = fixture.history_json(&fixture.reader, false);
+    let seed_units = fixture.unit_list_json(&fixture.seed);
+    let seed_history = fixture.history_json(&fixture.seed, false);
+
+    // Issue #140's regression signal, inverted into the standing guard: every
+    // read surface in every linked checkout reports one eventSetHash.
+    let hash = event_set_hash(&reader_units);
+    assert!(hash.starts_with("sha256:"));
+    assert_eq!(event_set_hash(&reader_history), hash);
+    assert_eq!(event_set_hash(&seed_units), hash);
+    assert_eq!(event_set_hash(&seed_history), hash);
+    assert_eq!(reader_units["eventCount"], reader_history["eventCount"]);
+    assert_eq!(reader_units["eventCount"], seed_units["eventCount"]);
+}
+
+#[test]
+fn divergence_diagnostic_appears_then_clears_after_store_link() {
+    let fixture = LinkedFixture::new();
+    let code = "clone_local_unsynced_local_events";
+
+    // Synced: no divergence diagnostic on any reader surface.
+    let units = fixture.unit_list_json(&fixture.reader);
+    let history = fixture.history_json(&fixture.reader, false);
+    assert!(!has_diagnostic(&units, code));
+    assert!(!has_diagnostic(&history, code));
+    let synced_hash = event_set_hash(&units).to_owned();
+
+    // The reader captures locally (writes land worktree-local): both surfaces
+    // report the gap, the local unit stays invisible (store-only), and the
+    // hash still reflects the linked store alone.
+    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
+    let local_capture = fixture.capture(&fixture.reader);
+    let local_unit_id = local_capture["reviewUnit"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let units = fixture.unit_list_json(&fixture.reader);
+    let history = fixture.history_json(&fixture.reader, false);
+    assert!(has_diagnostic(&units, code), "{}", units["diagnostics"]);
+    assert!(has_diagnostic(&history, code), "{}", history["diagnostics"]);
+    assert!(diagnostic_message(&units, code).contains("1 local event"));
+    assert_eq!(units["reviewUnitCount"], 1);
+    assert!(!units["entries"].to_string().contains(&local_unit_id));
+    assert_eq!(event_set_hash(&units), synced_hash);
+    assert_eq!(event_set_hash(&history), synced_hash);
+
+    // After store link from the reader: diagnostic gone, the unit appears,
+    // and the hash advances in step on both surfaces.
+    fixture.link(&fixture.reader);
+    let units = fixture.unit_list_json(&fixture.reader);
+    let history = fixture.history_json(&fixture.reader, false);
+    assert!(!has_diagnostic(&units, code), "{}", units["diagnostics"]);
+    assert!(
+        !has_diagnostic(&history, code),
+        "{}",
+        history["diagnostics"]
+    );
+    assert_eq!(units["reviewUnitCount"], 2);
+    assert!(units["entries"].to_string().contains(&local_unit_id));
+    let advanced_hash = event_set_hash(&units);
+    assert_ne!(advanced_hash, synced_hash);
+    assert_eq!(event_set_hash(&history), advanced_hash);
+}
+
+fn event_set_hash(json: &Value) -> &str {
+    json["eventSetHash"].as_str().expect("eventSetHash present")
+}
+
+fn has_diagnostic(json: &Value, code: &str) -> bool {
+    diagnostic_codes(json).contains(&code)
+}
+
 fn run_shore_json(args: &[&str]) -> Value {
     let output = shore(args.iter().copied());
     assert!(
