@@ -29,12 +29,27 @@ pub enum ReviewUnitSource {
         mode: WorktreeCaptureMode,
         include_untracked: bool,
     },
+    /// Commit-range source selector (research 0004 Q1): lowers to a
+    /// `git_commit` base endpoint and a `git_commit` target endpoint. Carries
+    /// no rev spellings: resolved OIDs live in the endpoints, and spellings
+    /// must not participate in ReviewUnit identity (storing `--base main` vs
+    /// `--base <oid>` would manufacture distinct units for identical content).
+    GitCommitRange { mode: CommitRangeCaptureMode },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorktreeCaptureMode {
     CombinedHeadToWorkingTree,
+}
+
+/// How a commit-range snapshot was produced. V1 is a direct two-tree diff
+/// (`git diff <base> <target>`), not a merge-base (`...`) comparison; a future
+/// merge-base adapter is a separate selector per research 0004 Q1.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitRangeCaptureMode {
+    BaseTreeToTargetTree,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -111,6 +126,47 @@ mod tests {
         assert_eq!(json["base"]["treeOid"], "def456");
         assert_eq!(json["target"]["kind"], "git_working_tree");
         assert_eq!(json["target"]["worktreeRoot"], "/repo");
+    }
+
+    #[test]
+    fn commit_range_source_serializes_with_stable_shape() {
+        let source = ReviewUnitSource::GitCommitRange {
+            mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+        };
+
+        let json = serde_json::to_value(&source).unwrap();
+
+        assert_eq!(json["kind"], "git_commit_range");
+        assert_eq!(json["mode"], "base_tree_to_target_tree");
+        // Untracked files cannot participate in a tree diff; the field is absent, not false.
+        assert!(json.get("includeUntracked").is_none());
+
+        let round_tripped: ReviewUnitSource = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, source);
+    }
+
+    #[test]
+    fn commit_range_capture_serialization_is_path_free() {
+        // Source + commit/commit endpoint pair: the serialized capture identity surface
+        // for a range capture must never contain a worktree path.
+        let json = serde_json::json!({
+            "source": ReviewUnitSource::GitCommitRange {
+                mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+            },
+            "base": ReviewEndpoint::GitCommit {
+                commit_oid: "abc123".to_owned(),
+                tree_oid: "def456".to_owned(),
+            },
+            "target": ReviewEndpoint::GitCommit {
+                commit_oid: "0a1b2c".to_owned(),
+                tree_oid: "3d4e5f".to_owned(),
+            },
+        });
+
+        let text = json.to_string();
+        assert!(!text.contains("worktreeRoot"));
+        assert_eq!(json["target"]["kind"], "git_commit");
+        assert_eq!(json["target"]["commitOid"], "0a1b2c");
     }
 
     #[test]

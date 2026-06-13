@@ -33,7 +33,9 @@ pub use review_note::{
     ReviewNoteSource, Side, re_resolve_review_notes,
 };
 pub(crate) use review_note::{hash_normalized_lines, rows_for_line_range};
-pub use review_unit::{ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, WorktreeCaptureMode};
+pub use review_unit::{
+    CommitRangeCaptureMode, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, WorktreeCaptureMode,
+};
 pub use row::{DiffRow, DiffRowKind, FileMetadataKind, FileMetadataRow, ReviewRow, ReviewRowKind};
 pub use validation::{ValidationStatus, ValidationTarget, ValidationTrigger};
 pub use work_object::{TargetRef, TaskTargetRef, WorkObjectType};
