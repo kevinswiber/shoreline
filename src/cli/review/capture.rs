@@ -5,7 +5,8 @@ use clap::Args;
 use shoreline::documents::{capture_document, capture_with_lineage_document};
 use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
 use shoreline::session::{
-    CaptureOptions, LineageAttachOptions, attach_review_unit_to_lineage, capture_worktree_review,
+    CaptureOptions, CommitRangeSpec, LineageAttachOptions, attach_review_unit_to_lineage,
+    capture_review,
 };
 
 use crate::cli::json;
@@ -15,6 +16,16 @@ use crate::cli_tracing::TracingArgs;
 pub(super) struct CaptureArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
+
+    /// Capture the committed range from this rev (resolved to a commit, peeling
+    /// annotated tags) to --target instead of the HEAD -> working-tree diff.
+    /// The working tree and untracked files are not read.
+    #[arg(long)]
+    base: Option<String>,
+
+    /// Range end rev (resolved to a commit). Defaults to HEAD; requires --base.
+    #[arg(long)]
+    target: Option<String>,
 
     /// Attach the captured ReviewUnit to this lineage.
     #[arg(long)]
@@ -37,10 +48,13 @@ pub(super) fn run(
     let span = tracing::info_span!("shore.review.capture");
     let _entered = span.enter();
     tracing::debug!(command = "review.capture", "command_start");
+    if args.target.is_some() && args.base.is_none() {
+        return Err("--target requires --base".into());
+    }
     if args.predecessor.is_some() && args.lineage.is_none() {
         return Err("predecessor requires --lineage".into());
     }
-    let capture = capture_worktree_review(capture_options(&args, tracing))?;
+    let capture = capture_review(capture_options(&args, tracing))?;
     let Some(lineage) = args.lineage.as_ref() else {
         let document = capture_document(capture);
         return json::write_json(stdout, &document, false);
@@ -56,10 +70,25 @@ pub(super) fn run(
 
 fn capture_options(args: &CaptureArgs, tracing: &TracingArgs) -> CaptureOptions {
     let mut options = CaptureOptions::new(&args.repo);
+    if let Some(range) = commit_range_spec(args) {
+        options = options.with_commit_range(range);
+    }
     if let Some(log_file) = &tracing.log_file {
         options = options.with_excluded_helper_path(log_file);
     }
     options
+}
+
+/// Build the commit-range spec from `--base`/`--target`. `None` keeps the
+/// default worktree capture. `--target` without `--base` is rejected in `run`
+/// before this point.
+fn commit_range_spec(args: &CaptureArgs) -> Option<CommitRangeSpec> {
+    let base = args.base.as_ref()?;
+    let mut range = CommitRangeSpec::new(base.clone());
+    if let Some(target) = &args.target {
+        range = range.with_target_rev(target.clone());
+    }
+    Some(range)
 }
 
 fn capture_lineage_attach_options(

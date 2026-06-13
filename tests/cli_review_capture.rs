@@ -167,6 +167,250 @@ fn capture_preserves_inline_rows_for_normal_added_file() {
     assert!(metadata.is_empty());
 }
 
+#[test]
+fn capture_with_base_captures_committed_range_on_clean_worktree() {
+    let repo = committed_repo();
+    let head_oid = rev(&repo, "HEAD");
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--base",
+        "HEAD~1",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json = parse_json(stdout.as_bytes());
+    assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
+    assert_eq!(json["reviewUnit"]["target"]["kind"], "git_commit");
+    assert_eq!(json["reviewUnit"]["target"]["commitOid"], head_oid);
+    assert!(
+        !stdout.contains("worktreeRoot"),
+        "range capture document must not carry a worktree path: {stdout}"
+    );
+}
+
+#[test]
+fn capture_with_base_and_target_pins_both_endpoints() {
+    let repo = committed_repo();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    repo.commit_all("third");
+    let first_oid = rev(&repo, "HEAD~2");
+    let second_oid = rev(&repo, "HEAD~1");
+    let head_oid = rev(&repo, "HEAD");
+
+    let json = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            &first_oid,
+            "--target",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+
+    assert_eq!(json["reviewUnit"]["base"]["commitOid"], first_oid);
+    assert_eq!(json["reviewUnit"]["target"]["commitOid"], second_oid);
+    assert_ne!(
+        json["reviewUnit"]["target"]["commitOid"], head_oid,
+        "target must not default to HEAD when --target is given"
+    );
+}
+
+#[test]
+fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
+    let repo = committed_repo();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 999 }\n");
+    repo.write("untracked.txt", "untracked\n");
+
+    let capture = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+    let snapshot_id =
+        shoreline::model::SnapshotId::new(capture["reviewUnit"]["snapshotId"].as_str().unwrap());
+
+    let artifact = shoreline::session::read_snapshot_artifact(repo.path(), &snapshot_id)
+        .expect("snapshot artifact for the range capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["src/lib.rs"]);
+    assert!(!paths.contains(&"untracked.txt"));
+}
+
+#[test]
+fn capture_target_without_base_is_rejected() {
+    let repo = committed_repo();
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--target",
+        "HEAD",
+    ]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--target requires --base"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn capture_with_unresolvable_base_fails_honestly() {
+    let repo = committed_repo();
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--base",
+        "no-such-rev",
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no-such-rev"), "stderr:\n{stderr}");
+    assert!(stderr.contains("commit"), "stderr:\n{stderr}");
+}
+
+#[test]
+fn capture_with_non_commit_rev_fails_honestly() {
+    let repo = committed_repo();
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--base",
+        "HEAD:src/lib.rs",
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("HEAD:src/lib.rs"), "stderr:\n{stderr}");
+}
+
+#[test]
+fn capture_without_base_keeps_worktree_behavior() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let show = parse_json(
+        &shore([
+            "review",
+            "unit",
+            "show",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .stdout,
+    );
+
+    assert_eq!(show["reviewUnit"]["source"]["kind"], "git_worktree");
+    assert_eq!(show["reviewUnit"]["target"]["kind"], "git_working_tree");
+}
+
+#[test]
+fn capture_with_base_and_lineage_attaches_round() {
+    let repo = committed_repo();
+
+    let json = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+            "--lineage",
+            "review-unit-lineage:random:test",
+        ])
+        .stdout,
+    );
+
+    assert_eq!(
+        json["lineageAttach"]["eventsCreatedByType"]["review_unit_lineage_declared"],
+        1
+    );
+    assert_eq!(
+        json["lineageAttach"]["eventsCreatedByType"]["review_unit_lineage_round_recorded"],
+        1
+    );
+}
+
+#[test]
+fn capture_with_base_twice_reports_existing_event() {
+    let repo = committed_repo();
+
+    let first = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+    let second = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+
+    assert_eq!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_eq!(second["eventsCreated"], 0);
+    assert_eq!(second["eventsExisting"], 1);
+}
+
+fn committed_repo() -> GitRepo {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+    repo
+}
+
+fn rev(repo: &GitRepo, rev: &str) -> String {
+    repo.git(["rev-parse", rev]).stdout.trim().to_owned()
+}
+
 fn bounded_added_file_repo() -> GitRepo {
     let repo = GitRepo::new();
     repo.write("README.md", "base\n");
