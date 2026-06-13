@@ -134,10 +134,11 @@ impl LinkedFixture {
     }
 
     /// Record one of each reviewer-facing fact on the seed's review unit.
-    fn seed_full_facts(&self, body: &str) {
+    /// Returns the opened input request's id.
+    fn seed_full_facts(&self, body: &str) -> String {
         self.observation_add(&self.seed, &self.seed_review_unit_id, body);
         let seed = self.seed.to_str().unwrap();
-        run_shore_json(&[
+        let opened = run_shore_json(&[
             "review",
             "input-request",
             "open",
@@ -178,6 +179,40 @@ impl LinkedFixture {
             "--status",
             "passed",
         ]);
+        opened["inputRequestId"]
+            .as_str()
+            .expect("input request open returns id")
+            .to_owned()
+    }
+
+    fn respond_input_request(&self, worktree: &Path, input_request_id: &str) -> Value {
+        run_shore_json(&[
+            "review",
+            "input-request",
+            "respond",
+            input_request_id,
+            "--repo",
+            worktree.to_str().unwrap(),
+            "--outcome",
+            "approved",
+            "--reason",
+            "approved locally",
+        ])
+    }
+
+    /// Force-remove the seed worktree; its review record survives only in the
+    /// linked clone-local store.
+    fn remove_seed(&self) {
+        run_git_os(
+            self.main.path(),
+            [
+                OsString::from("worktree"),
+                OsString::from("remove"),
+                OsString::from("--force"),
+                self.seed.as_os_str().to_owned(),
+            ],
+        );
+        assert!(!self.seed.exists());
     }
 
     fn unit_list_json(&self, worktree: &Path) -> Value {
@@ -189,6 +224,188 @@ impl LinkedFixture {
             worktree.to_str().unwrap(),
         ])
     }
+}
+
+/// One fully populated seed unit (every fact kind + response + lineage),
+/// linked, with the seed worktree force-removed. The shared arrangement for
+/// the deleted-source-worktree matrix.
+fn populated_fixture_with_deleted_seed(body: &str, lineage_id: &str) -> (LinkedFixture, String) {
+    let fixture = LinkedFixture::new();
+    let input_request_id = fixture.seed_full_facts(body);
+    fixture.respond_input_request(&fixture.seed, &input_request_id);
+    fixture.lineage_attach(&fixture.seed, lineage_id, &fixture.seed_review_unit_id);
+    fixture.link(&fixture.seed);
+    fixture.remove_seed();
+    (fixture, input_request_id)
+}
+
+fn assert_no_deleted_path_in_diagnostics(fixture: &LinkedFixture, json: &Value) {
+    let diagnostics = json["diagnostics"].to_string();
+    assert!(
+        !diagnostics.contains(fixture.seed.to_str().unwrap()),
+        "diagnostics mention the deleted worktree path: {diagnostics}"
+    );
+}
+
+#[test]
+fn deleted_worktree_unit_list_lists_unit() {
+    let (fixture, _) = populated_fixture_with_deleted_seed("m1", "review-unit-lineage:random:m1");
+
+    let json = fixture.unit_list_json(&fixture.reader);
+
+    assert_eq!(json["reviewUnitCount"], 1);
+    assert_eq!(
+        json["entries"][0]["reviewUnitId"],
+        Value::String(fixture.seed_review_unit_id.clone())
+    );
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_unit_show_renders_composite_with_snapshot() {
+    let body = "m".repeat(5000);
+    let (fixture, _) = populated_fixture_with_deleted_seed(&body, "review-unit-lineage:random:m2");
+
+    let json = fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id);
+
+    assert_eq!(json["summary"]["observationCount"], 1);
+    assert_eq!(json["summary"]["inputRequestCount"], 1);
+    assert_eq!(json["summary"]["assessmentCount"], 1);
+    assert_eq!(json["summary"]["validationCheckCount"], 1);
+    assert!(json["summary"]["snapshotRowCount"].as_u64().unwrap() > 0);
+    assert_eq!(json["observations"][0]["body"], Value::String(body));
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_history_renders_timeline_with_bodies() {
+    let body = "n".repeat(5000);
+    let (fixture, _) = populated_fixture_with_deleted_seed(&body, "review-unit-lineage:random:m3");
+
+    let json = fixture.history_json(&fixture.reader, true);
+
+    assert!(json["eventCount"].as_u64().unwrap() > 0);
+    assert!(
+        json.to_string().contains(&body),
+        "hydrated observation body loads from the linked store"
+    );
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_observation_list_renders_with_hydrated_body() {
+    let body = "p".repeat(5000);
+    let (fixture, _) = populated_fixture_with_deleted_seed(&body, "review-unit-lineage:random:m4");
+
+    let json = run_shore_json(&[
+        "review",
+        "observation",
+        "list",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+        "--include-body",
+    ]);
+
+    assert_eq!(json["observations"].as_array().unwrap().len(), 1);
+    assert_eq!(json["observations"][0]["body"], Value::String(body));
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_input_request_list_renders_with_response() {
+    let (fixture, input_request_id) =
+        populated_fixture_with_deleted_seed("m5", "review-unit-lineage:random:m5");
+
+    let json = run_shore_json(&[
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+        "--status",
+        "all",
+    ]);
+
+    assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        json["inputRequests"][0]["id"],
+        Value::String(input_request_id)
+    );
+    assert_eq!(
+        json["inputRequests"][0]["responses"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_assessment_show_renders() {
+    let (fixture, _) = populated_fixture_with_deleted_seed("m6", "review-unit-lineage:random:m6");
+
+    let json = run_shore_json(&[
+        "review",
+        "assessment",
+        "show",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+    ]);
+
+    assert_eq!(json["assessments"].as_array().unwrap().len(), 1);
+    assert_eq!(json["assessments"][0]["assessment"], "accepted");
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_validation_list_renders() {
+    let (fixture, _) = populated_fixture_with_deleted_seed("m7", "review-unit-lineage:random:m7");
+
+    let json = run_shore_json(&[
+        "review",
+        "validation",
+        "list",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--review-unit",
+        &fixture.seed_review_unit_id,
+    ]);
+
+    assert_eq!(json["validationChecks"].as_array().unwrap().len(), 1);
+    assert_no_deleted_path_in_diagnostics(&fixture, &json);
+}
+
+#[test]
+fn deleted_worktree_lineage_list_and_show_render() {
+    let lineage_id = "review-unit-lineage:random:m8";
+    let (fixture, _) = populated_fixture_with_deleted_seed("m8", lineage_id);
+
+    let list = list_lineages(LineageListOptions::new(&fixture.reader)).unwrap();
+    assert_eq!(list.lineage_count, 1);
+    assert_eq!(list.entries[0].lineage_id.as_str(), lineage_id);
+
+    let show = run_shore_json(&[
+        "review",
+        "lineage",
+        "show",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--lineage",
+        lineage_id,
+    ]);
+    assert_eq!(
+        show["headReviewUnitId"],
+        Value::String(fixture.seed_review_unit_id.clone())
+    );
+    assert_eq!(show["rounds"].as_array().unwrap().len(), 1);
+    assert_no_deleted_path_in_diagnostics(&fixture, &show);
 }
 
 fn run_shore_json(args: &[&str]) -> Value {
