@@ -938,6 +938,26 @@ fn linked_input_request_list_resolves_linked_unit() {
 }
 
 #[test]
+fn linked_input_request_fetch_resolves_linked_request() {
+    let fixture = LinkedFixture::new();
+    let input_request_id = fixture.seed_full_facts("short body");
+    fixture.link(&fixture.seed);
+
+    let json = run_shore_json(&[
+        "review",
+        "input-request",
+        "fetch",
+        &input_request_id,
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--include-body",
+    ]);
+
+    assert_eq!(json["inputRequest"]["id"], Value::String(input_request_id));
+    assert_eq!(json["inputRequest"]["title"], "Need approval");
+}
+
+#[test]
 fn linked_assessment_show_resolves_linked_unit() {
     let fixture = LinkedFixture::new();
     fixture.seed_full_facts("short body");

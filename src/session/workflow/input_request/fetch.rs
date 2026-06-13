@@ -8,7 +8,8 @@ use crate::error::{Result, ShoreError};
 use crate::model::InputRequestId;
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::ShoreStorePaths;
+use crate::session::store::resolution::resolve_read_store;
+use crate::session::workflow::read_store::divergence_diagnostics;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestFetchOptions {
@@ -39,8 +40,8 @@ pub struct InputRequestFetchResult {
 }
 
 pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputRequestFetchResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let shore_dir = paths.shore_dir();
+    let read_store = resolve_read_store(&options.repo)?;
+    let shore_dir = read_store.store_dir();
     let events = EventStore::open(shore_dir).list_events()?;
     let InputRequestProjectionRecords {
         mut request_records,
@@ -59,7 +60,8 @@ pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputReq
                 .unwrap_or_default(),
             options.include_body,
         )?;
-        let diagnostics = SessionState::from_events(&events)?.diagnostics;
+        let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
+        diagnostics.extend(divergence_diagnostics(&read_store));
 
         return Ok(InputRequestFetchResult {
             input_request: view,
