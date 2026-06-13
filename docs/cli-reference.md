@@ -183,8 +183,8 @@ file path.
 Linked capture is batch-only in this release: capture writes local facts first, emits the
 `clone_local_capture_batch_only` diagnostic when the worktree is linked, and `shore store link`
 copies those facts into the clone-local store. Every review read command resolves the linked store:
-`unit list` and `unit show`, `history`, the observation, input-request, and validation lists,
-`assessment show`, and `lineage show` read the clone-local store from any linked worktree,
+`review unit list` and `unit show`, `history`, the observation, input-request, and validation
+lists, `assessment show`, and `lineage show` read the clone-local store from any linked worktree,
 including hydrated bodies and the captured snapshot, so their `eventCount` and `eventSetHash`
 reflect the linked store. Linked reads are store-only — local facts not yet copied by
 `shore store link` do not appear in results; read commands report them with the
