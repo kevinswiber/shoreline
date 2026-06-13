@@ -351,7 +351,10 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
     )?;
     let target_display = derive_target_display(&artifact.target, &artifact.base);
     let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
-    if let Some(target) = wire.get_mut("target").and_then(|value| value.as_object_mut()) {
+    if let Some(target) = wire
+        .get_mut("target")
+        .and_then(|value| value.as_object_mut())
+    {
         target.remove("worktreeRoot");
     }
     let Some(object) = wire.as_object_mut() else {
@@ -445,11 +448,10 @@ mod tests {
         git(path, &["add", "--all"]);
         git(path, &["commit", "-m", "base"]);
         std::fs::write(path.join("src.txt"), "changed\n").unwrap();
-        let result =
-            shoreline::session::capture_worktree_review(shoreline::session::CaptureOptions::new(
-                path,
-            ))
-            .expect("capture worktree review");
+        let result = shoreline::session::capture_worktree_review(
+            shoreline::session::CaptureOptions::new(path),
+        )
+        .expect("capture worktree review");
         (root, result.snapshot_id.as_str().to_owned())
     }
 
@@ -499,11 +501,8 @@ mod tests {
 
         // The stored artifact is untouched: it still carries the hash-baked
         // target.worktreeRoot and still hash-validates on read.
-        let artifact = read_snapshot_artifact(
-            repo.path(),
-            &SnapshotId::new(snapshot_id.clone()),
-        )
-        .expect("stored artifact still validates after a wire read");
+        let artifact = read_snapshot_artifact(repo.path(), &SnapshotId::new(snapshot_id.clone()))
+            .expect("stored artifact still validates after a wire read");
         match &artifact.target {
             ReviewEndpoint::GitWorkingTree { worktree_root } => {
                 assert!(!worktree_root.is_empty());

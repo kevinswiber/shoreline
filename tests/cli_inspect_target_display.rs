@@ -69,9 +69,8 @@ fn api_units_derives_label_for_symbolic_branch_worktree() {
 
 /// Test A (continued): the same derived block also appears on the single-unit
 /// `/api/unit` document for a locally-readable unit, alongside the verbatim
-/// target. `/api/unit` resolves the worktree-local store, so this only enriches
-/// units already readable from the current repo (linked-only drill-in is a
-/// separate deferred follow-up).
+/// target. Linked drill-in is covered separately by
+/// `linked_inspector_drill_in_survives_deleted_source_worktree`.
 #[test]
 fn api_unit_splices_target_display_for_locally_readable_unit() {
     let fixture = WorktreeCapture::on_branch("wt-bar", "feature/bar");
@@ -221,6 +220,106 @@ fn api_lineages_lists_and_shows_review_unit_lineage() {
     assert_eq!(lineage["rounds"][1]["reviewUnitId"], second);
     assert_eq!(lineage["rounds"][1]["predecessorReviewUnitId"], first);
     assert_eq!(lineage["diagnostics"].as_array().unwrap().len(), 0);
+}
+
+/// The issue-140 user story over a real socket: a linked reader (whose source
+/// worktree has been deleted) can drill from the unit list into the unit
+/// composite, snapshot diff, history, freshness, and lineages — all served
+/// from the linked clone-local store, never the deleted worktree.
+#[test]
+fn linked_inspector_drill_in_survives_deleted_source_worktree() {
+    let main = GitRepo::new();
+    main.write("README.md", "base\n");
+    main.commit_all("base");
+
+    let parent = tempfile::tempdir().expect("worktree parent");
+    let gone = parent.path().join("gone");
+    add_worktree(main.path(), &gone, "gone");
+    std::fs::write(gone.join("README.md"), "changed in gone\n").unwrap();
+    let lineage_id = "review-unit-lineage:random:linked-http";
+    let capture = capture_json_with_lineage(&gone, lineage_id);
+    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let snapshot_id = capture["reviewUnit"]["snapshotId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    record_review_facts(&gone);
+    link_store(&gone);
+
+    let reader = parent.path().join("reader");
+    add_worktree(main.path(), &reader, "reader");
+    link_store(&reader);
+
+    run_git(
+        main.path(),
+        [
+            OsString::from("worktree"),
+            OsString::from("remove"),
+            OsString::from("--force"),
+            gone.as_os_str().to_owned(),
+        ],
+    );
+    assert!(!gone.exists());
+
+    let inspector = Inspector::spawn(&reader);
+
+    let units = inspector.get_json("/api/units");
+    assert_eq!(units["reviewUnitCount"], 1);
+    assert_eq!(units["entries"][0]["reviewUnitId"], unit_id.as_str());
+    assert_eq!(units["entries"][0]["targetDisplay"]["label"], "gone");
+
+    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&unit_id)));
+    assert_eq!(unit["reviewUnit"]["id"], unit_id.as_str());
+    assert_eq!(unit["summary"]["observationCount"], 1);
+    assert_eq!(unit["summary"]["inputRequestCount"], 1);
+    assert_eq!(unit["summary"]["assessmentCount"], 1);
+    assert_eq!(unit["summary"]["validationCheckCount"], 1);
+    assert!(unit["currentAssessment"]["status"].is_string());
+
+    let snapshot = inspector.get_json(&format!("/api/snapshot?id={}", urlencode(&snapshot_id)));
+    assert!(snapshot["target"].get("worktreeRoot").is_none());
+    assert_eq!(snapshot["worktreeRootRedacted"], true);
+    assert_eq!(snapshot["contentHashScope"], "stored-artifact");
+    assert_eq!(snapshot["targetDisplay"]["label"], "gone");
+
+    let history = inspector.get_json("/api/history");
+    assert!(history["eventCount"].as_u64().unwrap() > 0);
+    assert_eq!(history["eventCount"], units["eventCount"]);
+
+    let freshness = inspector.get_json("/api/freshness");
+    assert_eq!(freshness["eventSetHash"], history["eventSetHash"]);
+
+    let lineages = inspector.get_json("/api/lineages");
+    assert_eq!(lineages["lineageCount"], 1);
+    assert_eq!(lineages["entries"][0]["lineageId"], lineage_id);
+    assert_eq!(lineages["entries"][0]["roundCount"], 1);
+}
+
+#[test]
+fn linked_inspector_unit_error_message_stays_path_free_for_unknown_unit() {
+    let main = GitRepo::new();
+    main.write("README.md", "base\n");
+    main.commit_all("base");
+
+    let parent = tempfile::tempdir().expect("worktree parent");
+    let seed = parent.path().join("seed");
+    add_worktree(main.path(), &seed, "seed");
+    std::fs::write(seed.join("README.md"), "changed in seed\n").unwrap();
+    capture(&seed);
+    link_store(&seed);
+    let reader = parent.path().join("reader");
+    add_worktree(main.path(), &reader, "reader");
+    link_store(&reader);
+
+    let inspector = Inspector::spawn(&reader);
+    let (status, body) = inspector.get_error("/api/unit?id=review-unit%3Asha256%3Amissing");
+
+    assert!(!status.contains("200"), "status: {status}");
+    assert_eq!(
+        body["error"],
+        "review unit not found or unreadable: review-unit:sha256:missing"
+    );
+    assert!(!body["error"].as_str().unwrap().contains('/'));
 }
 
 // --- fixtures and HTTP harness ------------------------------------------------
@@ -380,6 +479,27 @@ impl Inspector {
         );
     }
 
+    /// GET a path expected to fail, returning the raw status head and the
+    /// parsed JSON error body.
+    fn get_error(&self, path: &str) -> (String, Value) {
+        let mut stream = TcpStream::connect(&self.addr).expect("connect to inspector");
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            self.addr
+        );
+        stream.write_all(request.as_bytes()).expect("send request");
+        let _ = stream.shutdown(Shutdown::Write);
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).expect("read response");
+        let text = String::from_utf8_lossy(&response);
+        let (head, body) = text
+            .split_once("\r\n\r\n")
+            .expect("response has header/body delimiter");
+        let status = head.lines().next().unwrap_or_default().to_owned();
+        let body: Value = serde_json::from_str(body).expect("error body is json");
+        (status, body)
+    }
+
     fn try_get(&self, path: &str) -> Result<Value, String> {
         let mut stream = TcpStream::connect(&self.addr).map_err(|error| error.to_string())?;
         let request = format!(
@@ -436,6 +556,93 @@ fn capture(repo: &Path) -> String {
         .as_str()
         .expect("capture returns a ReviewUnit id")
         .to_owned()
+}
+
+/// Capture with a lineage attached, returning the full capture document.
+fn capture_json_with_lineage(repo: &Path, lineage_id: &str) -> Value {
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.to_str().unwrap(),
+        "--lineage",
+        lineage_id,
+    ]);
+    assert!(
+        output.status.success(),
+        "capture with lineage stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("parse capture JSON")
+}
+
+/// Record one observation, input request, assessment, and validation check
+/// against the repo's single captured ReviewUnit.
+fn record_review_facts(repo: &Path) {
+    let repo_arg = repo.to_str().unwrap();
+    for args in [
+        vec![
+            "review",
+            "observation",
+            "add",
+            "--repo",
+            repo_arg,
+            "--track",
+            "agent:test-fixture",
+            "--title",
+            "linked observation",
+            "--body",
+            "captured before the source worktree was deleted",
+        ],
+        vec![
+            "review",
+            "input-request",
+            "open",
+            "--repo",
+            repo_arg,
+            "--track",
+            "agent:test-fixture",
+            "--title",
+            "Need approval",
+            "--reason",
+            "manual-decision-required",
+            "--body",
+            "approve this path?",
+        ],
+        vec![
+            "review",
+            "assessment",
+            "add",
+            "--repo",
+            repo_arg,
+            "--track",
+            "human:kevin",
+            "--assessment",
+            "accepted",
+            "--summary",
+            "ship it",
+        ],
+        vec![
+            "review",
+            "validation",
+            "add",
+            "--repo",
+            repo_arg,
+            "--track",
+            "agent:test-fixture",
+            "--check-name",
+            "cargo test",
+            "--status",
+            "passed",
+        ],
+    ] {
+        let output = shore(args.iter().copied());
+        assert!(
+            output.status.success(),
+            "shore {args:?} failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 fn capture_lineage_round(repo: &Path, lineage_id: &str, predecessor: Option<&str>) -> String {
