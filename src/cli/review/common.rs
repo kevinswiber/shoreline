@@ -3,6 +3,27 @@ use std::path::Path;
 
 use clap::ValueEnum;
 use shoreline::model::Side;
+use shoreline::session::DelegationMap;
+
+/// Discover the checked-in delegation map at `<repo_root>/.shoreline/delegates`.
+///
+/// Presence-based: absent file → `None` (zero-setup stores see zero change). A
+/// malformed file is **advisory** — a one-line warning to stderr names the parse
+/// error and the read proceeds with `None`, never blocking on resolution config
+/// (ADR-0003). Shared by every review read command and the inspector server.
+pub(crate) fn discover_delegation_map(repo_root: &Path) -> Option<DelegationMap> {
+    let path = repo_root.join(".shoreline/delegates");
+    if !path.exists() {
+        return None;
+    }
+    match DelegationMap::from_delegates_file(&path) {
+        Ok(map) => Some(map),
+        Err(error) => {
+            eprintln!("warning: ignoring {}: {error}", path.display());
+            None
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 #[value(rename_all = "kebab-case")]
