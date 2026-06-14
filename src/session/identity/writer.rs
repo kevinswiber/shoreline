@@ -67,6 +67,34 @@ pub(crate) fn is_valid_actor_id(value: &str) -> bool {
     }
 }
 
+/// Validity for a delegation *principal* actor id. Unlike `is_valid_actor_id`
+/// — which gates an env/override value and forbids whitespace — a principal is a
+/// human writer id that the system itself mints with internal spaces (for
+/// example `actor:git-name:Kevin Swiber`, derived from `git config user.name`).
+/// So this allows internal whitespace but still forbids control characters,
+/// requires the `actor:` scheme with a non-empty remainder, or accepts a
+/// syntactically valid Ed25519 `did:key`.
+pub(crate) fn is_valid_principal_actor_id(value: &str) -> bool {
+    value.len() <= 256 && {
+        value
+            .strip_prefix("actor:")
+            .is_some_and(|rest| !rest.trim().is_empty() && rest.chars().all(|c| !c.is_control()))
+            || SignerId::parse(value).is_ok()
+    }
+}
+
+/// True when `value` is an `actor:agent:<name>` identity with a non-empty agent
+/// segment. The agent scheme names acting software whose durable writes resolve
+/// to a human principal through the delegation map; non-agent actors (git
+/// identities, `did:key`s) are their own principal and carry no delegation
+/// record. This is a scheme test only — it does not validate the rest of the id
+/// (`is_valid_actor_id` does that).
+pub(crate) fn is_agent_actor_id(value: &str) -> bool {
+    value
+        .strip_prefix("actor:agent:")
+        .is_some_and(|rest| !rest.is_empty())
+}
+
 fn shore_producer() -> WriterProducer {
     WriterProducer {
         name: "shore".to_owned(),
@@ -259,6 +287,21 @@ mod tests {
         let repo = git_repo_with_email("host@example.com");
         let actor = super::resolve_actor_id(None, None, repo.path());
         assert_eq!(actor.as_str(), "actor:git-email:host@example.com");
+    }
+
+    #[test]
+    fn is_agent_actor_id_matches_agent_scheme_only() {
+        assert!(super::is_agent_actor_id("actor:agent:claude-code"));
+        assert!(!super::is_agent_actor_id(
+            "actor:git-email:kevin@swiber.dev"
+        ));
+        assert!(!super::is_agent_actor_id(
+            "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd"
+        ));
+        // A longer scheme that merely starts with "agent" is not agent-scheme.
+        assert!(!super::is_agent_actor_id("actor:agentx:foo"));
+        // The agent segment must be non-empty.
+        assert!(!super::is_agent_actor_id("actor:agent:"));
     }
 
     #[test]

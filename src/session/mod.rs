@@ -9,6 +9,11 @@ mod workflow;
 pub use event::{
     IngestProvenance, IngestVia, event_signature_pre_authentication_encoding, event_to_be_signed,
 };
+pub use identity::{
+    DelegationMap, DelegationRecord, PrincipalResolution, PrincipalSource, PrincipalStatus,
+    PrincipalView, UnresolvedReason, delegation_map_from_value, principal_display_label,
+    principal_view_for,
+};
 pub(crate) use identity::{
     current_timestamp, is_valid_actor_id, writer_from_git_config, writer_from_options,
 };
