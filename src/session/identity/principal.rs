@@ -89,6 +89,18 @@ pub fn principal_view_for(
     Some(view)
 }
 
+/// The raw resolution for a writer actor, for callers that need the failure
+/// reason (diagnostics) rather than the wire object. `None` for non-agent
+/// writers — they are their own principal and never resolve. Agent writers
+/// always return `Some(resolution)`.
+pub fn principal_resolution_for_writer(
+    writer_actor: &ActorId,
+    map: &DelegationMap,
+    occurred_at: &str,
+) -> Option<PrincipalResolution> {
+    is_agent_actor_id(writer_actor.as_str()).then(|| map.resolve(writer_actor, occurred_at))
+}
+
 /// Render the human label from a principal object: `claude-code (for
 /// kevin@swiber.dev)` when resolved, the bare agent name otherwise. Total — no
 /// panics on odd ids.

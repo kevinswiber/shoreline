@@ -148,7 +148,9 @@ fn review_observation_list(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let result = list_observations(observation_list_options(args));
-    let document = observation_list_document(result?);
+    // Delegation-map discovery is wired in the CLI-discovery task; None keeps
+    // the mirror posture until then.
+    let document = observation_list_document(result?, None);
     json::write_json(stdout, &document, pretty)
 }
 

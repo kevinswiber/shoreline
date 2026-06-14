@@ -185,7 +185,7 @@ fn review_assessment_show(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let result = show_assessments(assessment_show_options(args));
-    let document = assessment_show_document("shore.review-assessment-show", result?);
+    let document = assessment_show_document("shore.review-assessment-show", result?, None);
     json::write_json(stdout, &document, pretty)
 }
 

@@ -81,6 +81,17 @@ pub enum UnresolvedReason {
     UnparseableTimestamp,
 }
 
+impl UnresolvedReason {
+    /// The stable snake_case reason code surfaced in diagnostics.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UnresolvedReason::NoDelegationRecord => "no_delegation_record",
+            UnresolvedReason::NoCoveringWindow => "no_covering_window",
+            UnresolvedReason::UnparseableTimestamp => "unparseable_timestamp",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DelegationMap {
     delegates: BTreeMap<ActorId, Vec<DelegationRecord>>,

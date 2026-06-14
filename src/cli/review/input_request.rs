@@ -243,7 +243,7 @@ fn review_input_request_list(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let result = list_input_requests(input_request_list_options(args));
-    let document = input_request_list_document(result?);
+    let document = input_request_list_document(result?, None);
     json::write_json(stdout, &document, pretty)
 }
 
@@ -256,7 +256,7 @@ fn review_input_request_fetch(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
             .with_include_body(args.include_body),
     );
-    let document = input_request_fetch_document(result?);
+    let document = input_request_fetch_document(result?, None);
     json::write_json(stdout, &document, pretty)
 }
 

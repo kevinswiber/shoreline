@@ -156,7 +156,7 @@ fn review_validation_list(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let result = list_validation_checks(validation_list_options(args));
-    let document = validation_list_document(result?);
+    let document = validation_list_document(result?, None);
     json::write_json(stdout, &document, pretty)
 }
 
