@@ -15,7 +15,8 @@ pub use identity::{
     principal_resolution_for_writer, principal_view_for,
 };
 pub(crate) use identity::{
-    current_timestamp, is_valid_actor_id, writer_from_git_config, writer_from_options,
+    current_timestamp, is_agent_actor_id, is_valid_actor_id, writer_from_git_config,
+    writer_from_options,
 };
 pub(crate) use projection::state;
 pub use projection::{
@@ -23,8 +24,8 @@ pub use projection::{
 };
 pub use signing::{
     ArtifactAvailability, EventSigningOptions, EventVerificationPolicy, EventVerificationView,
-    IngestEventVerification, TrustSet, event_signature_trust_set, verification_view,
-    verify_event_signature,
+    IngestEventVerification, PrincipalPolicy, TrustSet, event_signature_trust_set,
+    principal_sufficient, verification_view, verify_event_signature,
 };
 pub(crate) use signing::{sign_event_if_requested, verify_events_for_ingest};
 #[cfg(test)]
