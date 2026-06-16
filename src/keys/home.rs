@@ -73,8 +73,9 @@ fn create_private_dir(dir: &std::path::Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
 
     // Pure seam: (shore_home, xdg_data_home, home, app_data) -> resolved root.
     // None models an unset variable; the seam never reads the process env.

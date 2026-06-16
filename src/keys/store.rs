@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::crypto::SignerId;
 use crate::error::{Result, ShoreError};
 use crate::keys::home::keys_dir;
+use crate::keys::signer::FileEd25519Signer;
 
 const KEY_FILE_VERSION: u32 = 1;
 const KEY_FILE_ALG: &str = "ed25519";
@@ -147,11 +148,27 @@ fn write_key_file(path: &Path, seed: &[u8; 32]) -> Result<()> {
     Ok(())
 }
 
+/// Load a named keystore key as a production signer: read its file from
+/// `keys_dir()`, reconstruct the `SigningKey`, and re-derive the `SignerId`.
+/// All fallible work (resolve + read + decode) lives here, ahead of signing.
+/// `pub`: the binary CLI consumes it via `shoreline::keys::load_signer`.
+pub fn load_signer(name: &str) -> Result<FileEd25519Signer> {
+    load_signer_in(&keys_dir()?, name)
+}
+
+/// Root-injecting loader: the resolver CLI tests pass a `tempdir` root so they
+/// never mutate `SHORE_HOME`. `pub` for the same reason `generate_key_in` is.
+pub fn load_signer_in(dir: &Path, name: &str) -> Result<FileEd25519Signer> {
+    let seed = read_key_seed(&dir.join(name))?;
+    Ok(FileEd25519Signer::from_seed(seed))
+}
+
 /// Read the raw 32-byte Ed25519 seed from a keystore private-key file. Shared by
 /// keygen tests here and by the loader in the sibling signer module.
 pub(crate) fn read_key_seed(path: &Path) -> Result<[u8; 32]> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| ShoreError::Message(format!("read key file {}: {error}", path.display())))?;
+    let bytes = std::fs::read(path).map_err(|error| {
+        ShoreError::Message(format!("read key file {}: {error}", path.display()))
+    })?;
     let document: KeyFile = serde_json::from_slice(&bytes)?;
     if document.alg != KEY_FILE_ALG {
         return Err(ShoreError::Message(format!(
@@ -184,10 +201,14 @@ mod tests {
         // Reload the raw seed from disk and re-derive the public key / did:key.
         let seed = read_key_seed(handle.private_key_path()).unwrap();
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
-        let rederived =
-            crate::crypto::SignerId::from_ed25519_public_key(signing_key.verifying_key().to_bytes());
+        let rederived = crate::crypto::SignerId::from_ed25519_public_key(
+            signing_key.verifying_key().to_bytes(),
+        );
 
-        assert_eq!(rederived, did, "did:key derives deterministically from the seed");
+        assert_eq!(
+            rederived, did,
+            "did:key derives deterministically from the seed"
+        );
     }
 
     #[test]
@@ -249,7 +270,30 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let a = generate_key_in(root.path(), &name("a")).unwrap();
         let b = generate_key_in(root.path(), &name("b")).unwrap();
-        assert_ne!(a.signer_id(), b.signer_id(), "getrandom seeds are independent");
+        assert_ne!(
+            a.signer_id(),
+            b.signer_id(),
+            "getrandom seeds are independent"
+        );
+    }
+
+    #[test]
+    fn load_signer_reconstructs_a_generated_key() {
+        let root = tempfile::tempdir().unwrap();
+        let key = KeyName::parse("default").unwrap();
+        let generated = generate_key_in(root.path(), &key).unwrap();
+        let loaded = load_signer_in(root.path(), "default").unwrap();
+
+        // The loaded signer's identity equals the generated key's did:key.
+        use crate::crypto::EventSigner as _;
+        assert_eq!(loaded.signer_id(), generated.signer_id());
+    }
+
+    #[test]
+    fn load_signer_for_missing_name_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let result = load_signer_in(root.path(), "nope");
+        assert!(result.is_err());
     }
 
     #[test]
