@@ -327,9 +327,16 @@ The default durable store remains worktree-local `.shore/data/`. A Git worktree 
 with a clone-local store associated with the clone's Git common directory, allowing linked
 worktrees from the same clone to share imported Shoreline facts. The clone-local shared store lives
 at `.git/shore/` in the Git common directory (it stays flat — store-only, with no committed-config
-sibling to separate from). Existing linked checkouts created before this rename upgrade once by
-re-running `shore store link` (which re-mints the shared store) or `mv .git/shoreline .git/shore`;
-registration validates by opaque ref against the manifest, not a baked path, so a `mv` is clean.
+sibling to separate from). Existing linked checkouts created before this rename upgrade by renaming
+the directory (`mv .git/shoreline .git/shore`); registration validates by opaque ref against the
+manifest, not a baked path, so the `mv` is clean. **The rename alone is not a complete migration for
+a clone-local store that holds pre-`producer` events:** the writer-field upgrade
+(`writer.tool`/`writer.role` → `writer.producer`) that `migrate-store` runs over the worktree-local
+store is **not** applied to the clone-local store, so its legacy events still fail `read_event`; and
+re-running `shore store link` re-imports only worktree-local events, which loses history for a
+registration-only checkout whose data lives entirely in the clone-local store. A supported
+clone-local migration (rename plus in-place writer upgrade via the tested event migrator) is tracked
+in [issue #155](https://github.com/kevinswiber/shoreline/issues/155).
 The broader two-store sync-model and placement questions (write-through versus the current
 batch-only `shore store link`; whether the shared store should move to a user-level location) are
 tracked separately in [issue #153](https://github.com/kevinswiber/shoreline/issues/153) and are out
