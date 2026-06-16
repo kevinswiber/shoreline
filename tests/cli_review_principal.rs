@@ -48,8 +48,25 @@ fn repo_with_agent_observation() -> GitRepo {
 }
 
 fn write_delegates(repo: &GitRepo, contents: &str) {
-    repo.write(".shoreline/delegates", contents);
+    repo.write(".shore/delegates.json", contents);
 }
+
+fn write_local_delegates(repo: &GitRepo, contents: &str) {
+    repo.write(".shore/delegates.local.json", contents);
+}
+
+const LOCAL_OVERRIDE_DELEGATES: &str = r#"{
+  "delegates": {
+    "actor:agent:claude-code": [
+      {
+        "principal": "actor:git-email:alice@example.com",
+        "validFrom": "2020-01-01T00:00:00Z",
+        "validUntil": null
+      }
+    ]
+  }
+}
+"#;
 
 const RESOLVING_DELEGATES: &str = r#"{
   "delegates": {
@@ -93,8 +110,28 @@ fn cli_history_resolves_principal_from_checked_in_delegates_file() {
 }
 
 #[test]
+fn cli_local_override_replaces_committed_principal_for_the_agent() {
+    let repo = repo_with_agent_observation();
+    write_delegates(&repo, RESOLVING_DELEGATES); // committed: claude-code -> kevin
+    write_local_delegates(&repo, LOCAL_OVERRIDE_DELEGATES); // local: claude-code -> alice
+    let path = repo.path().to_str().unwrap();
+
+    let output = shore(["review", "history", "--repo", path]);
+    assert!(output.status.success());
+    let json = parse_json(&output.stdout);
+
+    let entry = agent_history_entry(&json);
+    assert_eq!(
+        entry["principal"]["actorId"], "actor:git-email:alice@example.com",
+        "the local override fully replaces the committed records for the agent"
+    );
+    assert_eq!(entry["principal"]["status"], "resolved");
+    assert_eq!(entry["principal"]["source"], "delegates");
+}
+
+#[test]
 fn cli_resolves_principal_when_repo_points_at_a_subdirectory() {
-    // Read commands accept a path inside the repository; `.shoreline/delegates`
+    // Read commands accept a path inside the repository; `.shore/delegates.json`
     // lives at the worktree root, so discovery must resolve the root rather than
     // join the raw `--repo` argument.
     let repo = repo_with_agent_observation();
@@ -138,7 +175,7 @@ fn cli_warns_and_proceeds_on_malformed_delegates_file() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains(".shoreline/delegates"),
+        stderr.contains(".shore/delegates.json"),
         "stderr names the offending file; got: {stderr}"
     );
 }
