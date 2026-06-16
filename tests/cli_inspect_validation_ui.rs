@@ -12,6 +12,56 @@ mod support;
 
 use support::inspect::{Inspector, representative_store, urlencode};
 
+/// Spawn the inspector against a representative store and return the served
+/// `/app.js` bytes. `app.js` has no JS execution harness (issue #130), so the
+/// UI-wiring guard is a string-level contract over the served asset.
+fn spawn_and_get_app_js() -> String {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    inspector.get_text("/app.js")
+}
+
+/// The substring of `app.js` between two markers, for scoping an assertion to
+/// one function or block. Panics if either marker is absent.
+fn slice_between<'a>(haystack: &'a str, start: &str, end: &str) -> &'a str {
+    let from = haystack
+        .find(start)
+        .unwrap_or_else(|| panic!("missing {start}"));
+    let rest = &haystack[from..];
+    let to = rest
+        .find(end)
+        .unwrap_or_else(|| panic!("missing {end} after {start}"));
+    &rest[..to]
+}
+
+#[test]
+fn served_app_js_registers_validation_timeline_type() {
+    let app_js = spawn_and_get_app_js();
+
+    // TYPES registration: the event id with a human label and a distinct,
+    // non-fallback color (gray #9aa7b5 is the unknown-type fallback).
+    let types_block = slice_between(&app_js, "const TYPES = [", "const TYPE_MAP");
+    assert!(
+        types_block.contains(r#"id: "validation_check_recorded""#),
+        "TYPES must register validation_check_recorded"
+    );
+    assert!(
+        types_block.contains(r#"label: "validation""#),
+        "validation type needs a human label"
+    );
+    assert!(
+        types_block.contains("#e88fb0"),
+        "validation type needs a distinct non-fallback color"
+    );
+
+    // The timeline title path reads the history summary's checkName.
+    let entry_title = slice_between(&app_js, "function entryTitle(e)", "function entryTags");
+    assert!(
+        entry_title.contains("checkName"),
+        "entryTitle must read the validation checkName"
+    );
+}
+
 #[test]
 fn api_history_carries_typed_validation_summaries() {
     let store = representative_store();

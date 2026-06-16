@@ -11,6 +11,7 @@ const TYPES = [
   { id: "review_note_imported", label: "note", color: "#9aa7b5" },
   { id: "review_unit_lineage_declared", label: "lineage", color: "#ff8f70" },
   { id: "review_unit_lineage_round_recorded", label: "round", color: "#d2a86d" },
+  { id: "validation_check_recorded", label: "validation", color: "#e88fb0" },
 ];
 const TYPE_MAP = Object.fromEntries(TYPES.map((t) => [t.id, t]));
 
@@ -253,6 +254,10 @@ function entryTitle(e) {
   if (e.eventType === "review_unit_captured") {
     const base = (s.base && s.base.commitOid) || "";
     return base ? `capture · base ${shortId(base)}` : "capture";
+  }
+  if (e.eventType === "validation_check_recorded") {
+    const name = s.checkName || "validation";
+    return s.status ? `${name} · ${s.status}` : name;
   }
   return typeLabel(e.eventType);
 }
