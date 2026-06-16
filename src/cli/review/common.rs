@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use clap::ValueEnum;
@@ -7,7 +7,7 @@ use shoreline::keys::{
     load_signer_in,
 };
 use shoreline::model::{ActorId, Side};
-use shoreline::session::{DelegationMap, is_agent_actor_id};
+use shoreline::session::{DelegationMap, is_agent_actor_id, resolve_writer_actor_id};
 
 /// Discover the layered delegation map under `<worktree-root>/.shore/`.
 ///
@@ -108,6 +108,25 @@ pub(crate) fn resolve_signer(
         std::env::var(SHORE_SIGNING_KEY_ENV).ok().as_deref(),
         None, // production: key lookups resolve keys_dir(); tests inject Some(tempdir)
     )
+}
+
+/// Resolve the signer for a write and surface any advisory diagnostic to
+/// `stderr`, returning the signer to apply (or `None` for an unsigned write).
+/// The single integration point the six write builders share: it resolves the
+/// writing actor exactly as the library will attribute it, picks a signer, prints
+/// the broken-key / agent-keygen notice advisorily, and never affects the exit
+/// code — signing never gates a write.
+pub(crate) fn resolve_and_surface_signer(
+    repo: &Path,
+    sign_key: Option<&str>,
+    stderr: &mut dyn Write,
+) -> Option<FileEd25519Signer> {
+    let actor = resolve_writer_actor_id(repo, None);
+    let resolution = resolve_signer(repo, &actor, sign_key);
+    if let Some(diagnostic) = resolution.diagnostic.as_deref() {
+        let _ = writeln!(stderr, "{diagnostic}");
+    }
+    resolution.signer
 }
 
 /// Pure resolution seam (env values AND the keystore root threaded in for

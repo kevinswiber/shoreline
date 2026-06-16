@@ -81,7 +81,7 @@ where
         }
     };
 
-    match run_cli(cli, stdout) {
+    match run_cli(cli, stdout, stderr) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let _ = writeln!(stderr, "{error}");
@@ -95,7 +95,11 @@ fn invokes_removed_input_request_command(args: &[OsString]) -> bool {
         .any(|pair| pair[0].to_str() == Some("review") && pair[1].to_str() == Some("intervention"))
 }
 
-fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+fn run_cli(
+    cli: Cli,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
     if matches!(cli.command, Command::Show(_))
         && crate::cli_tracing::tracing_enabled(&cli.tracing)
         && cli.tracing.log_file.is_none()
@@ -113,7 +117,7 @@ fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::E
         Command::Inspect(args) => inspect::run(args, stdout),
         Command::Keys(args) => keys::run(args, stdout),
         Command::Notes(args) => notes::run(args, stdout),
-        Command::Review(args) => review::run(*args, &cli.tracing, stdout),
+        Command::Review(args) => review::run(*args, &cli.tracing, stdout, stderr),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
             show::run(args, &cli.tracing)

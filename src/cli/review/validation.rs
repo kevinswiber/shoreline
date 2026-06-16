@@ -75,6 +75,13 @@ struct ValidationAddArgs {
 
     #[arg(long)]
     idempotency_key: Option<String>,
+
+    /// Sign this write with a specific key: a keystore key name or a path to a
+    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// the write unsigned (exit 0) with an advisory diagnostic — signing never
+    /// blocks.
+    #[arg(long)]
+    sign_key: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -124,13 +131,14 @@ enum ValidationTriggerArg {
 pub(super) fn run(
     args: ValidationArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ValidationCommand::Add(args) => {
             let span = tracing::info_span!("shore.review.validation.add");
             let _entered = span.enter();
             tracing::debug!(command = "review.validation.add", "command_start");
-            review_validation_add(*args, stdout)
+            review_validation_add(*args, stdout, stderr)
         }
         ValidationCommand::List(args) => {
             let span = tracing::info_span!("shore.review.validation.list");
@@ -144,8 +152,9 @@ pub(super) fn run(
 fn review_validation_add(
     args: ValidationAddArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = record_validation_check(validation_add_options(args)?)?;
+    let result = record_validation_check(validation_add_options(args, stderr)?)?;
     let document = validation_add_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -164,6 +173,7 @@ fn review_validation_list(
 
 fn validation_add_options(
     args: ValidationAddArgs,
+    stderr: &mut dyn Write,
 ) -> Result<ValidationAddOptions, Box<dyn std::error::Error>> {
     let summary = read_body_input(
         args.summary.as_deref(),
@@ -205,6 +215,11 @@ fn validation_add_options(
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
+    }
+    if let Some(signer) =
+        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+    {
+        options = options.sign_with(signer);
     }
 
     Ok(options)

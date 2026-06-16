@@ -82,6 +82,13 @@ struct InputRequestOpenArgs {
 
     #[arg(long)]
     idempotency_key: Option<String>,
+
+    /// Sign this write with a specific key: a keystore key name or a path to a
+    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// the write unsigned (exit 0) with an advisory diagnostic — signing never
+    /// blocks.
+    #[arg(long)]
+    sign_key: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -155,6 +162,13 @@ struct InputRequestRespondArgs {
 
     #[arg(long)]
     idempotency_key: Option<String>,
+
+    /// Sign this write with a specific key: a keystore key name or a path to a
+    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// the write unsigned (exit 0) with an advisory diagnostic — signing never
+    /// blocks.
+    #[arg(long)]
+    sign_key: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -199,13 +213,14 @@ enum InputRequestOutcomeArg {
 pub(super) fn run(
     args: InputRequestArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         InputRequestCommand::Open(args) => {
             let span = tracing::info_span!("shore.review.input_request.open");
             let _entered = span.enter();
             tracing::debug!(command = "review.input_request.open", "command_start");
-            review_input_request_open(args, stdout)
+            review_input_request_open(args, stdout, stderr)
         }
         InputRequestCommand::List(args) => {
             let span = tracing::info_span!("shore.review.input_request.list");
@@ -223,7 +238,7 @@ pub(super) fn run(
             let span = tracing::info_span!("shore.review.input_request.respond");
             let _entered = span.enter();
             tracing::debug!(command = "review.input_request.respond", "command_start");
-            review_input_request_respond(args, stdout)
+            review_input_request_respond(args, stdout, stderr)
         }
     }
 }
@@ -231,8 +246,9 @@ pub(super) fn run(
 fn review_input_request_open(
     args: InputRequestOpenArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = open_input_request(input_request_open_options(args)?)?;
+    let result = open_input_request(input_request_open_options(args, stderr)?)?;
     let document = input_request_open_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -266,14 +282,16 @@ fn review_input_request_fetch(
 fn review_input_request_respond(
     args: InputRequestRespondArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = respond_input_request(input_request_respond_options(args)?)?;
+    let result = respond_input_request(input_request_respond_options(args, stderr)?)?;
     let document = input_request_respond_document(result);
     json::write_json(stdout, &document, false)
 }
 
 fn input_request_open_options(
     args: InputRequestOpenArgs,
+    stderr: &mut dyn Write,
 ) -> Result<InputRequestOpenOptions, Box<dyn std::error::Error>> {
     let target = input_request_target(&args)?;
     let body = read_body_input(
@@ -299,6 +317,11 @@ fn input_request_open_options(
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
+    }
+    if let Some(signer) =
+        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+    {
+        options = options.sign_with(signer);
     }
 
     Ok(options)
@@ -328,6 +351,7 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
 
 fn input_request_respond_options(
     args: InputRequestRespondArgs,
+    stderr: &mut dyn Write,
 ) -> Result<InputRequestRespondOptions, Box<dyn std::error::Error>> {
     let reason = read_body_input(
         args.reason.as_deref(),
@@ -342,6 +366,11 @@ fn input_request_respond_options(
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
+    }
+    if let Some(signer) =
+        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+    {
+        options = options.sign_with(signer);
     }
     Ok(options)
 }

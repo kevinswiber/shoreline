@@ -73,6 +73,13 @@ struct ObservationAddArgs {
 
     #[arg(long)]
     idempotency_key: Option<String>,
+
+    /// Sign this write with a specific key: a keystore key name or a path to a
+    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// the write unsigned (exit 0) with an advisory diagnostic — signing never
+    /// blocks.
+    #[arg(long)]
+    sign_key: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -116,13 +123,14 @@ enum ConfidenceArg {
 pub(super) fn run(
     args: ObservationArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ObservationCommand::Add(args) => {
             let span = tracing::info_span!("shore.review.observation.add");
             let _entered = span.enter();
             tracing::debug!(command = "review.observation.add", "command_start");
-            review_observation_add(args, stdout)
+            review_observation_add(args, stdout, stderr)
         }
         ObservationCommand::List(args) => {
             let span = tracing::info_span!("shore.review.observation.list");
@@ -136,8 +144,9 @@ pub(super) fn run(
 fn review_observation_add(
     args: ObservationAddArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = record_observation(observation_add_options(args)?)?;
+    let result = record_observation(observation_add_options(args, stderr)?)?;
     let document = observation_add_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -156,6 +165,7 @@ fn review_observation_list(
 
 fn observation_add_options(
     args: ObservationAddArgs,
+    stderr: &mut dyn Write,
 ) -> Result<ObservationAddOptions, Box<dyn std::error::Error>> {
     let target = observation_target(&args);
     let body = read_body_input(
@@ -188,6 +198,11 @@ fn observation_add_options(
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
+    }
+    if let Some(signer) =
+        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+    {
+        options = options.sign_with(signer);
     }
 
     Ok(options)

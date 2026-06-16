@@ -36,15 +36,16 @@ pub(super) fn run(
     args: ReviewArgs,
     tracing: &TracingArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
-        ReviewCommand::Assessment(args) => assessment::run(args, stdout),
-        ReviewCommand::Capture(args) => capture::run(args, tracing, stdout),
+        ReviewCommand::Assessment(args) => assessment::run(args, stdout, stderr),
+        ReviewCommand::Capture(args) => capture::run(args, tracing, stdout, stderr),
         ReviewCommand::History(args) => history::run(args, stdout),
-        ReviewCommand::InputRequest(args) => input_request::run(args, stdout),
+        ReviewCommand::InputRequest(args) => input_request::run(args, stdout, stderr),
         ReviewCommand::Lineage(args) => lineage::run(args, stdout),
-        ReviewCommand::Observation(args) => observation::run(args, stdout),
+        ReviewCommand::Observation(args) => observation::run(args, stdout, stderr),
         ReviewCommand::Unit(args) => unit::run(args, stdout),
-        ReviewCommand::Validation(args) => validation::run(args, stdout),
+        ReviewCommand::Validation(args) => validation::run(args, stdout, stderr),
     }
 }
