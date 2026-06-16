@@ -160,7 +160,7 @@ fn review_unit_show_include_body_hydrates_without_internal_paths() {
     assert!(stdout.contains("visible body"));
     assert!(!stdout.contains("artifacts/notes/"));
     assert!(!stdout.contains("artifacts/snapshots/"));
-    assert!(!stdout.contains(".shore/events"));
+    assert!(!stdout.contains(".shore/data/events"));
     assert!(json.get("statePath").is_none());
     assert!(json.get("snapshotArtifactPath").is_none());
 }
@@ -199,7 +199,7 @@ fn review_unit_show_includes_input_requests_and_omits_legacy_fields() {
     assert_eq!(json["summary"]["inputRequestCount"], 1);
     assert!(!stdout.contains("artifacts/notes/"));
     assert!(!stdout.contains("artifacts/snapshots/"));
-    assert!(!stdout.contains(".shore/events"));
+    assert!(!stdout.contains(".shore/data/events"));
     assert!(!stdout.contains("\"blocking\""));
     assert!(json.get("interventions").is_none());
     assert!(json["summary"].get("interventionCount").is_none());
@@ -357,7 +357,7 @@ fn review_unit_show_includes_adapter_notes_without_storage_paths() {
             .any(|row| row["kind"] == "adapter_note")
     );
     assert!(!stdout.contains("artifacts/notes/"));
-    assert!(!stdout.contains(".shore/events"));
+    assert!(!stdout.contains(".shore/data/events"));
 }
 
 #[test]

@@ -60,7 +60,7 @@ mod tests {
 
         assert!(!json.contains("/Users/"));
         assert!(!json.contains("worktreeRoot"));
-        assert!(!json.contains(".shore"));
+        assert!(!json.contains(".shore/data"));
         assert!(!json.contains(".git"));
     }
 

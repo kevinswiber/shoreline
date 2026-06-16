@@ -101,12 +101,12 @@ pub fn respond_input_request(
 ) -> Result<InputRequestRespondResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
     // The write half keeps the LOCAL prior batch for the single-writer state.json.
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
 
     // The request being responded to may live only in the linked store: its
@@ -320,7 +320,7 @@ mod tests {
             TargetRef::Task(TaskTargetRef::TaskAttempt),
             "approve?",
         );
-        EventStore::open(repo.path().join(".shore"))
+        EventStore::open(repo.path().join(".shore/data"))
             .record_event_once(&request)
             .unwrap();
 

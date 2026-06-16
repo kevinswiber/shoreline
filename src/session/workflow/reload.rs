@@ -81,7 +81,8 @@ mod tests {
         let repo = tempfile::tempdir().expect("create repo");
         run_git(repo.path(), &["init"]);
         run_git(repo.path(), &["config", "commit.gpgsign", "false"]);
-        std::fs::write(repo.path().join(".gitignore"), ".shore/\n").expect("write fixture file");
+        std::fs::write(repo.path().join(".gitignore"), ".shore/data/\n")
+            .expect("write fixture file");
         run_git(repo.path(), &["add", ".gitignore"]);
         run_git(
             repo.path(),

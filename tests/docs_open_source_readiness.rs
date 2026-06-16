@@ -133,7 +133,7 @@ fn getting_started_walks_through_first_review() {
         "shore review observation add",
         "shore review input-request open",
         "shore review assessment add",
-        ".shore/",
+        ".shore/data/",
     ] {
         assert!(
             guide.contains(required),

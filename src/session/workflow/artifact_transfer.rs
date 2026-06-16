@@ -75,7 +75,7 @@ enum ArtifactLocator {
     Body { relative_path: String },
 }
 
-/// Options for importing a content-addressed artifact into a repo's `.shore`
+/// Options for importing a content-addressed artifact into a repo's `.shore/data`
 /// store.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImportArtifactOptions {
@@ -166,12 +166,12 @@ pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result
 /// bytes that do not match the reference hash are rejected.
 pub fn import_artifact(options: ImportArtifactOptions) -> Result<ImportArtifactResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let storage = LocalStorage::new(paths.shore_dir());
+    let storage = LocalStorage::new(paths.store_dir());
     prepare_shore_writer(&paths, &storage)?;
 
     let outcome = match &options.artifact.locator {
         ArtifactLocator::Snapshot { snapshot_id } => import_snapshot_artifact(
-            paths.shore_dir(),
+            paths.store_dir(),
             &storage,
             snapshot_id,
             &options.artifact.content_hash,
@@ -289,11 +289,11 @@ fn insert_artifact_ref(
 }
 
 fn read_body_artifact_bytes(
-    shore_dir: &Path,
+    store_dir: &Path,
     relative_path: &str,
     expected_content_hash: &str,
 ) -> Result<Vec<u8>> {
-    let path = shore_dir.join(relative_path);
+    let path = store_dir.join(relative_path);
     let bytes = std::fs::read(&path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             return ShoreError::Message(format!(
@@ -307,7 +307,7 @@ fn read_body_artifact_bytes(
 }
 
 fn import_snapshot_artifact(
-    shore_dir: &Path,
+    store_dir: &Path,
     storage: &LocalStorage,
     snapshot_id: &SnapshotId,
     expected_content_hash: &str,
@@ -327,7 +327,7 @@ fn import_snapshot_artifact(
         )));
     }
 
-    let path = snapshot_artifact_path(shore_dir, snapshot_id);
+    let path = snapshot_artifact_path(store_dir, snapshot_id);
     match storage.create_file_exclusive(&path, bytes, Durability::Durable)? {
         CreateFileOutcome::Created => Ok(ImportArtifactOutcome::Created),
         CreateFileOutcome::AlreadyExists => {

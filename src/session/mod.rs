@@ -36,7 +36,7 @@ pub(crate) use store::{
 };
 pub use store::{
     SnapshotArtifact, capture_worktree_fingerprint, ensure_shore_storage_excluded,
-    read_snapshot_artifact, shore_dir_for_repo,
+    read_snapshot_artifact, store_dir_for_repo,
 };
 pub(in crate::session) use store::{body_artifact, fingerprint, snapshot_artifact, store_init};
 pub(crate) use workflow::reload_diagnostics_for_document;

@@ -156,8 +156,8 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
     let store_resolution = resolve_store(worktree_root)?;
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
     let PreparedCapture { files, fingerprint } = match &options.source {
@@ -175,7 +175,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         snapshot,
     )?;
 
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let mut recorder = CaptureRecorder::default();
     let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
     let occurred_at = current_timestamp();
@@ -540,7 +540,7 @@ mod tests {
         read_snapshot_artifact(repo.path(), &worktree.snapshot_id).unwrap();
         read_snapshot_artifact(repo.path(), &range.snapshot_id).unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let captured = events
@@ -565,7 +565,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let declared = events
@@ -586,8 +586,8 @@ mod tests {
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
 
-        assert!(repo.path().join(".shore/events").is_dir());
-        assert!(repo.path().join(".shore/state.json").is_file());
+        assert!(repo.path().join(".shore/data/events").is_dir());
+        assert!(repo.path().join(".shore/data/state.json").is_file());
         assert_eq!(artifact.review_unit_id, result.review_unit_id);
         assert!(
             result
@@ -613,7 +613,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let event = events
@@ -636,7 +636,7 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let event = events
@@ -655,7 +655,7 @@ mod tests {
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
-        let event_store = EventStore::open(repo.path().join(".shore"));
+        let event_store = EventStore::open(repo.path().join(".shore/data"));
         let events = event_store.list_events().unwrap();
         let event = events
             .iter()
@@ -672,7 +672,9 @@ mod tests {
     #[test]
     fn capture_worktree_review_preserves_fresh_shore_temp_files() {
         let repo = modified_repo();
-        let temp_path = repo.path().join(".shore/events/.shore-write.inflight.tmp");
+        let temp_path = repo
+            .path()
+            .join(".shore/data/events/.shore-write.inflight.tmp");
 
         fs::create_dir_all(temp_path.parent().unwrap()).unwrap();
         fs::write(&temp_path, b"in flight").unwrap();
@@ -694,7 +696,7 @@ mod tests {
 
         let result = capture_worktree_review(CaptureOptions::new(&subdir)).unwrap();
 
-        assert!(repo.path().join(".shore/events").is_dir());
+        assert!(repo.path().join(".shore/data/events").is_dir());
         assert!(
             result
                 .review_unit_id

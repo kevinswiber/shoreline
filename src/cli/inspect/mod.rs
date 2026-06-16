@@ -7,13 +7,13 @@ use clap::Args;
 mod api;
 mod server;
 
-/// `shore inspect` starts a small local web server that visualizes a `.shore`
+/// `shore inspect` starts a small local web server that visualizes a `.shore/data`
 /// store: the event timeline, captured ReviewUnits, and recorded outcomes.
 ///
 /// The server is intentionally synchronous (thread-per-connection, std only).
 /// It introduces no async runtime, matching the storage-model guidance, and
 /// reuses the same validated projections as `shore review history` /
-/// `shore review unit list`, so it never parses raw `.shore/` files itself.
+/// `shore review unit list`, so it never parses raw `.shore/data/` files itself.
 #[derive(Debug, Args)]
 pub(super) struct InspectArgs {
     /// Repository root or a path inside the repository.

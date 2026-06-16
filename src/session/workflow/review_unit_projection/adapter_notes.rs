@@ -51,7 +51,7 @@ impl AdapterNoteStatus {
 
 pub(super) fn project_adapter_notes(
     events: &[ShoreEvent],
-    shore_dir: &Path,
+    store_dir: &Path,
     snapshot: &DiffSnapshot,
     include_body: bool,
 ) -> Result<Vec<AdapterNoteView>> {
@@ -70,7 +70,7 @@ pub(super) fn project_adapter_notes(
         .iter()
         .map(|payload| {
             let body = if include_body {
-                adapter_note_body(shore_dir, payload)?
+                adapter_note_body(store_dir, payload)?
             } else {
                 None
             };
@@ -176,14 +176,14 @@ pub(super) fn adapter_note_status(status: &ResolutionStatus) -> AdapterNoteStatu
 }
 
 fn adapter_note_body(
-    shore_dir: &Path,
+    store_dir: &Path,
     payload: &ReviewNoteImportedPayload,
 ) -> Result<Option<String>> {
     if payload.body.is_some() {
         return Ok(payload.body.clone());
     }
     match payload.body_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(shore_dir, path),
+        Some(path) => load_body_artifact(store_dir, path),
         None => Ok(None),
     }
 }

@@ -189,9 +189,9 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
 #[allow(dead_code)]
 pub(crate) fn write_session_intents(
     intents: &[AdapterIntent],
-    shore_dir: &Path,
+    store_dir: &Path,
 ) -> Result<Vec<EventWriteOutcome>> {
-    let store = EventStore::open(shore_dir);
+    let store = EventStore::open(store_dir);
     intents
         .iter()
         .map(|intent| {

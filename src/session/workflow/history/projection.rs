@@ -19,7 +19,7 @@ use crate::session::{principal_view_for, verify_event_signature};
 pub(super) fn history_from_events(
     events: &[ShoreEvent],
     filters: ResolvedHistoryFilters,
-    shore_dir: Option<&Path>,
+    store_dir: Option<&Path>,
 ) -> Result<ReviewHistoryResult> {
     let state = SessionState::from_events(events)?;
     let event_set_hash = state
@@ -29,7 +29,7 @@ pub(super) fn history_from_events(
     let mut entries = events
         .iter()
         .filter(|event| event_matches_filters(event, &filters))
-        .map(|event| history_entry_from_event(event, &filters, shore_dir))
+        .map(|event| history_entry_from_event(event, &filters, store_dir))
         .collect::<Result<Vec<_>>>()?;
 
     entries.sort_by(|left, right| {
@@ -50,7 +50,7 @@ pub(super) fn history_from_events(
 pub(super) fn history_entry_from_event(
     event: &ShoreEvent,
     filters: &ResolvedHistoryFilters,
-    shore_dir: Option<&Path>,
+    store_dir: Option<&Path>,
 ) -> Result<ReviewHistoryEntry> {
     let summary = match event.event_type {
         EventType::ReviewInitialized => {
@@ -77,7 +77,7 @@ pub(super) fn history_entry_from_event(
                 target: payload.target,
                 title: payload.title,
                 body: optional_text(
-                    shore_dir,
+                    store_dir,
                     filters.include_body,
                     payload.body,
                     payload.body_artifact_path.as_deref(),
@@ -97,7 +97,7 @@ pub(super) fn history_entry_from_event(
                 target: payload.target,
                 assessment: payload.assessment,
                 summary: optional_text(
-                    shore_dir,
+                    store_dir,
                     filters.include_body,
                     payload.summary,
                     payload.summary_artifact_path.as_deref(),
@@ -118,7 +118,7 @@ pub(super) fn history_entry_from_event(
                 reason_code: payload.reason_code,
                 title: payload.title,
                 body: optional_text(
-                    shore_dir,
+                    store_dir,
                     filters.include_body,
                     payload.body,
                     payload.body_artifact_path.as_deref(),
@@ -135,7 +135,7 @@ pub(super) fn history_entry_from_event(
                 input_request_id: payload.input_request_id,
                 outcome: payload.outcome,
                 reason: optional_text(
-                    shore_dir,
+                    store_dir,
                     filters.include_body,
                     payload.reason,
                     payload.reason_artifact_path.as_deref(),
@@ -154,7 +154,7 @@ pub(super) fn history_entry_from_event(
                 target: payload.target,
                 title: payload.title,
                 body: optional_text(
-                    shore_dir,
+                    store_dir,
                     filters.include_body,
                     payload.body,
                     payload.body_artifact_path.as_deref(),
@@ -200,7 +200,7 @@ pub(super) fn history_entry_from_event(
                 trigger: payload.trigger,
                 source_fingerprint: payload.source_fingerprint,
                 summary: optional_text(
-                    shore_dir,
+                    store_dir,
                     filters.include_body,
                     payload.summary,
                     payload.summary_artifact_path.as_deref(),
@@ -249,7 +249,7 @@ pub(super) fn history_entry_from_event(
 }
 
 fn optional_text(
-    shore_dir: Option<&Path>,
+    store_dir: Option<&Path>,
     include_body: bool,
     inline: Option<String>,
     artifact_path: Option<&str>,
@@ -262,12 +262,12 @@ fn optional_text(
     }
     match artifact_path {
         Some(path) => {
-            let shore_dir = shore_dir.ok_or_else(|| {
+            let store_dir = store_dir.ok_or_else(|| {
                 ShoreError::Message(
                     "shore directory is required to hydrate body artifact".to_owned(),
                 )
             })?;
-            load_body_artifact(shore_dir, path)
+            load_body_artifact(store_dir, path)
         }
         None => Ok(None),
     }

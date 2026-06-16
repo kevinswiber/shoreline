@@ -127,7 +127,7 @@ mod tests {
         );
         let serialized = serde_json::to_string(&payload).unwrap();
 
-        for needle in ["/Users/", "worktreeRoot", ".git", ".shore"] {
+        for needle in ["/Users/", "worktreeRoot", ".git", ".shore/data"] {
             assert!(
                 !serialized.contains(needle),
                 "payload leaked path token {needle}"

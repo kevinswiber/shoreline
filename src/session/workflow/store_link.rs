@@ -38,7 +38,7 @@ pub struct StoreLinkResult {
 
 pub fn link_clone_local_store(options: StoreLinkOptions) -> Result<StoreLinkResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let local_store_dir = paths.shore_dir().to_path_buf();
+    let local_store_dir = paths.store_dir().to_path_buf();
     let sensitivity = scan_worktree_sensitivity(paths.worktree_root())?;
     let _worktrees = git_worktree_list(paths.worktree_root())?;
 

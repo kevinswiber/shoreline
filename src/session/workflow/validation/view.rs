@@ -18,7 +18,7 @@ struct ValidationEventRecord<'a> {
 }
 
 pub struct ValidationCheckProjectionOptions<'a> {
-    pub shore_dir: &'a Path,
+    pub store_dir: &'a Path,
     pub events: &'a [ShoreEvent],
     pub review_unit_id: &'a ReviewUnitId,
     pub track_filter: Option<TrackId>,
@@ -115,7 +115,7 @@ pub fn project_validation_checks(
     let mut validations = Vec::new();
     for (_, record) in validation_records {
         let summary = if options.include_body {
-            validation_summary(options.shore_dir, &record.payload)?
+            validation_summary(options.store_dir, &record.payload)?
         } else {
             None
         };
@@ -146,14 +146,14 @@ pub fn project_validation_checks(
 }
 
 fn validation_summary(
-    shore_dir: &Path,
+    store_dir: &Path,
     payload: &ValidationCheckRecordedPayload,
 ) -> Result<Option<String>> {
     if payload.summary.is_some() {
         return Ok(payload.summary.clone());
     }
     match payload.summary_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(shore_dir, path),
+        Some(path) => load_body_artifact(store_dir, path),
         None => Ok(None),
     }
 }
@@ -204,7 +204,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let views = project_validation_checks(ValidationCheckProjectionOptions {
-            shore_dir: dir.path(),
+            store_dir: dir.path(),
             events: &events,
             review_unit_id: &ReviewUnitId::new("review-unit:sha256:one"),
             track_filter: None,
@@ -238,7 +238,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let views = project_validation_checks(ValidationCheckProjectionOptions {
-            shore_dir: dir.path(),
+            store_dir: dir.path(),
             events: &events,
             review_unit_id: &ReviewUnitId::new("review-unit:sha256:one"),
             track_filter: None,
@@ -279,7 +279,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let views = project_validation_checks(ValidationCheckProjectionOptions {
-            shore_dir: dir.path(),
+            store_dir: dir.path(),
             events: &events,
             review_unit_id: &ReviewUnitId::new("review-unit:sha256:one"),
             track_filter: None,
@@ -320,7 +320,7 @@ mod tests {
         )];
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
         let options = |include_body| ValidationCheckProjectionOptions {
-            shore_dir: dir.path(),
+            store_dir: dir.path(),
             events: &events,
             review_unit_id: &review_unit_id,
             track_filter: None,

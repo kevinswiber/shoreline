@@ -72,7 +72,7 @@ fn review_unit_list_does_not_expose_storage_paths() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json = parse_json(&output.stdout);
 
-    assert!(!stdout.contains(".shore/events"));
+    assert!(!stdout.contains(".shore/data/events"));
     assert!(!stdout.contains("artifacts/"));
     assert!(json.get("statePath").is_none());
     assert!(json["entries"][0].get("payloadHash").is_none());
@@ -184,7 +184,7 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
         "reader link stderr:\n{}",
         String::from_utf8_lossy(&reader_link.stderr)
     );
-    assert!(!reader.join(".shore/events").exists());
+    assert!(!reader.join(".shore/data/events").exists());
 
     let output = shore(["review", "unit", "list", "--repo", reader.to_str().unwrap()]);
     assert!(
@@ -203,7 +203,7 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
     );
     assert!(json["diagnostics"].as_array().unwrap().is_empty());
     assert!(!stdout.contains(".git"));
-    assert!(!stdout.contains(".shore"));
+    assert!(!stdout.contains(".shore/data"));
 }
 
 #[test]

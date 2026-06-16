@@ -64,8 +64,8 @@ pub struct LineageAttachResult {
 pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<LineageAttachResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
     let review_unit_id =
@@ -90,7 +90,7 @@ pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<Li
     let basis = ReviewUnitLineageBasisV1::from_capture_parts(&capture.source, &capture.base)?;
     let writer = writer_from_options(worktree_root, None);
     let occurred_at = current_timestamp();
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let mut recorder = LineageRecorder::default();
     let declaration = ShoreEvent::new(
         EventType::ReviewUnitLineageDeclared,

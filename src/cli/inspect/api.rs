@@ -2,7 +2,7 @@
 //!
 //! Each builder reuses a public `shoreline::session` projection so the
 //! inspector reads the store through the same validated path as the
-//! corresponding `shore review` command, rather than parsing raw `.shore/`
+//! corresponding `shore review` command, rather than parsing raw `.shore/data/`
 //! files. Errors are stringified so the server can surface them to the UI as
 //! a JSON `error` body instead of crashing a connection thread.
 
@@ -483,7 +483,7 @@ mod tests {
     }
 
     fn stored_snapshot_artifact_path(repo: &Path) -> std::path::PathBuf {
-        let snapshots_dir = repo.join(".shore/artifacts/snapshots");
+        let snapshots_dir = repo.join(".shore/data/artifacts/snapshots");
         let mut entries: Vec<_> = std::fs::read_dir(&snapshots_dir)
             .expect("snapshot artifacts dir exists")
             .map(|entry| entry.unwrap().path())

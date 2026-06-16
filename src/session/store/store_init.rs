@@ -8,16 +8,39 @@ use crate::storage::{LocalStorage, TempSweepAge};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ShoreStorePaths {
     worktree_root: PathBuf,
-    shore_dir: PathBuf,
+    store_dir: PathBuf,
 }
 
 impl ShoreStorePaths {
     pub(crate) fn resolve(repo: impl AsRef<Path>) -> Result<Self> {
         let worktree_root = git_worktree_root(repo.as_ref())?;
-        let shore_dir = worktree_root.join(".shore");
+        let store_dir = worktree_root.join(".shore/data");
+        // Hard cutover: a pre-relocation flat store (events/state.json directly
+        // under `.shore/`) is a loud, actionable error rather than a silent
+        // dual-read. Detection keys on the layout, not the directory name, so a
+        // `.shore/` that holds only committed config resolves cleanly.
+        match detect_store_layout(&worktree_root.join(".shore")) {
+            StoreLayout::Conflict => {
+                return Err(ShoreError::Message(
+                    "both a legacy flat .shore/ store and a migrated .shore/data/ store are \
+                     present; this is a partial/interrupted migration — inspect both and remove \
+                     the stale one (the migration removes the flat store only after a successful \
+                     relocation)"
+                        .to_owned(),
+                ));
+            }
+            StoreLayout::Flat => {
+                return Err(ShoreError::Message(
+                    "legacy flat .shore/ store detected; run `just migrate-store` to relocate it \
+                     to .shore/data/ and upgrade event writer fields"
+                        .to_owned(),
+                ));
+            }
+            StoreLayout::Fresh | StoreLayout::Nested => {}
+        }
         Ok(Self {
             worktree_root,
-            shore_dir,
+            store_dir,
         })
     }
 
@@ -25,38 +48,69 @@ impl ShoreStorePaths {
         &self.worktree_root
     }
 
-    pub(crate) fn shore_dir(&self) -> &Path {
-        &self.shore_dir
+    pub(crate) fn store_dir(&self) -> &Path {
+        &self.store_dir
     }
 
     pub(crate) fn state_path(&self) -> PathBuf {
-        self.shore_dir.join("state.json")
+        self.store_dir.join("state.json")
     }
 }
 
-pub fn shore_dir_for_repo(repo: &Path) -> Result<PathBuf> {
-    Ok(ShoreStorePaths::resolve(repo)?.shore_dir().to_path_buf())
+pub fn store_dir_for_repo(repo: &Path) -> Result<PathBuf> {
+    Ok(ShoreStorePaths::resolve(repo)?.store_dir().to_path_buf())
 }
 
-pub(crate) fn ensure_store_dirs(shore_dir: &Path) -> Result<()> {
+/// The on-disk layout of a `.shore/` directory, classified for the hard-cutover
+/// guard. Detection keys on flat-store markers versus the nested `.shore/data/`,
+/// never on the `.shore/` directory itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StoreLayout {
+    /// No flat-store markers and no `.shore/data/`: a fresh repo or a `.shore/`
+    /// that holds only committed config (`delegates.json`).
+    Fresh,
+    /// Flat-store markers (`.shore/events/` and/or `.shore/state.json`) and no
+    /// `.shore/data/`: a pre-relocation store that must be migrated.
+    Flat,
+    /// `.shore/data/` present and no flat markers: the migrated steady state.
+    Nested,
+    /// Both flat markers and `.shore/data/`: an interrupted/partial migration.
+    Conflict,
+}
+
+/// Classify the store layout under `shore` (`<worktree-root>/.shore`). A
+/// config-only `.shore/` (committed `delegates.json` and no store) is `Fresh`,
+/// because the probes look only for flat-store markers and the nested dir.
+fn detect_store_layout(shore: &Path) -> StoreLayout {
+    let nested = shore.join("data").exists();
+    let flat = shore.join("events").is_dir() || shore.join("state.json").is_file();
+    match (flat, nested) {
+        (true, true) => StoreLayout::Conflict,
+        (true, false) => StoreLayout::Flat,
+        (false, true) => StoreLayout::Nested,
+        (false, false) => StoreLayout::Fresh,
+    }
+}
+
+pub(crate) fn ensure_store_dirs(store_dir: &Path) -> Result<()> {
     for dir in [
-        shore_dir.join("events"),
-        shore_dir.join("artifacts/notes"),
-        shore_dir.join("artifacts/revisions"),
-        shore_dir.join("artifacts/snapshots"),
+        store_dir.join("events"),
+        store_dir.join("artifacts/notes"),
+        store_dir.join("artifacts/revisions"),
+        store_dir.join("artifacts/snapshots"),
     ] {
         fs::create_dir_all(&dir).map_err(|error| io_error("create directory", &dir, error))?;
     }
     Ok(())
 }
 
-pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, shore_dir: &Path) -> Result<()> {
-    storage.sweep_temp_files(shore_dir, TempSweepAge::workflow_startup())
+pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, store_dir: &Path) -> Result<()> {
+    storage.sweep_temp_files(store_dir, TempSweepAge::workflow_startup())
 }
 
 pub(crate) fn prepare_shore_writer(paths: &ShoreStorePaths, storage: &LocalStorage) -> Result<()> {
-    sweep_stale_temp_files(storage, paths.shore_dir())?;
-    ensure_store_dirs(paths.shore_dir())?;
+    sweep_stale_temp_files(storage, paths.store_dir())?;
+    ensure_store_dirs(paths.store_dir())?;
     // Record the private override's own exclude entry before the store exclude,
     // so it is captured explicitly even when a broader store exclude pattern is
     // present (and would otherwise mask the more specific probe).
@@ -64,24 +118,27 @@ pub(crate) fn prepare_shore_writer(paths: &ShoreStorePaths, storage: &LocalStora
     ensure_shore_storage_excluded(paths.worktree_root())
 }
 
-/// Keeps `.shore/` storage out of Git status without modifying any tracked
-/// project file.
+/// Keeps the `.shore/data/` store out of Git status without modifying any
+/// tracked project file.
 ///
-/// Shoreline registers `.shore/` in the repository-local `.git/info/exclude`
-/// rather than the worktree `.gitignore`, so initializing or writing review
-/// state never dirties the working tree and never leaks an ignore-file edit
-/// into a captured ReviewUnit. If `.shore/` is already ignored by any standard
-/// source — a project `.gitignore` entry, the global excludes file, or an
-/// existing local exclude entry — this is a no-op, so user-managed ignore files
-/// are respected and never rewritten.
+/// Shoreline registers `.shore/data/` in the repository-local
+/// `.git/info/exclude` rather than the worktree `.gitignore`, so initializing or
+/// writing review state never dirties the working tree and never leaks an
+/// ignore-file edit into a captured ReviewUnit. The entry is the narrow
+/// `.shore/data/` (not a wholesale `.shore/`) so committed config siblings —
+/// `.shore/delegates.json`, `.shore/allowed-signers.json` — stay tracked. If
+/// `.shore/data/` is already ignored by any standard source — a project
+/// `.gitignore` entry, the global excludes file, or an existing local exclude
+/// entry — this is a no-op, so user-managed ignore files are respected and never
+/// rewritten.
 pub fn ensure_shore_storage_excluded(worktree_root: &Path) -> Result<()> {
-    // Probe a path under `.shore/` so directory-only patterns (`.shore/`) match
-    // regardless of whether the directory exists on disk yet, mirroring how
-    // untracked discovery applies `--exclude-standard`.
-    if git_path_is_ignored(worktree_root, ".shore/state.json")? {
+    // Probe a path under `.shore/data/` so directory-only patterns
+    // (`.shore/data/`) match regardless of whether the directory exists on disk
+    // yet, mirroring how untracked discovery applies `--exclude-standard`.
+    if git_path_is_ignored(worktree_root, ".shore/data/state.json")? {
         return Ok(());
     }
-    append_info_exclude_line(worktree_root, ".shore/")
+    append_info_exclude_line(worktree_root, ".shore/data/")
 }
 
 /// Keeps the private delegates override out of Git status without touching any
@@ -146,16 +203,19 @@ mod tests {
         let paths = ShoreStorePaths::resolve(repo.path().join("src/nested")).unwrap();
 
         assert_existing_paths_eq(paths.worktree_root(), repo.path());
-        assert_eq!(path_file_name(paths.shore_dir()), ".shore");
-        assert_existing_paths_eq(path_parent(paths.shore_dir()), repo.path());
+        // The store dir is now <root>/.shore/data.
+        assert_eq!(path_file_name(paths.store_dir()), "data");
+        assert_eq!(path_file_name(path_parent(paths.store_dir())), ".shore");
+        assert_existing_paths_eq(path_parent(path_parent(paths.store_dir())), repo.path());
+        // state.json is <root>/.shore/data/state.json.
         assert_eq!(path_file_name(paths.state_path().as_path()), "state.json");
         assert_eq!(
             path_file_name(path_parent(paths.state_path().as_path())),
-            ".shore"
+            "data"
         );
-        assert_existing_paths_eq(
-            path_parent(path_parent(paths.state_path().as_path())),
-            repo.path(),
+        assert_eq!(
+            path_file_name(path_parent(path_parent(paths.state_path().as_path()))),
+            ".shore"
         );
     }
 
@@ -163,10 +223,10 @@ mod tests {
     fn public_shore_dir_helper_delegates_to_store_paths() {
         let repo = git_repo();
 
-        let from_public_helper = shore_dir_for_repo(repo.path()).unwrap();
+        let from_public_helper = store_dir_for_repo(repo.path()).unwrap();
         let from_paths = ShoreStorePaths::resolve(repo.path())
             .unwrap()
-            .shore_dir()
+            .store_dir()
             .to_path_buf();
 
         assert_eq!(from_public_helper, from_paths);
@@ -193,14 +253,14 @@ mod tests {
     fn prepare_shore_writer_creates_current_store_dirs_and_local_exclude_entry() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
-        let storage = LocalStorage::new(paths.shore_dir());
+        let storage = LocalStorage::new(paths.store_dir());
 
         prepare_shore_writer(&paths, &storage).unwrap();
 
-        assert!(paths.shore_dir().join("events").is_dir());
-        assert!(paths.shore_dir().join("artifacts/notes").is_dir());
-        assert!(paths.shore_dir().join("artifacts/revisions").is_dir());
-        assert!(paths.shore_dir().join("artifacts/snapshots").is_dir());
+        assert!(paths.store_dir().join("events").is_dir());
+        assert!(paths.store_dir().join("artifacts/notes").is_dir());
+        assert!(paths.store_dir().join("artifacts/revisions").is_dir());
+        assert!(paths.store_dir().join("artifacts/snapshots").is_dir());
 
         // Storage is ignored via the repository-local exclude, never the
         // tracked worktree .gitignore.
@@ -210,8 +270,8 @@ mod tests {
         );
         let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
         assert!(
-            exclude.lines().any(|line| line.trim() == ".shore/"),
-            "local exclude should list .shore/, got:\n{exclude}"
+            exclude.lines().any(|line| line.trim() == ".shore/data/"),
+            "local exclude should list .shore/data/, got:\n{exclude}"
         );
     }
 
@@ -219,7 +279,7 @@ mod tests {
     fn prepare_shore_writer_excludes_local_delegates_override() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
-        let storage = LocalStorage::new(paths.shore_dir());
+        let storage = LocalStorage::new(paths.store_dir());
 
         prepare_shore_writer(&paths, &storage).unwrap();
 
@@ -251,14 +311,87 @@ mod tests {
     fn prepare_shore_writer_preserves_fresh_temp_files() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
-        fs::create_dir_all(paths.shore_dir().join("events")).unwrap();
-        let temp = paths.shore_dir().join("events/.shore-write.fresh.tmp");
+        fs::create_dir_all(paths.store_dir().join("events")).unwrap();
+        let temp = paths.store_dir().join("events/.shore-write.fresh.tmp");
         fs::write(&temp, "in flight").unwrap();
-        let storage = LocalStorage::new(paths.shore_dir());
+        let storage = LocalStorage::new(paths.store_dir());
 
         prepare_shore_writer(&paths, &storage).unwrap();
 
         assert_eq!(fs::read_to_string(temp).unwrap(), "in flight");
+    }
+
+    #[test]
+    fn legacy_flat_store_returns_migrate_hint() {
+        let repo = git_repo();
+        // Pre-migration FLAT store: events + state.json directly under .shore/,
+        // no .shore/data/.
+        fs::create_dir_all(repo.path().join(".shore/events")).unwrap();
+        fs::write(repo.path().join(".shore/state.json"), "{}").unwrap();
+
+        let err = ShoreStorePaths::resolve(repo.path())
+            .expect_err("legacy flat .shore/ store must be a loud, actionable error");
+        let message = err.to_string();
+        assert!(
+            message.contains("migrate-store"),
+            "names the fix; got: {message}"
+        );
+        assert!(
+            message.contains(".shore"),
+            "names the legacy store; got: {message}"
+        );
+    }
+
+    #[test]
+    fn both_flat_and_nested_store_is_a_conflict_error() {
+        let repo = git_repo();
+        // Interrupted/partial migration left BOTH the flat store and the nested
+        // one. Must be LOUD — never silently prefer .shore/data/ and orphan the
+        // flat store.
+        fs::create_dir_all(repo.path().join(".shore/events")).unwrap();
+        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
+        let err = ShoreStorePaths::resolve(repo.path())
+            .expect_err("flat + nested store must be a conflict");
+        let message = err.to_string();
+        assert!(
+            message.contains(".shore/data"),
+            "names the nested store; got: {message}"
+        );
+        assert!(
+            message.contains("both") || message.contains("conflict"),
+            "reads as a conflict: {message}"
+        );
+    }
+
+    #[test]
+    fn migrated_nested_store_resolves_cleanly() {
+        let repo = git_repo();
+        // Post-migration steady state: only the nested store, no flat markers.
+        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
+        let paths = ShoreStorePaths::resolve(repo.path()).expect("nested store resolves");
+        assert_eq!(path_file_name(paths.store_dir()), "data");
+    }
+
+    #[test]
+    fn config_only_shore_dir_is_not_a_legacy_store() {
+        let repo = git_repo();
+        // .shore/ holds ONLY committed config (no store yet). Must NOT trip the
+        // legacy guard — committed config now legitimately lives under .shore/.
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/delegates.json"),
+            r#"{"delegates":{}}"#,
+        )
+        .unwrap();
+        let paths = ShoreStorePaths::resolve(repo.path()).expect("config-only .shore/ resolves");
+        assert_eq!(path_file_name(paths.store_dir()), "data");
+    }
+
+    #[test]
+    fn fresh_repo_with_no_shore_dir_resolves_cleanly() {
+        let repo = git_repo();
+        let paths = ShoreStorePaths::resolve(repo.path()).expect("fresh repo resolves");
+        assert_eq!(path_file_name(paths.store_dir()), "data");
     }
 
     fn git_repo() -> tempfile::TempDir {

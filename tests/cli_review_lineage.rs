@@ -291,7 +291,7 @@ fn review_capture_can_attach_to_lineage_in_one_command() {
     assert_eq!(lineage["headReviewUnitId"], second["reviewUnit"]["id"]);
     assert_eq!(lineage["rounds"].as_array().unwrap().len(), 2);
     assert!(!lineage_stdout.contains("worktreeRoot"));
-    assert!(!lineage_stdout.contains(".shore"));
+    assert!(!lineage_stdout.contains(".shore/data"));
     assert!(!lineage_stdout.contains(".git"));
 }
 

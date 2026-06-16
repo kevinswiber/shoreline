@@ -78,11 +78,11 @@ impl SessionState {
     ///
     /// Assumes the V1 single-writer workflow contract: the `prior_events`
     /// batch was loaded by the same workflow that just called
-    /// `record_event_once`, and no other writer mutated `.shore/events/`
+    /// `record_event_once`, and no other writer mutated `.shore/data/events/`
     /// in between. Under that contract, existing-event outcomes always mean the
     /// matching event is already in `prior_events`.
     ///
-    /// `.shore/events/` remains the canonical authority. Use `from_events`
+    /// `.shore/data/events/` remains the canonical authority. Use `from_events`
     /// on read paths and for full rebuilds.
     pub(crate) fn from_prior_events_and_committed(
         prior_events: &[ShoreEvent],

@@ -51,9 +51,9 @@ pub fn write_snapshot_artifact(
     artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
 
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
-    let path = snapshot_artifact_path(shore_dir, &artifact.snapshot.snapshot_id);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
+    let path = snapshot_artifact_path(store_dir, &artifact.snapshot.snapshot_id);
     let bytes = serde_json::to_vec(&artifact)?;
 
     match storage.create_file_exclusive(&path, &bytes, Durability::Durable)? {
@@ -75,7 +75,7 @@ pub fn write_snapshot_artifact(
 /// Read and hash-validate a stored snapshot artifact.
 ///
 /// Reads resolve through the linked clone-local store when one is registered
-/// for the worktree; otherwise they read the worktree-local `.shore` store.
+/// for the worktree; otherwise they read the worktree-local `.shore/data` store.
 pub fn read_snapshot_artifact(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
@@ -97,7 +97,7 @@ pub(crate) fn read_snapshot_artifact_bytes(
 
 /// Read a snapshot artifact for WRITE-PATH target validation. Resolves the
 /// linked store first (matching read surfaces), then falls back to the
-/// worktree-local `.shore/` when the artifact has not yet been copied by
+/// worktree-local `.shore/data/` when the artifact has not yet been copied by
 /// `store link`. Both sources are content-addressed and the hash is validated,
 /// so the choice is invisible to the caller. This closes a split-brain where a
 /// locally captured, unsynced unit validated (write-path unit validation reads
@@ -126,7 +126,7 @@ fn read_snapshot_artifact_bytes_with_local_fallback(
             // where the unit was captured here but `store link` has not yet
             // copied its content-addressed artifact into the linked store.
             let local = ShoreStorePaths::resolve(repo.as_ref())?;
-            let local_path = snapshot_artifact_path(local.shore_dir(), snapshot_id);
+            let local_path = snapshot_artifact_path(local.store_dir(), snapshot_id);
             std::fs::read(&local_path)
                 .map_err(|error| missing_artifact_or_io(error, snapshot_id, &local_path))
         }
@@ -180,8 +180,8 @@ fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String>
     sha256_json_prefixed(&material)
 }
 
-pub(crate) fn snapshot_artifact_path(shore_dir: &Path, snapshot_id: &SnapshotId) -> PathBuf {
-    shore_dir
+pub(crate) fn snapshot_artifact_path(store_dir: &Path, snapshot_id: &SnapshotId) -> PathBuf {
+    store_dir
         .join("artifacts/snapshots")
         .join(format!("{}.json", artifact_file_stem(snapshot_id.as_str())))
 }
@@ -283,8 +283,10 @@ mod tests {
     fn read_snapshot_artifact_rejects_tampered_content() {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);
-        let path =
-            snapshot_artifact_path(&repo.path().join(".shore"), &artifact.snapshot.snapshot_id);
+        let path = snapshot_artifact_path(
+            &repo.path().join(".shore/data"),
+            &artifact.snapshot.snapshot_id,
+        );
 
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -355,7 +357,7 @@ mod tests {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);
 
-        // Unlinked: the resolved store IS the worktree-local `.shore`, and the
+        // Unlinked: the resolved store IS the worktree-local `.shore/data`, and the
         // artifact is there, so the read resolves it without any fallback.
         let read = read_snapshot_artifact_for_write_validation(
             repo.path(),
@@ -369,11 +371,11 @@ mod tests {
     #[test]
     fn write_validation_artifact_read_falls_back_to_worktree_local() {
         let repo = modified_repo();
-        // The artifact lands in the worktree-local `.shore` (write_snapshot_artifact
+        // The artifact lands in the worktree-local `.shore/data` (write_snapshot_artifact
         // always writes worktree-local).
         let artifact = write_current_snapshot_artifact(&repo);
         // Register clone-local AFTER writing: linked mode now resolves the empty
-        // `.git/shoreline` store, which lacks this unsynced-local artifact.
+        // `.git/shore` store, which lacks this unsynced-local artifact.
         register_clone_local_store(repo.path()).unwrap();
 
         let read = read_snapshot_artifact_for_write_validation(

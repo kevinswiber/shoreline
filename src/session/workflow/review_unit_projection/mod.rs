@@ -52,7 +52,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let review_unit = selected_review_unit_capture(&events, &resolved)?;
     let snapshot = load_bound_snapshot_artifact(&options.repo, &review_unit)?;
     let observations = project_observations(ObservationProjectionOptions {
-        shore_dir: read_store.store_dir(),
+        store_dir: read_store.store_dir(),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
@@ -61,7 +61,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         include_body: options.include_body,
     })?;
     let input_requests = project_input_requests(InputRequestProjectionOptions {
-        shore_dir: read_store.store_dir(),
+        store_dir: read_store.store_dir(),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
@@ -71,7 +71,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         include_body: options.include_body,
     })?;
     let (current_assessment, assessments) = project_assessments(AssessmentProjectionOptions {
-        shore_dir: read_store.store_dir(),
+        store_dir: read_store.store_dir(),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
@@ -79,7 +79,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         include_all: true,
     })?;
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
-        shore_dir: read_store.store_dir(),
+        store_dir: read_store.store_dir(),
         events: &events,
         review_unit_id: &resolved.review_unit_id,
         track_filter: track_id.clone(),
@@ -502,7 +502,7 @@ mod tests {
         let debug = format!("{result:?}");
 
         assert!(!debug.contains("artifacts/snapshots"));
-        assert!(!debug.contains(".shore/events"));
+        assert!(!debug.contains(".shore/data/events"));
     }
 
     #[test]
@@ -882,7 +882,7 @@ mod tests {
         )
         .unwrap();
 
-        EventStore::open(repo.join(".shore"))
+        EventStore::open(repo.join(".shore/data"))
             .record_event_once(&event)
             .unwrap();
     }
@@ -1282,7 +1282,7 @@ mod tests {
     }
 
     fn snapshot_artifact_path(repo: &Path, snapshot_id: &SnapshotId) -> PathBuf {
-        fs::read_dir(repo.join(".shore/artifacts/snapshots"))
+        fs::read_dir(repo.join(".shore/data/artifacts/snapshots"))
             .expect("read snapshot artifacts directory")
             .map(|entry| entry.expect("read snapshot artifact dir entry").path())
             .find(|path| {
@@ -1298,7 +1298,7 @@ mod tests {
     }
 
     fn capture_event_path(repo: &Path, review_unit_id: &ReviewUnitId) -> PathBuf {
-        fs::read_dir(repo.join(".shore/events"))
+        fs::read_dir(repo.join(".shore/data/events"))
             .expect("read events directory")
             .map(|entry| entry.expect("read event dir entry").path())
             .find(|path| {

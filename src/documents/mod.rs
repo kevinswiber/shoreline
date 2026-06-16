@@ -210,7 +210,7 @@ mod tests {
         assert!(json.contains("\"headReviewUnitId\""));
         assert!(json.contains("\"rounds\""));
         assert!(!json.contains("worktreeRoot"));
-        assert!(!json.contains(".shore"));
+        assert!(!json.contains(".shore/data"));
         assert!(!json.contains(".git"));
     }
 

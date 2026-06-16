@@ -145,8 +145,8 @@ pub struct InputRequestOpenResult {
 pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputRequestOpenResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
     // Validation/derivation reads resolve the writer-visible union (linked store
@@ -169,7 +169,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     )?;
 
     // The write half keeps the LOCAL prior batch for the single-writer state.json.
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {

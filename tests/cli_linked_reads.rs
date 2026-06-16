@@ -97,7 +97,7 @@ impl LinkedFixture {
     }
 
     fn linked_store_dir(&self) -> PathBuf {
-        self.main.path().join(".git/shoreline")
+        self.main.path().join(".git/shore")
     }
 
     fn lineage_attach(&self, worktree: &Path, lineage_id: &str, review_unit_id: &str) -> Value {
@@ -636,7 +636,7 @@ fn linked_local_capture_file_target_observation_resolves_artifact() {
     let fixture = LinkedFixture::new();
 
     // The reader captures locally: unit C and its snapshot artifact land in the
-    // reader's worktree-local .shore and are NOT yet copied by store link.
+    // reader's worktree-local .shore/data and are NOT yet copied by store link.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
     let local_unit_id = capture["reviewUnit"]["id"]
@@ -648,7 +648,7 @@ fn linked_local_capture_file_target_observation_resolves_artifact() {
     // fallback fix this is RED: resolve_observation_target reads the snapshot
     // artifact from the linked store, where store link has not copied it, so it
     // fails with "missing artifact for snapshot ...". After the fix it succeeds,
-    // reading the artifact from the reader's worktree-local .shore.
+    // reading the artifact from the reader's worktree-local .shore/data.
     let json = run_shore_json(&[
         "review",
         "observation",
@@ -1160,9 +1160,9 @@ fn linked_fact_writes_land_in_worktree_local_store_not_linked_store() {
         linked_before, linked_after,
         "linked store must be unchanged by worktree-local writes"
     );
-    // The reader's worktree-local .shore did gain the fact events.
+    // The reader's worktree-local .shore/data did gain the fact events.
     assert!(
-        !event_file_names(&fixture.reader.join(".shore")).is_empty(),
+        !event_file_names(&fixture.reader.join(".shore/data")).is_empty(),
         "reader local store gained the fact events"
     );
 }
@@ -1193,7 +1193,7 @@ fn linked_fact_write_state_json_is_local_and_orphan_free() {
 #[test]
 fn linked_fact_write_does_not_copy_snapshot_artifacts_to_linked_store() {
     let fixture = LinkedFixture::new();
-    // Reader captures locally: its snapshot artifact lands in the reader's .shore.
+    // Reader captures locally: its snapshot artifact lands in the reader's .shore/data.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
     let local_unit = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
@@ -1225,12 +1225,12 @@ fn linked_fact_write_does_not_copy_snapshot_artifacts_to_linked_store() {
     );
 }
 
-fn event_file_names(shore_dir: &Path) -> Vec<String> {
-    json_file_names(&shore_dir.join("events"))
+fn event_file_names(store_dir: &Path) -> Vec<String> {
+    json_file_names(&store_dir.join("events"))
 }
 
-fn snapshot_artifact_names(shore_dir: &Path) -> Vec<String> {
-    json_file_names(&shore_dir.join("artifacts/snapshots"))
+fn snapshot_artifact_names(store_dir: &Path) -> Vec<String> {
+    json_file_names(&store_dir.join("artifacts/snapshots"))
 }
 
 fn json_file_names(dir: &Path) -> Vec<String> {
@@ -1248,7 +1248,7 @@ fn json_file_names(dir: &Path) -> Vec<String> {
 
 fn read_local_state_json(worktree: &Path) -> Value {
     let bytes =
-        fs::read(worktree.join(".shore/state.json")).expect("read worktree-local state.json");
+        fs::read(worktree.join(".shore/data/state.json")).expect("read worktree-local state.json");
     serde_json::from_slice(&bytes).expect("state.json is json")
 }
 
@@ -1909,17 +1909,23 @@ fn import_artifact_still_writes_worktree_local_in_linked_mode() {
             .strip_prefix("sha256:")
             .expect("body content hash is sha256-prefixed")
     );
-    let bytes = fs::read(fixture.seed.join(".shore").join(&artifact_relative_path)).unwrap();
+    let bytes = fs::read(
+        fixture
+            .seed
+            .join(".shore/data")
+            .join(&artifact_relative_path),
+    )
+    .unwrap();
 
     import_artifact(ImportArtifactOptions::new(&fixture.reader, body_ref, bytes))
         .expect("import into the linked reader succeeds");
 
     // Writes stay worktree-local until shared-store writes land: the artifact
-    // lands in the reader's own .shore, not the linked clone-local store.
+    // lands in the reader's own .shore/data, not the linked clone-local store.
     assert!(
         fixture
             .reader
-            .join(".shore")
+            .join(".shore/data")
             .join(&artifact_relative_path)
             .is_file()
     );

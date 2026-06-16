@@ -41,7 +41,7 @@ fn store_link_imports_local_facts_into_clone_local_store_for_other_worktrees() {
     assert_eq!(link_json["sensitivity"]["policyOutcome"], "allow");
     assert!(!link_stdout.contains(fixture.main.path().to_str().unwrap()));
     assert!(!link_stdout.contains(fixture.seed.to_str().unwrap()));
-    assert!(!link_stdout.contains(".shore"));
+    assert!(!link_stdout.contains(".shore/data"));
     assert!(!link_stdout.contains(".git"));
 
     run_git_os(
@@ -85,10 +85,10 @@ fn store_link_imports_local_facts_into_clone_local_store_for_other_worktrees() {
     );
     assert_eq!(status_json["inventory"]["eventCount"], 1);
     assert_eq!(status_json["inventory"]["artifactCount"], 1);
-    assert!(!reader.join(".shore/events").exists());
+    assert!(!reader.join(".shore/data/events").exists());
     assert!(!status_stdout.contains(reader.to_str().unwrap()));
     assert!(!status_stdout.contains(".git"));
-    assert!(!status_stdout.contains(".shore"));
+    assert!(!status_stdout.contains(".shore/data"));
 }
 
 #[test]

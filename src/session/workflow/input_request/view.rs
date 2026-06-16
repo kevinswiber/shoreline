@@ -12,7 +12,7 @@ use crate::session::event::{
 use crate::session::observation::{ResolvedReviewUnit, target_matches_file};
 
 pub(crate) struct InputRequestProjectionOptions<'a> {
-    pub shore_dir: &'a Path,
+    pub store_dir: &'a Path,
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedReviewUnit,
     pub track_filter: Option<TrackId>,
@@ -137,7 +137,7 @@ pub(crate) fn project_input_requests(
             .cloned()
             .unwrap_or_default();
         let view = input_request_view_from_event(
-            options.shore_dir,
+            options.store_dir,
             event,
             record.payload,
             record.track_id,
@@ -253,7 +253,7 @@ fn should_replace_representative(current: Option<&ShoreEvent>, candidate: &Shore
 }
 
 pub(super) fn input_request_view_from_event(
-    shore_dir: &Path,
+    store_dir: &Path,
     event: &ShoreEvent,
     payload: InputRequestOpenedPayload,
     track_id: TrackId,
@@ -261,7 +261,7 @@ pub(super) fn input_request_view_from_event(
     include_body: bool,
 ) -> Result<InputRequestView> {
     let body = if include_body {
-        input_request_body(shore_dir, &payload)?
+        input_request_body(store_dir, &payload)?
     } else {
         None
     };
@@ -285,14 +285,14 @@ pub(super) fn input_request_view_from_event(
 }
 
 fn input_request_body(
-    shore_dir: &Path,
+    store_dir: &Path,
     payload: &InputRequestOpenedPayload,
 ) -> Result<Option<String>> {
     if payload.body.is_some() {
         return Ok(payload.body.clone());
     }
     match payload.body_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(shore_dir, path),
+        Some(path) => load_body_artifact(store_dir, path),
         None => Ok(None),
     }
 }

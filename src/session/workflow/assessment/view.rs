@@ -13,7 +13,7 @@ use crate::session::event::{
 use crate::session::observation::ResolvedReviewUnit;
 
 pub(crate) struct AssessmentProjectionOptions<'a> {
-    pub shore_dir: &'a Path,
+    pub store_dir: &'a Path,
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedReviewUnit,
     pub track_filter: Option<TrackId>,
@@ -98,7 +98,7 @@ pub(crate) fn project_assessments(
         }
 
         let view = assessment_view_from_event(
-            options.shore_dir,
+            options.store_dir,
             record.event,
             record.payload,
             record.track_id,
@@ -181,7 +181,7 @@ fn collect_assessment_records<'a>(
 }
 
 fn assessment_view_from_event(
-    shore_dir: &Path,
+    store_dir: &Path,
     event: &ShoreEvent,
     payload: ReviewAssessmentRecordedPayload,
     track_id: TrackId,
@@ -189,7 +189,7 @@ fn assessment_view_from_event(
     include_summary: bool,
 ) -> Result<AssessmentView> {
     let summary = if include_summary {
-        assessment_summary(shore_dir, &payload)?
+        assessment_summary(store_dir, &payload)?
     } else {
         None
     };
@@ -220,14 +220,14 @@ fn assessment_view_from_event(
 }
 
 fn assessment_summary(
-    shore_dir: &Path,
+    store_dir: &Path,
     payload: &ReviewAssessmentRecordedPayload,
 ) -> Result<Option<String>> {
     if payload.summary.is_some() {
         return Ok(payload.summary.clone());
     }
     match payload.summary_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(shore_dir, path),
+        Some(path) => load_body_artifact(store_dir, path),
         None => Ok(None),
     }
 }

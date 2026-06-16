@@ -81,10 +81,10 @@ pub(crate) fn stage_body_artifact(body_bytes: &[u8]) -> Result<BodyArtifactOutco
     })
 }
 
-pub(crate) fn load_body_artifact(shore_dir: &Path, relative_path: &str) -> Result<Option<String>> {
+pub(crate) fn load_body_artifact(store_dir: &Path, relative_path: &str) -> Result<Option<String>> {
     validate_body_artifact_read_path(relative_path)?;
 
-    let artifact_bytes = std::fs::read(shore_dir.join(relative_path)).map_err(|err| {
+    let artifact_bytes = std::fs::read(store_dir.join(relative_path)).map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
             return ShoreError::Message(format!(
                 "missing artifact {relative_path}; import referenced artifacts before reading"

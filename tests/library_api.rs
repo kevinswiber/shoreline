@@ -80,7 +80,7 @@ fn import_all_artifacts(repo: &GitRepo, artifacts: &[(ArtifactRef, Vec<u8>)]) {
 }
 
 fn remove_snapshot_artifacts(repo: &Path) {
-    let artifact_dir = repo.join(".shore/artifacts/snapshots");
+    let artifact_dir = repo.join(".shore/data/artifacts/snapshots");
     for entry in fs::read_dir(artifact_dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
@@ -239,12 +239,12 @@ fn review_history_can_include_verification_status_without_artifact_availability_
         Some(EventVerificationStatus::Valid)
     );
     assert!(
-        !fs::read_to_string(origin.path().join(".shore/state.json"))
+        !fs::read_to_string(origin.path().join(".shore/data/state.json"))
             .unwrap()
             .contains("verificationStatus"),
         "verification status is read-time state, not projection state"
     );
-    for entry in fs::read_dir(origin.path().join(".shore/events")).unwrap() {
+    for entry in fs::read_dir(origin.path().join(".shore/data/events")).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
             assert!(

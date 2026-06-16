@@ -180,7 +180,7 @@ mod tests {
     }
 
     fn validation_events(repo: &Path) -> Vec<crate::session::event::ShoreEvent> {
-        EventStore::open(repo.join(".shore"))
+        EventStore::open(repo.join(".shore/data"))
             .list_events()
             .unwrap()
             .into_iter()

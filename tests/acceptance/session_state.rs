@@ -3,7 +3,7 @@ use shoreline::session::event::{EventType, ShoreEvent};
 use shoreline::session::{
     CaptureOptions, ImportNotesOptions, SessionState, capture_worktree_fingerprint,
     capture_worktree_review, ensure_shore_storage_excluded, import_notes,
-    load_durable_notes_for_repo, read_events, rebuild_state, shore_dir_for_repo,
+    load_durable_notes_for_repo, read_events, rebuild_state, store_dir_for_repo,
 };
 
 use crate::support::assert_existing_paths_eq;
@@ -16,11 +16,12 @@ fn shore_dir_resolves_to_git_worktree_root_from_subdirectory() {
     let subdir = repo.path().join("src");
 
     let root = git_worktree_root(&subdir).expect("git root resolves");
-    let shore_dir = shore_dir_for_repo(&subdir).expect("shore dir resolves");
+    let store_dir = store_dir_for_repo(&subdir).expect("store dir resolves");
 
     assert_existing_paths_eq(&root, repo.path());
-    assert_eq!(path_file_name(&shore_dir), ".shore");
-    assert_existing_paths_eq(path_parent(&shore_dir), repo.path());
+    assert_eq!(path_file_name(&store_dir), "data");
+    assert_eq!(path_file_name(path_parent(&store_dir)), ".shore");
+    assert_existing_paths_eq(path_parent(path_parent(&store_dir)), repo.path());
 }
 
 #[test]
@@ -30,11 +31,11 @@ fn ensure_shore_storage_excluded_uses_local_exclude_without_dirtying_worktree() 
     ensure_shore_storage_excluded(repo.path()).expect("exclude entry is written");
     ensure_shore_storage_excluded(repo.path()).expect("exclude entry is idempotent");
 
-    // The local exclude carries exactly one `.shore/` entry, even across repeats.
+    // The local exclude carries exactly one `.shore/data/` entry, even across repeats.
     assert_eq!(
         read_local_exclude(&repo)
             .lines()
-            .filter(|line| line.trim() == ".shore/")
+            .filter(|line| line.trim() == ".shore/data/")
             .count(),
         1
     );
@@ -47,7 +48,7 @@ fn ensure_shore_storage_excluded_uses_local_exclude_without_dirtying_worktree() 
         repo.git(["status", "--short"]).stdout.trim().is_empty(),
         "worktree must stay clean after excluding storage"
     );
-    // `.shore/` is now effectively ignored.
+    // `.shore/data/` is now effectively ignored.
     assert!(shore_is_ignored(&repo));
 }
 
@@ -65,11 +66,11 @@ fn ensure_shore_storage_excluded_leaves_tracked_gitignore_untouched() {
         repo.git(["status", "--short"]).stdout.trim().is_empty(),
         "excluding storage must not modify the tracked .gitignore"
     );
-    // `.shore/` lands in the local exclude instead, and is ignored.
+    // `.shore/data/` lands in the local exclude instead, and is ignored.
     assert!(
         read_local_exclude(&repo)
             .lines()
-            .any(|line| line.trim() == ".shore/")
+            .any(|line| line.trim() == ".shore/data/")
     );
     assert!(shore_is_ignored(&repo));
 }
@@ -79,16 +80,16 @@ fn ensure_shore_storage_excluded_is_noop_when_gitignore_already_ignores_storage(
     let repo = GitRepo::new();
     repo.write(
         ".gitignore",
-        "# .shore/ is intentionally ignored below\n.shore\n",
+        "# .shore/data/ is intentionally ignored below\n.shore/data\n",
     );
-    repo.commit_all("ignore shore in gitignore");
+    repo.commit_all("ignore shore storage in gitignore");
 
     ensure_shore_storage_excluded(repo.path()).expect("existing ignore is respected");
 
     // The user's .gitignore choice is respected, and no redundant local entry is added.
     assert_eq!(
         repo.read(".gitignore"),
-        "# .shore/ is intentionally ignored below\n.shore\n"
+        "# .shore/data/ is intentionally ignored below\n.shore/data\n"
     );
     assert!(
         !read_local_exclude(&repo)
@@ -103,15 +104,18 @@ fn ensure_shore_storage_excluded_is_idempotent_against_existing_local_exclude_en
     let repo = GitRepo::new();
     // Pre-seed the local exclude as a field-fix workaround would.
     let exclude_path = repo.path().join(".git/info/exclude");
-    std::fs::write(&exclude_path, "# local excludes\n.shore/\n").expect("seed local exclude");
+    std::fs::write(&exclude_path, "# local excludes\n.shore/data/\n").expect("seed local exclude");
 
     ensure_shore_storage_excluded(repo.path()).expect("existing local exclude is respected");
 
-    assert_eq!(read_local_exclude(&repo), "# local excludes\n.shore/\n");
+    assert_eq!(
+        read_local_exclude(&repo),
+        "# local excludes\n.shore/data/\n"
+    );
 }
 
 #[test]
-fn read_events_uses_worktree_shore_dir_from_subdirectory() {
+fn read_events_uses_worktree_store_dir_from_subdirectory() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
@@ -121,14 +125,14 @@ fn read_events_uses_worktree_shore_dir_from_subdirectory() {
 }
 
 #[test]
-fn rebuild_state_uses_worktree_shore_dir_from_subdirectory() {
+fn rebuild_state_uses_worktree_store_dir_from_subdirectory() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-    std::fs::remove_file(repo.path().join(".shore/state.json")).unwrap();
+    std::fs::remove_file(repo.path().join(".shore/data/state.json")).unwrap();
 
     rebuild_state(repo.path().join("src")).unwrap();
 
-    assert!(repo.path().join(".shore/state.json").is_file());
+    assert!(repo.path().join(".shore/data/state.json").is_file());
 }
 
 #[test]
@@ -175,7 +179,7 @@ fn shore_state_does_not_affect_revision_fingerprint() {
     ensure_shore_storage_excluded(repo.path()).expect("ignore shore state");
 
     let before = capture_worktree_fingerprint(repo.path()).expect("capture before shore state");
-    repo.write(".shore/state.json", "changed notes");
+    repo.write(".shore/data/state.json", "changed notes");
     let after = capture_worktree_fingerprint(repo.path()).expect("capture after shore state");
 
     assert_eq!(before.revision_id, after.revision_id);
@@ -216,15 +220,15 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     let result =
         capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
 
-    assert!(repo.path().join(".shore/events").is_dir());
-    assert!(repo.path().join(".shore/artifacts/snapshots").is_dir());
-    assert!(repo.path().join(".shore/state.json").is_file());
+    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".shore/data/artifacts/snapshots").is_dir());
+    assert!(repo.path().join(".shore/data/state.json").is_file());
     // Storage is registered in the repository-local exclude, never the tracked
     // worktree .gitignore.
     assert!(
         read_local_exclude(&repo)
             .lines()
-            .any(|line| line.trim() == ".shore/")
+            .any(|line| line.trim() == ".shore/data/")
     );
     assert!(
         !repo.path().join(".gitignore").exists(),
@@ -233,7 +237,7 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
 
     let state: SessionState =
-        serde_json::from_str(&repo.read(".shore/state.json")).expect("state decodes");
+        serde_json::from_str(&repo.read(".shore/data/state.json")).expect("state decodes");
     assert_eq!(state.current_review_unit_id, Some(result.review_unit_id));
     assert_eq!(state.review_unit_count, 1);
     assert_eq!(state.event_count, 1);
@@ -254,7 +258,7 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
     capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
 
     // Initializing review state leaves no tracked .gitignore edit, and the
-    // excluded `.shore/` storage stays out of git status.
+    // excluded `.shore/data/` storage stays out of git status.
     assert!(
         !repo.path().join(".gitignore").exists(),
         "capture must not create a tracked .gitignore"
@@ -319,7 +323,7 @@ fn import_notes_from_native_sidecar_records_note_events_and_updates_state() {
 
     let result =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
 
     assert_eq!(result.note_count, 1);
     assert_eq!(result.notes_created, 1);
@@ -337,7 +341,7 @@ fn reimporting_same_sidecar_is_idempotent() {
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
     let second =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
 
     assert_eq!(first.notes_created, 1);
     assert_eq!(second.notes_created, 0);
@@ -356,7 +360,7 @@ fn changing_imported_note_creates_one_new_durable_event() {
 
     let result =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
 
     assert_eq!(result.notes_created, 1);
     assert_eq!(result.notes_existing, 0);
@@ -371,10 +375,10 @@ fn importing_notes_auto_initializes_shore() {
 
     let result =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
 
-    assert!(repo.path().join(".shore/events").is_dir());
-    assert!(repo.path().join(".shore/state.json").is_file());
+    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".shore/data/state.json").is_file());
     assert_eq!(result.note_count, 1);
     assert_eq!(state.note_count, 1);
     assert_eq!(state.current_revision_id, None);
@@ -450,7 +454,7 @@ fn reimporting_same_long_body_reuses_content_addressed_artifact_path() {
 #[test]
 fn ledger_pipeline_records_capture_import_and_bounded_state() {
     let repo = bounded_ledger_repo();
-    let state_json = repo.read(".shore/state.json");
+    let state_json = repo.read(".shore/data/state.json");
     let state: serde_json::Value = serde_json::from_str(&state_json).expect("state is json");
 
     assert_eq!(state["schema"], "shore.state");
@@ -472,13 +476,13 @@ fn state_event_set_hash_changes_when_events_change() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
     let capture_state: serde_json::Value =
-        serde_json::from_str(&repo.read(".shore/state.json")).expect("capture state");
+        serde_json::from_str(&repo.read(".shore/data/state.json")).expect("capture state");
 
     let sidecar = repo.write_fixture("review-notes.json", native_review_notes_json());
     import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(sidecar))
         .expect("notes import succeeds");
     let import_state: serde_json::Value =
-        serde_json::from_str(&repo.read(".shore/state.json")).expect("import state");
+        serde_json::from_str(&repo.read(".shore/data/state.json")).expect("import state");
 
     assert_eq!(capture_state["eventCount"], 1);
     assert_eq!(import_state["eventCount"], 3);
@@ -488,13 +492,13 @@ fn state_event_set_hash_changes_when_events_change() {
 #[test]
 fn state_can_be_deleted_and_rebuilt_from_events() {
     let repo = bounded_ledger_repo();
-    let original_state = repo.read(".shore/state.json");
-    std::fs::remove_file(repo.path().join(".shore/state.json")).unwrap();
+    let original_state = repo.read(".shore/data/state.json");
+    std::fs::remove_file(repo.path().join(".shore/data/state.json")).unwrap();
 
     let rebuilt = rebuild_state(repo.path()).expect("state rebuilds");
-    let rebuilt_state = repo.read(".shore/state.json");
+    let rebuilt_state = repo.read(".shore/data/state.json");
 
-    assert!(repo.path().join(".shore/state.json").is_file());
+    assert!(repo.path().join(".shore/data/state.json").is_file());
     assert!(rebuilt.event_count >= 1);
     let original: serde_json::Value = serde_json::from_str(&original_state).unwrap();
     let rebuilt: serde_json::Value = serde_json::from_str(&rebuilt_state).unwrap();
@@ -504,11 +508,11 @@ fn state_can_be_deleted_and_rebuilt_from_events() {
 #[test]
 fn corrupt_state_json_is_ignored_and_rebuilt_from_events() {
     let repo = bounded_ledger_repo();
-    let original_state = repo.read(".shore/state.json");
-    std::fs::write(repo.path().join(".shore/state.json"), "{").unwrap();
+    let original_state = repo.read(".shore/data/state.json");
+    std::fs::write(repo.path().join(".shore/data/state.json"), "{").unwrap();
 
     rebuild_state(repo.path()).expect("state rebuilds from events");
-    let rebuilt_state = repo.read(".shore/state.json");
+    let rebuilt_state = repo.read(".shore/data/state.json");
 
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&rebuilt_state).unwrap(),
@@ -562,7 +566,7 @@ fn load_durable_notes_for_repo_returns_none_with_empty_store() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
 
-    assert!(repo.path().join(".shore/events").exists());
+    assert!(repo.path().join(".shore/data/events").exists());
 
     let parsed = load_durable_notes_for_repo(repo.path()).expect("load succeeds");
 
@@ -661,7 +665,7 @@ fn shore_is_ignored(repo: &GitRepo) -> bool {
     // `git check-ignore` prints the path when it is ignored and exits 1 (no
     // output) otherwise, so a non-empty stdout means storage is excluded.
     let output = std::process::Command::new("git")
-        .args(["check-ignore", ".shore/state.json"])
+        .args(["check-ignore", ".shore/data/state.json"])
         .current_dir(repo.path())
         .output()
         .expect("run git check-ignore");
@@ -669,7 +673,7 @@ fn shore_is_ignored(repo: &GitRepo) -> bool {
 }
 
 fn event_file_count(repo: &std::path::Path) -> usize {
-    std::fs::read_dir(repo.join(".shore/events"))
+    std::fs::read_dir(repo.join(".shore/data/events"))
         .map(|entries| {
             entries
                 .filter(|entry| {
@@ -683,7 +687,7 @@ fn event_file_count(repo: &std::path::Path) -> usize {
 }
 
 fn note_body_artifact_file_count(repo: &std::path::Path) -> usize {
-    let dir = repo.join(".shore/artifacts/notes");
+    let dir = repo.join(".shore/data/artifacts/notes");
     std::fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -698,7 +702,7 @@ fn note_body_artifact_file_count(repo: &std::path::Path) -> usize {
 }
 
 fn corrupt_first_event_payload(repo: &std::path::Path) {
-    let mut event_files = std::fs::read_dir(repo.join(".shore/events"))
+    let mut event_files = std::fs::read_dir(repo.join(".shore/data/events"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))

@@ -218,7 +218,7 @@ fn exclude_shore_storage_files(files: Vec<DiffFile>) -> Vec<DiffFile> {
 
 #[cfg(test)]
 fn is_shore_storage_path(path: &str) -> bool {
-    path == ".shore" || path.starts_with(".shore/")
+    path == ".shore/data" || path.starts_with(".shore/data/")
 }
 
 #[derive(Serialize)]
@@ -360,11 +360,27 @@ mod tests {
         let repo = modified_repo();
         let first = compute_review_unit_fingerprint(repo.path()).unwrap();
 
-        fs::create_dir_all(repo.path().join(".shore/events")).unwrap();
-        fs::write(repo.path().join(".shore/events/noise.json"), "{}").unwrap();
+        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
+        fs::write(repo.path().join(".shore/data/events/noise.json"), "{}").unwrap();
         let second = compute_review_unit_fingerprint(repo.path()).unwrap();
 
         assert_eq!(first.review_unit_id, second.review_unit_id);
+    }
+
+    #[test]
+    fn excludes_nested_shore_data_storage_paths() {
+        assert!(is_shore_storage_path(".shore/data"));
+        assert!(is_shore_storage_path(".shore/data/events/abc.json"));
+        assert!(is_shore_storage_path(".shore/data/state.json"));
+        // The bare .shore/ dir and the pre-migration flat store are NOT the
+        // storage path.
+        assert!(!is_shore_storage_path(".shore"));
+        assert!(!is_shore_storage_path(".shore/events/abc.json"));
+        // Committed config siblings under .shore/ are NOT store storage and must
+        // stay visible in review fingerprints (a delegates.json edit is a real
+        // reviewable change).
+        assert!(!is_shore_storage_path(".shore/delegates.json"));
+        assert!(!is_shore_storage_path(".shore/allowed-signers.json"));
     }
 
     #[test]

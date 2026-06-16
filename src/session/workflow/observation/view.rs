@@ -16,7 +16,7 @@ struct ObservationEventRecord<'a> {
 }
 
 pub(crate) struct ObservationProjectionOptions<'a> {
-    pub shore_dir: &'a Path,
+    pub store_dir: &'a Path,
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedReviewUnit,
     pub track_filter: Option<TrackId>,
@@ -117,7 +117,7 @@ pub(crate) fn project_observations(
     let mut observations = Vec::new();
     for (_, record) in observation_records {
         let body = if options.include_body {
-            observation_body(options.shore_dir, &record.payload)?
+            observation_body(options.store_dir, &record.payload)?
         } else {
             None
         };
@@ -163,14 +163,14 @@ pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool 
 }
 
 fn observation_body(
-    shore_dir: &Path,
+    store_dir: &Path,
     payload: &ReviewObservationRecordedPayload,
 ) -> Result<Option<String>> {
     if payload.body.is_some() {
         return Ok(payload.body.clone());
     }
     match payload.body_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(shore_dir, path),
+        Some(path) => load_body_artifact(store_dir, path),
         None => Ok(None),
     }
 }

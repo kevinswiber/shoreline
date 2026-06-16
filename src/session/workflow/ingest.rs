@@ -13,7 +13,7 @@ use crate::storage::{Durability, LocalStorage};
 
 const DIVERGENT_SIGNATURE_EXISTING_EVENT_CODE: &str = "divergent_signature_existing_event";
 
-/// Options for ingesting one or more pre-formed events into a repo's `.shore`
+/// Options for ingesting one or more pre-formed events into a repo's `.shore/data`
 /// store — for example events produced on another machine and forwarded over a
 /// network, or merged from another clone.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,8 +115,8 @@ pub fn import_event(options: ImportEventOptions) -> Result<IngestEventsResult> {
 /// is safe.
 pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
     // Reject malformed attribution before any write so the batch is atomic on
@@ -145,7 +145,7 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
         &current_timestamp(),
     );
 
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let mut events_created = 0usize;
     let mut events_existing = 0usize;
     let mut events_created_by_type: BTreeMap<String, usize> = BTreeMap::new();
@@ -303,24 +303,26 @@ mod tests {
                 .with_actor_id(ActorId::new("actor:agent:remote-reviewer")),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         (repo, events)
     }
 
     fn dest_repo() -> TestRepo {
-        // The destination only needs a valid repo root to host its own .shore.
+        // The destination only needs a valid repo root to host its own .shore/data.
         modified_repo()
     }
 
     fn on_disk_state(repo: &Path) -> serde_json::Value {
-        serde_json::from_str(&std::fs::read_to_string(repo.join(".shore/state.json")).unwrap())
+        serde_json::from_str(&std::fs::read_to_string(repo.join(".shore/data/state.json")).unwrap())
             .unwrap()
     }
 
     fn replayed_state(repo: &Path) -> serde_json::Value {
-        let events = EventStore::open(repo.join(".shore")).list_events().unwrap();
+        let events = EventStore::open(repo.join(".shore/data"))
+            .list_events()
+            .unwrap();
         serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap()
     }
 
@@ -334,7 +336,7 @@ mod tests {
                 .sign_with(signer.clone()),
         )
         .unwrap();
-        let event = EventStore::open(repo.path().join(".shore"))
+        let event = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap()
             .into_iter()
@@ -362,12 +364,12 @@ mod tests {
     }
 
     fn stored_event_count(repo: &Path) -> usize {
-        let events_dir = repo.join(".shore/events");
+        let events_dir = repo.join(".shore/data/events");
         if !events_dir.exists() {
             return 0;
         }
 
-        EventStore::open(repo.join(".shore"))
+        EventStore::open(repo.join(".shore/data"))
             .list_events()
             .unwrap()
             .len()
@@ -538,7 +540,7 @@ mod tests {
                 && diagnostic.message.contains(second.event_id.as_str())
                 && diagnostic.message.contains(second.idempotency_key.as_str())
         }));
-        let mut stored = EventStore::open(dest.path().join(".shore"))
+        let mut stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), 1);
@@ -572,7 +574,7 @@ mod tests {
                 .iter()
                 .all(|diagnostic| diagnostic.code != "divergent_signature_existing_event")
         );
-        let mut stored = EventStore::open(dest.path().join(".shore"))
+        let mut stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), 1);
@@ -591,7 +593,7 @@ mod tests {
 
         ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore"))
+        let stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), events.len());
@@ -618,7 +620,7 @@ mod tests {
 
         import_event(ImportEventOptions::new(dest.path(), event)).unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore"))
+        let stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let stamp = stored[0].ingest.as_ref().unwrap();
@@ -638,7 +640,7 @@ mod tests {
         assert_eq!(result.events_created, 0);
         assert_eq!(result.events_existing, events.len());
 
-        let stored = EventStore::open(origin.path().join(".shore"))
+        let stored = EventStore::open(origin.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert!(stored.iter().all(|event| event.ingest.is_none()));
@@ -653,7 +655,7 @@ mod tests {
         let dest = dest_repo();
 
         ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
-        let first_stamps: Vec<_> = EventStore::open(dest.path().join(".shore"))
+        let first_stamps: Vec<_> = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap()
             .into_iter()
@@ -664,7 +666,7 @@ mod tests {
         let second = ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
         assert_eq!(second.events_created, 0);
 
-        let second_stamps: Vec<_> = EventStore::open(dest.path().join(".shore"))
+        let second_stamps: Vec<_> = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap()
             .into_iter()
@@ -684,7 +686,7 @@ mod tests {
         )
         .unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore"))
+        let stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert!(stored[0].ingest.is_some());
@@ -767,8 +769,8 @@ mod tests {
         );
         // Nothing was written (attribution is validated before any write).
         assert!(
-            !dest.path().join(".shore/events").exists() || {
-                EventStore::open(dest.path().join(".shore"))
+            !dest.path().join(".shore/data/events").exists() || {
+                EventStore::open(dest.path().join(".shore/data"))
                     .list_events()
                     .unwrap()
                     .is_empty()
@@ -855,7 +857,7 @@ mod tests {
     /// the domain workflows and the adapter write path use; no seam, no stamp.
     fn local_authored_store(events: &[ShoreEvent]) -> (tempfile::TempDir, EventStore) {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore"));
+        let store = EventStore::open(root.path().join(".shore/data"));
         for event in events {
             store.record_event_once(event).unwrap();
         }
@@ -907,7 +909,7 @@ mod tests {
 
         ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore"))
+        let stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -950,7 +952,7 @@ mod tests {
         ingest_events(IngestEventsOptions::new(dest.path(), events).with_trust_set(trust.clone()))
             .unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore"))
+        let stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let response = stored
@@ -989,7 +991,7 @@ mod tests {
         ingest_events(IngestEventsOptions::new(dest.path(), events).with_trust_set(trust.clone()))
             .unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore"))
+        let stored = EventStore::open(dest.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -1015,11 +1017,11 @@ mod tests {
         let (_source_root, _source_store) = local_authored_store(&events);
         let target = tempfile::tempdir().unwrap();
         import_store_bundle(
-            _source_root.path().join(".shore"),
-            target.path().join(".shore"),
+            _source_root.path().join(".shore/data"),
+            target.path().join(".shore/data"),
         )
         .unwrap();
-        let stored = EventStore::open(target.path().join(".shore"))
+        let stored = EventStore::open(target.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -1046,11 +1048,11 @@ mod tests {
         let (signed_source_root, _signed_source_store) = local_authored_store(&signed_events);
         let signed_target = tempfile::tempdir().unwrap();
         import_store_bundle(
-            signed_source_root.path().join(".shore"),
-            signed_target.path().join(".shore"),
+            signed_source_root.path().join(".shore/data"),
+            signed_target.path().join(".shore/data"),
         )
         .unwrap();
-        let stored = EventStore::open(signed_target.path().join(".shore"))
+        let stored = EventStore::open(signed_target.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -1114,7 +1116,7 @@ mod tests {
         main.git(["worktree", "add", "-b", "seed", seed.to_str().unwrap()]);
         main.git(["worktree", "add", "-b", "reader", reader.to_str().unwrap()]);
 
-        let seed_store = EventStore::open(seed.join(".shore"));
+        let seed_store = EventStore::open(seed.join(".shore/data"));
         for event in events {
             seed_store.record_event_once(event).unwrap();
         }
@@ -1143,7 +1145,9 @@ mod tests {
         let (_main, _parent, seed, reader) = linked_resumption_pair(&events);
 
         // Baseline: before linking, possession binds in the seed's own store.
-        let local = EventStore::open(seed.join(".shore")).list_events().unwrap();
+        let local = EventStore::open(seed.join(".shore/data"))
+            .list_events()
+            .unwrap();
         assert!(local.iter().all(|event| event.ingest.is_none()));
         let baseline = resumption_projection(
             &local,
@@ -1204,7 +1208,9 @@ mod tests {
         let (events, task_attempt_id) = task_resumption_events();
         let (_main, _parent, seed, _reader) = linked_resumption_pair(&events);
 
-        let local = EventStore::open(seed.join(".shore")).list_events().unwrap();
+        let local = EventStore::open(seed.join(".shore/data"))
+            .list_events()
+            .unwrap();
         let baseline = resumption_projection(
             &local,
             &task_attempt_id,
@@ -1218,7 +1224,7 @@ mod tests {
         // The sharp edge, pinned deliberately: once the author's checkout is
         // linked, its reads resolve the linked store, whose copy is stamped —
         // so even the author projects ingested_unsigned for its own unsigned
-        // response. The unstamped original still sits in .shore/, but reads
+        // response. The unstamped original still sits in .shore/data/, but reads
         // are store-only. Sign responses that must stay binding after linking.
         let stored = linked_store_events(&seed);
         assert!(stored.iter().all(|event| event.ingest.is_some()));
@@ -1269,7 +1275,7 @@ mod tests {
 
         // The seed authors the task attempt + input request and links them into
         // the clone-local store.
-        let seed_store = EventStore::open(seed.join(".shore"));
+        let seed_store = EventStore::open(seed.join(".shore/data"));
         for event in origin_events {
             seed_store.record_event_once(event).unwrap();
         }
@@ -1278,7 +1284,7 @@ mod tests {
         // request), then authors the response in its own worktree-local store —
         // unsynced until it links again.
         link(&reader);
-        EventStore::open(reader.join(".shore"))
+        EventStore::open(reader.join(".shore/data"))
             .record_event_once(response_event)
             .unwrap();
         (main, parent, seed, reader)
@@ -1352,7 +1358,7 @@ mod tests {
         // linked store's request plus its OWN unstamped local response.
         let mut union = linked_store_events(&reader);
         union.extend(
-            EventStore::open(reader.join(".shore"))
+            EventStore::open(reader.join(".shore/data"))
                 .list_events()
                 .unwrap(),
         );

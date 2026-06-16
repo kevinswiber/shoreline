@@ -115,7 +115,7 @@ fn review_capture_on_linked_store_stays_batch_only_with_guidance() {
         "expected batch-only linked capture guidance in {diagnostics:?}"
     );
     assert!(!capture_stdout.contains(".git"));
-    assert!(!capture_stdout.contains(".shore"));
+    assert!(!capture_stdout.contains(".shore/data"));
 
     let status = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
     assert!(
@@ -126,7 +126,7 @@ fn review_capture_on_linked_store_stays_batch_only_with_guidance() {
     let status_json = parse_json(&status.stdout);
     assert_eq!(status_json["mode"], "linked");
     assert_eq!(status_json["inventory"]["eventCount"], 0);
-    assert!(repo.path().join(".shore/events").is_dir());
+    assert!(repo.path().join(".shore/data/events").is_dir());
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn capture_preserves_inline_rows_for_normal_added_file() {
     let _capture =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let snapshots_dir = shoreline::session::shore_dir_for_repo(repo.path())
+    let snapshots_dir = shoreline::session::store_dir_for_repo(repo.path())
         .expect("shore dir resolves")
         .join("artifacts/snapshots");
     let artifact_path = std::fs::read_dir(&snapshots_dir)

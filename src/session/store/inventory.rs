@@ -267,16 +267,16 @@ mod tests {
         )
         .unwrap();
 
-        let shore_dir = ShoreStorePaths::resolve(repo.path())
+        let store_dir = ShoreStorePaths::resolve(repo.path())
             .unwrap()
-            .shore_dir()
+            .store_dir()
             .to_path_buf();
-        let inventory = scan_store_inventory(&shore_dir, Some(repo.path())).unwrap();
+        let inventory = scan_store_inventory(&store_dir, Some(repo.path())).unwrap();
 
-        let (event_count, event_bytes) = directory_file_stats(&shore_dir.join("events"));
+        let (event_count, event_bytes) = directory_file_stats(&store_dir.join("events"));
         let (snapshot_count, snapshot_bytes) =
-            directory_file_stats(&shore_dir.join("artifacts/snapshots"));
-        let (note_count, note_bytes) = directory_file_stats(&shore_dir.join("artifacts/notes"));
+            directory_file_stats(&store_dir.join("artifacts/snapshots"));
+        let (note_count, note_bytes) = directory_file_stats(&store_dir.join("artifacts/notes"));
 
         assert_eq!(inventory.event_count, event_count);
         assert_eq!(inventory.event_bytes, event_bytes);
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(inventory.untracked_bytes, Some(0));
         assert!(inventory.largest_artifacts.iter().all(|artifact| {
             !artifact.artifact_ref.contains("artifacts/")
-                && !artifact.artifact_ref.contains(".shore")
+                && !artifact.artifact_ref.contains(".shore/data")
                 && !artifact.artifact_ref.contains("state.json")
         }));
         assert!(inventory.review_unit_snapshots.iter().any(|snapshot| {

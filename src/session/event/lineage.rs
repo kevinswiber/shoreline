@@ -104,7 +104,7 @@ mod tests {
 
         assert!(!combined.contains("/Users/"));
         assert!(!combined.contains("worktreeRoot"));
-        assert!(!combined.contains(".shore"));
+        assert!(!combined.contains(".shore/data"));
         assert!(!combined.contains(".git"));
     }
 

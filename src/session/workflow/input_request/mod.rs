@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(result.events_existing, 0);
         assert_eq!(result.events_created_by_type["input_request_opened"], 1);
 
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let state = SessionState::from_events(&events).unwrap();
@@ -343,10 +343,10 @@ mod tests {
         let first = open_input_request(options.clone()).unwrap();
         assert_eq!(first.events_created, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
+            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -355,10 +355,10 @@ mod tests {
         let second = open_input_request(options).unwrap();
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
+            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -385,10 +385,10 @@ mod tests {
         let first = respond_input_request(options.clone()).unwrap();
         assert_eq!(first.events_created, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
+            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -397,10 +397,10 @@ mod tests {
         let second = respond_input_request(options).unwrap();
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
+            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore"))
+        let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -593,7 +593,7 @@ mod tests {
             "workflow result must not expose internal artifact paths"
         );
 
-        let artifacts = std::fs::read_dir(repo.path().join(".shore/artifacts/notes"))
+        let artifacts = std::fs::read_dir(repo.path().join(".shore/data/artifacts/notes"))
             .unwrap()
             .collect::<Vec<_>>();
         assert_eq!(artifacts.len(), 1);
@@ -1100,7 +1100,7 @@ mod tests {
         );
 
         let state = SessionState::from_events(
-            &EventStore::open(repo.path().join(".shore"))
+            &EventStore::open(repo.path().join(".shore/data"))
                 .list_events()
                 .unwrap(),
         )
@@ -1284,7 +1284,7 @@ mod tests {
         )
         .unwrap();
         let event_id = event.event_id.clone();
-        EventStore::open(repo.join(".shore"))
+        EventStore::open(repo.join(".shore/data"))
             .record_event_once(&event)
             .unwrap();
         event_id
@@ -1297,7 +1297,7 @@ mod tests {
     }
 
     fn input_request_opened_events(repo: &Path) -> Vec<ShoreEvent> {
-        EventStore::open(repo.join(".shore"))
+        EventStore::open(repo.join(".shore/data"))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1306,7 +1306,7 @@ mod tests {
     }
 
     fn responded_events(repo: &Path) -> Vec<ShoreEvent> {
-        EventStore::open(repo.join(".shore"))
+        EventStore::open(repo.join(".shore/data"))
             .list_events()
             .unwrap()
             .into_iter()

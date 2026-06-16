@@ -58,11 +58,11 @@ pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
     let worktree_root = paths.worktree_root();
     let (sidecar_source, sidecar_content_hash, sidecar) = parsed_sidecar_input(&options)?;
 
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let existing_state = SessionState::from_events(&event_store.list_events()?)?;
 
     let session_id = existing_state.session_id.clone();
@@ -415,7 +415,7 @@ mod tests {
             .expect_err("missing file fails");
 
         assert!(error.to_string().contains("missing-review-notes.json"));
-        assert!(!repo.path().join(".shore").exists());
+        assert!(!repo.path().join(".shore/data").exists());
     }
 
     #[test]
@@ -427,12 +427,12 @@ mod tests {
         let result = import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
             .expect("import succeeds");
 
-        assert!(repo.path().join(".shore/events").is_dir());
-        assert!(repo.path().join(".shore/state.json").is_file());
+        assert!(repo.path().join(".shore/data/events").is_dir());
+        assert!(repo.path().join(".shore/data/state.json").is_file());
         assert!(result.note_count > 0);
         assert_eq!(result.notes_created, 1);
         let state: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
+            &fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
         )
         .expect("state json");
         assert_eq!(state["noteCount"], 1);

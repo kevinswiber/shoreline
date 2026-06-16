@@ -734,7 +734,7 @@ mod tests {
     fn export_manifest_includes_events_and_snapshot_artifacts() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let store = EventStore::open(repo.path().join(".shore"));
+        let store = EventStore::open(repo.path().join(".shore/data"));
         let capture_event = store
             .list_events()
             .unwrap()
@@ -742,7 +742,7 @@ mod tests {
             .find(|event| event.event_type == EventType::ReviewUnitCaptured)
             .expect("capture event");
 
-        let manifest = build_export_manifest(repo.path().join(".shore")).unwrap();
+        let manifest = build_export_manifest(repo.path().join(".shore/data")).unwrap();
 
         assert_eq!(manifest.schema, "shore.store-export-manifest");
         assert_eq!(manifest.version, 1);
@@ -780,7 +780,7 @@ mod tests {
         );
 
         let json = serde_json::to_string(&manifest).unwrap();
-        assert!(!json.contains(".shore"));
+        assert!(!json.contains(".shore/data"));
         assert!(!json.contains("artifacts/snapshots"));
         assert!(!json.contains("events/"));
     }
@@ -798,7 +798,7 @@ mod tests {
         )
         .unwrap();
 
-        let manifest = build_export_manifest(repo.path().join(".shore")).unwrap();
+        let manifest = build_export_manifest(repo.path().join(".shore/data")).unwrap();
 
         assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Full);
         let body_hash = observation.body_content_hash.expect("body hash");
@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn store_bundle_import_preserves_externalized_validation_summary_artifacts() {
         let source = tempfile::tempdir().unwrap();
-        let source_store_dir = source.path().join(".shore");
+        let source_store_dir = source.path().join(".shore/data");
         let summary = "validation summary\n".repeat(BODY_INLINE_LIMIT);
         let (summary_artifact_path, summary_content_hash, summary_byte_size) =
             write_note_body_artifact(&source_store_dir, summary.clone());
@@ -863,7 +863,7 @@ mod tests {
         );
 
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore");
+        let target_store_dir = target.path().join(".shore/data");
         import_store_bundle(&source_store_dir, &target_store_dir).unwrap();
 
         let imported_bytes = fs::read(target_store_dir.join(&summary_artifact_path)).unwrap();
@@ -906,7 +906,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         remove_snapshot_artifacts(repo.path());
 
-        let manifest = build_export_manifest(repo.path().join(".shore")).unwrap();
+        let manifest = build_export_manifest(repo.path().join(".shore/data")).unwrap();
 
         assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Incomplete);
         assert_eq!(manifest.artifacts.len(), 0);
@@ -920,10 +920,12 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore");
+        let target_store_dir = target.path().join(".shore/data");
 
-        let first = import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
-        let second = import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        let first =
+            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+        let second =
+            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
 
         assert_eq!(first.events_created, 1);
         assert_eq!(first.events_existing, 0);
@@ -938,8 +940,8 @@ mod tests {
     fn bundle_import_uses_verification_policy_before_event_commit() {
         let source = tempfile::tempdir().unwrap();
         let target = tempfile::tempdir().unwrap();
-        let source_store_dir = source.path().join(".shore");
-        let target_store_dir = target.path().join(".shore");
+        let source_store_dir = source.path().join(".shore/data");
+        let target_store_dir = target.path().join(".shore/data");
         write_event_to_store(
             &source_store_dir,
             invalid_signed_review_initialized_event("signed-invalid"),
@@ -960,7 +962,7 @@ mod tests {
         );
 
         let strict_target = tempfile::tempdir().unwrap();
-        let strict_target_store_dir = strict_target.path().join(".shore");
+        let strict_target_store_dir = strict_target.path().join(".shore/data");
         let error = import_store_bundle_with_verification(
             &source_store_dir,
             &strict_target_store_dir,
@@ -989,27 +991,27 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
         let idempotency_key = "review_initialized:session:default:work:default";
         write_event_to_store(
-            &source_one.path().join(".shore"),
+            &source_one.path().join(".shore/data"),
             review_initialized_event(idempotency_key, 1),
         );
         write_event_to_store(
-            &source_two.path().join(".shore"),
+            &source_two.path().join(".shore/data"),
             review_initialized_event(idempotency_key, 2),
         );
         import_store_bundle(
-            source_one.path().join(".shore"),
-            target.path().join(".shore"),
+            source_one.path().join(".shore/data"),
+            target.path().join(".shore/data"),
         )
         .unwrap();
 
         let error = import_store_bundle(
-            source_two.path().join(".shore"),
-            target.path().join(".shore"),
+            source_two.path().join(".shore/data"),
+            target.path().join(".shore/data"),
         )
         .expect_err("conflicting event is rejected");
 
         assert!(error.to_string().contains("event conflict"));
-        let stored = EventStore::open(target.path().join(".shore"))
+        let stored = EventStore::open(target.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), 1);
@@ -1023,8 +1025,11 @@ mod tests {
         remove_snapshot_artifacts(repo.path());
         let target = tempfile::tempdir().unwrap();
 
-        let error = import_store_bundle(repo.path().join(".shore"), target.path().join(".shore"))
-            .expect_err("incomplete bundle is rejected");
+        let error = import_store_bundle(
+            repo.path().join(".shore/data"),
+            target.path().join(".shore/data"),
+        )
+        .expect_err("incomplete bundle is rejected");
 
         assert!(error.to_string().contains("full-fidelity"));
     }
@@ -1034,14 +1039,15 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         fs::write(
-            repo.path().join(".shore/state.json"),
+            repo.path().join(".shore/data/state.json"),
             r#"{"sourceState":"must not be imported as authority"}"#,
         )
         .unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore");
+        let target_store_dir = target.path().join(".shore/data");
 
-        let result = import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        let result =
+            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
 
         assert_eq!(
             result.commit_order,
@@ -1063,9 +1069,9 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore");
+        let target_store_dir = target.path().join(".shore/data");
 
-        import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
 
         let stored = EventStore::open(&target_store_dir).list_events().unwrap();
         assert!(!stored.is_empty());
@@ -1078,7 +1084,7 @@ mod tests {
             assert!(stamp.received_at.starts_with("unix-ms:"));
         }
         // The source store is never modified.
-        let source = EventStore::open(repo.path().join(".shore"))
+        let source = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert!(source.iter().all(|event| event.ingest.is_none()));
@@ -1095,11 +1101,15 @@ mod tests {
             via: IngestVia::IngestEvents,
             received_at: "unix-ms:1".to_owned(),
         });
-        write_event_to_store(&source.path().join(".shore"), event);
+        write_event_to_store(&source.path().join(".shore/data"), event);
 
-        import_store_bundle(source.path().join(".shore"), target.path().join(".shore")).unwrap();
+        import_store_bundle(
+            source.path().join(".shore/data"),
+            target.path().join(".shore/data"),
+        )
+        .unwrap();
 
-        let stored = EventStore::open(target.path().join(".shore"))
+        let stored = EventStore::open(target.path().join(".shore/data"))
             .list_events()
             .unwrap();
         let stamp = stored[0].ingest.as_ref().unwrap();
@@ -1112,9 +1122,9 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore");
+        let target_store_dir = target.path().join(".shore/data");
 
-        import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
         let first_stamps: Vec<_> = EventStore::open(&target_store_dir)
             .list_events()
             .unwrap()
@@ -1123,7 +1133,8 @@ mod tests {
             .collect();
         assert!(first_stamps.iter().all(Option::is_some));
 
-        let second = import_store_bundle(repo.path().join(".shore"), &target_store_dir).unwrap();
+        let second =
+            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
         assert_eq!(second.events_created, 0);
         assert!(second.events_existing > 0);
 
@@ -1144,7 +1155,7 @@ mod tests {
             "../../../tests/fixtures/event_signatures/friendly-valid-event.json"
         ))
         .unwrap();
-        write_event_to_store(&source.path().join(".shore"), signed);
+        write_event_to_store(&source.path().join(".shore/data"), signed);
         let trust = event_signature_trust_set(
             serde_json::from_str(include_str!(
                 "../../../tests/fixtures/event_signatures/did-key-ed25519.json"
@@ -1154,8 +1165,8 @@ mod tests {
         .unwrap();
 
         let result = import_store_bundle_with_verification(
-            source.path().join(".shore"),
-            target.path().join(".shore"),
+            source.path().join(".shore/data"),
+            target.path().join(".shore/data"),
             EventVerificationPolicy::advisory(),
             trust.clone(),
         )
@@ -1167,7 +1178,7 @@ mod tests {
         );
 
         // The stamped target copy still verifies valid.
-        let stored = EventStore::open(target.path().join(".shore"))
+        let stored = EventStore::open(target.path().join(".shore/data"))
             .list_events()
             .unwrap();
         assert!(stored[0].ingest.is_some());
@@ -1179,8 +1190,8 @@ mod tests {
         // Preflight does not treat the stamp difference (target stamped,
         // source unstamped) as a conflict: payload_hash comparison only.
         let again = import_store_bundle_with_verification(
-            source.path().join(".shore"),
-            target.path().join(".shore"),
+            source.path().join(".shore/data"),
+            target.path().join(".shore/data"),
             EventVerificationPolicy::advisory(),
             trust,
         )
@@ -1291,7 +1302,7 @@ mod tests {
     }
 
     fn remove_snapshot_artifacts(repo: &Path) {
-        let artifact_dir = repo.join(".shore/artifacts/snapshots");
+        let artifact_dir = repo.join(".shore/data/artifacts/snapshots");
         for entry in fs::read_dir(artifact_dir).unwrap() {
             let path = entry.unwrap().path();
             if path.extension() == Some(OsStr::new("json")) {

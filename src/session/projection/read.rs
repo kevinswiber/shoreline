@@ -13,7 +13,7 @@ use crate::storage::{Durability, LocalStorage};
 
 fn replay_note_entry(
     payload: &ReviewNoteImportedPayload,
-    shore_dir: &Path,
+    store_dir: &Path,
 ) -> Result<ReviewNoteEntry> {
     let target = payload
         .target
@@ -25,7 +25,7 @@ fn replay_note_entry(
         });
 
     let body = if let Some(artifact_path) = &payload.body_artifact_path {
-        load_body_artifact(shore_dir, artifact_path)?
+        load_body_artifact(store_dir, artifact_path)?
     } else {
         payload.body.clone()
     };
@@ -45,12 +45,12 @@ fn replay_note_entry(
 
 fn parsed_review_notes_from_imports(
     payloads: &[ReviewNoteImportedPayload],
-    shore_dir: &Path,
+    store_dir: &Path,
 ) -> Result<ParsedReviewNotes> {
     let mut file_map: BTreeMap<String, (Option<String>, Vec<ReviewNoteEntry>)> = BTreeMap::new();
 
     for payload in payloads {
-        let entry = replay_note_entry(payload, shore_dir)?;
+        let entry = replay_note_entry(payload, store_dir)?;
 
         file_map
             .entry(payload.file_path.clone())
@@ -109,7 +109,7 @@ pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<Pars
 
     Ok(Some(parsed_review_notes_from_imports(
         &imported_payloads,
-        paths.shore_dir(),
+        paths.store_dir(),
     )?))
 }
 
@@ -125,9 +125,9 @@ fn load_or_rebuild_session_state(repo: impl AsRef<Path>) -> Result<Option<Sessio
 pub fn rebuild_state(repo: impl AsRef<Path>) -> Result<SessionState> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
     let worktree_root = paths.worktree_root();
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
-    sweep_stale_temp_files(&storage, shore_dir)?;
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
+    sweep_stale_temp_files(&storage, store_dir)?;
 
     let span = tracing::info_span!("session.rebuild_state", repo = %worktree_root.display());
     let _entered = span.enter();
@@ -146,7 +146,7 @@ fn list_events_if_store_exists(
     repo: impl AsRef<Path>,
 ) -> Result<Option<(ShoreStorePaths, Vec<ShoreEvent>)>> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    if !paths.shore_dir().exists() {
+    if !paths.store_dir().exists() {
         return Ok(None);
     }
 
@@ -155,7 +155,7 @@ fn list_events_if_store_exists(
 }
 
 fn list_events_for_paths(paths: &ShoreStorePaths) -> Result<Vec<ShoreEvent>> {
-    EventStore::open(paths.shore_dir()).list_events()
+    EventStore::open(paths.store_dir()).list_events()
 }
 
 #[cfg(test)]
@@ -218,7 +218,7 @@ mod tests {
             sidecar_content_hash: "sha256:abc".to_owned(),
         };
 
-        let entry = replay_note_entry(&payload, Path::new(".shore")).expect("entry builds");
+        let entry = replay_note_entry(&payload, Path::new(".shore/data")).expect("entry builds");
 
         assert_eq!(entry.id.as_deref(), Some("note:123"));
         assert_eq!(entry.title.as_deref(), Some("Durable title"));
@@ -234,7 +234,7 @@ mod tests {
         ];
 
         let parsed =
-            parsed_review_notes_from_imports(&events, Path::new(".shore")).expect("parses");
+            parsed_review_notes_from_imports(&events, Path::new(".shore/data")).expect("parses");
 
         assert_eq!(parsed.sidecar.files.len(), 2);
         assert_eq!(
@@ -252,9 +252,9 @@ mod tests {
 
     #[test]
     fn artifact_backed_note_body_is_loaded_from_artifact() {
-        let shore_dir = tempfile::tempdir().expect("create shore dir");
+        let store_dir = tempfile::tempdir().expect("create shore dir");
         let artifact_path = "artifacts/notes/note-abc.json";
-        let artifact_file = shore_dir.path().join(artifact_path);
+        let artifact_file = store_dir.path().join(artifact_path);
         std::fs::create_dir_all(artifact_file.parent().expect("artifact parent"))
             .expect("create artifact dir");
         std::fs::write(
@@ -268,7 +268,7 @@ mod tests {
         payload.body_artifact_path = Some(artifact_path.to_owned());
         payload.body_byte_size = Some(256);
 
-        let entry = replay_note_entry(&payload, shore_dir.path()).expect("entry builds");
+        let entry = replay_note_entry(&payload, store_dir.path()).expect("entry builds");
 
         assert_eq!(entry.body.as_deref(), Some("Artifact body"));
     }
@@ -279,16 +279,16 @@ mod tests {
         payload.body = None;
         payload.body_artifact_path = Some("../outside.json".to_owned());
 
-        let error =
-            replay_note_entry(&payload, Path::new(".shore")).expect_err("path should be rejected");
+        let error = replay_note_entry(&payload, Path::new(".shore/data"))
+            .expect_err("path should be rejected");
         assert!(error.to_string().contains("Invalid artifact path"));
     }
 
     #[test]
     fn artifact_body_schema_must_match() {
-        let shore_dir = tempfile::tempdir().expect("create shore dir");
+        let store_dir = tempfile::tempdir().expect("create shore dir");
         let artifact_path = "artifacts/notes/note-abc.json";
-        let artifact_file = shore_dir.path().join(artifact_path);
+        let artifact_file = store_dir.path().join(artifact_path);
         std::fs::create_dir_all(artifact_file.parent().expect("artifact parent"))
             .expect("create artifact dir");
         std::fs::write(
@@ -302,7 +302,7 @@ mod tests {
         payload.body_artifact_path = Some(artifact_path.to_owned());
 
         let error =
-            replay_note_entry(&payload, shore_dir.path()).expect_err("schema should be rejected");
+            replay_note_entry(&payload, store_dir.path()).expect_err("schema should be rejected");
         assert!(error.to_string().contains("Unsupported note body artifact"));
     }
 
@@ -325,7 +325,7 @@ mod tests {
         let repo = test_repo_with(vec![review_initialized()]);
 
         let state = load_or_rebuild_session_state(repo.path()).unwrap();
-        let state = state.expect("state should be present when .shore/ exists");
+        let state = state.expect("state should be present when .shore/data/ exists");
 
         assert_eq!(state.event_count, 1);
     }
@@ -337,9 +337,9 @@ mod tests {
             .current_dir(repo.path())
             .output()
             .unwrap();
-        let shore_dir = repo.path().join(".shore");
-        std::fs::create_dir_all(shore_dir.join("events")).unwrap();
-        let store = EventStore::open(&shore_dir);
+        let store_dir = repo.path().join(".shore/data");
+        std::fs::create_dir_all(store_dir.join("events")).unwrap();
+        let store = EventStore::open(&store_dir);
         for event in events {
             store.record_event_once(&event).unwrap();
         }

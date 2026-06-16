@@ -77,8 +77,8 @@ pub struct AssessmentShowFilters {
 
 pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShowResult> {
     let read_store = resolve_read_store(&options.repo)?;
-    let shore_dir = read_store.store_dir();
-    let events = EventStore::open(shore_dir).list_events()?;
+    let store_dir = read_store.store_dir();
+    let events = EventStore::open(store_dir).list_events()?;
     let resolved = resolve_review_unit(
         &events,
         ReviewUnitSelection::from_review_unit_or_lineage(
@@ -92,7 +92,7 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
         .map(validated_track_id)
         .transpose()?;
     let (current, assessments) = project_assessments(AssessmentProjectionOptions {
-        shore_dir,
+        store_dir,
         events: &events,
         resolved: &resolved,
         track_filter: track_filter.clone(),

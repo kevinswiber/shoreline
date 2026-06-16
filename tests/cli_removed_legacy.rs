@@ -23,7 +23,7 @@ fn legacy_hunk_flag_is_rejected_without_shore_mutation() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(
-            !repo.path().join(".shore").exists(),
+            !repo.path().join(".shore/data").exists(),
             "clap rejection must happen before any writer runs"
         );
     }

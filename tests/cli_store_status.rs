@@ -104,11 +104,11 @@ fn store_status_includes_inventory_without_artifact_paths() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let json = parse_json(stdout.as_bytes());
     let inventory = &json["inventory"];
-    let shore_dir = repo.path().join(".shore");
-    let (event_count, event_bytes) = directory_file_stats(&shore_dir.join("events"));
+    let store_dir = repo.path().join(".shore/data");
+    let (event_count, event_bytes) = directory_file_stats(&store_dir.join("events"));
     let (snapshot_count, snapshot_bytes) =
-        directory_file_stats(&shore_dir.join("artifacts/snapshots"));
-    let (note_count, note_bytes) = directory_file_stats(&shore_dir.join("artifacts/notes"));
+        directory_file_stats(&store_dir.join("artifacts/snapshots"));
+    let (note_count, note_bytes) = directory_file_stats(&store_dir.join("artifacts/notes"));
 
     assert_eq!(inventory["eventCount"], event_count);
     assert_eq!(inventory["eventBytes"], event_bytes);
@@ -198,7 +198,7 @@ fn seed_clone_local_registration(worktree: &Path) {
     );
     let git_dir = git_stdout(worktree, ["rev-parse", "--absolute-git-dir"]);
     let object_format = git_stdout(worktree, ["rev-parse", "--show-object-format"]);
-    let shared_store = PathBuf::from(common_dir.trim()).join("shoreline");
+    let shared_store = PathBuf::from(common_dir.trim()).join("shore");
     fs::create_dir_all(&shared_store).unwrap();
     fs::write(
         shared_store.join("manifest.json"),
@@ -212,9 +212,9 @@ fn seed_clone_local_registration(worktree: &Path) {
     )
     .unwrap();
 
-    fs::create_dir_all(worktree.join(".shore")).unwrap();
+    fs::create_dir_all(worktree.join(".shore/data")).unwrap();
     fs::write(
-        worktree.join(".shore/store-registration.json"),
+        worktree.join(".shore/data/store-registration.json"),
         "{\"schema\":\"shore.store-registration\",\"version\":1,\"mode\":\"cloneLocal\",\"storeRef\":\"store:random:test-store\",\"cloneRef\":\"clone:random:test-clone\",\"repositoryFamilyRef\":\"clone:random:test-clone\"}",
     )
     .unwrap();

@@ -7,21 +7,21 @@ use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 #[derive(Debug)]
 pub struct EventStore {
-    shore_dir: PathBuf,
+    store_dir: PathBuf,
     storage: LocalStorage,
 }
 
 impl EventStore {
-    pub fn open(shore_dir: impl AsRef<Path>) -> Self {
-        let shore_dir = shore_dir.as_ref().to_path_buf();
+    pub fn open(store_dir: impl AsRef<Path>) -> Self {
+        let store_dir = store_dir.as_ref().to_path_buf();
         Self {
-            storage: LocalStorage::new(&shore_dir),
-            shore_dir,
+            storage: LocalStorage::new(&store_dir),
+            store_dir,
         }
     }
 
     pub(crate) fn events_dir(&self) -> PathBuf {
-        self.shore_dir.join("events")
+        self.store_dir.join("events")
     }
 
     pub(crate) fn event_path_for_idempotency_key(&self, idempotency_key: &str) -> PathBuf {
@@ -262,12 +262,15 @@ mod tests {
     #[test]
     fn event_path_is_sha256_of_idempotency_key() {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore"));
+        let store = EventStore::open(root.path().join(".shore/data"));
 
         let path =
             store.event_path_for_idempotency_key("review_initialized:review:default:work:default");
 
-        assert_eq!(path.parent().unwrap(), root.path().join(".shore/events"));
+        assert_eq!(
+            path.parent().unwrap(),
+            root.path().join(".shore/data/events")
+        );
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
             "922a9f73c057fa93d31156c391cb0ca441dfa8c1f3cd9cf94a497e8f309675be.json"
@@ -667,7 +670,7 @@ mod tests {
 
     fn temp_event_store() -> (tempfile::TempDir, EventStore) {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore"));
+        let store = EventStore::open(root.path().join(".shore/data"));
         (root, store)
     }
 

@@ -232,11 +232,11 @@ struct ValidationWriteInput {
 fn write_validation_check_event(input: ValidationWriteInput) -> Result<ValidationAddResult> {
     let paths = ShoreStorePaths::resolve(&input.repo)?;
     let worktree_root = paths.worktree_root();
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
+    let store_dir = paths.store_dir();
+    let storage = LocalStorage::new(store_dir);
     prepare_shore_writer(&paths, &storage)?;
 
-    let event_store = EventStore::open(shore_dir);
+    let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
     let track_id = validated_track_id(input.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {

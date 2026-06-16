@@ -106,7 +106,7 @@ pub(crate) struct StoreResolutionView {
 #[derive(Clone, Debug)]
 pub(crate) struct ReadStore {
     pub resolution: StoreResolution,
-    /// Event file names present in the worktree-local `.shore/events/` but
+    /// Event file names present in the worktree-local `.shore/data/events/` but
     /// absent from the resolved linked store. Always empty in WorktreeLocal
     /// mode. Filenames are content-addressed (eventId-derived), so a name
     /// match is an identity match.
@@ -128,7 +128,7 @@ pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
     let local_only_event_files = match resolution.mode {
         StoreResolutionMode::WorktreeLocal => Vec::new(),
         StoreResolutionMode::CloneLocal => {
-            let local = EventStore::open(paths.shore_dir()).list_event_file_names()?;
+            let local = EventStore::open(paths.store_dir()).list_event_file_names()?;
             let linked: HashSet<String> = EventStore::open(resolution.store_dir())
                 .list_event_file_names()?
                 .into_iter()
@@ -164,17 +164,17 @@ pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
 #[derive(Clone, Debug)]
 pub(crate) struct WriteValidationStore {
     read_store: ReadStore,
-    worktree_shore_dir: PathBuf,
+    worktree_store_dir: PathBuf,
 }
 
 impl WriteValidationStore {
     /// The writer-visible union, deduplicated by event id and sorted ascending
     /// by event id. In WorktreeLocal mode this reduces to the plain local event
     /// list: `local_only_event_files` is empty there by construction, and the
-    /// resolved store *is* the worktree `.shore`.
+    /// resolved store *is* the worktree `.shore/data`.
     pub(crate) fn validation_events(&self) -> Result<Vec<ShoreEvent>> {
         let mut merged = EventStore::open(self.read_store.store_dir()).list_events()?;
-        let local_only = EventStore::open(&self.worktree_shore_dir)
+        let local_only = EventStore::open(&self.worktree_store_dir)
             .read_events_by_file_names(&self.read_store.local_only_event_files)?;
         merged.extend(local_only);
         // `local_only_event_files` is the filename DIFFERENCE, so the linked and
@@ -197,12 +197,12 @@ impl WriteValidationStore {
 pub(crate) fn resolve_write_validation_store(
     repo: impl AsRef<Path>,
 ) -> Result<WriteValidationStore> {
-    let worktree_shore_dir = ShoreStorePaths::resolve(repo.as_ref())?
-        .shore_dir()
+    let worktree_store_dir = ShoreStorePaths::resolve(repo.as_ref())?
+        .store_dir()
         .to_path_buf();
     Ok(WriteValidationStore {
         read_store: resolve_read_store(repo)?,
-        worktree_shore_dir,
+        worktree_store_dir,
     })
 }
 
@@ -211,7 +211,7 @@ pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
     let Some(registration) = read_store_registration_if_exists(paths.worktree_root())? else {
         return Ok(StoreResolution {
             mode: StoreResolutionMode::WorktreeLocal,
-            store_dir: paths.shore_dir().to_path_buf(),
+            store_dir: paths.store_dir().to_path_buf(),
             registration: None,
             manifest: None,
         });
@@ -245,7 +245,7 @@ pub(crate) fn register_clone_local_store(repo: impl AsRef<Path>) -> Result<Store
 
     ensure_shore_storage_excluded(paths.worktree_root())?;
     let path = store_registration_path(paths.worktree_root());
-    let storage = LocalStorage::new(paths.shore_dir());
+    let storage = LocalStorage::new(paths.store_dir());
     storage.write_json_atomic(&path, &registration, Durability::Durable)?;
     Ok(registration)
 }
@@ -292,11 +292,11 @@ fn validate_registration_matches_manifest(
 }
 
 fn clone_local_store_dir(worktree_root: &Path) -> Result<PathBuf> {
-    Ok(git_common_dir(worktree_root)?.join("shoreline"))
+    Ok(git_common_dir(worktree_root)?.join("shore"))
 }
 
 fn store_registration_path(worktree_root: &Path) -> PathBuf {
-    worktree_root.join(".shore/store-registration.json")
+    worktree_root.join(".shore/data/store-registration.json")
 }
 
 fn path_string(path: &Path, description: &str) -> Result<String> {
@@ -336,10 +336,17 @@ mod tests {
         let resolution = resolve_store(repo.path()).unwrap();
 
         assert_eq!(resolution.mode, StoreResolutionMode::WorktreeLocal);
-        assert_eq!(path_file_name(resolution.store_dir()), ".shore");
-        assert_existing_paths_eq(path_parent(resolution.store_dir()), repo.path());
+        assert_eq!(path_file_name(resolution.store_dir()), "data");
         assert_eq!(
-            ShoreStorePaths::resolve(repo.path()).unwrap().shore_dir(),
+            path_file_name(path_parent(resolution.store_dir())),
+            ".shore"
+        );
+        assert_existing_paths_eq(
+            path_parent(path_parent(resolution.store_dir())),
+            repo.path(),
+        );
+        assert_eq!(
+            ShoreStorePaths::resolve(repo.path()).unwrap().store_dir(),
             resolution.store_dir()
         );
     }
@@ -355,7 +362,7 @@ mod tests {
         assert!(
             fixture
                 .linked_path
-                .join(".shore/store-registration.json")
+                .join(".shore/data/store-registration.json")
                 .is_file()
         );
     }
@@ -368,7 +375,7 @@ mod tests {
         let resolution = resolve_store(&fixture.linked_path).unwrap();
 
         let common_dir = git_common_dir(fixture.main.path()).unwrap();
-        let expected_store = common_dir.join("shoreline");
+        let expected_store = common_dir.join("shore");
         assert_eq!(resolution.mode, StoreResolutionMode::CloneLocal);
         assert_existing_paths_eq(resolution.store_dir(), &expected_store);
 
@@ -384,7 +391,7 @@ mod tests {
     #[test]
     fn resolve_read_store_worktree_local_has_no_local_only_events() {
         let repo = GitRepo::new();
-        write_event_file(&repo.path().join(".shore"), 'a');
+        write_event_file(&repo.path().join(".shore/data"), 'a');
 
         let read_store = resolve_read_store(repo.path()).unwrap();
 
@@ -392,7 +399,7 @@ mod tests {
             read_store.resolution.mode,
             StoreResolutionMode::WorktreeLocal
         );
-        assert_eq!(path_file_name(read_store.store_dir()), ".shore");
+        assert_eq!(path_file_name(read_store.store_dir()), "data");
         assert!(read_store.local_only_event_files.is_empty());
     }
 
@@ -400,7 +407,7 @@ mod tests {
     fn resolve_read_store_linked_reports_local_events_absent_from_linked_store() {
         let fixture = LinkedWorktreeFixture::new();
         register_clone_local_store(&fixture.linked_path).unwrap();
-        let local_name = write_event_file(&fixture.linked_path.join(".shore"), 'a');
+        let local_name = write_event_file(&fixture.linked_path.join(".shore/data"), 'a');
 
         let read_store = resolve_read_store(&fixture.linked_path).unwrap();
 
@@ -413,7 +420,7 @@ mod tests {
         let fixture = LinkedWorktreeFixture::new();
         register_clone_local_store(&fixture.linked_path).unwrap();
         let resolution = resolve_store(&fixture.linked_path).unwrap();
-        write_event_file(&fixture.linked_path.join(".shore"), 'b');
+        write_event_file(&fixture.linked_path.join(".shore/data"), 'b');
         write_event_file(resolution.store_dir(), 'b');
 
         let read_store = resolve_read_store(&fixture.linked_path).unwrap();
@@ -444,7 +451,7 @@ mod tests {
     #[test]
     fn write_validation_events_worktree_local_returns_plain_local_events() {
         let repo = GitRepo::new();
-        let shore = repo.path().join(".shore");
+        let shore = repo.path().join(".shore/data");
         let a = record_review_initialized(&shore, "session:a");
         let b = record_review_initialized(&shore, "session:b");
 
@@ -465,7 +472,7 @@ mod tests {
         let resolution = resolve_store(&fixture.linked_path).unwrap();
 
         let a = record_review_initialized(resolution.store_dir(), "session:a");
-        let b = record_review_initialized(&fixture.linked_path.join(".shore"), "session:b");
+        let b = record_review_initialized(&fixture.linked_path.join(".shore/data"), "session:b");
 
         let store = resolve_write_validation_store(&fixture.linked_path).unwrap();
         let events = store.validation_events().unwrap();
@@ -488,7 +495,7 @@ mod tests {
 
         // Same event in both stores: the post-`store link` state.
         let a = record_review_initialized(resolution.store_dir(), "session:a");
-        record_review_initialized(&fixture.linked_path.join(".shore"), "session:a");
+        record_review_initialized(&fixture.linked_path.join(".shore/data"), "session:a");
 
         let store = resolve_write_validation_store(&fixture.linked_path).unwrap();
         let events = store.validation_events().unwrap();
@@ -504,8 +511,8 @@ mod tests {
         let resolution = resolve_store(&fixture.linked_path).unwrap();
 
         record_review_initialized(resolution.store_dir(), "session:a");
-        record_review_initialized(&fixture.linked_path.join(".shore"), "session:b");
-        record_review_initialized(&fixture.linked_path.join(".shore"), "session:c");
+        record_review_initialized(&fixture.linked_path.join(".shore/data"), "session:b");
+        record_review_initialized(&fixture.linked_path.join(".shore/data"), "session:c");
 
         let store = resolve_write_validation_store(&fixture.linked_path).unwrap();
         let events = store.validation_events().unwrap();
@@ -520,9 +527,9 @@ mod tests {
         assert_eq!(events.len(), 3);
     }
 
-    fn record_review_initialized(shore_dir: &Path, session: &str) -> ShoreEvent {
+    fn record_review_initialized(store_dir: &Path, session: &str) -> ShoreEvent {
         let event = review_initialized_event_for_session(session);
-        EventStore::open(shore_dir)
+        EventStore::open(store_dir)
             .record_event_once(&event)
             .unwrap();
         event

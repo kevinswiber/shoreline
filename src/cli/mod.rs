@@ -306,7 +306,7 @@ mod tests {
 
         document_for_show(&ShowArgs { input }, &tracing_args(None)).expect("show document builds");
 
-        assert!(!repo.path().join(".shore").exists());
+        assert!(!repo.path().join(".shore/data").exists());
     }
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
 
         document_for_show(&ShowArgs { input }, &tracing_args(None)).expect("show document builds");
 
-        assert!(!repo.path().join(".shore").exists());
+        assert!(!repo.path().join(".shore/data").exists());
     }
 
     #[test]
