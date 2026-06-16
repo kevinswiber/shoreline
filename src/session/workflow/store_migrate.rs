@@ -23,19 +23,16 @@ use serde::Serialize;
 use crate::error::{Result, ShoreError};
 use crate::git::{git_info_exclude_path, git_worktree_root};
 use crate::session::store::{
-    EventMigrateOutcome, EventStore, ensure_local_delegates_excluded,
-    ensure_shore_storage_excluded, migrate_event_file,
+    EventMigrateOutcome, EventStore, FLAT_STORE_MARKERS, StoreLayout, detect_store_layout,
+    ensure_local_delegates_excluded, ensure_shore_storage_excluded, migrate_event_file,
 };
 
-/// The flat store entries that move into `.shore/data/`. Committed config
-/// (`delegates.json`, `delegates.local.json`, `allowed-signers.json`) and `data`
-/// itself are deliberately left in place at the `.shore/` top level.
-const STORE_ENTRIES: &[&str] = &[
-    "events",
-    "artifacts",
-    "state.json",
-    "store-registration.json",
-];
+/// The flat store entries that move into `.shore/data/` — the same set the
+/// resolve guard keys on (`FLAT_STORE_MARKERS`), so detection and relocation can
+/// never diverge. Committed config (`delegates.json`, `delegates.local.json`,
+/// `allowed-signers.json`) and `data` itself are deliberately left in place at
+/// the `.shore/` top level.
+const STORE_ENTRIES: &[&str] = FLAT_STORE_MARKERS;
 
 pub struct MigrateStoreOptions {
     repo: PathBuf,
@@ -59,24 +56,27 @@ pub fn migrate_store(options: MigrateStoreOptions) -> Result<StoreMigrateResult>
     let worktree_root = git_worktree_root(&options.repo)?;
     let shore = worktree_root.join(".shore");
     let data = shore.join("data");
-    let flat_present = shore.join("events").is_dir() || shore.join("state.json").is_file();
-    let nested_present = data.exists();
 
-    // 0. Partial/interrupted migration → refuse (cannot know which is authoritative).
-    if flat_present && nested_present {
-        return Err(ShoreError::Message(
-            "both a flat .shore/ store and a .shore/data/ store are present; refusing to \
-             migrate — inspect both and remove the stale one before re-running"
-                .to_owned(),
-        ));
-    }
-
-    // 1. Nest the flat store under data/ (data-safe: copy in, then remove originals).
-    let relocated = if flat_present {
-        nest_flat_store(&shore, &data)?;
-        true
-    } else {
-        false
+    // Classify with the same layout detection the resolve-time guard uses, so a
+    // shape that resolve treats as legacy (including a registration-only linked
+    // checkout) is exactly the shape this relocates.
+    let relocated = match detect_store_layout(&shore) {
+        // Partial/interrupted migration → refuse (cannot know which is authoritative).
+        StoreLayout::Conflict => {
+            return Err(ShoreError::Message(
+                "both a flat .shore/ store and a .shore/data/ store are present; refusing to \
+                 migrate — inspect both and remove the stale one before re-running"
+                    .to_owned(),
+            ));
+        }
+        // A pre-relocation flat store → nest it under data/ (data-safe: copy in,
+        // then remove the originals).
+        StoreLayout::Flat => {
+            nest_flat_store(&shore, &data)?;
+            true
+        }
+        // Already nested, or no store at all → nothing to relocate.
+        StoreLayout::Nested | StoreLayout::Fresh => false,
     };
 
     // 2. Exclude: rewrite a wholesale `.shore/` line to `.shore/data/`, then ensure
@@ -283,6 +283,32 @@ mod tests {
         // Config is NOT swept into data/ — it stays at the .shore/ top level.
         assert!(shore.join("delegates.json").is_file());
         assert!(!shore.join("data/delegates.json").exists());
+    }
+
+    #[test]
+    fn migrate_store_relocates_a_registration_only_legacy_store() {
+        let repo = git_repo();
+        let shore = repo.path().join(".shore");
+        // A registered linked checkout with NO local events/state — only the
+        // top-level registration file (a registered checkout from before the
+        // relocation, before any local write).
+        std::fs::create_dir_all(&shore).unwrap();
+        std::fs::write(
+            shore.join("store-registration.json"),
+            r#"{"schema":"shore.store-registration","version":1,"mode":"cloneLocal","storeRef":"store:random:s","cloneRef":"clone:random:c","repositoryFamilyRef":"clone:random:c"}"#,
+        )
+        .unwrap();
+
+        let result = migrate_store(MigrateStoreOptions::new(repo.path())).unwrap();
+        assert!(
+            result.relocated,
+            "a registration-only legacy store must relocate"
+        );
+        // The registration moved into data/; the old top-level path is gone, so
+        // resolve_store (which reads .shore/data/store-registration.json) keeps
+        // the checkout registered instead of silently dropping to worktree-local.
+        assert!(shore.join("data/store-registration.json").is_file());
+        assert!(!shore.join("store-registration.json").exists());
     }
 
     #[test]

@@ -846,13 +846,15 @@ Runtime code should read canonical storage. Legacy repair and migration belong i
 The relocation of a legacy flat `.shore/` store to `.shore/data/` is exactly such an explicit
 command: `just migrate-store [<repo>]` (a thin `examples/migrate-store.rs` driver over the tested
 `migrate_store` library function). It nests the flat store's entries (`events/`, `artifacts/`,
-`state.json`) under `.shore/data/` crash-safely (copy in, then remove the flat originals), rewrites
-a wholesale `.shore/` `.git/info/exclude` line to the narrow `.shore/data/`, and upgrades every
-event's writer fields in place (`writer.tool` → `writer.producer`, dropping `writer.role`) — the
-writer is outside every hash, so event identity is preserved. It is owner-run and **not** part of
-the shipped `shore` CLI. It refuses to run when both a flat and a nested store are present (an
-interrupted migration), and the normal resolve path surfaces the same flat-store and conflict
-states as typed, actionable errors. The still-future `shore doctor`
+`state.json`, and `store-registration.json`) under `.shore/data/` crash-safely (copy in, then
+remove the flat originals), rewrites a wholesale `.shore/` `.git/info/exclude` line to the narrow
+`.shore/data/`, and upgrades every event's writer fields in place (`writer.tool` →
+`writer.producer`, dropping `writer.role`) — the writer is outside every hash, so event identity is
+preserved. It is owner-run and **not** part of the shipped `shore` CLI. A legacy store is detected
+by the same flat-store-marker set the resolve guard uses (so a registration-only linked checkout is
+a store too); it refuses to run when both a flat and a nested store are present (an interrupted
+migration), and the normal resolve path surfaces the same flat-store and conflict states as typed,
+actionable errors. The still-future `shore doctor`
 ([issue #9](https://github.com/kevinswiber/shoreline/issues/9)) remains a separate, read-only
 diagnostic bundle concern — it is not built.
 
