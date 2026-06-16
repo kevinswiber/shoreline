@@ -287,6 +287,178 @@ pub fn capture(repo: &Path) -> String {
         .to_owned()
 }
 
+/// A populated store assembled once through the `shore` CLI, reused by the
+/// endpoint-contract and validation read-surface suites: one captured ReviewUnit
+/// carrying a range-targeted observation, an operative input request, a
+/// superseded + a superseding assessment (two tracks), and two validation checks
+/// (passed `cargo test` on the agent track, failed `cargo clippy` on the human
+/// track).
+pub struct RepresentativeStore {
+    pub repo: GitRepo,
+    pub review_unit_id: String,
+    pub snapshot_id: String,
+}
+
+/// Build the [`RepresentativeStore`] entirely through the real CLI, so it tracks
+/// the current on-disk store layout without hard-coding any path.
+pub fn representative_store() -> RepresentativeStore {
+    let repo = GitRepo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn value() -> u32 {\n    1\n}\n\npub fn other() -> u32 {\n    2\n}\n",
+    );
+    repo.commit_all("base");
+    repo.write(
+        "src/lib.rs",
+        "pub fn value() -> u32 {\n    42\n}\n\npub fn other() -> u32 {\n    7\n}\n",
+    );
+
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    let capture = run_shore_json(&["review", "capture", "--repo", &repo_arg]);
+    let review_unit_id = capture["reviewUnit"]["id"]
+        .as_str()
+        .expect("capture returns a ReviewUnit id")
+        .to_owned();
+    let snapshot_id = capture["reviewUnit"]["snapshotId"]
+        .as_str()
+        .expect("capture returns a snapshot id")
+        .to_owned();
+
+    // Range-targeted observation on the agent track.
+    run_shore(&[
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--title",
+        "Observed change",
+        "--body",
+        "the return value changed",
+        "--file",
+        "src/lib.rs",
+        "--start-line",
+        "2",
+        "--end-line",
+        "2",
+    ]);
+
+    // Operative input request.
+    run_shore(&[
+        "review",
+        "input-request",
+        "open",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--title",
+        "Need a decision",
+        "--reason",
+        "manual-decision-required",
+        "--body",
+        "should we ship this?",
+    ]);
+
+    // A first assessment (agent track), then a superseding assessment (human
+    // track) that replaces it, so current-assessment resolution is exercised.
+    let first = run_shore_json(&[
+        "review",
+        "assessment",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--assessment",
+        "needs-changes",
+        "--summary",
+        "not yet",
+    ]);
+    let first_assessment_id = first["assessmentId"]
+        .as_str()
+        .expect("assessment add returns an assessment id")
+        .to_owned();
+    run_shore(&[
+        "review",
+        "assessment",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+        "--summary",
+        "ship it",
+        "--replaces",
+        &first_assessment_id,
+    ]);
+
+    // Two validation checks across two tracks: a passed cargo test and a failed
+    // cargo clippy carrying an exit code + command.
+    run_shore(&[
+        "review",
+        "validation",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--check-name",
+        "cargo test",
+        "--status",
+        "passed",
+    ]);
+    run_shore(&[
+        "review",
+        "validation",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "human:kevin",
+        "--check-name",
+        "cargo clippy",
+        "--status",
+        "failed",
+        "--exit-code",
+        "1",
+        "--command",
+        "cargo clippy -- -D warnings",
+    ]);
+
+    RepresentativeStore {
+        repo,
+        review_unit_id,
+        snapshot_id,
+    }
+}
+
+/// Run a `shore` subcommand, asserting success and surfacing stderr on failure.
+fn run_shore(args: &[&str]) {
+    let output = shore(args);
+    assert!(
+        output.status.success(),
+        "shore {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Run a `shore` subcommand and parse its stdout as JSON.
+fn run_shore_json(args: &[&str]) -> Value {
+    let output = shore(args);
+    assert!(
+        output.status.success(),
+        "shore {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("parse shore {args:?} JSON: {error}"))
+}
+
 pub fn capture_lineage_round(repo: &Path, lineage_id: &str, predecessor: Option<&str>) -> String {
     let mut args = vec![
         "review".to_owned(),
