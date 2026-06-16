@@ -40,7 +40,7 @@ number, use the branch's distinctive segment as a fallback, and use a short rand
 exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps the lane legible when more than one
-agent run writes to the same `.shore/` store. Shoreline command output also records local Git and
+agent run writes to the same `.shore/data/` store. Shoreline command output also records local Git and
 producer provenance, but the track is the durable lane that names which agent run is writing.
 
 ## Agent actor identity
@@ -59,7 +59,7 @@ your agent name and always the same one (`claude-code`, never also `claude`): tw
 one agent's history across two identities. Keep it lowercase and hyphenated; `/` inside the agent
 segment is reserved.
 
-Who an agent acts on behalf of is resolved at read time from the checked-in `.shoreline/delegates`
+Who an agent acts on behalf of is resolved at read time from the checked-in `.shore/delegates.json`
 map, documented in [storage-model.md](./storage-model.md) and decided in
 [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md). Identity is reported, never the basis
 of a binding decision. Agent events written before adopting an `actor:agent:` id carry the human's

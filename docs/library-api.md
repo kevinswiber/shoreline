@@ -165,7 +165,7 @@ resolve a principal, and signing never gates a write.
 
 | Symbol | Purpose |
 | --- | --- |
-| `DelegationMap` / `delegation_map_from_value` / `DelegationMap::from_delegates_file` | Parse a checked-in `.shoreline/delegates` map (top-level `delegates` key, unknown keys ignored), reader-supplied like `TrustSet`. |
+| `DelegationMap` / `delegation_map_from_value` / `DelegationMap::from_delegates_file` | Parse a checked-in `.shore/delegates.json` map (top-level `delegates` key, unknown keys ignored), reader-supplied like `TrustSet`. |
 | `DelegationMap::resolve` / `PrincipalResolution` / `UnresolvedReason` | Resolve an agent actor's principal at an event `occurredAt` over half-open validity windows: `Resolved` / `None(reason)` / `Ambiguous`. |
 | `PrincipalView` / `PrincipalStatus` / `PrincipalSource` | The serialized principal object `{actorId, status, source}` that rides beside `writer` in projections; `principal_view_for` builds it (only for `actor:agent:*` writers), `principal_display_label` renders `claude-code (for kevin@swiber.dev)`. |
 | `with_delegation_map` | Thread a `DelegationMap` into a read — on `ReviewHistoryOptions` and `ReviewUnitShowOptions`, and as a parameter to the leaf document builders — beside `with_trust_set`. |

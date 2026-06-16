@@ -38,13 +38,13 @@ caller would see them.
 
 - `shore review capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
   `python3 -m json.tool` if you want to read them. Most read commands accept `--pretty`.
-- `shore` writes durable state into `.shore/` inside the worktree. After a manual test, you can
+- `shore` writes durable state into `.shore/data/` inside the worktree. After a manual test, you can
   remove the temp directory; nothing escapes it.
 
 ## A. Basic capture of tracked changes
 
 **Goal.** Confirm that `shore review capture` records a `review_unit_captured` event, writes a
-snapshot artifact, and rebuilds `.shore/state.json`.
+snapshot artifact, and rebuilds `.shore/data/state.json`.
 
 ```bash
 # Add a tracked file on top of the baseline commit, then modify it so the
@@ -54,18 +54,18 @@ git add src.txt && git commit -q -m "add src"
 echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
 
 shore review capture | jq .
-ls -la .shore/
-ls .shore/events/ .shore/artifacts/snapshots/
+ls -la .shore/data/
+ls .shore/data/events/ .shore/data/artifacts/snapshots/
 ```
 
 **Expect.**
 
 - One JSON document with `schema: "shore.review-capture"`, a `reviewUnit.id`, a `revisionId`, a
   `snapshotId`, and a `snapshotArtifactContentHash`.
-- `.shore/events/` contains exactly one event file.
-- `.shore/artifacts/snapshots/` contains exactly one snapshot artifact.
-- `.shore/state.json` exists and reports `reviewUnitCount: 1`.
-- `.shore/` is registered in `.git/info/exclude`; the worktree `.gitignore` is
+- `.shore/data/events/` contains exactly one event file.
+- `.shore/data/artifacts/snapshots/` contains exactly one snapshot artifact.
+- `.shore/data/state.json` exists and reports `reviewUnitCount: 1`.
+- `.shore/data/` is registered in `.git/info/exclude`; the worktree `.gitignore` is
   unchanged and `git status --short` reports no `.gitignore` line.
 
 ## B. Capture with untracked files
@@ -83,7 +83,7 @@ shore dump | jq '.stream.rows[] | select(.kind.file_header) | .kind.file_header'
 - The untracked `new-file.txt` appears with `status: "added"`.
 - No `.gitignore` row appears, because Shoreline records its storage-ignore entry in
   `.git/info/exclude` rather than the worktree `.gitignore`.
-- No `.shore/` rows appear, because the local exclude keeps Shoreline's own storage out of the
+- No `.shore/data/` rows appear, because the local exclude keeps Shoreline's own storage out of the
   captured snapshot.
 
 If you want a fresh capture that *only* sees the untracked file, run this in a different temp repo
@@ -351,7 +351,7 @@ shore dump --pretty | jq '.reload_diagnostics // {}'
 - One `stale_note` row with `resolution_status: "stale"`, plus the original `target_path` and
   `target_line_range`.
 - `reload_diagnostics.entries[]` contains a `note_stale` entry naming the note.
-- `.shore/events/` is unchanged: durable facts are not rewritten by reload.
+- `.shore/data/events/` is unchanged: durable facts are not rewritten by reload.
 
 For the orphan case, do the same in a repo where the sidecar references a path that does not
 appear in the captured snapshot at all (for example, a file the working tree has never seen). The
@@ -360,45 +360,45 @@ row per orphan note. The synthetic header is omitted when there are no orphans.
 
 ## J. Storage soundness — events, artifacts, and projection rebuildability
 
-**Goal.** Confirm that `.shore/events/` and `.shore/artifacts/` together are the authoritative
-durable store, and that `.shore/state.json` is a pure projection that can be deleted and
+**Goal.** Confirm that `.shore/data/events/` and `.shore/data/artifacts/` together are the authoritative
+durable store, and that `.shore/data/state.json` is a pure projection that can be deleted and
 regenerated.
 
 The authority split (see `docs/storage-model.md`):
 
-- `.shore/events/` — append-only immutable per-fact events.
-- `.shore/artifacts/` — immutable support records that events bind to: captured ReviewUnit
+- `.shore/data/events/` — append-only immutable per-fact events.
+- `.shore/data/artifacts/` — immutable support records that events bind to: captured ReviewUnit
   snapshots (`artifacts/snapshots/`), and content-addressed bodies for large observation,
   input request, and assessment payloads (`artifacts/notes/`). `review unit show` reads the
   snapshot artifact for the selected ReviewUnit; the event log alone cannot reconstruct snapshot
   rows or large note bodies.
-- `.shore/state.json` — rebuildable projection summary. Reads do not depend on its existence;
+- `.shore/data/state.json` — rebuildable projection summary. Reads do not depend on its existence;
   writes regenerate it.
 
 ```bash
-ls .shore/events/
-ls .shore/artifacts/snapshots/
-ls .shore/artifacts/notes/        # only populated for large-body events
+ls .shore/data/events/
+ls .shore/data/artifacts/snapshots/
+ls .shore/data/artifacts/notes/        # only populated for large-body events
 
 # Read commands work without state.json
-HASH_BEFORE=$(jq -r .eventSetHash .shore/state.json)
-rm .shore/state.json
+HASH_BEFORE=$(jq -r .eventSetHash .shore/data/state.json)
+rm .shore/data/state.json
 shore review history --pretty | jq -r .eventSetHash    # same hash
 shore review unit show --pretty >/dev/null
-test -f .shore/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
+test -f .shore/data/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
 
 # A write command rebuilds the projection
 shore review observation add --track agent:codex --title "trigger rebuild" >/dev/null
-jq '.eventCount, .eventSetHash' .shore/state.json
+jq '.eventCount, .eventSetHash' .shore/data/state.json
 ```
 
 **Expect.**
 
 - `shore review history` and `shore review unit show` both succeed without `state.json` present.
   Their `eventSetHash` matches the value that was in the deleted projection.
-- After the next write command, `.shore/state.json` exists again and reports a higher
+- After the next write command, `.shore/data/state.json` exists again and reports a higher
   `eventCount` and a new `eventSetHash`.
-- Event files in `.shore/events/` are never moved, renamed, or removed during any of this. You can
+- Event files in `.shore/data/events/` are never moved, renamed, or removed during any of this. You can
   list them before and after and confirm the set only grows.
 
 If you want to confirm idempotency directly, re-run the same `observation add` with
@@ -414,7 +414,7 @@ When refactoring storage, projections, or CLI surfaces, also look at:
 - **Event file count**: each `add`/`request`/`resolve`/`apply` call should create exactly one new
   event file unless it is a same-key idempotent retry.
 - **Artifact dedup**: writing two observations with the same **large** body string should yield
-  one file in `.shore/artifacts/notes/` (content-addressed) and two events that both reference it
+  one file in `.shore/data/artifacts/notes/` (content-addressed) and two events that both reference it
   by content hash. Bodies under roughly 4 KiB stay inline in the event payload and do not produce
   an artifact at all, so use a body well over that threshold to exercise this path —
   `python3 -c "print('x'*5000)" > big-body.txt` and pass `--body-file big-body.txt` to two
@@ -429,7 +429,7 @@ When refactoring storage, projections, or CLI surfaces, also look at:
 
 - Performance benchmarking or stress tests.
 - The TUI `shore show` interaction beyond a quick keybinding smoke test.
-- Multi-writer coordination — V1 is intentionally single-writer per `.shore/`.
+- Multi-writer coordination — V1 is intentionally single-writer per `.shore/data/`.
 - Daemon, notification, or delivery-queue behavior — none of those exist in V1.
 
 If a workflow you exercise during real review reveals a gap that is not covered here, add a short

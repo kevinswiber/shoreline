@@ -14,7 +14,7 @@ policy with write-side force: a scheduler, lock manager, daemon broker, or first
 That is not Shoreline's V1 architecture. Shoreline's substrate should preserve facts, surface conflicts,
 and let readers apply explicit policy.
 
-The existing writer contract already follows this posture. `.shore/` assumes one active Shoreline
+The existing writer contract already follows this posture. `.shore/data/` assumes one active Shoreline
 writer per store at a time, but it does not coordinate broader multi-agent work through lockfiles,
 leases, daemon brokering, IPC, or filesystem notifications.
 

@@ -85,8 +85,8 @@ set.
 
 ### Delegation Lives In A Sibling Checked-In File
 
-On-behalf-of is recorded in `.shoreline/delegates`, a JSON file beside the existing
-`.shoreline/allowed-signers` convention (`src/session/signing/mod.rs` fixture precedent) — a
+On-behalf-of is recorded in `.shore/delegates.json`, a JSON file beside the existing
+`.shore/allowed-signers.json` convention (`src/session/signing/mod.rs` fixture precedent) — a
 sibling, not an extension. Top-level key `delegates`; each agent actor id maps to an **array** of
 delegation records:
 
@@ -120,12 +120,35 @@ human can review without parsing key material; rotating a key never touches dele
 verification and principal resolution stay independent — an unsigned local agent event can resolve
 a principal, and a validly signed agent event can resolve `principal: none`.
 
+### A Local Override Layers Over The Committed Map
+
+The committed `.shore/delegates.json` is the **shared default**. It stays load-bearing for
+everything the rest of this decision rests on: portability across mirrors, exported bundles, and
+non-author readers; the `git log` audit trail of who was enrolled when; and the review-and-commit
+authorization model. A second, locally-excluded file — `.shore/delegates.local.json` — may sit
+beside it as a **private override** for an operator who needs a different principal mapping than the
+team default without committing it.
+
+The two layer **git-config style**: for each agent present in the local file, its records **fully
+replace** the committed records for that agent — including replacement with an empty array, which
+disavows the agent locally; agents absent from the local file inherit the committed map; and either
+file may exist alone. The merge happens at **discovery time** in the CLI helper. The library
+`DelegationMap` stays scope-agnostic — a new `with_local_override` method expresses the merge as a
+pure operation on the parsed map — and resolution semantics (windows, ambiguity, disavowal) are
+unchanged: layering only chooses *which* records feed resolution, never how a record resolves.
+
+The trust posture is deliberate: the committed file remains the shared audit and portability root,
+while the local override is a private, non-portable convenience and is never the shared authority.
+Shoreline keeps `.shore/delegates.local.json` out of Git via `.git/info/exclude` (the committed
+`.shore/delegates.json` and `.shore/allowed-signers.json` are tracked by design); a malformed local
+file is advisory and never poisons the committed default.
+
 ### Enrollment Is Possession-Based: Agent Proposes, Human Commits
 
 The agent (or the human) runs `shore identity enroll`, which writes the delegates entry into the
 working tree and prints the diff. Under ADR-0003 that edit is an advisory act — recorded intent,
 never operative on its own. The human's review-and-commit **is** the authorization; there is no
-countersignature ceremony in v1, and `git log -p .shoreline/delegates` is the audit trail. This is
+countersignature ceremony in v1, and `git log -p .shore/delegates.json` is the audit trail. This is
 the same trust root the system already stands on twice: whoever can edit the checked-in
 allowed-signers file already controls which keys verify as `valid`, and ADR-0009 arm (a) already
 makes possession of the store the local trust root. An agent with worktree access could commit the
@@ -161,7 +184,7 @@ explicit opt-in). So:
 - **Humans opt in explicitly.** `shore keys use-ssh` adopts an existing Ed25519 SSH key via
   ssh-agent — the agent signs Shoreline's DSSE pre-authentication bytes directly, so the private
   key file is never read and encrypted or hardware-custodied keys work for free — or
-  `shore keys init` generates a dedicated key under `~/.shoreline/keys/`.
+  `shore keys init` generates a dedicated key under `~/.shore/keys/`.
 - **Agents get automatic keygen.** On the first write in declared agent context with no resolvable
   signer, `shore` generates a passphrase-less Ed25519 key (user-level, mode 0600), signs the
   event, and stages enrollment for the human to commit. Passphrase-less is by design: an
@@ -172,8 +195,9 @@ explicit opt-in). So:
   `writer.actorId` itself (authorized by ADR-0004's actor-equals-signer rule with zero trust-set
   changes), discard after — short-lived keys instead of revocation management.
 
-Keys never live in the repo or the store: `.shore/` is copyable and linkable by design and
-`.shoreline/` is checked in; either would eventually ship a private key.
+Keys never live in the repo or the store: the `.shore/data/` store is copyable and linkable by
+design, and the committed config siblings (`.shore/delegates.json`, `.shore/allowed-signers.json`)
+are checked in; either would eventually ship a private key.
 
 ### Signing Never Gates A Write
 

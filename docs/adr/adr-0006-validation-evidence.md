@@ -27,7 +27,7 @@ input-request counts, review acceptance, merge authority, or write authority.
 
 Validation targets and stable identity fields are path-free. They carry opaque content-addressed IDs
 such as `reviewUnitId`, `trackId`, and `validationCheckId`; they do not derive from worktree paths,
-raw `.git` layout, raw `.shore` paths, clone-local store paths, raw artifact paths, or
+raw `.git` layout, raw `.shore/data` paths, clone-local store paths, raw artifact paths, or
 machine-local route names.
 
 Validation summaries use the existing inline-or-artifact text-body policy. Short summaries may be

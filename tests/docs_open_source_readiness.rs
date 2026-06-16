@@ -244,6 +244,11 @@ fn adr_0010_is_landed_and_accepted() {
     let adr = std::fs::read_to_string("docs/adr/adr-0010-actor-identity-and-delegation.md")
         .expect("read ADR-0010");
     assert!(adr.contains("**Status:** Accepted"));
+    // The local-override layer is documented (amendment for the single-.shore layout).
+    assert!(
+        adr.contains(".shore/delegates.local.json"),
+        "ADR-0010 documents the delegates local-override layer"
+    );
     // No private research/planning pointers in public docs.
     assert!(!adr.contains("implementation plan"));
     assert!(!adr.contains("research 0009"));
@@ -262,7 +267,11 @@ fn docs_cover_actor_identity_and_delegation() {
         "storage-model documents the writer.tool hard break"
     );
     assert!(
-        storage.contains(".shoreline/delegates"),
+        storage.contains("## Legacy Writer Role Events"),
+        "storage-model documents the writer.role hard break (both read_event anchors stay valid)"
+    );
+    assert!(
+        storage.contains(".shore/delegates.json"),
         "storage-model documents the delegates file"
     );
     assert!(
@@ -288,7 +297,7 @@ fn docs_cover_actor_identity_and_delegation() {
 
     let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
     assert!(
-        cli.contains("SHORE_ACTOR_ID") && cli.contains(".shoreline/delegates"),
+        cli.contains("SHORE_ACTOR_ID") && cli.contains(".shore/delegates.json"),
         "cli-reference documents agent identity and delegates discovery"
     );
 }

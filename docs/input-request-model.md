@@ -82,7 +82,7 @@ shore review input-request fetch <input-request-id> [--include-body]
 shore review input-request respond <input-request-id> --outcome approved [--reason "approved"]
 ```
 
-The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/events/`; they do not
+The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/data/events/`; they do not
 depend on `state.json` as authority. Bodies and response reasons may use internal
 `shore.note-body` artifacts, but command output does not expose artifact paths.
 
@@ -99,8 +99,8 @@ openInputRequestCount
 openOperativeInputRequestCount
 ```
 
-The authoritative store is the `.shore/events/` event log plus any body or snapshot artifacts under
-`.shore/artifacts/`. `state.json`, command-output views, and future read indexes are rebuildable
+The authoritative store is the `.shore/data/events/` event log plus any body or snapshot artifacts under
+`.shore/data/artifacts/`. `state.json`, command-output views, and future read indexes are rebuildable
 projections derived from that durable storage.
 
 ## Design Constraints For Local Durable State
@@ -147,4 +147,4 @@ should request input at safe workflow boundaries and record the response that cl
 Earlier development versions of Shoreline wrote intervention events and exposed a
 `shore review intervention` command family. Current Shoreline uses input request events and
 `shore review input-request` instead. Because Shoreline has not released this storage contract, the
-supported migration is to discard the old local `.shore/` directory and recapture the review.
+supported migration is to discard the old local `.shore/data/` directory and recapture the review.

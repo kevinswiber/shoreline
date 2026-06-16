@@ -22,7 +22,7 @@ Add a ReviewUnit lineage contract. A lineage is an ordered thread over already-s
 artifacts, or ReviewUnit IDs.
 
 Lineage identity is path-free. A `lineageId` is opaque in command output and must not be derived
-from `worktreeRoot`, `.git`, `.shore`, clone-local store paths, or any other machine-local
+from `worktreeRoot`, `.git`, `.shore/data`, clone-local store paths, or any other machine-local
 path. Change-Id optional enrichment only: a Change-Id can help display or duplicate heuristics, but
 it is not required and is never the lineage identity.
 

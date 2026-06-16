@@ -79,7 +79,7 @@ issue or PR number, use the branch's distinctive segment as a fallback, and use 
 neither exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps lanes legible when more than one
-agent run writes to the same `.shore/` store; Shoreline still records writer provenance separately in
+agent run writes to the same `.shore/data/` store; Shoreline still records writer provenance separately in
 the event envelope.
 
 ```bash

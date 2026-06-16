@@ -20,9 +20,9 @@ Stay on the threshold model. Replay is authoritative.
   `src/session/store/body_artifact.rs`) remain inline in the event payload.
 - Bodies above the threshold are externalized to `artifacts/notes/<sha256(body)>.json` with envelope
   `{"schema":"shore.note-body","version":1,"body":"..."}`.
-- The event under `.shore/events/` is the authoritative durable record of every note. The artifact,
+- The event under `.shore/data/events/` is the authoritative durable record of every note. The artifact,
   when present, is a content-addressed sidecar.
-- `.shore/artifacts/notes/` is an overflow store, not a complete inventory of note bodies. Tooling
+- `.shore/data/artifacts/notes/` is an overflow store, not a complete inventory of note bodies. Tooling
   that wants a complete list of note bodies must replay events.
 - `state.json` projects bounded counts (`noteCount`, `observationCount`, `assessmentCount`,
   `inputRequestCount`, `openInputRequestCount`, `openOperativeInputRequestCount`, and projection
@@ -48,8 +48,8 @@ Stay on the threshold model. Replay is authoritative.
 
 ### Adopted
 
-- `.shore/artifacts/notes/` is an overflow store and is not a complete inventory of note bodies.
-- Artifact-only tooling is not a supported authority; tools must replay `.shore/events/`.
+- `.shore/data/artifacts/notes/` is an overflow store and is not a complete inventory of note bodies.
+- Artifact-only tooling is not a supported authority; tools must replay `.shore/data/events/`.
 - `state.json` continues to project counts only — never body content.
 - The 4096-byte threshold is a tuning parameter and may move without a deprecation cycle.
 - `body_byte_size` (and, where available, `body_content_hash` / `reason_content_hash` /
@@ -110,7 +110,7 @@ If a future workload makes option (b) attractive — e.g., a tool that must enum
 without event replay — the migration shape is:
 
 1. Extend `NoteBodyEnvelope` (or a new envelope) to carry referrer identity.
-2. Walk existing `.shore/events/`; for every body-bearing event whose payload still carries an
+2. Walk existing `.shore/data/events/`; for every body-bearing event whose payload still carries an
    inline `body`, emit a new artifact under `artifacts/notes/` and an updated event (or a "body
    migration" event) that replaces the inline body with a `body_artifact_path`.
 3. Update `stage_body_artifact` to always materialize (or invert the threshold).

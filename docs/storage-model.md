@@ -3,7 +3,7 @@
 ## Status
 
 This is architecture guidance for Shoreline's durable review/session state. It describes constraints
-the first `.shore/` persistence release should preserve, even when the implementation starts small.
+the first `.shore/data/` persistence release should preserve, even when the implementation starts small.
 
 ## Goal
 
@@ -14,15 +14,15 @@ before persistence, shared mutable JSON files, unbounded retries, and helper byp
 
 ## Storage Authority
 
-Shoreline V1 intentionally uses filesystem-backed `.shore/events/` and `.shore/artifacts/` as the
+Shoreline V1 intentionally uses filesystem-backed `.shore/data/events/` and `.shore/data/artifacts/` as the
 authoritative local store. This is a deliberate split between canonical immutable facts and derived
 projections, not a temporary gap waiting to be replaced by a database.
 
 **Authoritative facts.** Durable history lives in two places:
 
-- `.shore/events/` — append-only, immutable per-fact event files. Events are independently written
+- `.shore/data/events/` — append-only, immutable per-fact event files. Events are independently written
   and never moved, retried in place, or rewritten on read.
-- `.shore/artifacts/` — immutable or content-addressed support records, including captured
+- `.shore/data/artifacts/` — immutable or content-addressed support records, including captured
   ReviewUnit snapshots and large bodies for imported notes, native observations, input requests, and
   assessments.
 
@@ -51,12 +51,24 @@ Use distinct storage concepts for distinct semantics:
 
 ```text
 .shore/
-  events/       immutable event log
-  state.json    rebuildable projection
-  artifacts/    immutable or content-addressed support records
-    notes/      optional content-addressed note-body records
-    snapshots/  immutable captured ReviewUnit snapshots
+  data/                   worktree-local store (git-excluded via .git/info/exclude)
+    events/               immutable event log
+    state.json            rebuildable projection
+    artifacts/            immutable or content-addressed support records
+      notes/              optional content-addressed note-body records
+      snapshots/          immutable captured ReviewUnit snapshots
+  delegates.json          committed delegation map (shared default)
+  delegates.local.json    locally-excluded private delegation override
+  allowed-signers.json    committed allowed-signers trust set
 ```
+
+The single `.shore/` directory holds both the worktree-local store (nested under
+`.shore/data/`) and committed config siblings (`delegates.json`,
+`allowed-signers.json`). Only the store subtree and the private
+`delegates.local.json` override are kept out of Git, via `.git/info/exclude`
+entries (`.shore/data/` and `.shore/delegates.local.json`) — never a wholesale
+`.shore/` exclude, which would hide the committed config. Shoreline writes both
+exclude entries automatically on the first store write.
 
 `events/` is the authoritative log. Events are immutable, independently written, and never moved to
 `failed/`, retried in place, or rewritten on read.
@@ -90,7 +102,7 @@ top level and reports lineage attach counts, the post-attach head, and lineage d
 nested `lineageAttach` object. Malformed lineages have no head, so `headReviewUnitId` is `null`
 until the lineage projection is well formed again.
 
-Lineage identity must not depend on worktree paths, raw `.git` layout, raw `.shore` paths, or
+Lineage identity must not depend on worktree paths, raw `.git` layout, raw `.shore/data` paths, or
 clone-local store paths. Change-Id optional enrichment only: it may help readers display or correlate
 rounds, but it is not required and is not the lineage identity. Lineage events remain ordinary
 producer facts signable by the generic `EventToBeSigned` contract from
@@ -252,7 +264,7 @@ operative input-request counts, or any other operative projection.
 
 Validation identity is path-free. Event targets, validation targets, and stable identity fields carry
 opaque IDs such as `reviewUnitId`, `trackId`, and `validationCheckId`; they must not derive from
-worktree paths, raw `.git` layout, raw `.shore` paths, clone-local store paths, raw artifact paths,
+worktree paths, raw `.git` layout, raw `.shore/data` paths, clone-local store paths, raw artifact paths,
 or machine-local route names.
 
 Validation summaries use the shared inline-or-artifact mechanics. Summaries under or equal to
@@ -269,7 +281,7 @@ type, `sigVersion`, or family-specific signing path. See
 Review history is the chronological read surface over durable events:
 
 - `shore review history` returns `shore.review-history` JSON derived from a validated scan of
-  `.shore/events/`
+  `.shore/data/events/`
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   returned entries after filters
 - `historyCount` describes the filtered entry count
@@ -288,7 +300,7 @@ are storage details, not history output API.
 ReviewUnit show is the composite read surface for one captured ReviewUnit:
 
 - `shore review unit show` returns `shore.review-unit` JSON derived from a validated scan of
-  `.shore/events/` plus the bound immutable snapshot artifact for the selected ReviewUnit
+  `.shore/data/events/` plus the bound immutable snapshot artifact for the selected ReviewUnit
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   selected ReviewUnit's returned narrative facts
 - the output includes ReviewUnit identity, filters, summary counts, current assessment, native
@@ -311,23 +323,31 @@ one is present.
 
 ## Clone-Local Store Selection
 
-The default durable store remains worktree-local `.shore/`. A Git worktree can also be registered
+The default durable store remains worktree-local `.shore/data/`. A Git worktree can also be registered
 with a clone-local store associated with the clone's Git common directory, allowing linked
-worktrees from the same clone to share imported Shoreline facts.
+worktrees from the same clone to share imported Shoreline facts. The clone-local shared store lives
+at `.git/shore/` in the Git common directory (it stays flat — store-only, with no committed-config
+sibling to separate from). Existing linked checkouts created before this rename upgrade once by
+re-running `shore store link` (which re-mints the shared store) or `mv .git/shoreline .git/shore`;
+registration validates by opaque ref against the manifest, not a baked path, so a `mv` is clean.
+The broader two-store sync-model and placement questions (write-through versus the current
+batch-only `shore store link`; whether the shared store should move to a user-level location) are
+tracked separately in [issue #153](https://github.com/kevinswiber/shoreline/issues/153) and are out
+of scope here.
 
 Clone-local stores are selected through a worktree-local registration file. Public commands expose
 the result as command JSON with opaque store, clone, and repository-family refs; callers must not
-depend on raw clone-local store paths, event filenames, artifact paths, `.git` paths, `.shore` paths,
+depend on raw clone-local store paths, event filenames, artifact paths, `.git` paths, `.shore/data` paths,
 or `state.json` layout.
 
 The current linked writer contract is batch-only for durability, with linked-aware validation.
-Review capture and native review write commands continue to write the worktree-local `.shore/`
+Review capture and native review write commands continue to write the worktree-local `.shore/data/`
 store. What changed is what those write commands *validate against*: in a linked checkout, recording
 a review fact — an observation, an input request open or response, an assessment, validation
 evidence, or a lineage round — validates against the linked family's review record **plus** any local
 facts you have not yet synced. That writer-visible union lets you attach a fact to a review unit (or
 relate it to an observation, assessment, or request) captured in a sibling worktree. The fact itself
-is still written to your worktree-local `.shore/` store and stays invisible to other checkouts until
+is still written to your worktree-local `.shore/data/` store and stays invisible to other checkouts until
 `shore store link` copies it; the write result reports the `clone_local_fact_batch_only` diagnostic
 to signal the pending sync, mirroring `clone_local_capture_batch_only` for capture. `shore store
 link` is the explicit movement step: it scans the worktree for sensitivity findings before data
@@ -360,10 +380,10 @@ Reload is a read-side projection refresh. The durable event log remains immutabl
 the order-independent projection against the current worktree state and lowers anchor-stale
 conditions into the read surface via `reload_diagnostics`. If reload encounters a parse or ingest
 error partway through, the prior projection survives because the read-side primitive never mutates
-`.shore/`.
+`.shore/data/`.
 
 A future delivery queue is a separate subsystem. Queue concepts such as `pending/`, `failed/`,
-retry counts, backoff, and circuit breakers do not belong in `.shore/events/`.
+retry counts, backoff, and circuit breakers do not belong in `.shore/data/events/`.
 
 ## Event Files
 
@@ -537,7 +557,7 @@ artifact-per-body materialization.
 - It is a content-addressed **overflow store**, not a complete inventory of note bodies. Small-body
   notes have no corresponding file in this directory. The directory may be empty for a repo that
   has only small notes.
-- The authoritative durable record of every note is its event under `.shore/events/`. Replay
+- The authoritative durable record of every note is its event under `.shore/data/events/`. Replay
   (`EventStore::list_events()` followed by `load_body_artifact` for any `body_artifact_path`) is
   the only supported read primitive for note state.
 - Tooling that wants a complete list of note bodies must replay events; walking `artifacts/notes/`
@@ -599,14 +619,14 @@ have to change to flip it — is recorded in the ADR's "Future Reversal" section
 
 `state.json` records `eventSetHash` as derived freshness metadata for the event set used to build
 the projection. `eventCount` remains a cheap count, but it does not prove that a cached projection
-matches the current `.shore/events/` set.
+matches the current `.shore/data/events/` set.
 
 `eventSetHash` is computed from Shoreline's canonical JSON hash path over sorted `(eventId,
 payloadHash)` pairs. It intentionally excludes the full event JSON, event filenames, sequence
 numbers, writer metadata, storage paths, and `occurredAt`. The hash describes which durable facts
 the projection saw; it is not a causal ordering primitive or a raw event-file checksum.
 
-If a cached projection's `eventSetHash` does not match a fresh scan of `.shore/events/`, the
+If a cached projection's `eventSetHash` does not match a fresh scan of `.shore/data/events/`, the
 projection is stale and should be rebuilt from the event files. The event files remain authoritative;
 `state.json` is still safe to delete and regenerate. `shore review history` and
 `shore review unit show` reuse this freshness primitive, and future derived-index projections should
@@ -627,7 +647,7 @@ are explicit and tested.
 
 ## V1 Writer Contract
 
-V1 uses a single-writer workflow contract: one active Shoreline writer per `.shore/` directory at a
+V1 uses a single-writer workflow contract: one active Shoreline writer per `.shore/data/` directory at a
 time. Shoreline does not coordinate writers with lockfiles, leases, a daemon, IPC, or filesystem
 notifications yet.
 
@@ -654,9 +674,10 @@ lock or lease and does not make long-running multi-process writes a supported co
 Earlier development versions of Shoreline wrote a `role` field inside each event's writer
 envelope. Current Shoreline does not store a writer role: the review act is derived from
 `eventType`, and the conversation speaker is recorded by adapters as a `sourceSpeaker` payload
-field. Store reads reject stored events whose writer carries `role`. Because Shoreline has not
-released this storage contract, the supported migration is to discard the old local `.shore/`
-directory and recapture the review.
+field. Store reads reject stored events whose writer carries `role`. The supported repair for a
+legacy flat `.shore/` store is to run `just migrate-store`, which relocates the store to
+`.shore/data/` and upgrades the writer fields in place — no recapture needed (see
+[Migrations And Doctor](#migrations-and-doctor)).
 
 ## Legacy Writer Tool Events
 
@@ -670,9 +691,10 @@ bytes, the embedded signatures, and `sigVersion: 1` are all untouched.
 
 Store reads reject stored events whose writer carries `tool` with a typed
 `UnsupportedEventEnvelope` error naming the replacement field (`writer.producer`) and this anchor,
-rather than an opaque missing-field error. Because Shoreline has not released this storage
-contract, the supported migration is to discard the old local `.shore/` directory and recapture
-the review.
+rather than an opaque missing-field error. The supported repair for a legacy flat `.shore/` store
+is to run `just migrate-store`, which relocates the store to `.shore/data/` and rewrites
+`writer.tool` to `writer.producer` (dropping `writer.role`) in place — no recapture needed (see
+[Migrations And Doctor](#migrations-and-doctor)).
 
 ## Actor Identity and Delegation
 
@@ -684,7 +706,7 @@ the basis of a binding decision — a writer cannot make a claim trustworthy by 
 ([ADR-0007](./adr/adr-0007-writer-act-vocabulary.md)).
 
 Who an agent acts *on behalf of* is answered by a checked-in delegation map at
-`.shoreline/delegates` — a sibling of `.shoreline/allowed-signers`, deliberately separate so that
+`.shore/delegates.json` — a sibling of `.shore/allowed-signers.json`, deliberately separate so that
 key rotation never touches delegation. It is human-committed JSON:
 
 ```json
@@ -713,16 +735,29 @@ Resolution is projection-time, replay-stable, and git-free: it selects the recor
 contains the event's `occurredAt`. **Revocation closes a window** (`validUntil` set) — events
 inside the closed window keep resolving, so history stays stable — while **deleting a record is
 disavowal**: events that previously resolved deliberately resolve to nothing. `git log -p
-.shoreline/delegates` is the audit trail; the file's history, not a mechanism, records who was
+.shore/delegates.json` is the audit trail; the file's history, not a mechanism, records who was
 enrolled when.
 
 Resolution config is reader-supplied, exactly like the allowed-signers trust set. A consumer
 without the map — a mirror, an exported bundle — degrades to `principal: none`, never a wrong
-answer. The CLI discovers `.shoreline/delegates` at the worktree root; a malformed file warns once
+answer. The CLI discovers `.shore/delegates.json` at the worktree root; a malformed file warns once
 to stderr and proceeds with no map (advisory, never blocking). Overlapping windows with distinct
 principals resolve as `ambiguous` and are surfaced, never auto-picked.
 
-In this release, delegation entries are created by editing `.shoreline/delegates` directly (or by
+A locally-excluded `.shore/delegates.local.json` override may sit beside the committed
+`.shore/delegates.json`. The two layer git-config style: for each agent present in the local file,
+its records **fully replace** the committed records for that agent (including replacement with an
+empty array, which disavows the agent locally); agents absent from the local file inherit the
+committed map; either file may exist alone, and a malformed local file is advisory — it never
+poisons the committed default. The committed file stays the shared, portable audit/authority root;
+the local override is a private, non-portable convenience. Shoreline keeps
+`.shore/delegates.local.json` out of Git via `.git/info/exclude` (the committed
+`.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately tracked). That exclude
+entry is written automatically on the first store write; if you create the override before ever
+writing a store, run any `shore` write once or add the `.git/info/exclude` line by hand so it does
+not show up in `git status`.
+
+In this release, delegation entries are created by editing `.shore/delegates.json` directly (or by
 an agent proposing a working-tree edit); the human's review-and-commit is the authorization. A
 `shore keys`-staged enrollment flow is a separate, later key-custody plan; this release documents
 no unshipped commands.
@@ -808,6 +843,19 @@ rather than loop.
 Runtime code should read canonical storage. Legacy repair and migration belong in a future
 `shore doctor` or equivalent explicit command.
 
+The relocation of a legacy flat `.shore/` store to `.shore/data/` is exactly such an explicit
+command: `just migrate-store [<repo>]` (a thin `examples/migrate-store.rs` driver over the tested
+`migrate_store` library function). It nests the flat store's entries (`events/`, `artifacts/`,
+`state.json`) under `.shore/data/` crash-safely (copy in, then remove the flat originals), rewrites
+a wholesale `.shore/` `.git/info/exclude` line to the narrow `.shore/data/`, and upgrades every
+event's writer fields in place (`writer.tool` → `writer.producer`, dropping `writer.role`) — the
+writer is outside every hash, so event identity is preserved. It is owner-run and **not** part of
+the shipped `shore` CLI. It refuses to run when both a flat and a nested store are present (an
+interrupted migration), and the normal resolve path surfaces the same flat-store and conflict
+states as typed, actionable errors. The still-future `shore doctor`
+([issue #9](https://github.com/kevinswiber/shoreline/issues/9)) remains a separate, read-only
+diagnostic bundle concern — it is not built.
+
 Migration and repair work should commit independently. One successful fix should not be rolled back
 because an unrelated later validation failed. This mirrors the event-log rule: one durable fact, one
 independent commit.
@@ -846,7 +894,7 @@ This document does not require:
 - a delivery queue
 - filesystem locks
 - global event sequence allocation
-- committed `.shore/` state
+- committed `.shore/data/` store state
 
 The point is to keep the first storage stage small while making the safe path the easiest path to
 use.

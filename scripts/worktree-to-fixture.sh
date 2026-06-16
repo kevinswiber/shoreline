@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Snapshot a git worktree plus its `.shore` review data into a self-contained
+# Snapshot a git worktree plus its `.shore/data` review data into a self-contained
 # Shoreline test fixture. Worktrees come and go; this preserves the review
 # context (the exact tree that was reviewed, the base it was reviewed against,
-# and the captured `.shore` store) so it survives the worktree's deletion.
+# and the captured `.shore/data` store) so it survives the worktree's deletion.
 #
 # The fixture is a standalone git repo (origin removed) so git-based Shoreline
 # behavior keeps working without the source repo present. Build artifacts
-# (`target/`) are excluded by default. `.shore` is copied verbatim.
+# (`target/`) are excluded by default. `.shore/data` is copied verbatim.
 #
 # Fixtures default to a location OUTSIDE this repo, since captured review data
 # may be private. Do not commit fixtures into the source tree.
@@ -179,7 +179,7 @@ if [ "$BRANCH" != "HEAD" ]; then
 fi
 git -C "$DEST" reset -q   # index -> HEAD; working tree untouched (still empty)
 
-# Populate the working tree exactly as the worktree has it (incl. .shore).
+# Populate the working tree exactly as the worktree has it (incl. .shore/data).
 RSYNC_EXCLUDES=(--exclude='/.git')
 [ "$INCLUDE_TARGET" -eq 1 ] || RSYNC_EXCLUDES+=(--exclude='/target/')
 rsync -a "${RSYNC_EXCLUDES[@]}" "$WT/" "$DEST/"
@@ -188,19 +188,19 @@ rsync -a "${RSYNC_EXCLUDES[@]}" "$WT/" "$DEST/"
 git -C "$DEST" remote remove origin 2>/dev/null || true
 [ "$BRANCH" != "HEAD" ] && git -C "$DEST" branch --unset-upstream 2>/dev/null || true
 
-# Replicate the source repo's local excludes so `.shore` (and friends) stay
+# Replicate the source repo's local excludes so `.shore/data` (and friends) stay
 # ignored as in the original, then exclude this fixture's metadata file.
 DEST_EXCLUDE="$DEST/.git/info/exclude"
 : > "$DEST_EXCLUDE"
 if [ -f "$COMMON_DIR/info/exclude" ]; then
   cat "$COMMON_DIR/info/exclude" >> "$DEST_EXCLUDE"
 fi
-grep -qxF '.shore' "$DEST_EXCLUDE" 2>/dev/null || printf '%s\n' '.shore' >> "$DEST_EXCLUDE"
+grep -qxF '.shore/data' "$DEST_EXCLUDE" 2>/dev/null || printf '%s\n' '.shore/data' >> "$DEST_EXCLUDE"
 grep -qxF 'FIXTURE.md' "$DEST_EXCLUDE" 2>/dev/null || printf '%s\n' 'FIXTURE.md' >> "$DEST_EXCLUDE"
 
-# ---- .shore summary -------------------------------------------------------
-SHORE_DIR="$DEST/.shore"
-SHORE_SUMMARY="(no .shore directory found in worktree)"
+# ---- .shore/data summary --------------------------------------------------
+SHORE_DIR="$DEST/.shore/data"
+SHORE_SUMMARY="(no .shore/data directory found in worktree)"
 if [ -d "$SHORE_DIR" ]; then
   SJ="$SHORE_DIR/state.json"
   EVENTS_N="$(ls "$SHORE_DIR/events" 2>/dev/null | wc -l | tr -d ' ')"
@@ -228,7 +228,7 @@ TODAY="$(date +%Y-%m-%d)"
 TOOL_ORIGIN="$(git -C "$TOOL_REPO" remote get-url origin 2>/dev/null || echo '(unknown)')"
 {
   printf '# Fixture: %s\n\n' "$NAME"
-  printf 'A snapshot of a git worktree plus its `.shore` review data, captured for\n'
+  printf 'A snapshot of a git worktree plus its `.shore/data` review data, captured for\n'
   printf 'testing Shoreline. The source worktree was *copied*, so this fixture stays\n'
   printf 'valid after the original worktree is deleted.\n\n'
   printf '> Excluded from the git working tree (see `.git/info/exclude`) so `git status`\n'
@@ -249,7 +249,7 @@ TOOL_ORIGIN="$(git -C "$TOOL_REPO" remote get-url origin 2>/dev/null || echo '(u
   [ -n "$PR_LINE" ] && printf -- '- Associated PR: %s\n' "$PR_LINE"
   printf -- '- Captured into fixture: %s\n' "$TODAY"
   printf -- '- target/ build artifacts: %s\n\n' "$([ "$INCLUDE_TARGET" -eq 1 ] && echo included || echo excluded)"
-  printf '## .shore review data\n\n'
+  printf '## .shore/data review data\n\n'
   printf -- '- %s\n\n' "$SHORE_SUMMARY"
   printf '## Notes\n\n'
   printf -- '- Standalone git repo (origin removed): `git log`/`diff`/`rev-parse`/`status` work without the source repo present.\n'
@@ -262,7 +262,7 @@ if [ ! -f "$INDEX" ]; then
   {
     printf '# shoreline-fixtures\n\n'
     printf 'Local snapshots of review sessions for testing Shoreline. Each fixture is a\n'
-    printf 'standalone copy of a source worktree plus its `.shore` data; see each\n'
+    printf 'standalone copy of a source worktree plus its `.shore/data` data; see each\n'
     printf "fixture's \`FIXTURE.md\` for provenance. These may contain private review data\n"
     printf -- '— do not commit them into the Shoreline source repo.\n\n'
     printf '## Fixtures\n\n'

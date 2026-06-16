@@ -22,7 +22,7 @@ ADR supplies the trust source.
 Two kinds of evidence exist that are not the event's own claims:
 
 - **Possession of the store.** The writer contract (ADR-0003) assumes one active Shoreline writer
-  per `.shore/` store at a time. Everything in your store was either written by you or
+  per `.shore/data/` store at a time. Everything in your store was either written by you or
   deliberately imported by you. For the local-first product — a human answering
   `shore review input-request respond` in their own worktree — possession is the trust root, and
   demanding key ceremony for it would break the product's floor.
@@ -66,7 +66,7 @@ claimed `writer.actorId` is reported in the projection but is never the basis of
 
 An event with no ingest provenance was produced by this store's own writer under the
 single-writer contract — written by you, on your machine, through your workflows. For such events
-possession of the store is the trust root, exactly as it is for every other fact in `.shore/`.
+possession of the store is the trust root, exactly as it is for every other fact in `.shore/data/`.
 This arm preserves the local-first product: a human responding in their own worktree binds with
 zero keys, zero configuration.
 
@@ -79,7 +79,7 @@ Arm (a)'s trust basis must be stated honestly. The ingest-provenance marker (bel
 bookkeeping written by the store owner's own importer. It is trustworthy *to this store* under
 the single-writer contract; it is not a signed fact, and it is never trustworthy to a third party
 reading a mirrored or copied store. A store owner who hand-copies event files into
-`.shore/events/` bypasses the seams and manufactures "local" events — but that is an act of the
+`.shore/data/events/` bypasses the seams and manufactures "local" events — but that is an act of the
 owner against their own store, which possession already trusts. What the marker rules out is a
 *remote* actor minting an unsigned binding response: a remote event can only enter through an
 import seam, and the seam stamps it.

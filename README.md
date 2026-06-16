@@ -46,8 +46,8 @@ a local web UI:
 shore inspect --open
 ```
 
-Shoreline stores local review facts in `.shore/`. Command output JSON is the integration surface;
-raw event files, artifact paths, and `.shore/state.json` are internal storage details unless a
+Shoreline stores local review facts in `.shore/data/`. Command output JSON is the integration surface;
+raw event files, artifact paths, and `.shore/data/state.json` are internal storage details unless a
 command explicitly documents them. Consumers that prefer to read and write those facts in process
 can use the supported library API instead of the CLI — see [docs/library-api.md](docs/library-api.md).
 
@@ -115,8 +115,8 @@ command stays `shore` because command names should remain short and practical.
 The current focus is a headless, durable review model first:
 
 - Git working-tree or commit-range (`--base`) capture into a ReviewUnit
-- append-only local events under `.shore/events/`
-- immutable snapshot and note-body artifacts under `.shore/artifacts/`
+- append-only local events under `.shore/data/events/`
+- immutable snapshot and note-body artifacts under `.shore/data/artifacts/`
 - rebuildable projections and command-output JSON
 - a read-only terminal view over the same model
 

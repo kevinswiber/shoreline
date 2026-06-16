@@ -17,7 +17,7 @@ read as a tree diff with no working-tree involvement.
 
 Each ReviewUnit gets its own immutable snapshot artifact. Anything you record
 afterwards — observations, input requests, assessments — attaches to that
-ReviewUnit and lives in the durable `.shore/events/` log.
+ReviewUnit and lives in the durable `.shore/data/events/` log.
 
 Several captured ReviewUnits can also be linked as one ReviewUnit lineage. A lineage records
 successive review rounds without mutating the captured snapshots. The lineage head is explicit
@@ -55,11 +55,11 @@ cd path/to/worktree
 git status        # confirm the changes you expect are present
 ```
 
-The first Shoreline command run in the worktree creates local `.shore/`
-storage and registers `.shore/` in the repository-local `.git/info/exclude`
-when it is not already ignored. This keeps `.shore/` out of `git status`
+The first Shoreline command run in the worktree creates local `.shore/data/`
+storage and registers `.shore/data/` in the repository-local `.git/info/exclude`
+when it is not already ignored. This keeps `.shore/data/` out of `git status`
 without modifying your tracked `.gitignore` or dirtying the working tree. If
-`.shore/` is already ignored — for example by a project `.gitignore` entry —
+`.shore/data/` is already ignored — for example by a project `.gitignore` entry —
 Shoreline leaves the ignore files untouched.
 
 ## 2. Capture a ReviewUnit
@@ -78,7 +78,7 @@ captured snapshot as an immutable Shoreline-owned artifact. The output document 
 - the snapshot artifact's canonical content hash
 
 You can pin later commands to the captured ReviewUnit with `--review-unit
-<id>`. When only one ReviewUnit exists in `.shore/`, commands that need a
+<id>`. When only one ReviewUnit exists in `.shore/data/`, commands that need a
 current ReviewUnit pick it automatically. When multiple exist, list them with
 `shore review unit list` and pass either the exact ReviewUnit ID or a lineage
 scope.
@@ -140,7 +140,7 @@ ReviewUnit reads remain valid for old rounds.
 Three read surfaces describe ReviewUnits, and they answer different questions:
 
 ```bash
-shore review unit list     # what ReviewUnits exist in .shore/
+shore review unit list     # what ReviewUnits exist in .shore/data/
 shore review unit show     # composite ReviewUnit view (narrative + snapshot)
 shore review history       # chronological raw event listing
 ```
@@ -203,7 +203,7 @@ Use `shore review lineage show --lineage <lineage-id>` for the compact thread do
 ### `shore review history`
 
 `shore review history` is the chronological raw-event listing across the
-entire `.shore/events/` log — across ReviewUnits if there is more than one.
+entire `.shore/data/events/` log — across ReviewUnits if there is more than one.
 It is the place to answer "what happened, in what order?" rather than
 "what does this ReviewUnit look like right now?".
 
@@ -383,17 +383,17 @@ stale/orphan note rows.
 
 Shoreline separates **authoritative facts** from **derived views**:
 
-- `.shore/events/` is the authoritative append-only log. Each file is one
+- `.shore/data/events/` is the authoritative append-only log. Each file is one
   immutable durable fact. Events are never moved, retried in place, or
   rewritten on read.
-- `.shore/artifacts/` holds the immutable support records that events bind to:
+- `.shore/data/artifacts/` holds the immutable support records that events bind to:
   captured ReviewUnit snapshots, and the optional content-addressed bodies
   for large observation, input request, and assessment payloads.
-- `.shore/state.json` is a **rebuildable projection**, not the authority. It
+- `.shore/data/state.json` is a **rebuildable projection**, not the authority. It
   may be deleted and regenerated; freshness against the current event set is
   verified through `eventSetHash`.
 
-If `.shore/state.json` looks stale or inconsistent, Shoreline rebuilds it from
+If `.shore/data/state.json` looks stale or inconsistent, Shoreline rebuilds it from
 the event log. Do not write to `state.json` yourself, and do not depend on
 its internal shape.
 
@@ -406,7 +406,7 @@ The stable surface for automation is **command-output JSON documents**:
 `shore.review-assessment-add` / `-show`, and `shore.notes-apply`.
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
-Raw event files, event filenames, artifact paths, and `.shore/state.json` are
+Raw event files, event filenames, artifact paths, and `.shore/data/state.json` are
 Shoreline-owned storage details. They can change without a deprecation cycle.
 
 ### Old dump/show stream vs. ReviewUnit ledger
@@ -435,7 +435,7 @@ Every observation, input request, and assessment belongs to a required
 ran the command — is recorded separately in the event envelope: the writer
 `actorId` (from local Git config, or an explicit `actor:agent:<name>` set via
 `SHORE_ACTOR_ID`) and the `producer` that wrote the event. The human a resolved
-agent acts on behalf of comes from the checked-in `.shoreline/delegates` map at
+agent acts on behalf of comes from the checked-in `.shore/delegates.json` map at
 read time. Pick track names that group facts the way you want to read them back,
 then let provenance take care of itself.
 
@@ -466,7 +466,7 @@ In particular:
   filenames, and note-body artifact filenames are derived from internal
   hashes and may change without a deprecation cycle.
 - Do not depend on artifact paths or the internal shape of
-  `.shore/state.json`.
+  `.shore/data/state.json`.
 
 ## 7. A small realistic walkthrough
 

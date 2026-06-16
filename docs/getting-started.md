@@ -67,9 +67,10 @@ git diff
 shore review capture
 ```
 
-The capture freezes the current diff as a local ReviewUnit. Shoreline creates `.shore/` in the
-worktree, writes immutable event files under `.shore/events/`, stores captured snapshot artifacts
-under `.shore/artifacts/`, and rebuilds `.shore/state.json` as a projection.
+The capture freezes the current diff as a local ReviewUnit. Shoreline creates the `.shore/data/`
+store in the worktree, writes immutable event files under `.shore/data/events/`, stores captured
+snapshot artifacts under `.shore/data/artifacts/`, and rebuilds `.shore/data/state.json` as a
+projection.
 
 Those files are local storage. Use command output as the integration surface instead of depending
 on internal file paths.

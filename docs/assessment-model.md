@@ -57,7 +57,7 @@ shore review assessment show --all --include-summary
 shore review assessment show --track human:kevin
 ```
 
-`show` replays `.shore/events/`, reports `current.status` as `unassessed`, `resolved`, or
+`show` replays `.shore/data/events/`, reports `current.status` as `unassessed`, `resolved`, or
 `ambiguous`, and defaults to current assessments only. `--all` includes replaced assessments.
 Repeated writes with the same `assessmentId` are preserved but collapsed in read output with a
 duplicate semantic diagnostic.
@@ -82,8 +82,8 @@ identity, and idempotency.
 ## Legacy disposition events
 
 Earlier versions of Shoreline wrote `review_disposition_recorded` events with eight variants. Shoreline is
-pre-V1 and does not preserve those events on disk. Loading a `.shore/events/` directory that
+pre-V1 and does not preserve those events on disk. Loading a `.shore/data/events/` directory that
 contains legacy disposition events fails with a typed error pointing at this section.
 
-**Migration:** delete the local `.shore/` directory and re-capture any in-progress reviews. There is
+**Migration:** delete the local `.shore/data/` directory and re-capture any in-progress reviews. There is
 no automatic migration tool.

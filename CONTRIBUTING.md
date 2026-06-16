@@ -101,4 +101,4 @@ matrix.
 
 Shoreline is a Rust terminal review tool. Keep the headless review model authoritative and make the
 TUI or other surfaces project from that model. Public command output JSON is the integration
-surface; raw `.shore/` files are local storage details unless a command explicitly documents them.
+surface; raw `.shore/data/` files are local storage details unless a command explicitly documents them.
