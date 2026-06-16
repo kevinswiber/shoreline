@@ -63,6 +63,47 @@ fn served_app_js_registers_validation_timeline_type() {
 }
 
 #[test]
+fn served_app_js_renders_unit_page_validation_section() {
+    let app_js = spawn_and_get_app_js();
+
+    // The unit page consumes the document array (projection reuse, not raw
+    // event parsing) via a dedicated card renderer, and shows the count stat.
+    assert!(
+        app_js.contains("d.validationChecks"),
+        "unit page must read d.validationChecks"
+    );
+    assert!(
+        app_js.contains("renderValidationCheckCard"),
+        "unit page must render validation cards"
+    );
+    assert!(
+        app_js.contains("validationCheckCount"),
+        "summary stat must read validationCheckCount"
+    );
+    // Advisory framing: a context-only caption, no verdict-style aggregate.
+    assert!(
+        app_js.contains("context only"),
+        "validation section needs an advisory caption"
+    );
+}
+
+#[test]
+fn served_app_css_styles_validation_facts() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let app_css = inspector.get_text("/app.css");
+
+    assert!(app_css.contains(".anno-kind-validation"));
+    for status in ["passed", "failed", "errored", "skipped"] {
+        assert!(
+            app_css.contains(&format!(".fact-status.{status}")),
+            "missing .fact-status.{status}"
+        );
+    }
+    assert!(app_css.contains(".validation-note"));
+}
+
+#[test]
 fn served_app_js_poller_is_diagnostic_aware() {
     let app_js = spawn_and_get_app_js();
 

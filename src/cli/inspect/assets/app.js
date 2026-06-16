@@ -1160,6 +1160,25 @@ function renderAssessmentCard(a) {
   });
 }
 
+// Validation evidence is advisory: it renders with the shared factCard shape
+// (status maps to .fact-status.<status>) but never as a verdict aggregate, and
+// the unit-page section caption keeps it "context only".
+function renderValidationCheckCard(v) {
+  const rel = [];
+  if (v.command) rel.push(escapeHtml(v.command));
+  if ((v.logArtifactContentHashes || []).length) rel.push(`logs ${v.logArtifactContentHashes.map(linkify).join(", ")}`);
+  return factCard("validation", {
+    track: v.trackId,
+    title: v.checkName,
+    status: v.status, // passed | failed | errored | skipped → .fact-status.<status>
+    target: targetLabel(v.target),
+    tags: [v.trigger, v.exitCode != null ? `exit ${v.exitCode}` : null],
+    body: v.summary || "",
+    createdAt: v.completedAt || v.createdAt,
+    extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : "",
+  });
+}
+
 function renderAdapterNoteCard(n) {
   return factCard("observation", {
     track: n.author || "imported",
@@ -1200,7 +1219,7 @@ function renderUnitPage(d) {
   sections.push(`<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}</section>`);
 
   sections.push(`<section><h2>Summary</h2><div class="up-stats">
-    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("adapter notes", s.adapterNoteCount)}
+    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}${stat("adapter notes", s.adapterNoteCount)}
   </div>
   <div style="margin-top:10px">
     <button class="ghost diff-btn" id="up-diff-btn">view annotated diff</button>
@@ -1210,6 +1229,17 @@ function renderUnitPage(d) {
   sections.push(factSection("Observations", d.observations, renderObservationCard));
   sections.push(factSection("Input requests", d.inputRequests, renderInputRequestCard));
   sections.push(factSection("Assessments", d.assessments, renderAssessmentCard));
+
+  // Validation checks: a first-class section after Assessments, rendered from
+  // the document array (not raw events). Advisory-only — a context-only caption,
+  // structurally separate from Current assessment, never a verdict aggregate.
+  const validationChecks = d.validationChecks || [];
+  const validationBody = validationChecks.length
+    ? validationChecks.map(renderValidationCheckCard).join("") +
+      `<p class="validation-note">context only — does not affect the current assessment</p>`
+    : `<p class="up-empty">none</p>`;
+  sections.push(`<section><h2>Validation checks (${validationChecks.length})</h2>${validationBody}</section>`);
+
   if ((d.adapterNotes || []).length) sections.push(factSection("Adapter notes", d.adapterNotes, renderAdapterNoteCard));
 
   $("#unit-page").innerHTML = sections.join("");

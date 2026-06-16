@@ -277,6 +277,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 .anno-kind-observation { color: #6dd28a; }
 .anno-kind-input-request { color: #f0b75a; }
 .anno-kind-assessment { color: #b388ff; }
+.anno-kind-validation { color: #e88fb0; }
 .anno-track { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
 .anno-time { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
 .anno-title { font-weight: 500; }
@@ -333,6 +334,11 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 .fact-status.responded, .fact-status.current { color: #6dd28a; }
 .fact-status.open { color: #f0b75a; }
 .fact-status.stale { color: #f3a0a0; }
+.fact-status.passed { color: #6dd28a; }
+.fact-status.failed { color: #f3a0a0; }
+.fact-status.errored { color: #f0b75a; }
+.fact-status.skipped { color: var(--fg-dim); }
+.validation-note { font-size: 11px; color: var(--fg-dim); margin: 4px 0 0; }
 .fact-rel { font-size: 11px; color: var(--fg-dim); margin-top: 4px; }
 .fact-responses { margin-top: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
 .fact-response { font-size: 12px; margin-top: 4px; }
