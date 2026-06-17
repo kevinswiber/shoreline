@@ -13,6 +13,7 @@ mod lineage;
 mod observation;
 mod payload;
 mod provenance;
+mod record_hash;
 mod review;
 mod signature;
 mod source;
@@ -35,6 +36,7 @@ pub use observation::ReviewObservationRecordedPayload;
 pub use payload::EventPayload;
 pub(crate) use provenance::stamp_ingest_provenance;
 pub use provenance::{IngestProvenance, IngestVia};
+pub use record_hash::EventRecordView;
 pub use review::{
     ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload,
     ReviewUnitCapturedPayload, SidecarSource,
@@ -147,6 +149,14 @@ impl ShoreEvent {
     pub fn with_assertion_mode(mut self, mode: AssertionMode) -> Self {
         self.assertion_mode = mode;
         self
+    }
+
+    /// Computes the signature- and hop-exclusive `eventRecordHash` (ADR-0008
+    /// §Event-Set Root): the stored record excluding `signer`, `signature`,
+    /// `sourceRef`, and `ingest`. It is the content-identity the detached
+    /// co-signature carrier binds as `targetEventRecordHash`.
+    pub fn event_record_hash(&self) -> Result<String> {
+        record_hash::EventRecordView::from_event(self).event_record_hash()
     }
 
     pub fn validate_schema_version(&self) -> Result<()> {
