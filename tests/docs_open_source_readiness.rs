@@ -453,8 +453,18 @@ fn docs_cover_ssh_agent_use_ssh_signing() {
 
     // No private plan labels in any touched doc.
     for doc in [&cli, &signing_ux, &storage, &agent_authoring] {
-        for forbidden in ["Phase 5", "Task 5.1", "plan 0067", "0067", "plan 0066", "0066"] {
-            assert!(!doc.contains(forbidden), "no private plan label {forbidden} in docs");
+        for forbidden in [
+            "Phase 5",
+            "Task 5.1",
+            "plan 0067",
+            "0067",
+            "plan 0066",
+            "0066",
+        ] {
+            assert!(
+                !doc.contains(forbidden),
+                "no private plan label {forbidden} in docs"
+            );
         }
     }
 }
@@ -490,7 +500,10 @@ fn adr_0010_second_amendment_records_ssh_agent_custody() {
         "sign_event_if_requested",
         "openssh-ssh-agent",
     ] {
-        assert!(adr.contains(token), "ADR-0010 second amendment records {token}");
+        assert!(
+            adr.contains(token),
+            "ADR-0010 second amendment records {token}"
+        );
     }
 
     // The resolve→sign window is recorded as closed by the sign-time degrade.
@@ -500,8 +513,18 @@ fn adr_0010_second_amendment_records_ssh_agent_custody() {
     );
 
     // No private plan labels leak into the public ADR.
-    for forbidden in ["Phase 5", "Task 5.2", "plan 0067", "0067", "plan 0066", "0066"] {
-        assert!(!adr.contains(forbidden), "no private plan label {forbidden} in ADR-0010");
+    for forbidden in [
+        "Phase 5",
+        "Task 5.2",
+        "plan 0067",
+        "0067",
+        "plan 0066",
+        "0066",
+    ] {
+        assert!(
+            !adr.contains(forbidden),
+            "no private plan label {forbidden} in ADR-0010"
+        );
     }
     assert!(!adr.contains("research 0009"));
     assert!(!adr.contains("implementation plan"));

@@ -100,8 +100,9 @@ fn open_target(target: AgentTarget) -> Result<AgentStream> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
 
     #[test]
     fn unset_auth_sock_is_a_typed_error_not_a_panic() {
