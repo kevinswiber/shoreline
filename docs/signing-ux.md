@@ -76,6 +76,24 @@ The positional argument is either a path to a `*.pub` file or a `key::ssh-ed2551
 `user.signingKey` form). Here "agent" is the **ssh-agent** key custodian — distinct from a coding or
 reviewing agent (acting software).
 
+**No Ed25519 SSH key yet?** Create one (the same key works for git commit signing):
+
+```bash
+ssh-keygen -t ed25519 -C "you@example.com"   # writes ~/.ssh/id_ed25519 and ~/.ssh/id_ed25519.pub
+```
+
+**Load it into ssh-agent so signing doesn't prompt every write.** Shoreline signs *through* the agent,
+so the private key must be loaded in it:
+
+```bash
+ssh-add ~/.ssh/id_ed25519     # load it (add --apple-use-keychain on macOS to persist across logins)
+ssh-add -l                    # verify it is listed
+```
+
+If the key is not loaded, `shore keys list` reports `agentLoaded: false` and a signed write degrades to
+**unsigned, exit 0** (`signing_agent_key_absent`) — never blocking, but not yet `valid`. Load the key
+and re-run the write.
+
 **ssh-agent custody.** The private key is **never read**: ssh-agent custodies it, and Shoreline only
 ever ships the DSSE pre-authentication bytes to the agent and unwraps the returned signature. Encrypted
 keys, 1Password, and hardware-backed agents all work for free.
