@@ -4,8 +4,9 @@ use std::path::Path;
 use clap::ValueEnum;
 use shoreline::crypto::EventSigner;
 use shoreline::keys::{
-    FileEd25519Signer, KeyHandle, KeyName, generate_key, generate_key_in, load_signer,
-    load_signer_from_path, load_signer_in,
+    AgentUnavailable, FileEd25519Signer, KeyHandle, KeyMaterial, KeyName, generate_key,
+    generate_key_in, load_key_material, load_key_material_in, load_signer, load_signer_from_path,
+    load_signer_in, preflight_ssh_agent_signer,
 };
 use shoreline::model::{ActorId, Side};
 use shoreline::session::{DelegationMap, TrustSet, is_agent_actor_id, resolve_writer_actor_id};
@@ -108,6 +109,11 @@ const SIGNING_KEY_UNREADABLE: &str = "signing_key_unreadable";
 const SIGNING_KEY_UNSUPPORTED_ALGORITHM: &str = "signing_key_unsupported_algorithm";
 const SIGNING_KEY_HOME_UNREADABLE: &str = "signing_key_home_unreadable";
 const SIGNING_MODE_UNRECOGNIZED: &str = "signing_mode_unrecognized";
+/// No usable ssh-agent: `$SSH_AUTH_SOCK` unset, or the socket/pipe is unreachable.
+const SIGNING_AGENT_UNAVAILABLE: &str = "signing_agent_unavailable";
+/// The agent does not hold the target key (not in its identity list). Also covers a
+/// globally-locked agent (`ssh-add -x`), which lists ZERO identities.
+const SIGNING_AGENT_KEY_ABSENT: &str = "signing_agent_key_absent";
 
 /// What [`resolve_signer`] decided: an optional already-loaded production signer
 /// plus an optional one-line diagnostic naming the reason no signer resolved (or
@@ -189,10 +195,18 @@ fn resolve_signer_with_env(
     }
 
     // Rung 1/2: the highest-precedence EXPLICIT key selection (flag first, then
-    // env). An explicit selection is TERMINAL: if it fails to load, return None +
-    // the named diagnostic and STOP — never fall through to agent-keygen or the
-    // default key, which would sign under a different identity than the one named.
+    // env). An explicit selection is TERMINAL: if it fails to load — including
+    // failing an agent-backed reference's pre-flight — return None + the named
+    // diagnostic and STOP, never falling through to agent-keygen or the default
+    // key, which would sign under a different identity than the one named.
     if let Some(candidate) = [sign_key, shore_signing_key].into_iter().flatten().next() {
+        // An agent-backed keystore reference resolves through the agent pre-flight;
+        // it is terminal whether the pre-flight succeeds or fails.
+        if let Some(resolution) =
+            resolve_agent_backed_reference(candidate, keys_root, shore_signing)
+        {
+            return resolution;
+        }
         return match load_configured_signer(candidate, keys_root) {
             Ok(signer) => SignerResolution {
                 signer: Some(Box::new(signer)),
@@ -214,13 +228,109 @@ fn resolve_signer_with_env(
         return resolution;
     }
 
-    // Rung 4: user-default keystore key ("default"), if present. A missing default
-    // is the clean unsigned path, not a failure.
+    // Rung 4: user-default keystore key ("default"), if present. When the default is
+    // an agent-backed reference, pre-flight the agent (a failure is the clean
+    // unsigned path with a named reason). A missing default is the clean unsigned
+    // path, not a failure.
+    if let Some(resolution) = resolve_agent_backed_reference("default", keys_root, shore_signing) {
+        return resolution;
+    }
     SignerResolution {
         signer: load_default_signer(keys_root)
             .map(|signer| Box::new(signer) as Box<dyn EventSigner + Send + Sync>),
         diagnostic: mode_note(shore_signing),
     }
+}
+
+/// If `candidate` names a keystore key whose custody is **agent-backed**, resolve
+/// it through the agent pre-flight and return the (terminal) resolution; otherwise
+/// return `None` so the caller falls through to the file-signer loaders.
+///
+/// `--sign-key <path>` (a candidate with a path separator or an existing file) is
+/// the by-path seed-file loader — an agent-backed reference is a keystore entry
+/// with no private file, so agent custody is only reachable on the keystore-name
+/// branch.
+fn resolve_agent_backed_reference(
+    candidate: &str,
+    keys_root: Option<&Path>,
+    shore_signing: Option<&str>,
+) -> Option<SignerResolution> {
+    if candidate_is_path(candidate) {
+        return None;
+    }
+    match load_key_material_opt(keys_root, candidate)? {
+        KeyMaterial::AgentBacked { public_key } => {
+            Some(match resolve_agent_backed_signer(public_key) {
+                Ok(signer) => SignerResolution {
+                    signer: Some(signer),
+                    diagnostic: mode_note(shore_signing),
+                },
+                Err(diagnostic) => SignerResolution {
+                    signer: None,
+                    diagnostic: Some(diagnostic),
+                },
+            })
+        }
+        // A seed key (or any load error) falls through to the file-signer loaders,
+        // which classify and surface the right diagnostic.
+        KeyMaterial::Seed(_) => None,
+    }
+}
+
+/// Load a keystore key's custody-tagged material, honoring an injected root. Any
+/// load failure is `None` (the caller falls through to the file loaders, which
+/// produce the precise unreadable/unsupported diagnostic).
+fn load_key_material_opt(keys_root: Option<&Path>, name: &str) -> Option<KeyMaterial> {
+    match keys_root {
+        Some(root) => load_key_material_in(root, name),
+        None => load_key_material(name),
+    }
+    .ok()
+}
+
+/// Resolve an agent-backed reference into a boxed `SshAgentSigner` by calling the
+/// `pub` library pre-flight helper (the CLI never touches the transport or codec).
+///
+/// A `FileEd25519Signer` signs infallibly, so resolving it then signing was safe;
+/// an `SshAgentSigner` does a **fallible network round-trip**, so the pre-flight
+/// catches "no agent" / "key not loaded" here in the never-`Err` resolve layer.
+/// The pre-flight is **identities-only** — connect + confirm the key is loaded, NO
+/// probe-sign — so a confirmation or hardware agent is never prompted at resolve
+/// time. The will-it-actually-sign question is answered at the real sign, where the
+/// tightly-scoped sign-time degrade catches a failure → unsigned, exit 0. There is
+/// deliberately no retry and no fall-back-to-file here.
+fn resolve_agent_backed_signer(
+    public_key: [u8; 32],
+) -> std::result::Result<Box<dyn EventSigner + Send + Sync>, String> {
+    match preflight_ssh_agent_signer(public_key) {
+        Ok(signer) => Ok(Box::new(signer)),
+        Err(unavailable) => Err(map_agent_unavailable(unavailable)),
+    }
+}
+
+/// Map a typed pre-flight failure to its code-bearing diagnostic. `KeyAbsent` also
+/// covers a globally-locked agent (`ssh-add -x`), which lists ZERO identities — no
+/// probe-sign is issued, so a locked agent never prompts. There is no
+/// `signing_agent_locked`; a sign-time refusal is the write seam's degrade.
+fn map_agent_unavailable(unavailable: AgentUnavailable) -> String {
+    match unavailable {
+        AgentUnavailable::Socket => {
+            format!(
+                "{SIGNING_AGENT_UNAVAILABLE}: ssh-agent unavailable (no/unreachable $SSH_AUTH_SOCK)"
+            )
+        }
+        AgentUnavailable::KeyAbsent => {
+            format!("{SIGNING_AGENT_KEY_ABSENT}: the configured key is not loaded in ssh-agent")
+        }
+    }
+}
+
+/// Whether a `--sign-key`/`SHORE_SIGNING_KEY` candidate is an explicit filesystem
+/// path (loaded by the by-path seed loader) rather than a keystore key name.
+fn candidate_is_path(candidate: &str) -> bool {
+    candidate.contains('/')
+        || candidate.contains(std::path::MAIN_SEPARATOR)
+        || Path::new(candidate).is_file()
 }
 
 /// Load a key named by the flag/env: a keystore name, or a filesystem path. An
@@ -235,9 +345,7 @@ fn load_configured_signer(
     // A candidate that contains a path separator, or exists as a file on disk,
     // loads by explicit path; otherwise it is a keystore key name (validated by the
     // keystore loader so a bare name can never traverse outside the key home).
-    let by_path =
-        candidate.contains('/') || candidate.contains(std::path::MAIN_SEPARATOR) || path.is_file();
-    let loaded = if by_path {
+    let loaded = if candidate_is_path(candidate) {
         load_signer_from_path(path)
     } else {
         match keys_root {
@@ -599,6 +707,93 @@ mod resolve_signer_tests {
 
         // And it is acceptable to `sign_with` (the carrier is transparent to the seam).
         let _options = EventSigningOptions::sign_with(boxed);
+    }
+
+    /// Write an agent-backed reference into the injected keystore root. The public
+    /// key bytes are arbitrary-but-fixed: did:key derivation does not validate the
+    /// curve point, and these failure-path tests never reach a real agent.
+    fn write_agent_into(root: &Path, name: &str) -> String {
+        use shoreline::keys::{KeyName, write_agent_reference_in};
+        write_agent_reference_in(root, &KeyName::parse(name).unwrap(), [7_u8; 32])
+            .unwrap()
+            .signer_id()
+            .as_str()
+            .to_owned()
+    }
+
+    /// Point `$SSH_AUTH_SOCK` at a dead path so the agent pre-flight's connect fails
+    /// deterministically (each test runs in its own process under the test runner).
+    fn with_dead_auth_sock(path: &str, body: impl FnOnce()) {
+        unsafe { std::env::set_var("SSH_AUTH_SOCK", path) };
+        body();
+        unsafe { std::env::remove_var("SSH_AUTH_SOCK") };
+    }
+
+    #[test]
+    fn agent_backed_default_with_no_agent_degrades_to_none_unavailable() {
+        let root = tempfile::tempdir().unwrap();
+        write_agent_into(root.path(), "default");
+        with_dead_auth_sock("/nonexistent/shore-test-default.sock", || {
+            let resolution = resolve_signer_with_env(
+                repo(),
+                &human_actor(),
+                None,
+                None,
+                None,
+                Some(root.path()),
+            );
+            assert!(resolution.signer.is_none());
+            assert!(
+                resolution
+                    .diagnostic
+                    .as_deref()
+                    .is_some_and(|d| d.contains("signing_agent_unavailable")),
+                "diagnostic: {:?}",
+                resolution.diagnostic
+            );
+        });
+    }
+
+    #[test]
+    fn explicit_agent_key_that_fails_preflight_is_terminal_no_fall_through() {
+        // An EXPLICIT agent-backed SHORE_SIGNING_KEY whose pre-flight fails (dead
+        // socket) must NOT substitute the file-backed "default" key.
+        let root = tempfile::tempdir().unwrap();
+        write_agent_into(root.path(), "agentref");
+        let default_did = generate_into(root.path(), "default"); // a file key also exists
+        with_dead_auth_sock("/nonexistent/shore-test-explicit.sock", || {
+            let resolution = resolve_signer_with_env(
+                repo(),
+                &human_actor(),
+                None,
+                None,
+                Some("agentref"),
+                Some(root.path()),
+            );
+            assert!(
+                resolution.signer.is_none(),
+                "an explicit agent key that fails pre-flight is terminal"
+            );
+            let diagnostic = resolution.diagnostic.expect("a named diagnostic");
+            assert!(diagnostic.contains("signing_agent_unavailable"));
+            assert!(
+                !diagnostic.contains(&default_did),
+                "the default identity is never substituted"
+            );
+        });
+    }
+
+    #[test]
+    fn agent_unavailable_variants_map_to_their_diagnostics() {
+        use shoreline::keys::AgentUnavailable;
+        assert!(
+            super::map_agent_unavailable(AgentUnavailable::Socket)
+                .contains("signing_agent_unavailable")
+        );
+        assert!(
+            super::map_agent_unavailable(AgentUnavailable::KeyAbsent)
+                .contains("signing_agent_key_absent")
+        );
     }
 
     #[test]
