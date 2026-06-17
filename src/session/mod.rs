@@ -23,10 +23,10 @@ pub use projection::{
     ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, read_events, rebuild_state,
 };
 pub use signing::{
-    ALLOWED_SIGNERS_REL_PATH, ArtifactAvailability, EnrollmentDiff, EventSigningOptions,
-    EventVerificationPolicy, EventVerificationView, IngestEventVerification, PrincipalPolicy,
-    TrustSet, enroll_signer, event_signature_trust_set, principal_sufficient, stage_enrollment,
-    trust_set_to_value, verification_view, verify_event_signature,
+    ALLOWED_SIGNERS_REL_PATH, ArtifactAvailability, BestEffortSkipSink, EnrollmentDiff,
+    EventSigningOptions, EventVerificationPolicy, EventVerificationView, IngestEventVerification,
+    PrincipalPolicy, TrustSet, enroll_signer, event_signature_trust_set, principal_sufficient,
+    stage_enrollment, trust_set_to_value, verification_view, verify_event_signature,
 };
 pub(crate) use signing::{sign_event_if_requested, verify_events_for_ingest};
 #[cfg(test)]

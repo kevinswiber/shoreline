@@ -62,7 +62,9 @@ pub(super) fn run(
     if args.predecessor.is_some() && args.lineage.is_none() {
         return Err("predecessor requires --lineage".into());
     }
-    let capture = capture_review(capture_options(&args, tracing, stderr))?;
+    let (options, skip) = capture_options(&args, tracing, stderr);
+    let capture = capture_review(options)?;
+    super::common::surface_best_effort_skip(&skip, stderr);
     let Some(lineage) = args.lineage.as_ref() else {
         let document = capture_document(capture);
         return json::write_json(stdout, &document, false);
@@ -80,7 +82,7 @@ fn capture_options(
     args: &CaptureArgs,
     tracing: &TracingArgs,
     stderr: &mut dyn Write,
-) -> CaptureOptions {
+) -> (CaptureOptions, super::common::SigningSkip) {
     let mut options = CaptureOptions::new(&args.repo);
     if let Some(range) = commit_range_spec(args) {
         options = options.with_commit_range(range);
@@ -88,12 +90,15 @@ fn capture_options(
     if let Some(log_file) = &tracing.log_file {
         options = options.with_excluded_helper_path(log_file);
     }
-    if let Some(signer) =
+    let mut skip = None;
+    if let Some(resolved) =
         super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        options = options.sign_with(signer);
+        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
     }
-    options
+    (options, skip)
 }
 
 /// Build the commit-range spec from `--base`/`--target`. `None` keeps the

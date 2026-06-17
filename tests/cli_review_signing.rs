@@ -462,3 +462,50 @@ fn all_six_write_paths_accept_sign_key_flag() {
         String::from_utf8_lossy(&respond.stderr)
     );
 }
+
+/// A real `ssh-keygen -t ed25519` public key (the same golden key the parser pins).
+const SSH_ED25519_PUBKEY: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID7lnwK7O5CFXew1hBuUnXz1+zK2pQtYEtxsbRMiOyvP dev@example";
+
+#[test]
+fn agent_unavailable_write_is_unsigned_and_exit_zero() {
+    let home = tempfile::tempdir().unwrap();
+    let env_home = home.path().to_str().unwrap();
+    // Adopt an agent-backed `default` reference (no live agent needed to write it).
+    let adopt = shore_env(
+        ["keys", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
+        &[("SHORE_HOME", env_home)],
+    );
+    assert!(
+        adopt.status.success(),
+        "adopt stderr:\n{}",
+        String::from_utf8_lossy(&adopt.stderr)
+    );
+
+    let repo = modified_repo();
+    // A dead SSH_AUTH_SOCK makes the agent pre-flight fail deterministically (and
+    // portably — a bogus path fails to open on every OS), so the write degrades to
+    // unsigned without gating.
+    let out = shore_env(
+        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        &[
+            ("SHORE_HOME", env_home),
+            ("SSH_AUTH_SOCK", "/nonexistent/shore-no-agent.sock"),
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "agent unavailable must not gate the write:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("signing_agent_unavailable"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        capture_status(repo.path(), TrustSet::default()),
+        Some(EventVerificationStatus::Unsigned),
+    );
+}

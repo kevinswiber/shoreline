@@ -183,7 +183,9 @@ fn review_assessment_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = record_assessment(assessment_add_options(args, stderr)?)?;
+    let (options, skip) = assessment_add_options(args, stderr)?;
+    let result = record_assessment(options)?;
+    super::common::surface_best_effort_skip(&skip, stderr);
     let document = assessment_add_document("shore.review-assessment-add", result);
     json::write_json(stdout, &document, false)
 }
@@ -207,7 +209,7 @@ fn review_assessment_show(
 pub(super) fn assessment_add_options(
     args: AssessmentAddArgs,
     stderr: &mut dyn Write,
-) -> Result<AssessmentAddOptions, Box<dyn std::error::Error>> {
+) -> Result<(AssessmentAddOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
     let target = assessment_target(
         args.file.as_ref(),
         args.side,
@@ -248,13 +250,16 @@ pub(super) fn assessment_add_options(
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }
-    if let Some(signer) =
+    let mut skip = None;
+    if let Some(resolved) =
         super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        options = options.sign_with(signer);
+        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
     }
 
-    Ok(options)
+    Ok((options, skip))
 }
 
 pub(super) fn assessment_show_options(args: AssessmentShowArgs) -> AssessmentShowOptions {

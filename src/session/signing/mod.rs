@@ -18,8 +18,8 @@ pub use policy::{
 };
 pub use trust::{TrustSet, event_signature_trust_set};
 pub use verify::verify_event_signature;
-pub use write::EventSigningOptions;
 pub(crate) use write::sign_event_if_requested;
+pub use write::{BestEffortSkipSink, EventSigningOptions};
 
 #[cfg(test)]
 mod tests {

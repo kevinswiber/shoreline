@@ -20,8 +20,8 @@ use crate::session::store::resolution::resolve_write_validation_store;
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::session::workflow::write_store::fact_batch_only_diagnostics;
 use crate::session::{
-    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, sign_event_if_requested,
-    writer_from_options,
+    BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp,
+    sign_event_if_requested, writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -126,6 +126,14 @@ impl ObservationAddOptions {
         S: EventSigner + Send + Sync + 'static,
     {
         self.signing = EventSigningOptions::sign_with(signer);
+        self
+    }
+
+    pub fn sign_with_best_effort<S>(mut self, signer: S, skip_sink: BestEffortSkipSink) -> Self
+    where
+        S: EventSigner + Send + Sync + 'static,
+    {
+        self.signing = EventSigningOptions::sign_with_best_effort(signer, skip_sink);
         self
     }
 }

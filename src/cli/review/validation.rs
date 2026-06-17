@@ -154,7 +154,9 @@ fn review_validation_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = record_validation_check(validation_add_options(args, stderr)?)?;
+    let (options, skip) = validation_add_options(args, stderr)?;
+    let result = record_validation_check(options)?;
+    super::common::surface_best_effort_skip(&skip, stderr);
     let document = validation_add_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -174,7 +176,7 @@ fn review_validation_list(
 fn validation_add_options(
     args: ValidationAddArgs,
     stderr: &mut dyn Write,
-) -> Result<ValidationAddOptions, Box<dyn std::error::Error>> {
+) -> Result<(ValidationAddOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
     let summary = read_body_input(
         args.summary.as_deref(),
         args.summary_file.as_deref(),
@@ -216,13 +218,16 @@ fn validation_add_options(
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }
-    if let Some(signer) =
+    let mut skip = None;
+    if let Some(resolved) =
         super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        options = options.sign_with(signer);
+        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
     }
 
-    Ok(options)
+    Ok((options, skip))
 }
 
 fn validation_list_options(args: ValidationListArgs) -> ValidationListOptions {

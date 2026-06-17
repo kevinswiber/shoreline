@@ -248,7 +248,9 @@ fn review_input_request_open(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = open_input_request(input_request_open_options(args, stderr)?)?;
+    let (options, skip) = input_request_open_options(args, stderr)?;
+    let result = open_input_request(options)?;
+    super::common::surface_best_effort_skip(&skip, stderr);
     let document = input_request_open_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -284,7 +286,9 @@ fn review_input_request_respond(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = respond_input_request(input_request_respond_options(args, stderr)?)?;
+    let (options, skip) = input_request_respond_options(args, stderr)?;
+    let result = respond_input_request(options)?;
+    super::common::surface_best_effort_skip(&skip, stderr);
     let document = input_request_respond_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -292,7 +296,7 @@ fn review_input_request_respond(
 fn input_request_open_options(
     args: InputRequestOpenArgs,
     stderr: &mut dyn Write,
-) -> Result<InputRequestOpenOptions, Box<dyn std::error::Error>> {
+) -> Result<(InputRequestOpenOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
     let target = input_request_target(&args)?;
     let body = read_body_input(
         args.body.as_deref(),
@@ -318,13 +322,16 @@ fn input_request_open_options(
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }
-    if let Some(signer) =
+    let mut skip = None;
+    if let Some(resolved) =
         super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        options = options.sign_with(signer);
+        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
     }
 
-    Ok(options)
+    Ok((options, skip))
 }
 
 fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOptions {
@@ -352,7 +359,7 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
 fn input_request_respond_options(
     args: InputRequestRespondArgs,
     stderr: &mut dyn Write,
-) -> Result<InputRequestRespondOptions, Box<dyn std::error::Error>> {
+) -> Result<(InputRequestRespondOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
     let reason = read_body_input(
         args.reason.as_deref(),
         args.reason_file.as_deref(),
@@ -367,12 +374,15 @@ fn input_request_respond_options(
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }
-    if let Some(signer) =
+    let mut skip = None;
+    if let Some(resolved) =
         super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        options = options.sign_with(signer);
+        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
     }
-    Ok(options)
+    Ok((options, skip))
 }
 
 fn input_request_target(

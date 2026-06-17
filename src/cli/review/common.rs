@@ -9,7 +9,11 @@ use shoreline::keys::{
     load_signer_in, preflight_ssh_agent_signer,
 };
 use shoreline::model::{ActorId, Side};
-use shoreline::session::{DelegationMap, TrustSet, is_agent_actor_id, resolve_writer_actor_id};
+use shoreline::session::{
+    AssessmentAddOptions, BestEffortSkipSink, CaptureOptions, DelegationMap,
+    InputRequestOpenOptions, InputRequestRespondOptions, ObservationAddOptions, TrustSet,
+    ValidationAddOptions, is_agent_actor_id, resolve_writer_actor_id,
+};
 
 /// Discover the layered delegation map under `<worktree-root>/.shore/`.
 ///
@@ -114,18 +118,63 @@ const SIGNING_AGENT_UNAVAILABLE: &str = "signing_agent_unavailable";
 /// The agent does not hold the target key (not in its identity list). Also covers a
 /// globally-locked agent (`ssh-add -x`), which lists ZERO identities.
 const SIGNING_AGENT_KEY_ABSENT: &str = "signing_agent_key_absent";
+/// A best-effort (agent) signer failed the real sign at write time — the event was
+/// left unsigned, exit 0. Surfaced by the write builders after a degraded write.
+const SIGNING_AGENT_SIGN_FAILED: &str = "signing_agent_sign_failed";
 
-/// What [`resolve_signer`] decided: an optional already-loaded production signer
-/// plus an optional one-line diagnostic naming the reason no signer resolved (or
-/// the configured-but-broken key). The signer is a boxed trait object so the
-/// resolution layer can carry either a file-backed signer or an agent-backed
-/// signer; the library signing seam is untouched (a blanket
-/// `impl EventSigner for Box<dyn EventSigner + Send + Sync>` makes the unchanged
-/// `sign_with` accept it). Never carries an error — a failure to resolve is a
-/// `None` signer with a diagnostic, never an `Err`.
+/// Whether a resolved signer signs **strict** (a sign error gates the write — the
+/// file-backed signers, whose sign is infallible) or **best-effort** (a sign error
+/// degrades to an unsigned write — the network-backed agent signer, whose sign can
+/// fail at the real sign even after the pre-flight passed).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SigningMode {
+    Strict,
+    BestEffort,
+}
+
+/// What [`resolve_signer`] decided: an optional already-loaded production signer,
+/// the signing mode for it, and an optional one-line diagnostic naming the reason
+/// no signer resolved (or the configured-but-broken key). The signer is a boxed
+/// trait object so the resolution layer can carry either a file-backed signer or an
+/// agent-backed signer; the boxed type is erased, so `mode` is how the write
+/// builders learn strict-vs-best-effort. Never carries an error — a failure to
+/// resolve is a `None` signer with a diagnostic, never an `Err`.
 pub(crate) struct SignerResolution {
     pub(crate) signer: Option<Box<dyn EventSigner + Send + Sync>>,
+    pub(crate) mode: SigningMode,
     pub(crate) diagnostic: Option<String>,
+}
+
+impl SignerResolution {
+    /// A strict resolution: the file-backed rungs and the no-signer cases (a sign
+    /// error, if any, propagates and gates the write).
+    fn strict(
+        signer: Option<Box<dyn EventSigner + Send + Sync>>,
+        diagnostic: Option<String>,
+    ) -> Self {
+        Self {
+            signer,
+            mode: SigningMode::Strict,
+            diagnostic,
+        }
+    }
+
+    /// A best-effort resolution: the network-backed agent signer (a sign-time
+    /// failure degrades to an unsigned write instead of gating).
+    fn best_effort(signer: Box<dyn EventSigner + Send + Sync>, diagnostic: Option<String>) -> Self {
+        Self {
+            signer: Some(signer),
+            mode: SigningMode::BestEffort,
+            diagnostic,
+        }
+    }
+}
+
+/// The resolved signer plus its mode, handed to the write builders' shared apply
+/// helper so the strict/best-effort choice is made in exactly one place.
+pub(crate) struct ResolvedSigner {
+    pub(crate) signer: Box<dyn EventSigner + Send + Sync>,
+    pub(crate) mode: SigningMode,
 }
 
 /// CLI-layer signer resolution. **Never returns `Err`** — every failure degrades
@@ -165,14 +214,90 @@ pub(crate) fn resolve_and_surface_signer(
     repo: &Path,
     sign_key: Option<&str>,
     stderr: &mut dyn Write,
-) -> Option<Box<dyn EventSigner + Send + Sync>> {
+) -> Option<ResolvedSigner> {
     let actor = resolve_writer_actor_id(repo, None);
     let resolution = resolve_signer(repo, &actor, sign_key);
     if let Some(diagnostic) = resolution.diagnostic.as_deref() {
         let _ = writeln!(stderr, "{diagnostic}");
     }
-    resolution.signer
+    let mode = resolution.mode;
+    resolution
+        .signer
+        .map(|signer| ResolvedSigner { signer, mode })
 }
+
+/// The optional skip sink a write builder threads from signer application to the
+/// post-write surface (`None` unless a best-effort signer was applied).
+pub(crate) type SigningSkip = Option<BestEffortSkipSink>;
+
+/// Apply a resolved signer to a write builder, picking strict vs best-effort in
+/// exactly one place. Returns the updated builder plus, for a best-effort signer,
+/// the skip sink the caller reads after the write to surface a sign-time degrade.
+pub(crate) fn apply_resolved_signer<O: SignableOptions>(
+    options: O,
+    resolved: ResolvedSigner,
+) -> (O, SigningSkip) {
+    match resolved.mode {
+        SigningMode::Strict => (options.sign_with(resolved.signer), None),
+        SigningMode::BestEffort => {
+            let skip: BestEffortSkipSink = std::sync::Arc::new(std::sync::Mutex::new(None));
+            (
+                options.sign_with_best_effort(resolved.signer, skip.clone()),
+                Some(skip),
+            )
+        }
+    }
+}
+
+/// Surface a best-effort sign-time degrade after a write: if the skip sink recorded
+/// a reason, print `signing_agent_sign_failed: <reason>` advisorily (the write
+/// already succeeded, exit 0).
+pub(crate) fn surface_best_effort_skip(skip: &SigningSkip, stderr: &mut dyn Write) {
+    if let Some(skip) = skip
+        && let Ok(slot) = skip.lock()
+        && let Some(reason) = slot.as_deref()
+    {
+        let _ = writeln!(stderr, "{SIGNING_AGENT_SIGN_FAILED}: {reason}");
+    }
+}
+
+/// A write builder that can adopt a resolved signer either strict or best-effort.
+/// Implemented for the six review-write option builders so `apply_resolved_signer`
+/// is generic over them.
+pub(crate) trait SignableOptions {
+    fn sign_with(self, signer: Box<dyn EventSigner + Send + Sync>) -> Self;
+    fn sign_with_best_effort(
+        self,
+        signer: Box<dyn EventSigner + Send + Sync>,
+        skip: BestEffortSkipSink,
+    ) -> Self;
+}
+
+macro_rules! impl_signable_options {
+    ($($ty:ty),+ $(,)?) => {$(
+        impl SignableOptions for $ty {
+            fn sign_with(self, signer: Box<dyn EventSigner + Send + Sync>) -> Self {
+                <$ty>::sign_with(self, signer)
+            }
+            fn sign_with_best_effort(
+                self,
+                signer: Box<dyn EventSigner + Send + Sync>,
+                skip: BestEffortSkipSink,
+            ) -> Self {
+                <$ty>::sign_with_best_effort(self, signer, skip)
+            }
+        }
+    )+};
+}
+
+impl_signable_options!(
+    CaptureOptions,
+    ObservationAddOptions,
+    ValidationAddOptions,
+    InputRequestOpenOptions,
+    InputRequestRespondOptions,
+    AssessmentAddOptions,
+);
 
 /// Pure resolution seam (env values AND the keystore root threaded in for
 /// testability, so unit tests never mutate the process environment).
@@ -188,10 +313,7 @@ fn resolve_signer_with_env(
     if let Some(mode) = shore_signing
         && mode.eq_ignore_ascii_case("off")
     {
-        return SignerResolution {
-            signer: None,
-            diagnostic: None,
-        };
+        return SignerResolution::strict(None, None);
     }
 
     // Rung 1/2: the highest-precedence EXPLICIT key selection (flag first, then
@@ -208,14 +330,10 @@ fn resolve_signer_with_env(
             return resolution;
         }
         return match load_configured_signer(candidate, keys_root) {
-            Ok(signer) => SignerResolution {
-                signer: Some(Box::new(signer)),
-                diagnostic: mode_note(shore_signing),
-            },
-            Err(diagnostic) => SignerResolution {
-                signer: None,
-                diagnostic: Some(diagnostic),
-            },
+            Ok(signer) => {
+                SignerResolution::strict(Some(Box::new(signer)), mode_note(shore_signing))
+            }
+            Err(diagnostic) => SignerResolution::strict(None, Some(diagnostic)),
         };
     }
 
@@ -235,11 +353,11 @@ fn resolve_signer_with_env(
     if let Some(resolution) = resolve_agent_backed_reference("default", keys_root, shore_signing) {
         return resolution;
     }
-    SignerResolution {
-        signer: load_default_signer(keys_root)
+    SignerResolution::strict(
+        load_default_signer(keys_root)
             .map(|signer| Box::new(signer) as Box<dyn EventSigner + Send + Sync>),
-        diagnostic: mode_note(shore_signing),
-    }
+        mode_note(shore_signing),
+    )
 }
 
 /// If `candidate` names a keystore key whose custody is **agent-backed**, resolve
@@ -261,14 +379,10 @@ fn resolve_agent_backed_reference(
     match load_key_material_opt(keys_root, candidate)? {
         KeyMaterial::AgentBacked { public_key } => {
             Some(match resolve_agent_backed_signer(public_key) {
-                Ok(signer) => SignerResolution {
-                    signer: Some(signer),
-                    diagnostic: mode_note(shore_signing),
-                },
-                Err(diagnostic) => SignerResolution {
-                    signer: None,
-                    diagnostic: Some(diagnostic),
-                },
+                // The network-backed agent signer is best-effort: a sign-time
+                // failure degrades to an unsigned write rather than gating.
+                Ok(signer) => SignerResolution::best_effort(signer, mode_note(shore_signing)),
+                Err(diagnostic) => SignerResolution::strict(None, Some(diagnostic)),
             })
         }
         // A seed key (or any load error) falls through to the file-signer loaders,
@@ -391,12 +505,10 @@ fn resolve_agent_signer(
 ) -> Option<SignerResolution> {
     let name = agent_key_name(actor.as_str());
 
-    // Reuse an existing per-machine key without re-minting or re-notifying.
+    // Reuse an existing per-machine key without re-minting or re-notifying. The
+    // auto-keygen key is file-backed, so it signs strict.
     if let Ok(signer) = load_agent_key(keys_root, &name) {
-        return Some(SignerResolution {
-            signer: Some(Box::new(signer)),
-            diagnostic: None,
-        });
+        return Some(SignerResolution::strict(Some(Box::new(signer)), None));
     }
 
     // First write for this agent: mint silently, then load.
@@ -404,26 +516,26 @@ fn resolve_agent_signer(
         Ok(handle) => {
             let did = handle.signer_id().as_str().to_owned();
             match load_agent_key(keys_root, &name) {
-                Ok(signer) => Some(SignerResolution {
-                    signer: Some(Box::new(signer)),
+                Ok(signer) => Some(SignerResolution::strict(
+                    Some(Box::new(signer)),
                     // The write path surfaces this as the one-line stderr notice.
-                    diagnostic: Some(format!(
+                    Some(format!(
                         "shore: generated signing key for {} ({did}); \
                          run `shore keys enroll` to stage trust",
                         actor.as_str()
                     )),
-                }),
-                Err(_) => Some(SignerResolution {
-                    signer: None,
-                    diagnostic: Some(SIGNING_KEY_HOME_UNREADABLE.to_owned()),
-                }),
+                )),
+                Err(_) => Some(SignerResolution::strict(
+                    None,
+                    Some(SIGNING_KEY_HOME_UNREADABLE.to_owned()),
+                )),
             }
         }
         // Read-only / unresolvable key home, or any I/O error: unsigned, never an error.
-        Err(_) => Some(SignerResolution {
-            signer: None,
-            diagnostic: Some(SIGNING_KEY_HOME_UNREADABLE.to_owned()),
-        }),
+        Err(_) => Some(SignerResolution::strict(
+            None,
+            Some(SIGNING_KEY_HOME_UNREADABLE.to_owned()),
+        )),
     }
 }
 

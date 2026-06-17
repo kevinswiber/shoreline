@@ -146,7 +146,9 @@ fn review_observation_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = record_observation(observation_add_options(args, stderr)?)?;
+    let (options, skip) = observation_add_options(args, stderr)?;
+    let result = record_observation(options)?;
+    super::common::surface_best_effort_skip(&skip, stderr);
     let document = observation_add_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -166,7 +168,7 @@ fn review_observation_list(
 fn observation_add_options(
     args: ObservationAddArgs,
     stderr: &mut dyn Write,
-) -> Result<ObservationAddOptions, Box<dyn std::error::Error>> {
+) -> Result<(ObservationAddOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
     let target = observation_target(&args);
     let body = read_body_input(
         args.body.as_deref(),
@@ -199,13 +201,16 @@ fn observation_add_options(
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }
-    if let Some(signer) =
+    let mut skip = None;
+    if let Some(resolved) =
         super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        options = options.sign_with(signer);
+        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
     }
 
-    Ok(options)
+    Ok((options, skip))
 }
 
 fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions {
