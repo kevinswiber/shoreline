@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use clap::ValueEnum;
+use shoreline::crypto::EventSigner;
 use shoreline::keys::{
     FileEd25519Signer, KeyHandle, KeyName, generate_key, generate_key_in, load_signer,
     load_signer_from_path, load_signer_in,
@@ -110,10 +111,14 @@ const SIGNING_MODE_UNRECOGNIZED: &str = "signing_mode_unrecognized";
 
 /// What [`resolve_signer`] decided: an optional already-loaded production signer
 /// plus an optional one-line diagnostic naming the reason no signer resolved (or
-/// the configured-but-broken key). Never carries an error — a failure to resolve
-/// is a `None` signer with a diagnostic, never an `Err`.
+/// the configured-but-broken key). The signer is a boxed trait object so the
+/// resolution layer can carry either a file-backed signer or an agent-backed
+/// signer; the library signing seam is untouched (a blanket
+/// `impl EventSigner for Box<dyn EventSigner + Send + Sync>` makes the unchanged
+/// `sign_with` accept it). Never carries an error — a failure to resolve is a
+/// `None` signer with a diagnostic, never an `Err`.
 pub(crate) struct SignerResolution {
-    pub(crate) signer: Option<FileEd25519Signer>,
+    pub(crate) signer: Option<Box<dyn EventSigner + Send + Sync>>,
     pub(crate) diagnostic: Option<String>,
 }
 
@@ -154,7 +159,7 @@ pub(crate) fn resolve_and_surface_signer(
     repo: &Path,
     sign_key: Option<&str>,
     stderr: &mut dyn Write,
-) -> Option<FileEd25519Signer> {
+) -> Option<Box<dyn EventSigner + Send + Sync>> {
     let actor = resolve_writer_actor_id(repo, None);
     let resolution = resolve_signer(repo, &actor, sign_key);
     if let Some(diagnostic) = resolution.diagnostic.as_deref() {
@@ -190,7 +195,7 @@ fn resolve_signer_with_env(
     if let Some(candidate) = [sign_key, shore_signing_key].into_iter().flatten().next() {
         return match load_configured_signer(candidate, keys_root) {
             Ok(signer) => SignerResolution {
-                signer: Some(signer),
+                signer: Some(Box::new(signer)),
                 diagnostic: mode_note(shore_signing),
             },
             Err(diagnostic) => SignerResolution {
@@ -212,7 +217,8 @@ fn resolve_signer_with_env(
     // Rung 4: user-default keystore key ("default"), if present. A missing default
     // is the clean unsigned path, not a failure.
     SignerResolution {
-        signer: load_default_signer(keys_root),
+        signer: load_default_signer(keys_root)
+            .map(|signer| Box::new(signer) as Box<dyn EventSigner + Send + Sync>),
         diagnostic: mode_note(shore_signing),
     }
 }
@@ -280,7 +286,7 @@ fn resolve_agent_signer(
     // Reuse an existing per-machine key without re-minting or re-notifying.
     if let Ok(signer) = load_agent_key(keys_root, &name) {
         return Some(SignerResolution {
-            signer: Some(signer),
+            signer: Some(Box::new(signer)),
             diagnostic: None,
         });
     }
@@ -291,7 +297,7 @@ fn resolve_agent_signer(
             let did = handle.signer_id().as_str().to_owned();
             match load_agent_key(keys_root, &name) {
                 Ok(signer) => Some(SignerResolution {
-                    signer: Some(signer),
+                    signer: Some(Box::new(signer)),
                     // The write path surfaces this as the one-line stderr notice.
                     diagnostic: Some(format!(
                         "shore: generated signing key for {} ({did}); \
@@ -558,6 +564,41 @@ mod resolve_signer_tests {
     fn generate_into(root: &Path, name: &str) -> String {
         let handle = generate_key_in(root, &KeyName::parse(name).unwrap()).unwrap();
         handle.signer_id().as_str().to_owned()
+    }
+
+    #[test]
+    fn a_boxed_signer_round_trips_through_sign_with_and_signs() {
+        use shoreline::crypto::{EventVerificationStatus, verify_ed25519_strict};
+        use shoreline::session::EventSigningOptions;
+        use shoreline::session::event::{
+            EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE, pre_authentication_encoding,
+        };
+
+        // Resolve a real (file) signer, then use it as the boxed trait object the
+        // resolution layer now returns — exactly the value the write paths feed to
+        // `.sign_with`.
+        let root = tempfile::tempdir().unwrap();
+        let did = generate_into(root.path(), "default");
+        let resolution =
+            resolve_signer_with_env(repo(), &human_actor(), None, None, None, Some(root.path()));
+        let boxed: Box<dyn shoreline::crypto::EventSigner + Send + Sync> = resolution
+            .signer
+            .expect("default key resolves as a boxed signer");
+
+        assert_eq!(boxed.signer_id().as_str(), did);
+        let message = pre_authentication_encoding(
+            EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE,
+            br#"{"schema":"shore.event","version":1}"#,
+        );
+        let signature = boxed.sign_event_message(&message).unwrap();
+        assert_eq!(
+            verify_ed25519_strict(boxed.signer_id(), &message, signature.as_str()).unwrap(),
+            EventVerificationStatus::Valid,
+            "a boxed file signer signs and verifies identically to the bare signer"
+        );
+
+        // And it is acceptable to `sign_with` (the carrier is transparent to the seam).
+        let _options = EventSigningOptions::sign_with(boxed);
     }
 
     #[test]

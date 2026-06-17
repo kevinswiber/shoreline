@@ -47,6 +47,22 @@ pub trait EventSigner {
     fn sign_event_message(&self, message: &[u8]) -> Result<EventSignatureBytes>;
 }
 
+/// A boxed `EventSigner` is itself an `EventSigner`, forwarding to the inner value.
+/// This lets the CLI resolve layer carry either a file-backed or an agent-backed
+/// signer as one `Box<dyn EventSigner + Send + Sync>` and still call the unchanged
+/// generic `EventSigningOptions::sign_with<S: EventSigner + Send + Sync + 'static>`
+/// — the boxed trait object satisfies the `S: EventSigner` bound with no change to
+/// `sign_with` or to this trait.
+impl EventSigner for Box<dyn EventSigner + Send + Sync> {
+    fn signer_id(&self) -> &SignerId {
+        (**self).signer_id()
+    }
+
+    fn sign_event_message(&self, message: &[u8]) -> Result<EventSignatureBytes> {
+        (**self).sign_event_message(message)
+    }
+}
+
 pub fn verify_ed25519_strict(
     signer: &SignerId,
     message: &[u8],
@@ -150,6 +166,21 @@ mod tests {
         assert!(sig.is_base64());
         assert_eq!(
             verify_ed25519_strict(signer.signer_id(), message, sig.as_str()).unwrap(),
+            EventVerificationStatus::Valid
+        );
+    }
+
+    #[test]
+    fn boxed_event_signer_forwards_to_the_inner_signer() {
+        let inner = TestEd25519Signer::from_seed([5u8; 32]);
+        let expected_id = inner.signer_id().clone();
+        let boxed: Box<dyn EventSigner + Send + Sync> = Box::new(inner);
+        let message = b"DSSEv1 4 test 5 hello";
+
+        assert_eq!(boxed.signer_id(), &expected_id);
+        let via_box = boxed.sign_event_message(message).unwrap();
+        assert_eq!(
+            verify_ed25519_strict(boxed.signer_id(), message, via_box.as_str()).unwrap(),
             EventVerificationStatus::Valid
         );
     }
