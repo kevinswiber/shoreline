@@ -407,3 +407,125 @@ only when the newly merged co-signer is **untrusted for the claimed actor**, not
   verifiable signature; it never synthesizes one.
 - **A dedicated co-signature payload type / new `sigVersion`** — breaks lossless transcription of a
   divergent inline attestation (D6) and adds a payload type for no convergence benefit.
+
+> **The original ADR-0004 decision stands.** This is a back-compatible extension to the co-signature member
+> model plus a deliberate trust-set-locality decision. It changes **no event bytes**, no `sigVersion`, no
+> member-identity triple, and leaves `EventVerificationStatus` frozen. The text below is appended verbatim
+> as a `## Amendment` section to the landed ADR-0004 (the append-only ADR discipline).
+
+---
+
+## Amendment: Co-Signature Member Classification and Trust-Set Locality
+
+### Context
+
+ADR-0013 introduces **endorsement** (an actor co-signing an event in its own identity) and a **derived
+classification** over co-signature members. That classification is read over *this* ADR's co-signature
+substrate — the member model, `EventVerificationStatus`, and the `allowed-signers.json` trust set
+("Identity And Trust") — so three substrate deltas need recording here, and one trust-set housekeeping
+decision the local-override pattern (ADR-0010 `delegates.json`, ADR-0012 `actor-attributes.json`) now
+makes conspicuous needs settling deliberately. The classification *semantics* live in ADR-0013 and are
+**not** restated here; this amendment records only what changes for ADR-0004's substrate.
+
+### Decision
+
+#### Co-signature members carry a derived classification (semantics: ADR-0013)
+
+A co-signature member gains a **derived, read-side** `classification` ∈ {`authoring`,
+`endorsement-trusted`, `endorsement-untrusted`}, computed at projection time over the bytes already
+stored plus **reader-supplied config** (the committed trust set, plus the delegates and actor-attributes
+maps — which may carry `.local.json` overlays). `EventVerificationStatus` is **unchanged and frozen**; the
+full-attestation-triple member identity, the G-Set union/dedup, and the verify-before-store gate are
+**unchanged**. The classification's definition, precedence, reason codes
+(`unknown_endorser`/`ambiguous_endorser`/`authoring_not_endorsement`), inline-vs-detached scoping, and the
+two `authorize_at` scopes are **ADR-0013's** decision. Net effect on ADR-0004: a member is no longer read
+through the single authority relation (`valid` ⟺ authorized for the target's actor) — that relation is
+preserved exactly as the `authoring` path, and a *second*, derived, **non-binding** reading recognizes an
+endorsement.
+
+#### A sibling reader surface: `has_trusted_endorsement()`
+
+ADR-0004's co-signature set gains `has_trusted_endorsement()` beside `has_valid_member()`.
+`has_valid_member()` keeps its **exact** authoring-only, binding-relevant meaning (it is what ADR-0009's
+any-of binding reads); `has_trusted_endorsement()` reports an `endorsement-trusted` member for the
+stewardship/policy plane and **never** feeds binding. The two surfaces are kept rigorously separate.
+
+#### Convergence invariant: member meaning is *derived* or *identity-bearing*, never an excluded payload field
+
+**Any meaning attached to a co-signature member must be either derived at projection or identity-bearing**
+(folded into the member's `idempotencyKey`, hence `eventId`). A co-signature *payload* field that is
+excluded from member identity but included in `payloadHash` is **forbidden as a carrier of member
+meaning**, because `eventSetHash` is computed over `{event_id, payload_hash}`
+(`src/session/projection/freshness.rs:18-36`, with the payload-hash-sensitivity test at `:68`): such a
+field would let two independently-minted carriers for one triple share an `eventId` yet **diverge on
+`eventSetHash`**, breaking cross-mirror convergence. The reserved `inclusion_proof` slot is **not** a model
+to follow: populating it provably **changes `payloadHash`** while leaving identity unchanged
+(`src/session/event/event_signature.rs:166`), so it is tolerated only as an **unproduced, unconsumed v1
+reserved field** — any future activation must explicitly handle its `payloadHash`/`eventSetHash` effect and
+must **not** be used to carry co-signature member meaning. This is the substrate reason ADR-0013's
+classification is derived (not a stored `relation` marker); a future explicit marker, if ever needed, must
+be **identity-bearing**. The landing implementation plan **must add a cross-mirror convergence test**: for
+one attestation triple, independently-minted carriers carry **no payload meaning/relation field** and keep
+**identical `idempotencyKey`, `eventId`, `payloadHash`, and `eventSetHash`**, while envelope-only fields
+(e.g. the carrier `writer`) may differ without affecting convergence (`eventSetHash` ignores them,
+`freshness.rs:23`).
+
+#### Trust-set locality: `allowed-signers.json` stays committed-only (no `.local.json`)
+
+The trust set (`allowed-signers.json`, this ADR's "Identity And Trust") **remains committed-only**. There
+is intentionally **no `allowed-signers.local.json`** layer, even though ADR-0010's `delegates.json` and
+ADR-0012's `actor-attributes.json` carry git-excluded `.local.json` overrides. This asymmetry is now a
+**deliberate decision**, not the accidental gap it has read as:
+
+- The trust set decides `valid` vs `untrusted_key`, which feeds `has_valid_member()` → **binding** →
+  operative evaluation. A local, git-excluded trust override would make `valid`/binding **diverge silently
+  and un-auditably per machine** — and operative actions taken on a locally-bound view (commits, handoffs,
+  "this is authoritative") propagate even though their trust *basis* does not. Trust is already
+  reader-relative across clones; a `.local.json` would add the dangerous kind of divergence: silent,
+  non-portable, and un-auditable, on the one config that gates authenticity.
+- Trust is the high-stakes, should-be-shared decision. The right way to say "I trust this key" is the
+  **committed** file, where it is a reviewable `git log -p` diff that grows the team's shared trust set.
+  (Contrast: a `delegates.local.json` / `actor-attributes.local.json` override changes only the local
+  reader's own accountability/descriptive view — legitimately per-operator and low blast-radius.)
+- The dev/onboarding cost is acknowledged and accepted: a human writing under `actor:git-email:…` signed
+  by a `did:key` must **commit their enrollment** to render their own events `valid` (the self-certifying
+  shortcut, `trust.rs:53-59`, only helps `did:key` *actors*, not a git-email actor signed by a `did:key`).
+  That one-time, auditable commit is treated as a property of a trust root, not friction to remove.
+
+### Backward Compatibility
+
+No event bytes, `payloadHash`, `eventRecordHash`, member identity, or `sigVersion` change. `has_valid_member()`
+and ADR-0009 binding are behaviorally identical (every `Valid` member is `authoring`; endorsement members
+are detached `UntrustedKey` and were never counted). The classification and `has_trusted_endorsement()` are
+purely additive read surfaces. The trust-set-locality decision changes nothing in code — it records the
+existing committed-only behavior (`discover_trust_set`, `src/cli/review/common.rs:81-86`) as intentional.
+
+### Consequences
+
+#### Accepted
+
+- ADR-0004's co-signature member model gains an endorsement reading without any byte, identity, or
+  `EventVerificationStatus` change — recorded here as a substrate extension, with semantics owned by
+  ADR-0013.
+- The **convergence invariant** is generalized beyond endorsement: it now constrains *any* future
+  co-signature member meaning (derive or be identity-bearing; never an excluded-from-identity payload
+  field), with a mandated cross-mirror test.
+- The `allowed-signers.json` committed-only posture is now a **deliberate, written** decision, ending the
+  "accidental asymmetry" reading and keeping the trust root shared and auditable.
+
+#### Rejected
+
+- **A carrier-payload classification marker** (a stored `relation`/endorsement field excluded from member
+  identity) — breaks `eventSetHash` convergence; see the invariant. An identity-bearing marker is the only
+  stored alternative and is deferred (ADR-0013).
+- **`allowed-signers.local.json` for v1** — per the blast-radius rationale above; the committed file is the
+  correct, auditable place to extend trust.
+
+### Revisit Triggers
+
+- **A real dev-local-trust-tier demand materializes** → revisit `allowed-signers.local.json` **only** with
+  hard guardrails: a **loud, per-member "locally-trusted-only" marker in rendered output** (never silent),
+  and a hard boundary that locally-trusted verdicts **never cross egress/federation** (the relay and other
+  readers verify against their own shared trust config, so a local override may affect only local CLI
+  evaluation — and that effect must be visible, not silent). Absent those guardrails, committed-only stands.
+- Endorsement-classification revisit triggers live in **ADR-0013**.
