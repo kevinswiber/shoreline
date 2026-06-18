@@ -33,8 +33,10 @@ pub struct ReviewHistoryEntry {
     pub writer: Writer,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification_status: Option<EventVerificationStatus>,
-    /// Reader-relative endorsement readback. Plural — a target may carry endorsements
-    /// from several distinct signers; surfacing only one would be a silent cap.
+    /// Reader-relative endorsement readback. Plural and member-level: one entry per
+    /// endorsement attestation (co-signature member), so a target co-signed by several
+    /// signers — or by one actor via multiple enrolled keys — surfaces each; collapsing
+    /// to one would be a silent cap.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub endorsements: Vec<EndorsementReadback>,
     #[serde(skip_serializing_if = "Option::is_none")]

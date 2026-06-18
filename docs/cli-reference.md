@@ -554,8 +554,11 @@ change an exit code, and the temporal `require-verified-endorsement` tier is out
 - `verificationStatus` ∈ `valid | invalid | untrusted_key | unsigned` — the per-event signature
   ladder, resolved against the **reader's** `.shore/allowed-signers.json`. An event signed by a key
   the reader has not enrolled reads `untrusted_key`; an event with no signature reads `unsigned`.
-- `endorsements[]` — for an endorsed (co-signed) target event, one entry per distinct endorsing
-  signer:
+- `endorsements[]` — for an endorsed (co-signed) target event, one entry per endorsement
+  attestation (co-signature member). Because signatures are deterministic, one signer yields one
+  attestation per target, so this is normally one entry per endorsing signer; an actor who endorses
+  the same target with more than one enrolled key surfaces one entry per key (each is a distinct
+  attestation, not collapsed):
   - `classification` ∈ `endorsement-trusted | unknown_endorser | ambiguous_endorser`.
   - `endorser` — the resolved actor, present only when `endorsement-trusted`.
   - `endorserAttributes` — the endorser's attested `kind`/`roles` from
