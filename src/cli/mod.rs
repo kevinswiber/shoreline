@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use crate::cli_tracing::TracingArgs;
 
 mod dump;
+mod identity;
 mod input;
 mod inspect;
 mod json;
@@ -35,6 +36,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Dump(dump::DumpArgs),
+    Identity(identity::IdentityArgs),
     Inspect(inspect::InspectArgs),
     Keys(keys::KeysArgs),
     Notes(notes::NotesArgs),
@@ -114,6 +116,7 @@ fn run_cli(
             tracing::debug!(command = "dump", "command_start");
             dump::run(args, &cli.tracing, stdout)
         }
+        Command::Identity(args) => identity::run(args, stdout, stderr),
         Command::Inspect(args) => inspect::run(args, stdout),
         Command::Keys(args) => keys::run(args, stdout),
         Command::Notes(args) => notes::run(args, stdout),
