@@ -183,8 +183,9 @@ tree, including untracked files (source `git_worktree`).
   when it is not already ignored, so it never modifies a tracked `.gitignore` or
   dirties the working tree. This applies to every writer-initializing command
   (capture, observation, input-request, assessment, validation), not just `capture`.
-  Committed config siblings (`.shore/delegates.json`, `.shore/allowed-signers.json`) stay tracked;
-  only `.shore/data/` and the private `.shore/delegates.local.json` override are excluded.
+  Committed config siblings (`.shore/delegates.json`, `.shore/actor-attributes.json`,
+  `.shore/allowed-signers.json`) stay tracked; only `.shore/data/` and the private
+  `.shore/delegates.local.json` and `.shore/actor-attributes.local.json` overrides are excluded.
 - `.shore/data/events/` stores immutable local event files.
 - `.shore/data/state.json` is a rebuildable projection, not the authority.
 - Full captured snapshots are Shoreline-owned immutable artifacts under

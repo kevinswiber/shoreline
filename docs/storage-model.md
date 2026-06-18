@@ -59,16 +59,20 @@ Use distinct storage concepts for distinct semantics:
       snapshots/          immutable captured ReviewUnit snapshots
   delegates.json          committed delegation map (shared default)
   delegates.local.json    locally-excluded private delegation override
+  actor-attributes.json   committed actor-attributes map (shared default)
+  actor-attributes.local.json  locally-excluded private attributes override
   allowed-signers.json    committed allowed-signers trust set
 ```
 
 The single `.shore/` directory holds both the worktree-local store (nested under
 `.shore/data/`) and committed config siblings (`delegates.json`,
-`allowed-signers.json`). Only the store subtree and the private
-`delegates.local.json` override are kept out of Git, via `.git/info/exclude`
-entries (`.shore/data/` and `.shore/delegates.local.json`) — never a wholesale
-`.shore/` exclude, which would hide the committed config. Shoreline writes both
-exclude entries automatically on the first store write.
+`actor-attributes.json`, `allowed-signers.json`). Only the store subtree and the
+private `.local.json` overrides are kept out of Git, via `.git/info/exclude`
+entries (`.shore/data/`, `.shore/delegates.local.json`, and
+`.shore/actor-attributes.local.json`) — never a wholesale `.shore/` exclude,
+which would hide the committed config. (`allowed-signers.json` is committed-only
+and has no `.local.json` override, by deliberate trust-set-locality decision.)
+Shoreline writes these exclude entries automatically on the first store write.
 
 `events/` is the authoritative log. Events are immutable, independently written, and never moved to
 `failed/`, retried in place, or rewritten on read.
