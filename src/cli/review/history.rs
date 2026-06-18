@@ -5,7 +5,7 @@ use clap::{Args, ValueEnum};
 use shoreline::documents::history_document;
 use shoreline::model::ReviewUnitId;
 use shoreline::session::event::EventType;
-use shoreline::session::{ReviewHistoryOptions, review_history};
+use shoreline::session::{EventVerificationPolicy, ReviewHistoryOptions, review_history};
 
 use crate::cli::json;
 
@@ -82,7 +82,9 @@ fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
     if let Some(map) = super::common::discover_delegation_map(&args.repo) {
         options = options.with_delegation_map(map);
     }
+    // Advisory policy: presence enables the verificationStatus render, never gates a write.
     options = options.with_trust_set(super::common::discover_trust_set(&args.repo));
+    options = options.with_verification_policy(EventVerificationPolicy::advisory());
     options
 }
 

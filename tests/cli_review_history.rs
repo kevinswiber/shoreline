@@ -4,7 +4,7 @@ use serde_json::Value;
 use shoreline::model::ValidationStatus;
 use shoreline::session::{ValidationAddOptions, record_validation_check};
 use support::git_repo::GitRepo;
-use support::shore;
+use support::{shore, shore_env};
 
 #[test]
 fn review_history_emits_v1_json_with_freshness_metadata() {
@@ -361,6 +361,51 @@ fn review_history_includes_imported_review_notes() {
         json["entries"][0]["summary"]["title"],
         "Changed return value"
     );
+}
+
+#[test]
+fn history_renders_verification_status_for_a_signed_capture() {
+    let home = tempfile::tempdir().unwrap();
+    let env_home = home.path().to_str().unwrap();
+    // A present-but-unenrolled key → signs, verifies untrusted_key under the empty trust set.
+    assert!(
+        shore_env(
+            ["keys", "init", "--name", "default"],
+            &[("SHORE_HOME", env_home)]
+        )
+        .status
+        .success()
+    );
+
+    let repo = modified_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    assert!(
+        shore_env(
+            ["review", "capture", "--repo", repo_arg],
+            &[("SHORE_HOME", env_home)],
+        )
+        .status
+        .success()
+    );
+
+    let out = shore_env(
+        ["review", "history", "--repo", repo_arg],
+        &[("SHORE_HOME", env_home)],
+    );
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let captured = doc["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["eventType"] == "review_unit_captured")
+        .expect("a captured entry");
+    // BEFORE this task: the CLI sets no policy, so the field is absent.
+    assert_eq!(captured["verificationStatus"], "untrusted_key");
 }
 
 fn parse_json(bytes: &[u8]) -> Value {
