@@ -13,9 +13,10 @@ use shoreline::documents::{lineage_show_document, unit_show_document};
 use shoreline::model::{ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, SnapshotId};
 use shoreline::session::{
     EventVerificationPolicy, LineageListEntry, LineageListOptions, LineageShowOptions,
-    LineageShowResult, ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions,
-    ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitShowOptions, list_lineages,
-    list_review_units, read_snapshot_artifact, review_history, show_lineage, show_review_unit,
+    LineageShowResult, LivenessEnrichment, ProjectionDiagnostic, ReviewHistoryEntry,
+    ReviewHistoryOptions, ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitShowOptions,
+    enrich_liveness, list_lineages, list_review_units, read_snapshot_artifact, review_history,
+    show_lineage, show_review_unit,
 };
 
 #[derive(Serialize)]
@@ -409,14 +410,66 @@ pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, Str
         tracing::debug!(error = %error, review_unit = review_unit_id, "inspect_unit_read_failed");
         format!("review unit not found or unreadable: {review_unit_id}")
     })?;
-    // Thread the typed endpoints out before `unit_show_document` consumes `result`,
-    // then splice the additive `targetDisplay` into the serialized document.
+    // Thread the typed endpoints and the commit-range view out before
+    // `unit_show_document` consumes `result`, then splice the additive
+    // `targetDisplay` into the serialized document.
     let target_display =
         derive_target_display(&result.review_unit.target, &result.review_unit.base);
+    let head_oid = match &result.review_unit.base {
+        ReviewEndpoint::GitCommit { commit_oid, .. } => Some(commit_oid.clone()),
+        ReviewEndpoint::GitWorkingTree { .. } => None,
+    };
+    let commit_range = result.commit_range.clone();
     let document = unit_show_document(result);
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     splice_target_display(&mut value, target_display)?;
+
+    // Current/live enrichment is best-effort: a missing or unreadable repo leaves
+    // `liveBranch` omitted ("reachability unknown"), never an error.
+    if let Some(head_oid) = head_oid
+        && let Ok(enrichment) = enrich_liveness(&commit_range, repo, None)
+        && let Some(live_branch) = resolve_head_live_branch(&enrichment, &head_oid)
+    {
+        set_head_live_branch(&mut value, live_branch);
+    }
+
     serde_json::to_string(&value).map_err(|error| error.to_string())
+}
+
+/// The branch a unit's head commit currently lives on, for the head display.
+/// Prefers the displayed head commit's own liveness; when the head is not among
+/// the unit's current commits (a commit-range base differs from its target),
+/// falls back to the unit's single unambiguous live branch.
+fn resolve_head_live_branch(
+    enrichment: &LivenessEnrichment,
+    head_oid: &str,
+) -> Option<String> {
+    if let Some(commit) = enrichment
+        .per_commit
+        .iter()
+        .find(|commit| commit.commit_oid == head_oid)
+    {
+        return commit.live_branch.clone();
+    }
+    let mut labels = enrichment
+        .per_commit
+        .iter()
+        .filter_map(|commit| commit.live_branch.clone());
+    let first = labels.next()?;
+    labels.all(|label| label == first).then_some(first)
+}
+
+/// Insert `liveBranch` into the spliced `reviewUnit.targetDisplay.head` object.
+/// A no-op if the head block is absent (e.g. a working-tree base with no head).
+fn set_head_live_branch(document: &mut serde_json::Value, live_branch: String) {
+    if let Some(head) = document
+        .get_mut("reviewUnit")
+        .and_then(|review_unit| review_unit.get_mut("targetDisplay"))
+        .and_then(|target_display| target_display.get_mut("head"))
+        .and_then(|head| head.as_object_mut())
+    {
+        head.insert("liveBranch".to_owned(), live_branch.into());
+    }
 }
 
 /// Cheap freshness probe for client-side auto-refresh polling.
@@ -747,5 +800,163 @@ mod tests {
         assert!(!json.contains("/repo"));
         // Derivation never rewrote identity (no event/file written).
         assert_eq!(payload.review_unit_id, review_unit_id);
+    }
+
+    fn captured_commit_range_repo() -> (tempfile::TempDir, String, String) {
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(path.join("src.txt"), "base\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+        std::fs::write(path.join("src.txt"), "next\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "next"]);
+
+        let result = shoreline::session::capture_review(
+            shoreline::session::CaptureOptions::new(path).with_commit_range(
+                shoreline::session::CommitRangeSpec::new("HEAD~1").with_target_rev("HEAD"),
+            ),
+        )
+        .expect("capture commit range review");
+        let branch = current_branch(path);
+        (root, result.review_unit_id.as_str().to_owned(), branch)
+    }
+
+    fn current_branch(repo: &Path) -> String {
+        let output = std::process::Command::new("git")
+            .args(["symbolic-ref", "--short", "HEAD"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    #[test]
+    fn unit_json_populates_live_branch_for_anchored_commit_on_a_branch() {
+        let (repo, review_unit_id, branch) = captured_commit_range_repo();
+
+        let value: serde_json::Value =
+            serde_json::from_str(&unit_json(repo.path(), &review_unit_id).unwrap()).unwrap();
+
+        assert_eq!(
+            value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"],
+            serde_json::json!(branch),
+            "the anchored target commit is the branch tip → live on that branch"
+        );
+    }
+
+    #[test]
+    fn unit_json_omits_live_branch_for_floating_worktree_capture() {
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(path.join("src.txt"), "base\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+        std::fs::write(path.join("src.txt"), "changed\n").unwrap();
+        let capture = shoreline::session::capture_worktree_review(
+            shoreline::session::CaptureOptions::new(path),
+        )
+        .expect("capture worktree review");
+
+        let value: serde_json::Value = serde_json::from_str(
+            &unit_json(path, capture.review_unit_id.as_str()).unwrap(),
+        )
+        .unwrap();
+
+        assert!(
+            value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"].is_null(),
+            "a floating worktree capture has no current commit → liveBranch omitted"
+        );
+    }
+
+    #[test]
+    fn unit_json_omits_live_branch_when_commit_objects_are_unavailable() {
+        let (repo, review_unit_id, _branch) = captured_commit_range_repo();
+
+        // A second repo that serves the same store but whose object database does
+        // not hold the captured commits (the linked-inspector case). The store
+        // still reads; reachability cannot resolve, so liveBranch is omitted.
+        let elsewhere = tempfile::tempdir().expect("create separate repo");
+        git(elsewhere.path(), &["init"]);
+        git(elsewhere.path(), &["config", "user.name", "Shore Tests"]);
+        git(elsewhere.path(), &["config", "user.email", "shore-tests@example.com"]);
+        git(elsewhere.path(), &["config", "commit.gpgsign", "false"]);
+        copy_dir_all(
+            &repo.path().join(".shore"),
+            &elsewhere.path().join(".shore"),
+        );
+
+        let value: serde_json::Value =
+            serde_json::from_str(&unit_json(elsewhere.path(), &review_unit_id).unwrap()).unwrap();
+
+        assert!(
+            value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"].is_null(),
+            "commit objects absent → reachability unknown → liveBranch omitted, request still 200s"
+        );
+    }
+
+    fn copy_dir_all(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir_all(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_head_live_branch_prefers_head_then_falls_back_to_single_unambiguous() {
+        use shoreline::session::{CommitGraphCondition, CommitLiveness, LivenessEnrichment};
+
+        // Head commit itself is among the current commits → use its own branch.
+        let matched = LivenessEnrichment {
+            per_commit: vec![CommitLiveness {
+                commit_oid: "headoid".to_owned(),
+                condition: CommitGraphCondition::Live,
+                live_branch: Some("main".to_owned()),
+            }],
+            headline: Some(CommitGraphCondition::Live),
+        };
+        assert_eq!(
+            resolve_head_live_branch(&matched, "headoid").as_deref(),
+            Some("main")
+        );
+
+        // Head not among current commits (commit-range base != target) → fall back
+        // to the unit's single live branch.
+        assert_eq!(
+            resolve_head_live_branch(&matched, "baseoid").as_deref(),
+            Some("main")
+        );
+
+        // Two current commits on different branches → ambiguous → None.
+        let ambiguous = LivenessEnrichment {
+            per_commit: vec![
+                CommitLiveness {
+                    commit_oid: "a".to_owned(),
+                    condition: CommitGraphCondition::Live,
+                    live_branch: Some("main".to_owned()),
+                },
+                CommitLiveness {
+                    commit_oid: "b".to_owned(),
+                    condition: CommitGraphCondition::Live,
+                    live_branch: Some("feature".to_owned()),
+                },
+            ],
+            headline: None,
+        };
+        assert_eq!(resolve_head_live_branch(&ambiguous, "baseoid"), None);
     }
 }

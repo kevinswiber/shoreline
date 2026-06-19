@@ -18,6 +18,23 @@ pub(crate) struct GitWorktree {
     pub bare: bool,
 }
 
+/// Three-valued ancestry from `merge-base --is-ancestor`, which signals only via
+/// exit code with empty stdout: 0 ancestor, 1 not, 128 a missing/bad object. A
+/// gc'd or absent object is a value here, never an error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Ancestry {
+    Ancestor,
+    NotAncestor,
+    MissingObject,
+}
+
+/// One ref tip from `for-each-ref`: the full ref name and the OID it points at.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RefEntry {
+    pub name: String,
+    pub oid: String,
+}
+
 pub(crate) fn run_git<I, S>(cwd: &Path, args: I) -> Result<GitOutput>
 where
     I: IntoIterator<Item = S>,
@@ -108,6 +125,79 @@ pub fn git_path_is_ignored(repo: &Path, pathspec: &str) -> Result<bool> {
     // when nothing matches, so a non-empty stdout is the "ignored" signal.
     let output = run_git_allowing_statuses(repo, ["check-ignore", pathspec], &[0, 1])?;
     Ok(!output.stdout.is_empty())
+}
+
+/// Three-valued reachability: is `ancestor_oid` an ancestor of `descendant_oid`?
+/// `merge-base --is-ancestor` reports only via exit code with empty stdout, and a
+/// missing/bad object (exit 128) is returned as [`Ancestry::MissingObject`]
+/// rather than an error so liveness can keep folding.
+pub(crate) fn git_is_ancestor(
+    repo: &Path,
+    ancestor_oid: &str,
+    descendant_oid: &str,
+) -> Result<Ancestry> {
+    let (code, _) = run_git_status(
+        repo,
+        [
+            "merge-base",
+            "--is-ancestor",
+            ancestor_oid,
+            descendant_oid,
+        ],
+        &[0, 1, 128],
+    )?;
+    Ok(match code {
+        0 => Ancestry::Ancestor,
+        1 => Ancestry::NotAncestor,
+        _ => Ancestry::MissingObject,
+    })
+}
+
+/// Ref tips matching `patterns` (e.g. `&["refs/heads/*"]`), as `(oid, full ref)`
+/// pairs. Empty `patterns` lists every ref.
+pub(crate) fn git_for_each_ref(repo: &Path, patterns: &[&str]) -> Result<Vec<RefEntry>> {
+    let mut args = vec![
+        "for-each-ref".to_owned(),
+        "--format=%(objectname) %(refname)".to_owned(),
+    ];
+    args.extend(patterns.iter().map(|pattern| (*pattern).to_owned()));
+    let output = run_git(repo, args)?;
+    let text = git_field_string(&output.stdout, "for-each-ref output")?;
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let (oid, name) = line.split_once(' ')?;
+            Some(RefEntry {
+                name: name.to_owned(),
+                oid: oid.to_owned(),
+            })
+        })
+        .collect())
+}
+
+/// Whether `oid` names an object present in the repository (`cat-file -e`).
+pub(crate) fn git_object_exists(repo: &Path, oid: &str) -> Result<bool> {
+    let (code, _) = run_git_status(repo, ["cat-file", "-e", oid], &[0, 1])?;
+    Ok(code == 0)
+}
+
+/// The canonical full ref of HEAD (e.g. `refs/heads/feat/x`), or `None` when HEAD
+/// is detached. The full ref — never the short name — is the canonical stored
+/// `ref_name` spelling for association identity.
+pub(crate) fn git_head_ref(repo: &Path) -> Result<Option<String>> {
+    let (code, stdout) = run_git_status(repo, ["symbolic-ref", "--quiet", "HEAD"], &[0, 1])?;
+    if code != 0 {
+        return Ok(None);
+    }
+    let trimmed = trim_git_stdout(&stdout);
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(git_field_string(trimmed, "HEAD symbolic ref")?))
 }
 
 pub fn git_head_oid(repo: &Path) -> Result<String> {
@@ -229,6 +319,23 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let (_, stdout) = run_git_status(cwd, args, allowed_statuses)?;
+    Ok(GitOutput { stdout })
+}
+
+/// Runs git and surfaces both the exit code and stdout, erroring only when the
+/// code is outside `allowed_statuses`. Unlike [`run_git_allowing_statuses`],
+/// this keeps the exit code, which is the only signal some plumbing commands
+/// emit (`merge-base --is-ancestor`, `cat-file -e`, `symbolic-ref --quiet`).
+pub(crate) fn run_git_status<I, S>(
+    cwd: &Path,
+    args: I,
+    allowed_statuses: &[i32],
+) -> Result<(i32, Vec<u8>)>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let args = args
         .into_iter()
         .map(|arg| arg.as_ref().to_owned())
@@ -249,9 +356,10 @@ where
         });
     }
 
-    Ok(GitOutput {
-        stdout: output.stdout,
-    })
+    Ok((
+        status_code.expect("an allowed status implies a concrete exit code"),
+        output.stdout,
+    ))
 }
 
 fn git_stdout_path(repo: &Path, stdout: &[u8], description: &str) -> Result<PathBuf> {
@@ -400,6 +508,65 @@ mod tests {
     fn rev_parse(repo: &Path, rev: &str) -> String {
         let output = run_git(repo, ["rev-parse", rev]).unwrap();
         String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    #[test]
+    fn is_ancestor_is_three_valued() {
+        let repo = TwoCommitRepo::new();
+        let base = rev_parse(repo.path(), "HEAD~1");
+        let tip = rev_parse(repo.path(), "HEAD");
+
+        assert_eq!(
+            git_is_ancestor(repo.path(), &base, &tip).unwrap(),
+            Ancestry::Ancestor
+        );
+        assert_eq!(
+            git_is_ancestor(repo.path(), &tip, &base).unwrap(),
+            Ancestry::NotAncestor
+        );
+        let absent = "0".repeat(tip.len());
+        assert_eq!(
+            git_is_ancestor(repo.path(), &absent, &tip).unwrap(),
+            Ancestry::MissingObject
+        );
+    }
+
+    #[test]
+    fn for_each_ref_lists_tips_including_nested_branches() {
+        let repo = TwoCommitRepo::new();
+        git(repo.path(), ["branch", "feat/x"]);
+
+        // The `refs/heads/` prefix matches nested branch names; `refs/heads/*`
+        // would not, because for-each-ref globs with WM_PATHNAME so `*` stops at
+        // a slash.
+        let entries = git_for_each_ref(repo.path(), &["refs/heads/"]).unwrap();
+        let tip = rev_parse(repo.path(), "HEAD");
+
+        assert!(
+            entries.iter().any(|entry| entry.name == "refs/heads/feat/x"),
+            "for-each-ref must list the nested branch: {entries:?}"
+        );
+        assert!(entries.iter().any(|entry| entry.oid == tip));
+    }
+
+    #[test]
+    fn object_exists_and_head_ref() {
+        let repo = TwoCommitRepo::new();
+        let head_oid = rev_parse(repo.path(), "HEAD");
+
+        assert!(git_object_exists(repo.path(), &head_oid).unwrap());
+        assert!(!git_object_exists(repo.path(), &"0".repeat(head_oid.len())).unwrap());
+
+        let head_ref = git_head_ref(repo.path()).unwrap();
+        assert!(
+            head_ref
+                .as_deref()
+                .is_some_and(|name| name.starts_with("refs/heads/")),
+            "attached HEAD must resolve to a full ref, got {head_ref:?}"
+        );
+
+        git(repo.path(), ["checkout", "--detach"]);
+        assert_eq!(git_head_ref(repo.path()).unwrap(), None);
     }
 
     struct TwoCommitRepo {

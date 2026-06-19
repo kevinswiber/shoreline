@@ -1,6 +1,7 @@
 mod artifact_transfer;
 pub(in crate::session) mod assessment;
 mod capture;
+mod commit_range_liveness;
 mod event_signature;
 mod history;
 mod import;
@@ -26,6 +27,9 @@ pub use assessment::{
     AssessmentAddOptions, AssessmentAddResult, AssessmentRecordStatus, AssessmentShowFilters,
     AssessmentShowOptions, AssessmentShowResult, AssessmentTargetSelector, AssessmentView,
     CurrentAssessmentStatus, CurrentAssessmentView, record_assessment, show_assessments,
+};
+pub use commit_range_liveness::{
+    CommitGraphCondition, CommitLiveness, LivenessEnrichment, OrphanReason, enrich_liveness,
 };
 pub use capture::{
     CaptureOptions, CaptureResult, CommitRangeSpec, capture_review, capture_worktree_review,
