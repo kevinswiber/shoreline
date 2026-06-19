@@ -615,7 +615,6 @@ where
     prepare_write_landing(&write_store, &storage)?;
 
     let event_store = EventStore::open(store_dir);
-    let prior_events = event_store.list_events()?;
 
     let validation_store = resolve_write_validation_store(repo)?;
     let validation_events = validation_store.validation_events()?;
@@ -664,7 +663,7 @@ where
         EventWriteOutcome::Existing | EventWriteOutcome::ExistingDivergentSignature => (0, 1),
     };
 
-    let state = SessionState::from_prior_events_and_committed(&prior_events, &event, outcome)?;
+    let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(
         &store_dir.join("state.json"),
         &state,
@@ -755,6 +754,28 @@ mod tests {
         assert_eq!(again.events_existing, 1);
         assert_eq!(again.commit_association_id, first.commit_association_id);
         assert_eq!(again.event_id, first.event_id);
+    }
+
+    #[test]
+    fn association_persists_a_full_event_log_rebuild() {
+        // The state.json a write workflow persists is a rebuild of the whole
+        // event log, not the batch the workflow loaded for itself: after
+        // recording an association, the on-disk projection must equal a fresh
+        // replay of every event in the store.
+        let (repo, _unit) = Repo::with_capture();
+        associate_commit(
+            AssociateCommitOptions::new(repo.path(), "HEAD").with_track("agent:codex"),
+        )
+        .unwrap();
+
+        let store_dir = repo.path().join(".shore/data");
+        let events = EventStore::open(&store_dir).list_events().unwrap();
+        let replay = SessionState::from_events(&events).unwrap();
+        let persisted: SessionState =
+            serde_json::from_slice(&std::fs::read(store_dir.join("state.json")).unwrap()).unwrap();
+
+        assert_eq!(persisted, replay);
+        assert_eq!(persisted.event_count, events.len());
     }
 
     #[test]

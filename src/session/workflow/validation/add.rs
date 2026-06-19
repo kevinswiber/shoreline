@@ -243,7 +243,6 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     prepare_write_landing(&write_store, &storage)?;
 
     let event_store = EventStore::open(store_dir);
-    let events = event_store.list_events()?;
     let track_id = validated_track_id(input.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {
             reason: "track is required".to_owned(),
@@ -345,7 +344,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
         EventWriteOutcome::Existing | EventWriteOutcome::ExistingDivergentSignature => (0, 1),
     };
 
-    let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
+    let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(
         &store_dir.join("state.json"),
         &state,

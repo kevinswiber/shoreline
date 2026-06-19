@@ -99,7 +99,6 @@ pub fn record_event_signature(
     // The write half lands in the resolved write store (the clone-local store in
     // linked mode) and rebuilds its state.json there.
     let event_store = EventStore::open(store_dir);
-    let events = event_store.list_events()?;
 
     // Resolve the target against the writer-visible union so a linked-only target
     // still resolves. A co-signature whose target is not present cannot be verified
@@ -166,7 +165,7 @@ pub fn record_event_signature(
         EventWriteOutcome::Existing | EventWriteOutcome::ExistingDivergentSignature => (0, 1),
     };
 
-    let state = SessionState::from_prior_events_and_committed(&events, &record.carrier, outcome)?;
+    let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(
         &store_dir.join("state.json"),
         &state,

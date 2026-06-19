@@ -116,7 +116,6 @@ pub fn respond_input_request(
     // The write half lands in the resolved write store (the clone-local store in
     // linked mode) and rebuilds its state.json there.
     let event_store = EventStore::open(store_dir);
-    let events = event_store.list_events()?;
 
     // The request being responded to may live only in the linked store: its
     // EventTarget fields are copied verbatim into the response, so the lookup
@@ -230,7 +229,7 @@ pub fn respond_input_request(
         EventWriteOutcome::Existing | EventWriteOutcome::ExistingDivergentSignature => (0, 1),
     };
 
-    let state = SessionState::from_prior_events_and_committed(&events, &event, write_outcome)?;
+    let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(
         &store_dir.join("state.json"),
         &state,

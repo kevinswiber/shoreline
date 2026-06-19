@@ -179,7 +179,6 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     // The write half lands in the resolved write store (the clone-local store in
     // linked mode) and rebuilds its state.json there.
     let event_store = EventStore::open(store_dir);
-    let events = event_store.list_events()?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {
             reason: "track is required".to_owned(),
@@ -266,7 +265,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         EventWriteOutcome::Existing | EventWriteOutcome::ExistingDivergentSignature => (0, 1),
     };
 
-    let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
+    let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(
         &store_dir.join("state.json"),
         &state,
