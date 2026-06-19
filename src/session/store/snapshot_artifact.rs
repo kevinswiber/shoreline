@@ -4,23 +4,30 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::{Result, ShoreError};
-use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, SnapshotId};
+use crate::model::{DiffSnapshot, SnapshotId};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::{ReviewUnitFingerprint, ShoreStorePaths};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 const SNAPSHOT_ARTIFACT_SCHEMA: &str = "shore.snapshot";
-const SNAPSHOT_ARTIFACT_VERSION: u32 = 1;
+const SNAPSHOT_ARTIFACT_VERSION: u32 = 2;
 
+/// The snapshot-scoped v2 artifact body (#146). It carries only namespace-
+/// independent content, so two worktrees capturing the same `snapshot_id`
+/// produce **byte-identical** artifacts that dedup. ReviewUnit identity and
+/// endpoints (`review_unit_id`/`source`/`base`/`target`) live in the
+/// `ReviewUnitCaptured` event/projection, never here (INV-1/INV-3).
+///
+/// New writes are v2. Pre-existing v1 artifacts — whose body also embedded the
+/// identity/endpoint fields — stay readable via [`decode_and_validate_snapshot_artifact`]
+/// (the dual-read escape hatch); their extra fields are ignored on deserialize
+/// and their `content_hash` is validated over the stored body, so a v1 artifact's
+/// hash still matches the capture event that bound it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotArtifact {
     pub schema: String,
     pub version: u32,
-    pub review_unit_id: ReviewUnitId,
-    pub source: ReviewUnitSource,
-    pub base: ReviewEndpoint,
-    pub target: ReviewEndpoint,
     pub snapshot: DiffSnapshot,
     pub content_hash: String,
 }
@@ -44,17 +51,7 @@ pub(crate) fn write_snapshot_artifact_to(
         )));
     }
 
-    let mut artifact = SnapshotArtifact {
-        schema: SNAPSHOT_ARTIFACT_SCHEMA.to_owned(),
-        version: SNAPSHOT_ARTIFACT_VERSION,
-        review_unit_id: fingerprint.review_unit_id.clone(),
-        source: fingerprint.source.clone(),
-        base: fingerprint.base.clone(),
-        target: fingerprint.target.clone(),
-        content_hash: String::new(),
-        snapshot,
-    };
-    artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
+    let artifact = build_snapshot_artifact_v2(snapshot)?;
 
     let storage = LocalStorage::new(store_dir);
     let path = snapshot_artifact_path(store_dir, &artifact.snapshot.snapshot_id);
@@ -63,8 +60,19 @@ pub(crate) fn write_snapshot_artifact_to(
     match storage.create_file_exclusive(&path, &bytes, Durability::Durable)? {
         CreateFileOutcome::Created => Ok(artifact),
         CreateFileOutcome::AlreadyExists => {
-            let existing: SnapshotArtifact = storage.read_json(&path)?;
-            if existing == artifact {
+            // Dedup on snapshot-content match, regardless of version (INV-7,
+            // dual-read): the path is keyed by `snapshot_id`, so an existing valid
+            // artifact whose `snapshot` equals ours holds the same content. Two
+            // fresh worktrees write byte-identical v2 artifacts; a new v2 capture
+            // over a pre-existing v1 artifact dedups against the (untouched) v1
+            // body — #146 is fixed without rewriting any signed history. We return
+            // the existing artifact (whatever version), so the capture event binds
+            // to the hash actually on disk.
+            let existing_bytes = std::fs::read(&path).map_err(|error| {
+                missing_artifact_or_io(error, &artifact.snapshot.snapshot_id, &path)
+            })?;
+            let existing = decode_and_validate_snapshot_artifact(&existing_bytes)?;
+            if existing.snapshot == artifact.snapshot {
                 Ok(existing)
             } else {
                 Err(ShoreError::Message(format!(
@@ -76,6 +84,20 @@ pub(crate) fn write_snapshot_artifact_to(
     }
 }
 
+/// Build a v2 snapshot-scoped artifact with its content hash filled in. The
+/// single place that assembles a [`SnapshotArtifact`] for writing; reuse it so
+/// every native v2 capture of the same snapshot produces byte-identical bytes.
+pub(crate) fn build_snapshot_artifact_v2(snapshot: DiffSnapshot) -> Result<SnapshotArtifact> {
+    let mut artifact = SnapshotArtifact {
+        schema: SNAPSHOT_ARTIFACT_SCHEMA.to_owned(),
+        version: SNAPSHOT_ARTIFACT_VERSION,
+        content_hash: String::new(),
+        snapshot,
+    };
+    artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
+    Ok(artifact)
+}
+
 /// Read and hash-validate a stored snapshot artifact.
 ///
 /// Reads resolve through the linked clone-local store when one is registered
@@ -85,9 +107,7 @@ pub fn read_snapshot_artifact(
     snapshot_id: &SnapshotId,
 ) -> Result<SnapshotArtifact> {
     let bytes = read_snapshot_artifact_bytes(repo, snapshot_id)?;
-    let artifact: SnapshotArtifact = serde_json::from_slice(&bytes)?;
-    validate_snapshot_artifact_content_hash(&artifact)?;
-    Ok(artifact)
+    decode_and_validate_snapshot_artifact(&bytes)
 }
 
 pub(crate) fn read_snapshot_artifact_bytes(
@@ -112,9 +132,7 @@ pub(crate) fn read_snapshot_artifact_for_write_validation(
     snapshot_id: &SnapshotId,
 ) -> Result<SnapshotArtifact> {
     let bytes = read_snapshot_artifact_bytes_with_local_fallback(repo, snapshot_id)?;
-    let artifact: SnapshotArtifact = serde_json::from_slice(&bytes)?;
-    validate_snapshot_artifact_content_hash(&artifact)?;
-    Ok(artifact)
+    decode_and_validate_snapshot_artifact(&bytes)
 }
 
 fn read_snapshot_artifact_bytes_with_local_fallback(
@@ -156,18 +174,64 @@ fn missing_artifact_or_io(
     ShoreError::Message(format!("read file {}: {error}", path.display()))
 }
 
-pub(crate) fn validate_snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<()> {
-    let expected = snapshot_artifact_content_hash(artifact)?;
-    if artifact.content_hash == expected {
+/// The one decode path for stored snapshot-artifact bytes (INV-6). Validates the
+/// `contentHash` over the **raw stored body minus `contentHash`**, then
+/// deserializes into the v2-shaped struct. The raw validation is version-agnostic
+/// — each version's writer hashed its own present body minus `contentHash` (v1:
+/// the full body including the identity/endpoint fields; v2: the snapshot-scoped
+/// body) — so this accepts and validates **both** v1 and v2 (the dual-read escape
+/// hatch). A v1 artifact's extra identity fields are ignored on deserialize, and
+/// the returned struct's `content_hash` is whatever was stored, so the
+/// `ReviewUnitCaptured` event that bound it still matches (INV-3).
+///
+/// TODO(remove-dual-read): once every affected repo has converged to v2 (no v1
+/// artifacts remain), drop the raw/version-agnostic branch and restore a strict
+/// v2-only decode (reject `version != 2`, hash over the typed struct). See plan
+/// 0074 `findings/todo-remove-dual-read-after-fleet-migration.md`.
+pub(crate) fn decode_and_validate_snapshot_artifact(bytes: &[u8]) -> Result<SnapshotArtifact> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)?;
+    validate_raw_artifact_content_hash(&value)?;
+    let artifact: SnapshotArtifact = serde_json::from_value(value)?;
+    Ok(artifact)
+}
+
+/// Validate a stored artifact's `contentHash` over its raw JSON body minus
+/// `contentHash`. Version-agnostic by construction (it hashes whatever body is
+/// present), so it covers both v1 and v2 stored shapes — the dual-read decode and
+/// any caller validating raw artifact bytes share this single hash scope.
+fn validate_raw_artifact_content_hash(value: &serde_json::Value) -> Result<()> {
+    let mut material = value.clone();
+    let Some(object) = material.as_object_mut() else {
+        return Err(ShoreError::Message(
+            "snapshot artifact hash material must be an object".to_owned(),
+        ));
+    };
+    let Some(stored) = object
+        .remove("contentHash")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    else {
+        return Err(ShoreError::Message(
+            "snapshot artifact hash material is missing contentHash".to_owned(),
+        ));
+    };
+
+    if sha256_json_prefixed(&material)? == stored {
         return Ok(());
     }
 
+    let snapshot_id = value
+        .get("snapshot")
+        .and_then(|snapshot| snapshot.get("snapshot_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown>");
     Err(ShoreError::Message(format!(
-        "snapshot artifact content hash mismatch for {}",
-        artifact.snapshot.snapshot_id.as_str()
+        "snapshot artifact content hash mismatch for {snapshot_id}"
     )))
 }
 
+/// Hash a v2 artifact's body minus `contentHash` (the value [`build_snapshot_artifact_v2`]
+/// stamps in). With the snapshot-scoped struct the hashed material is
+/// `{schema, version, snapshot}` — namespace-independent (INV-2).
 fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String> {
     let mut material = serde_json::to_value(artifact)?;
     let Some(object) = material.as_object_mut() else {
@@ -204,17 +268,153 @@ mod tests {
     use std::process::Command;
 
     use super::*;
+    use crate::canonical_hash::sha256_json_prefixed;
     use crate::git::capture_worktree_diff_files;
-    use crate::model::{DiffSnapshot, ReviewEndpoint, ReviewId};
+    use crate::model::{DiffSnapshot, ReviewId};
     use crate::session::store::resolution::register_clone_local_store;
-    use crate::session::{compute_review_unit_fingerprint, read_snapshot_artifact};
+    use crate::session::{
+        CaptureOptions, CommitRangeSpec, capture_review, compute_review_unit_fingerprint,
+        read_snapshot_artifact,
+    };
 
     #[test]
-    fn snapshot_artifact_schema_is_pinned_at_shore_snapshot_v1() {
-        // Any future elision-aware artifact must bump one of these constants
-        // (see docs/adr/adr-0002-large-snapshot-artifact-policy.md, "Future Reversal").
+    fn snapshot_artifact_schema_is_pinned_at_shore_snapshot_v2() {
+        // Native writes are v2. Any future elision-aware artifact must bump one of
+        // these constants (see docs/adr/adr-0002-large-snapshot-artifact-policy.md).
         assert_eq!(super::SNAPSHOT_ARTIFACT_SCHEMA, "shore.snapshot");
-        assert_eq!(super::SNAPSHOT_ARTIFACT_VERSION, 1);
+        assert_eq!(super::SNAPSHOT_ARTIFACT_VERSION, 2);
+    }
+
+    #[test]
+    fn snapshot_artifact_body_is_snapshot_scoped_v2() {
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+
+        let json = serde_json::to_value(&artifact).unwrap();
+        let keys = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            keys,
+            ["contentHash", "schema", "snapshot", "version"]
+                .iter()
+                .map(|key| key.to_string())
+                .collect::<std::collections::BTreeSet<_>>(),
+            "v2 body carries no reviewUnitId/source/base/target"
+        );
+        assert_eq!(artifact.version, 2);
+    }
+
+    #[test]
+    fn same_range_in_two_repos_produces_byte_identical_artifacts() {
+        let repo_a = committed_repo();
+        let repo_b = clone_repo(&repo_a); // real clone preserves commit/tree oids
+
+        let a = capture_range(&repo_a, "HEAD~1");
+        let b = capture_range(&repo_b, "HEAD~1");
+
+        assert_eq!(a.snapshot_id, b.snapshot_id);
+        assert_ne!(a.review_unit_id, b.review_unit_id); // identity namespace unchanged (0011 B2)
+        assert_eq!(
+            a.snapshot_artifact_content_hash,
+            b.snapshot_artifact_content_hash
+        );
+
+        let bytes_a = fs::read(snapshot_artifact_path(
+            &repo_a.path().join(".shore/data"),
+            &a.snapshot_id,
+        ))
+        .unwrap();
+        let bytes_b = fs::read(snapshot_artifact_path(
+            &repo_b.path().join(".shore/data"),
+            &b.snapshot_id,
+        ))
+        .unwrap();
+        assert_eq!(
+            bytes_a, bytes_b,
+            "snapshot-scoped artifacts must be byte-identical"
+        );
+    }
+
+    #[test]
+    fn decode_accepts_a_v1_artifact_and_keeps_its_stored_hash() {
+        // Dual-read (INV-6): a pre-existing v1 artifact stays readable; its extra
+        // identity fields are ignored and its stored v1 hash is preserved so the
+        // capture event that bound it still matches.
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+        let path = snapshot_artifact_path(
+            &repo.path().join(".shore/data"),
+            &artifact.snapshot.snapshot_id,
+        );
+        let v1_bytes = rewrite_as_v1(&fs::read(&path).unwrap());
+
+        let decoded = decode_and_validate_snapshot_artifact(&v1_bytes).unwrap();
+        assert_eq!(decoded.version, 1);
+        assert_eq!(decoded.snapshot.snapshot_id, artifact.snapshot.snapshot_id);
+        // The struct preserves the stored v1 content hash, not a recomputed v2 one.
+        let v1_hash: serde_json::Value =
+            serde_json::from_slice::<serde_json::Value>(&v1_bytes).unwrap()["contentHash"].clone();
+        assert_eq!(decoded.content_hash, v1_hash.as_str().unwrap());
+        assert_ne!(decoded.content_hash, artifact.content_hash);
+    }
+
+    #[test]
+    fn decode_rejects_a_tampered_v1_artifact() {
+        let repo = modified_repo();
+        let artifact = write_current_snapshot_artifact(&repo);
+        let path = snapshot_artifact_path(
+            &repo.path().join(".shore/data"),
+            &artifact.snapshot.snapshot_id,
+        );
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&rewrite_as_v1(&fs::read(&path).unwrap())).unwrap();
+        // Mutate a body field without re-stamping the hash.
+        value["target"]["worktreeRoot"] = serde_json::json!("/evil");
+
+        let error = decode_and_validate_snapshot_artifact(&serde_json::to_vec(&value).unwrap())
+            .expect_err("tampered v1 artifact is rejected");
+        assert!(error.to_string().contains("content hash"));
+    }
+
+    #[test]
+    fn write_dedups_against_a_pre_existing_v1_artifact() {
+        // The dual-read #146 fix within a store: a snapshot path already holding a
+        // v1 artifact accepts a new v2 write of the same snapshot without conflict,
+        // returns the (untouched) v1 artifact, and never rewrites it — so a signed
+        // v1 capture that bound the v1 hash keeps validating.
+        let repo = modified_repo();
+        let files = capture_worktree_diff_files(repo.path()).unwrap();
+        let fingerprint = compute_review_unit_fingerprint(repo.path()).unwrap();
+        let snapshot = DiffSnapshot::new(
+            ReviewId::new("review:default"),
+            fingerprint.snapshot_id.clone(),
+            files,
+        );
+        let store_dir = ShoreStorePaths::resolve(repo.path())
+            .unwrap()
+            .store_dir()
+            .to_path_buf();
+
+        // First write lands a native v2 artifact; downgrade it to a v1 body, as an
+        // old binary would have written it.
+        let v2 = write_snapshot_artifact_to(&store_dir, &fingerprint, snapshot.clone()).unwrap();
+        assert_eq!(v2.version, 2);
+        let path = snapshot_artifact_path(&store_dir, &fingerprint.snapshot_id);
+        let v1_bytes = rewrite_as_v1(&fs::read(&path).unwrap());
+        fs::write(&path, &v1_bytes).unwrap();
+
+        // Second write of the same snapshot dedups against the v1 body.
+        let deduped = write_snapshot_artifact_to(&store_dir, &fingerprint, snapshot).unwrap();
+        assert_eq!(deduped.version, 1, "dedup returns the existing v1 artifact");
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            v1_bytes,
+            "v1 artifact left untouched"
+        );
     }
 
     #[test]
@@ -257,7 +457,7 @@ mod tests {
         let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.snapshot_id).unwrap();
 
         assert_eq!(stored.schema, "shore.snapshot");
-        assert_eq!(stored.version, 1);
+        assert_eq!(stored.version, 2);
         assert_eq!(stored.snapshot.snapshot_id, artifact.snapshot.snapshot_id);
         assert_eq!(stored.snapshot.files.len(), 1);
         assert_eq!(
@@ -294,7 +494,9 @@ mod tests {
 
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        json["target"]["worktreeRoot"] = serde_json::json!("/other/repo");
+        // Tamper a field inside the v2 content hash. `DiffFile` is snake_case,
+        // unlike the camelCase `SnapshotArtifact` wrapper.
+        json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
 
         let error = read_snapshot_artifact(repo.path(), &artifact.snapshot.snapshot_id)
@@ -304,13 +506,11 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_artifact_hash_covers_metadata_and_snapshot_rows() {
+    fn snapshot_artifact_hash_covers_snapshot_rows() {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);
         let mut changed = artifact.clone();
-        changed.target = ReviewEndpoint::GitWorkingTree {
-            worktree_root: "/other/repo".to_owned(),
-        };
+        changed.snapshot.files.clear();
 
         assert_ne!(
             snapshot_artifact_content_hash(&artifact).unwrap(),
@@ -447,6 +647,75 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
         repo
+    }
+
+    fn committed_repo() -> TestRepo {
+        let repo = TestRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+        repo.commit_all("base");
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+        repo.commit_all("change");
+        repo
+    }
+
+    /// Real `git clone` of `source` into a fresh temp dir. Cloning preserves the
+    /// commit/tree OIDs, so the same `--base HEAD~1` range captures the same
+    /// `snapshot_id` while the differing canonical worktree root mints a distinct
+    /// `review_unit_id` — exactly the two-worktree shape of #146.
+    fn clone_repo(source: &TestRepo) -> TestRepo {
+        let root = tempfile::tempdir().expect("create clone temp directory");
+        let status = Command::new("git")
+            .args(["clone", "--quiet"])
+            .arg(source.path())
+            .arg(root.path())
+            .status()
+            .expect("run git clone");
+        assert!(status.success(), "git clone failed");
+        let clone = TestRepo { root };
+        clone.git(["config", "user.name", "Shore Tests"]);
+        clone.git(["config", "user.email", "shore-tests@example.com"]);
+        clone.git(["config", "commit.gpgsign", "false"]);
+        clone
+    }
+
+    fn capture_range(repo: &TestRepo, base_rev: &str) -> crate::session::CaptureResult {
+        capture_review(
+            CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new(base_rev)),
+        )
+        .unwrap()
+    }
+
+    /// Rewrite a v2 artifact's bytes into a faithful **v1** artifact: re-add the
+    /// identity/endpoint fields the v1 body carried, set `version: 1`, and
+    /// recompute `contentHash` over the full v1 body, so it passes the
+    /// version-agnostic validation the dual-read decode applies.
+    fn rewrite_as_v1(bytes: &[u8]) -> Vec<u8> {
+        let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("version".to_owned(), serde_json::json!(1));
+        object.insert(
+            "reviewUnitId".to_owned(),
+            serde_json::json!("review-unit:sha256:legacy"),
+        );
+        object.insert(
+            "source".to_owned(),
+            serde_json::json!({ "kind": "git_working_tree" }),
+        );
+        object.insert(
+            "base".to_owned(),
+            serde_json::json!({ "kind": "git_working_tree", "worktreeRoot": "/legacy" }),
+        );
+        object.insert(
+            "target".to_owned(),
+            serde_json::json!({ "kind": "git_working_tree", "worktreeRoot": "/legacy" }),
+        );
+        object.remove("contentHash");
+        let hash = sha256_json_prefixed(&value).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("contentHash".to_owned(), serde_json::json!(hash));
+        serde_json::to_vec(&value).unwrap()
     }
 
     struct TestRepo {

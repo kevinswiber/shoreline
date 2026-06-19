@@ -14,9 +14,8 @@ use crate::session::event::{
     decode_input_request_opened_payload,
 };
 use crate::session::snapshot_artifact::{
-    read_snapshot_artifact_bytes, snapshot_artifact_path, validate_snapshot_artifact_content_hash,
+    decode_and_validate_snapshot_artifact, read_snapshot_artifact_bytes, snapshot_artifact_path,
 };
-use crate::session::store::SnapshotArtifact;
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_read_store, resolve_write_store,
 };
@@ -138,8 +137,7 @@ pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result
     match &artifact.locator {
         ArtifactLocator::Snapshot { snapshot_id } => {
             let bytes = read_snapshot_artifact_bytes(repo, snapshot_id)?;
-            let stored: SnapshotArtifact = serde_json::from_slice(&bytes)?;
-            validate_snapshot_artifact_content_hash(&stored)?;
+            let stored = decode_and_validate_snapshot_artifact(&bytes)?;
             if stored.content_hash != artifact.content_hash {
                 return Err(ShoreError::Message(format!(
                     "snapshot artifact content hash mismatch for {}",
@@ -320,8 +318,7 @@ fn import_snapshot_artifact(
     expected_content_hash: &str,
     bytes: &[u8],
 ) -> Result<ImportArtifactOutcome> {
-    let artifact: SnapshotArtifact = serde_json::from_slice(bytes)?;
-    validate_snapshot_artifact_content_hash(&artifact)?;
+    let artifact = decode_and_validate_snapshot_artifact(bytes)?;
     if artifact.snapshot.snapshot_id != *snapshot_id {
         return Err(ShoreError::Message(format!(
             "snapshot artifact locator mismatch for {}",
@@ -338,8 +335,13 @@ fn import_snapshot_artifact(
     match storage.create_file_exclusive(&path, bytes, Durability::Durable)? {
         CreateFileOutcome::Created => Ok(ImportArtifactOutcome::Created),
         CreateFileOutcome::AlreadyExists => {
-            let existing: SnapshotArtifact = storage.read_json(&path)?;
-            validate_snapshot_artifact_content_hash(&existing)?;
+            let existing_bytes = std::fs::read(&path).map_err(|error| {
+                ShoreError::Message(format!("read file {}: {error}", path.display()))
+            })?;
+            let existing = decode_and_validate_snapshot_artifact(&existing_bytes)?;
+            // Byte-identical artifacts (both native v2) dedup. A v1/v2 mix for the
+            // same snapshot does not converge here — the signed event's hash and
+            // the on-disk hash differ — and is the accepted cross-peer residual.
             if existing == artifact {
                 Ok(ImportArtifactOutcome::Existing)
             } else {

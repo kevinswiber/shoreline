@@ -569,9 +569,15 @@ mod tests {
         .unwrap();
         let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
 
-        assert_eq!(artifact.source, result.source);
-        assert_eq!(artifact.base, result.base);
-        assert_eq!(artifact.target, result.target);
+        // The snapshot-scoped v2 artifact no longer carries source/base/target;
+        // those live on the CaptureResult/event. The artifact binds via its
+        // content hash (INV-3).
+        assert!(matches!(
+            result.source,
+            ReviewUnitSource::GitCommitRange { .. }
+        ));
+        assert!(matches!(result.base, ReviewEndpoint::GitCommit { .. }));
+        assert!(matches!(result.target, ReviewEndpoint::GitCommit { .. }));
         assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
         assert!(
             artifact
@@ -763,7 +769,8 @@ mod tests {
 
         assert!(repo.path().join(".shore/data/events").is_dir());
         assert!(repo.path().join(".shore/data/state.json").is_file());
-        assert_eq!(artifact.review_unit_id, result.review_unit_id);
+        // The artifact binds via its content hash, not an embedded review_unit_id.
+        assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
         assert!(
             result
                 .review_unit_id

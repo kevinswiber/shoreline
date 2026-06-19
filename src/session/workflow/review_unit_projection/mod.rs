@@ -482,7 +482,7 @@ mod tests {
     fn show_review_unit_rejects_snapshot_artifact_hash_mismatch() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        tamper_snapshot_artifact_target(repo.path(), &capture.snapshot_id, "/other/repo");
+        tamper_snapshot_artifact_snapshot_field(repo.path(), &capture.snapshot_id);
 
         let error = show_review_unit(ReviewUnitShowOptions::new(repo.path()))
             .expect_err("tampered artifact should fail");
@@ -1333,14 +1333,16 @@ mod tests {
         }
     }
 
-    fn tamper_snapshot_artifact_target(repo: &Path, snapshot_id: &SnapshotId, target_root: &str) {
+    fn tamper_snapshot_artifact_snapshot_field(repo: &Path, snapshot_id: &SnapshotId) {
         let path = snapshot_artifact_path(repo, snapshot_id);
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).expect("read snapshot artifact"))
                 .expect("parse snapshot artifact json");
 
         assert_eq!(json["snapshot"]["snapshot_id"], snapshot_id.as_str());
-        json["target"]["worktreeRoot"] = target_root.into();
+        // Perturb a field inside the v2 content hash without re-stamping it.
+        // `DiffFile` is snake_case, unlike the camelCase artifact wrapper.
+        json["snapshot"]["files"][0]["new_path"] = "/evil".into();
 
         fs::write(
             &path,

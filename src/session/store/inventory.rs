@@ -119,7 +119,8 @@ fn scan_snapshot_artifacts(
         let contents =
             fs::read(&path).map_err(|error| io_error("read snapshot artifact", &path, error))?;
         let artifact: SnapshotArtifact = serde_json::from_slice(&contents)?;
-        if artifact.schema != "shore.snapshot" || artifact.version != 1 {
+        // Dual-read: both v1 (legacy) and v2 (snapshot-scoped) artifacts count.
+        if artifact.schema != "shore.snapshot" || !matches!(artifact.version, 1 | 2) {
             continue;
         }
         let byte_size = contents.len() as u64;

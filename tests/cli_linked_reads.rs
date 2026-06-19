@@ -1878,11 +1878,9 @@ fn snapshot_artifact_reads_from_linked_store() {
     let artifact = read_snapshot_artifact(&fixture.reader, &snapshot_id)
         .expect("snapshot artifact reads from the linked store");
 
+    // The snapshot-scoped v2 artifact carries no review_unit_id; resolving its
+    // snapshot id through the linked store is what proves the read.
     assert_eq!(artifact.snapshot.snapshot_id, snapshot_id);
-    assert_eq!(
-        artifact.review_unit_id.as_str(),
-        fixture.seed_review_unit_id
-    );
 }
 
 #[test]

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::session::event::{EventType, IngestVia, ShoreEvent, stamp_ingest_provenance};
+use crate::session::snapshot_artifact::decode_and_validate_snapshot_artifact;
 use crate::session::store::body_artifact::NoteBodyEnvelope;
 use crate::session::store::{EventStore, SnapshotArtifact};
 use crate::session::{
@@ -595,42 +596,17 @@ fn find_snapshot_artifact(
         let bytes = std::fs::read(&path).map_err(|error| {
             ShoreError::Message(format!("failed to read snapshot artifact: {error}"))
         })?;
-        let artifact: SnapshotArtifact = serde_json::from_slice(&bytes)?;
-        if artifact.snapshot.snapshot_id.as_str() == snapshot_id {
-            validate_snapshot_artifact_content_hash(&artifact)?;
+        // Cheap snapshot-id match first (so an unrelated corrupt artifact in the
+        // dir does not abort the scan), then validate the match through the shared
+        // dual-read decode path (v1 + v2).
+        let parsed: SnapshotArtifact = serde_json::from_slice(&bytes)?;
+        if parsed.snapshot.snapshot_id.as_str() == snapshot_id {
+            let artifact = decode_and_validate_snapshot_artifact(&bytes)?;
             return Ok(Some((path, artifact)));
         }
     }
 
     Ok(None)
-}
-
-fn validate_snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<()> {
-    let expected = snapshot_artifact_content_hash(artifact)?;
-    if artifact.content_hash == expected {
-        return Ok(());
-    }
-
-    Err(ShoreError::Message(format!(
-        "snapshot artifact content hash mismatch for {}",
-        artifact.snapshot.snapshot_id.as_str()
-    )))
-}
-
-fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String> {
-    let mut material = serde_json::to_value(artifact)?;
-    let Some(object) = material.as_object_mut() else {
-        return Err(ShoreError::Message(
-            "snapshot artifact hash material must be an object".to_owned(),
-        ));
-    };
-    if object.remove("contentHash").is_none() {
-        return Err(ShoreError::Message(
-            "snapshot artifact hash material is missing contentHash".to_owned(),
-        ));
-    }
-
-    sha256_json_prefixed(&material)
 }
 
 fn read_note_body_export_artifact(
@@ -774,7 +750,7 @@ mod tests {
             .expect("snapshot artifact");
         assert_eq!(artifact.artifact_kind, ExportArtifactKind::Snapshot);
         assert_eq!(artifact.schema, "shore.snapshot");
-        assert_eq!(artifact.version, 1);
+        assert_eq!(artifact.version, 2);
         assert_eq!(
             artifact.content_hash,
             capture.snapshot_artifact_content_hash

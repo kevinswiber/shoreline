@@ -235,13 +235,13 @@ struct SnapshotFingerprintDescriptor<'a> {
 /// Range snapshot identity hashes the endpoint tree pair **in addition** to the
 /// rows — unlike the worktree descriptor above, which hashes rows only.
 ///
-/// The snapshot-artifact path is keyed by snapshot id and the artifact embeds
-/// the endpoints, so a content-only hash would make "identical rows, different
-/// endpoints" a hard `snapshot artifact conflict` (e.g. capture staged work,
-/// commit it, then range-capture the same change; or the same patch on two
-/// bases). A range snapshot's identity *is* the diff between two trees, so
-/// hashing (tree pair + rows) is honest and keeps re-capture idempotent.
-/// Changing the `DiffFile` serde shape requires bumping
+/// A range snapshot's identity *is* the diff between two trees, so folding the
+/// tree pair into `snapshot_id` keeps distinct ranges distinct: "identical rows,
+/// different endpoints" (e.g. capture staged work, commit it, then range-capture
+/// the same change; or the same patch on two bases) stay separate snapshots
+/// rather than over-deduping to one. (Post-#146 the v2 artifact body no longer
+/// embeds the endpoints, so this is about snapshot *identity*, not avoiding an
+/// artifact-body conflict.) Changing the `DiffFile` serde shape requires bumping
 /// `COMMIT_RANGE_SNAPSHOT_FINGERPRINT_VERSION` (same rule as the worktree one).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
