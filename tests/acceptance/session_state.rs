@@ -240,7 +240,7 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
         serde_json::from_str(&repo.read(".shore/data/state.json")).expect("state decodes");
     assert_eq!(state.current_review_unit_id, Some(result.review_unit_id));
     assert_eq!(state.review_unit_count, 1);
-    assert_eq!(state.event_count, 1);
+    assert_eq!(state.event_count, 2);
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn ledger_pipeline_records_capture_import_and_bounded_state() {
     let state: serde_json::Value = serde_json::from_str(&state_json).expect("state is json");
 
     assert_eq!(state["schema"], "shore.state");
-    assert_eq!(state["eventCount"], 3);
+    assert_eq!(state["eventCount"], 4);
     assert!(
         state["eventSetHash"]
             .as_str()
@@ -468,7 +468,7 @@ fn ledger_pipeline_records_capture_import_and_bounded_state() {
     assert_eq!(state["reviewUnitCount"], 1);
     assert_eq!(state["noteCount"], 1);
     assert!(state.get("events").is_none());
-    assert_eq!(event_file_count(repo.path()), 3);
+    assert_eq!(event_file_count(repo.path()), 4);
 }
 
 #[test]
@@ -484,8 +484,8 @@ fn state_event_set_hash_changes_when_events_change() {
     let import_state: serde_json::Value =
         serde_json::from_str(&repo.read(".shore/data/state.json")).expect("import state");
 
-    assert_eq!(capture_state["eventCount"], 1);
-    assert_eq!(import_state["eventCount"], 3);
+    assert_eq!(capture_state["eventCount"], 2);
+    assert_eq!(import_state["eventCount"], 4);
     assert_ne!(capture_state["eventSetHash"], import_state["eventSetHash"]);
 }
 

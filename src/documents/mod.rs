@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use crate::session::ProjectionDiagnostic;
 
 mod assessment;
+mod association;
 mod capture;
 mod history;
 mod input_request;
@@ -30,6 +31,11 @@ mod view;
 
 pub use assessment::{
     AssessmentAddBody, AssessmentShowBody, assessment_add_document, assessment_show_document,
+};
+pub use association::{
+    AssociateCommitBody, AssociateRefBody, ListAssociationsBody, WithdrawCommitBody,
+    WithdrawRefBody, associate_commit_document, associate_ref_document, list_associations_document,
+    withdraw_commit_document, withdraw_ref_document,
 };
 pub use capture::{
     CaptureBody, CaptureWithLineageBody, capture_document, capture_with_lineage_document,

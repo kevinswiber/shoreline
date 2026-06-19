@@ -162,7 +162,10 @@ fn normalize(raw: &str, repo_path: &str) -> String {
     let text = normalize_hashes(&text);
     let text = normalize_timestamps(&text);
     let text = normalize_git_oid(&text, "commitOid");
-    normalize_git_oid(&text, "treeOid")
+    let text = normalize_git_oid(&text, "treeOid");
+    // `headOid` rides on auto-recorded ref associations (the capture-time branch
+    // head), a real commit OID that varies run to run like the others.
+    normalize_git_oid(&text, "headOid")
 }
 
 #[track_caller]

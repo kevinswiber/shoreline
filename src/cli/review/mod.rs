@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 use crate::cli_tracing::TracingArgs;
 
 pub(super) mod assessment;
+pub(super) mod association;
 pub(super) mod capture;
 pub(super) mod common;
 pub(super) mod endorse;
@@ -24,6 +25,7 @@ pub(super) struct ReviewArgs {
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
     Assessment(assessment::AssessmentArgs),
+    Association(association::AssociationArgs),
     Capture(capture::CaptureArgs),
     Endorse(endorse::EndorseArgs),
     History(history::HistoryArgs),
@@ -42,6 +44,7 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ReviewCommand::Assessment(args) => assessment::run(args, stdout, stderr),
+        ReviewCommand::Association(args) => association::run(args, stdout, stderr),
         ReviewCommand::Capture(args) => capture::run(args, tracing, stdout, stderr),
         ReviewCommand::Endorse(args) => endorse::run(args, stdout, stderr),
         ReviewCommand::History(args) => history::run(args, stdout),

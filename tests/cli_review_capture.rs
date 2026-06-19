@@ -126,7 +126,7 @@ fn review_capture_on_linked_store_writes_through_to_linked_store() {
     );
     let status_json = parse_json(&status.stdout);
     assert_eq!(status_json["mode"], "linked");
-    assert_eq!(status_json["inventory"]["eventCount"], 1);
+    assert_eq!(status_json["inventory"]["eventCount"], 2);
 }
 
 #[test]

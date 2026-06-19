@@ -1,12 +1,12 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{unit_list_document, unit_show_document};
 use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
 use shoreline::session::{
-    EventVerificationPolicy, ReviewUnitListOptions, ReviewUnitShowOptions, list_review_units,
-    show_review_unit,
+    EventVerificationPolicy, RefFilterMode, ReviewUnitListOptions, ReviewUnitShowOptions,
+    enrich_liveness, list_review_units, show_review_unit,
 };
 
 use crate::cli::json;
@@ -29,6 +29,16 @@ pub(super) struct UnitListArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
+    /// Filter to units associated with this ref; a short branch name is
+    /// normalized to its full ref before matching.
+    #[arg(long = "ref", alias = "branch")]
+    ref_name: Option<String>,
+
+    /// How `--ref` matches: by the recorded label (offline) or by reachability
+    /// from the ref's live tip.
+    #[arg(long, value_enum, default_value = "label")]
+    by: RefFilterByArg,
+
     /// Pretty-print the JSON response.
     #[arg(long, conflicts_with = "compact")]
     pretty: bool,
@@ -36,6 +46,23 @@ pub(super) struct UnitListArgs {
     /// Emit compact JSON explicitly.
     #[arg(long)]
     compact: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum RefFilterByArg {
+    #[default]
+    Label,
+    Liveness,
+}
+
+impl From<RefFilterByArg> for RefFilterMode {
+    fn from(by: RefFilterByArg) -> Self {
+        match by {
+            RefFilterByArg::Label => RefFilterMode::Label,
+            RefFilterByArg::Liveness => RefFilterMode::Liveness,
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -94,7 +121,11 @@ fn review_unit_list_command(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty;
-    let result = list_review_units(ReviewUnitListOptions::new(&args.repo))?;
+    let mut options = ReviewUnitListOptions::new(&args.repo);
+    if let Some(ref_name) = args.ref_name {
+        options = options.with_ref_filter(ref_name, args.by.into());
+    }
+    let result = list_review_units(options)?;
     let document = unit_list_document(result);
     json::write_json(stdout, &document, pretty)
 }
@@ -104,9 +135,22 @@ fn review_unit_show_command(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty;
-    let result = show_review_unit(review_unit_show_options(&args));
-    let document = unit_show_document(result?);
-    json::write_json(stdout, &document, pretty)
+    let result = show_review_unit(review_unit_show_options(&args))?;
+
+    // Liveness (merged/live/orphaned per OID + headline) is layered here, outside
+    // the git-free document workflow: best-effort, omitted when reachability is
+    // unknown.
+    let liveness = enrich_liveness(&result.commit_range, &args.repo, None).ok();
+    let document = unit_show_document(result);
+    let mut value = serde_json::to_value(&document)?;
+    if let Some(liveness) = liveness
+        && let Some(commit_range) = value
+            .get_mut("commitRange")
+            .and_then(|cr| cr.as_object_mut())
+    {
+        commit_range.insert("liveness".to_owned(), serde_json::to_value(liveness)?);
+    }
+    json::write_json(stdout, &value, pretty)
 }
 
 fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {

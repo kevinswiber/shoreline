@@ -179,7 +179,10 @@ fn classify(
         if integration.oid != commit_oid
             && ancestry(repo, commit_oid, &integration.oid, cache)? == Ancestry::Ancestor
         {
-            return Ok((CommitGraphCondition::Merged, Some(integration.label.clone())));
+            return Ok((
+                CommitGraphCondition::Merged,
+                Some(integration.label.clone()),
+            ));
         }
         if integration.oid == commit_oid {
             return Ok((CommitGraphCondition::Live, Some(integration.label.clone())));
@@ -258,7 +261,6 @@ fn detached_label(oid: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
-    use std::path::PathBuf;
     use std::process::Command;
 
     use tempfile::TempDir;
@@ -335,7 +337,11 @@ mod tests {
             S: AsRef<OsStr>,
         {
             let status = Command::new("git")
-                .args(args.into_iter().map(|a| a.as_ref().to_owned()).collect::<Vec<_>>())
+                .args(
+                    args.into_iter()
+                        .map(|a| a.as_ref().to_owned())
+                        .collect::<Vec<_>>(),
+                )
                 .current_dir(cwd)
                 .status()
                 .unwrap();
@@ -363,7 +369,11 @@ mod tests {
         }
     }
 
-    fn condition_of(repo: &LivenessRepo, oid: &str, integration: Option<&str>) -> CommitGraphCondition {
+    fn condition_of(
+        repo: &LivenessRepo,
+        oid: &str,
+        integration: Option<&str>,
+    ) -> CommitGraphCondition {
         enrich_liveness(&view_with(&[oid]), repo.path(), integration)
             .unwrap()
             .per_commit
@@ -447,7 +457,16 @@ mod tests {
 
         // A detached linked worktree, then a commit on it: its HEAD advances to a
         // commit no branch points at — live only via the worktree HEAD.
-        repo.git_at(repo.path(), ["worktree", "add", "--detach", linked.to_str().unwrap(), "main"]);
+        repo.git_at(
+            repo.path(),
+            [
+                "worktree",
+                "add",
+                "--detach",
+                linked.to_str().unwrap(),
+                "main",
+            ],
+        );
         std::fs::write(linked.join("file.txt"), "detached\n").unwrap();
         repo.git_at(&linked, ["add", "--all"]);
         repo.git_at(&linked, ["commit", "-m", "detached work"]);

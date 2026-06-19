@@ -747,10 +747,16 @@ mod tests {
         assert_eq!(manifest.schema, "shore.store-export-manifest");
         assert_eq!(manifest.version, 1);
         assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Full);
-        assert_eq!(manifest.events.len(), 1);
+        // A worktree capture records the capture event plus the auto-recorded
+        // capture-time ref association.
+        assert_eq!(manifest.events.len(), 2);
         assert!(manifest.diagnostics.is_empty());
 
-        let event = &manifest.events[0];
+        let event = manifest
+            .events
+            .iter()
+            .find(|event| event.event_type == "review_unit_captured")
+            .expect("capture event in manifest");
         assert_eq!(event.event_id, capture_event.event_id.as_str());
         assert_eq!(event.event_type, "review_unit_captured");
         assert_eq!(event.idempotency_key, capture_event.idempotency_key);
@@ -912,7 +918,13 @@ mod tests {
         assert_eq!(manifest.artifacts.len(), 0);
         assert_eq!(manifest.diagnostics.len(), 1);
         assert_eq!(manifest.diagnostics[0].code, "missing_referenced_artifact");
-        assert!(manifest.events[0].artifact_refs[0].starts_with("snapshot:"));
+        assert!(
+            manifest.events.iter().any(|event| event
+                .artifact_refs
+                .iter()
+                .any(|artifact_ref| artifact_ref.starts_with("snapshot:"))),
+            "the capture event references the snapshot artifact"
+        );
     }
 
     #[test]
@@ -927,11 +939,12 @@ mod tests {
         let second =
             import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
 
-        assert_eq!(first.events_created, 1);
+        // The capture event plus the auto-recorded ref association.
+        assert_eq!(first.events_created, 2);
         assert_eq!(first.events_existing, 0);
         assert_eq!(first.artifacts_created, 1);
         assert_eq!(second.events_created, 0);
-        assert_eq!(second.events_existing, 1);
+        assert_eq!(second.events_existing, 2);
         assert_eq!(second.artifacts_created, 0);
         assert_eq!(second.artifacts_existing, 1);
     }

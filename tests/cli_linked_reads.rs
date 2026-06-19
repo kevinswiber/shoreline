@@ -1538,7 +1538,7 @@ fn linked_unit_list_without_local_events_has_no_divergence_diagnostic() {
     let json = fixture.unit_list_json(&fixture.reader);
 
     assert_eq!(json["reviewUnitCount"], 1);
-    assert_eq!(json["eventCount"], 1);
+    assert_eq!(json["eventCount"], 2);
     assert_eq!(
         json["entries"][0]["reviewUnitId"],
         Value::String(fixture.seed_review_unit_id.clone())
@@ -1565,7 +1565,7 @@ fn linked_history_reads_full_timeline_from_linked_store() {
 
     let json = fixture.history_json(&fixture.reader, true);
 
-    assert_eq!(json["eventCount"], 2);
+    assert_eq!(json["eventCount"], 3);
     let event_types: Vec<&str> = json["entries"]
         .as_array()
         .unwrap()
@@ -1599,7 +1599,7 @@ fn linked_history_emits_divergence_diagnostic_with_local_only_events() {
         json["diagnostics"]
     );
     // Store-only: the seeded residual event is not in the linked-store timeline.
-    assert_eq!(json["eventCount"], 1);
+    assert_eq!(json["eventCount"], 2);
 }
 
 #[test]
@@ -1965,7 +1965,7 @@ fn worktree_local_unit_list_is_unchanged() {
 
     assert_eq!(json["schema"], "shore.review-unit-list");
     assert_eq!(json["version"], 1);
-    assert_eq!(json["eventCount"], 1);
+    assert_eq!(json["eventCount"], 2);
     assert_eq!(json["reviewUnitCount"], 1);
     assert!(
         !diagnostic_codes(&json).contains(&"clone_local_unsynced_local_events"),
@@ -2032,7 +2032,7 @@ fn main_worktree_of_linked_clone_round_trips_a_capture_in_place() {
     // The capture landed in the clone-local store, not stranded worktree-local.
     let status = run_shore_json(&["store", "status", "--repo", main.path().to_str().unwrap()]);
     assert_eq!(status["mode"], "linked");
-    assert_eq!(status["inventory"]["eventCount"], 1);
+    assert_eq!(status["inventory"]["eventCount"], 2);
 }
 
 #[test]

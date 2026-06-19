@@ -1,10 +1,13 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::model::{ReviewUnitId, TrackId};
 use crate::session::event::EventType;
-use crate::session::{ActorAttributesMap, DelegationMap, EventVerificationPolicy, TrustSet};
+use crate::session::{
+    ActorAttributesMap, DelegationMap, EventVerificationPolicy, RefFilterMode, TrustSet,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewHistoryOptions {
@@ -12,6 +15,7 @@ pub struct ReviewHistoryOptions {
     pub(super) review_unit_id: Option<ReviewUnitId>,
     pub(super) track: Option<String>,
     pub(super) event_types: Vec<EventType>,
+    pub(super) ref_filter: Option<(String, RefFilterMode)>,
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,
@@ -26,12 +30,20 @@ impl ReviewHistoryOptions {
             review_unit_id: None,
             track: None,
             event_types: Vec::new(),
+            ref_filter: None,
             include_body: false,
             verification_policy: None,
             trust_set: TrustSet::default(),
             actor_attributes: None,
             delegation_map: None,
         }
+    }
+
+    /// Filter history to events of units associated with `name`. The name is
+    /// normalized to its full ref before matching the stored `ref_name`.
+    pub fn with_ref_filter(mut self, name: impl Into<String>, mode: RefFilterMode) -> Self {
+        self.ref_filter = Some((name.into(), mode));
+        self
     }
 
     pub fn with_review_unit_id(mut self, review_unit_id: ReviewUnitId) -> Self {
@@ -98,6 +110,9 @@ pub(super) struct ResolvedHistoryFilters {
     pub(super) review_unit_id: Option<ReviewUnitId>,
     pub(super) track_id: Option<TrackId>,
     pub(super) event_types: Vec<EventType>,
+    /// When a `--ref` filter resolves, the review-unit ids that match it. An
+    /// event passes only if its target unit is in this set.
+    pub(super) ref_matched_units: Option<BTreeSet<ReviewUnitId>>,
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,

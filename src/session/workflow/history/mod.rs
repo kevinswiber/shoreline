@@ -21,17 +21,32 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         .as_deref()
         .map(validated_track_id)
         .transpose()?;
+    let events = EventStore::open(read_store.store_dir()).list_events()?;
+
+    let ref_matched_units = match &options.ref_filter {
+        Some((name, mode)) => {
+            let projection = crate::session::ReviewUnitCommitRangeProjection::from_events(&events)?;
+            Some(super::review_unit_list::review_units_matching_ref(
+                &projection,
+                name,
+                *mode,
+                &options.repo,
+            )?)
+        }
+        None => None,
+    };
+
     let filters = ResolvedHistoryFilters {
         review_unit_id: options.review_unit_id,
         track_id,
         event_types: options.event_types,
+        ref_matched_units,
         include_body: options.include_body,
         verification_policy: options.verification_policy,
         trust_set: options.trust_set,
         actor_attributes: options.actor_attributes,
         delegation_map: options.delegation_map,
     };
-    let events = EventStore::open(read_store.store_dir()).list_events()?;
     let mut result = history_from_events(&events, filters, Some(read_store.store_dir()))?;
     result
         .diagnostics

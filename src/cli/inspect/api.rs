@@ -440,10 +440,7 @@ pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, Str
 /// Prefers the displayed head commit's own liveness; when the head is not among
 /// the unit's current commits (a commit-range base differs from its target),
 /// falls back to the unit's single unambiguous live branch.
-fn resolve_head_live_branch(
-    enrichment: &LivenessEnrichment,
-    head_oid: &str,
-) -> Option<String> {
+fn resolve_head_live_branch(enrichment: &LivenessEnrichment, head_oid: &str) -> Option<String> {
     if let Some(commit) = enrichment
         .per_commit
         .iter()
@@ -694,6 +691,15 @@ mod tests {
                 worktree_root: worktree.to_owned(),
             },
             snapshot_artifact_content_hash: "sha256:artifact:abc".to_owned(),
+            commit_range: shoreline::session::ReviewUnitCommitRangeView {
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+                anchored: false,
+                current_commits: Vec::new(),
+                current_refs: Vec::new(),
+                withdrawn_commits: Vec::new(),
+                withdrawn_refs: Vec::new(),
+                diagnostics: Vec::new(),
+            },
         }
     }
 
@@ -866,10 +872,9 @@ mod tests {
         )
         .expect("capture worktree review");
 
-        let value: serde_json::Value = serde_json::from_str(
-            &unit_json(path, capture.review_unit_id.as_str()).unwrap(),
-        )
-        .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&unit_json(path, capture.review_unit_id.as_str()).unwrap())
+                .unwrap();
 
         assert!(
             value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"].is_null(),
@@ -887,7 +892,10 @@ mod tests {
         let elsewhere = tempfile::tempdir().expect("create separate repo");
         git(elsewhere.path(), &["init"]);
         git(elsewhere.path(), &["config", "user.name", "Shore Tests"]);
-        git(elsewhere.path(), &["config", "user.email", "shore-tests@example.com"]);
+        git(
+            elsewhere.path(),
+            &["config", "user.email", "shore-tests@example.com"],
+        );
         git(elsewhere.path(), &["config", "commit.gpgsign", "false"]);
         copy_dir_all(
             &repo.path().join(".shore"),

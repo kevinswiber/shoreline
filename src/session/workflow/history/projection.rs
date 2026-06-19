@@ -4,14 +4,15 @@ use super::options::ResolvedHistoryFilters;
 use super::result::ReviewHistoryResult;
 use super::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 use crate::error::{Result, ShoreError};
-use crate::model::TargetRef;
+use crate::model::{ReviewEndpoint, TargetRef};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
-    ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
-    ReviewUnitLineageRoundRecordedPayload, ShoreEvent, ValidationCheckRecordedPayload,
-    decode_input_request_opened_payload,
+    ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload, ReviewUnitCommitWithdrawnPayload,
+    ReviewUnitLineageDeclaredPayload, ReviewUnitLineageRoundRecordedPayload,
+    ReviewUnitRefAssociatedPayload, ReviewUnitRefWithdrawnPayload, ShoreEvent,
+    ValidationCheckRecordedPayload, decode_input_request_opened_payload,
 };
 use crate::session::projection::cosignature::{
     CosignatureIndex, endorsement_readbacks, enrich_endorser_attributes,
@@ -222,13 +223,48 @@ pub(super) fn history_entry_from_event(
                 log_artifact_content_hashes: payload.log_artifact_content_hashes,
             }
         }
-        EventType::ReviewUnitRefAssociated
-        | EventType::ReviewUnitRefWithdrawn
-        | EventType::ReviewUnitCommitAssociated
-        | EventType::ReviewUnitCommitWithdrawn => {
-            return Err(ShoreError::Message(
-                "review history rendering of commit-range association events is not wired yet; the lifecycle read surface owns their summaries".to_owned(),
-            ));
+        EventType::ReviewUnitRefAssociated => {
+            let payload: ReviewUnitRefAssociatedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            ReviewHistorySummary::ReviewUnitRefAssociated {
+                ref_association_id: payload.ref_association_id,
+                ref_name: payload.ref_name,
+                head_oid: payload.head_oid,
+            }
+        }
+        EventType::ReviewUnitRefWithdrawn => {
+            let payload: ReviewUnitRefWithdrawnPayload =
+                serde_json::from_value(event.payload.clone())?;
+            ReviewHistorySummary::ReviewUnitRefWithdrawn {
+                ref_withdrawal_id: payload.ref_withdrawal_id,
+                ref_association_id: payload.ref_association_id,
+            }
+        }
+        EventType::ReviewUnitCommitAssociated => {
+            let payload: ReviewUnitCommitAssociatedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            let ReviewEndpoint::GitCommit {
+                commit_oid,
+                tree_oid,
+            } = payload.commit
+            else {
+                return Err(ShoreError::Message(
+                    "commit association payload must carry a git_commit endpoint".to_owned(),
+                ));
+            };
+            ReviewHistorySummary::ReviewUnitCommitAssociated {
+                commit_association_id: payload.commit_association_id,
+                commit_oid,
+                tree_oid,
+            }
+        }
+        EventType::ReviewUnitCommitWithdrawn => {
+            let payload: ReviewUnitCommitWithdrawnPayload =
+                serde_json::from_value(event.payload.clone())?;
+            ReviewHistorySummary::ReviewUnitCommitWithdrawn {
+                commit_withdrawal_id: payload.commit_withdrawal_id,
+                commit_association_id: payload.commit_association_id,
+            }
         }
         EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured
@@ -331,6 +367,15 @@ fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -
         return false;
     }
     if !filters.event_types.is_empty() && !filters.event_types.contains(&event.event_type) {
+        return false;
+    }
+    if let Some(ref_matched_units) = filters.ref_matched_units.as_ref()
+        && !event
+            .target
+            .review_unit_id
+            .as_ref()
+            .is_some_and(|review_unit_id| ref_matched_units.contains(review_unit_id))
+    {
         return false;
     }
     true

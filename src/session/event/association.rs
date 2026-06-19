@@ -56,7 +56,11 @@ pub struct ReviewUnitRefAssociatedPayload {
 }
 
 impl ReviewUnitRefAssociatedPayload {
-    pub fn idempotency_key(review_unit_id: &ReviewUnitId, ref_name: &str, head_oid: &str) -> String {
+    pub fn idempotency_key(
+        review_unit_id: &ReviewUnitId,
+        ref_name: &str,
+        head_oid: &str,
+    ) -> String {
         format!(
             "review_unit_ref_associated:{}:{}",
             review_unit_id.as_str(),
@@ -262,7 +266,10 @@ mod tests {
         let v = serde_json::to_value(&commit).unwrap();
         assert_eq!(v["commitWithdrawalId"], "withdraw-commit:sha256:w1");
         assert_eq!(v["commitAssociationId"], "assoc-commit:sha256:zzz");
-        assert!(v.get("reason").is_none(), "withdrawal payload has no reason");
+        assert!(
+            v.get("reason").is_none(),
+            "withdrawal payload has no reason"
+        );
         let back: ReviewUnitCommitWithdrawnPayload = serde_json::from_value(v).unwrap();
         assert_eq!(back, commit);
 
@@ -419,8 +426,14 @@ mod convergence_tests {
         let b = commit_assoc_event("oid123", "bob", "reviewer");
 
         assert_eq!(a.event_id, b.event_id, "event id is key-derived");
-        assert_eq!(a.payload_hash, b.payload_hash, "writer/track not in payload");
-        assert_ne!(a.writer, b.writer, "envelope writer differs — and that is fine");
+        assert_eq!(
+            a.payload_hash, b.payload_hash,
+            "writer/track not in payload"
+        );
+        assert_ne!(
+            a.writer, b.writer,
+            "envelope writer differs — and that is fine"
+        );
         assert_eq!(
             event_set_hash_for_events([&a]).unwrap(),
             event_set_hash_for_events([&b]).unwrap(),
@@ -458,7 +471,10 @@ mod convergence_tests {
         let a = commit_withdraw_event("oid123", "alice", "author");
         let b = commit_withdraw_event("oid123", "bob", "reviewer");
 
-        assert_eq!(a.event_id, b.event_id, "withdrawal converges across writers");
+        assert_eq!(
+            a.event_id, b.event_id,
+            "withdrawal converges across writers"
+        );
         assert_eq!(a.payload_hash, b.payload_hash, "ids-only payload converges");
 
         let assoc = commit_assoc_event("oid123", "alice", "author");

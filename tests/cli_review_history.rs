@@ -29,8 +29,8 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
             .unwrap()
             .starts_with("sha256:")
     );
-    assert_eq!(json["eventCount"], 1);
-    assert_eq!(json["historyCount"], 1);
+    assert_eq!(json["eventCount"], 2);
+    assert_eq!(json["historyCount"], 2);
     assert_eq!(json["entries"][0]["eventType"], "review_unit_captured");
     assert_eq!(
         json["entries"][0]["reviewUnitId"],
@@ -284,7 +284,7 @@ fn review_history_filters_by_review_unit() {
     let json = parse_json(&output.stdout);
 
     assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
-    assert_eq!(json["eventCount"], 2);
+    assert_eq!(json["eventCount"], 4);
     assert_eq!(json["historyCount"], 1);
     assert_eq!(
         json["entries"][0]["reviewUnitId"],

@@ -21,8 +21,8 @@ use crate::model::{
 };
 use crate::session::event::{
     EventType, ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload,
-    ReviewUnitCommitWithdrawnPayload, ReviewUnitRefAssociatedPayload, ReviewUnitRefWithdrawnPayload,
-    ShoreEvent,
+    ReviewUnitCommitWithdrawnPayload, ReviewUnitRefAssociatedPayload,
+    ReviewUnitRefWithdrawnPayload, ShoreEvent,
 };
 use crate::session::state::ProjectionDiagnostic;
 
@@ -120,8 +120,13 @@ impl ReviewUnitCommitRangeProjection {
                 EventType::ReviewUnitCommitAssociated => {
                     let payload: ReviewUnitCommitAssociatedPayload =
                         serde_json::from_value(event.payload.clone())?;
-                    if let (Some(review_unit_id), ReviewEndpoint::GitCommit { commit_oid, tree_oid }) =
-                        (review_unit_of(&payload.target), payload.commit)
+                    if let (
+                        Some(review_unit_id),
+                        ReviewEndpoint::GitCommit {
+                            commit_oid,
+                            tree_oid,
+                        },
+                    ) = (review_unit_of(&payload.target), payload.commit)
                     {
                         builders
                             .entry(review_unit_id)
@@ -149,7 +154,10 @@ impl ReviewUnitCommitRangeProjection {
                             .entry(review_unit_id)
                             .or_default()
                             .associated_refs
-                            .insert(payload.ref_association_id, (payload.ref_name, payload.head_oid));
+                            .insert(
+                                payload.ref_association_id,
+                                (payload.ref_name, payload.head_oid),
+                            );
                     }
                 }
                 EventType::ReviewUnitRefWithdrawn => {
@@ -277,14 +285,16 @@ impl CommitRangeBuilder {
         let mut withdrawn_refs = ref_axis
             .withdrawn
             .into_iter()
-            .map(|(ref_association_id, (ref_name, head_oid), ref_withdrawal_id)| {
-                WithdrawnRefAssociation {
-                    ref_association_id,
-                    ref_name,
-                    head_oid,
-                    ref_withdrawal_id,
-                }
-            })
+            .map(
+                |(ref_association_id, (ref_name, head_oid), ref_withdrawal_id)| {
+                    WithdrawnRefAssociation {
+                        ref_association_id,
+                        ref_name,
+                        head_oid,
+                        ref_withdrawal_id,
+                    }
+                },
+            )
             .collect::<Vec<_>>();
         withdrawn_refs.sort_by(|left, right| left.ref_name.cmp(&right.ref_name));
 
@@ -293,7 +303,12 @@ impl CommitRangeBuilder {
             .missing_targets
             .into_iter()
             .map(|id| id.as_str().to_owned())
-            .chain(ref_axis.missing_targets.into_iter().map(|id| id.as_str().to_owned()))
+            .chain(
+                ref_axis
+                    .missing_targets
+                    .into_iter()
+                    .map(|id| id.as_str().to_owned()),
+            )
         {
             diagnostics.push(diagnostic(
                 RETRACTION_TARGET_MISSING_CODE,
@@ -380,9 +395,9 @@ mod tests {
         SnapshotId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        build_commit_association_id, build_commit_withdrawal_id, build_ref_association_id,
         EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload,
         ReviewUnitCommitWithdrawnPayload, ReviewUnitRefAssociatedPayload, ShoreEvent, Writer,
+        build_commit_association_id, build_commit_withdrawal_id, build_ref_association_id,
     };
 
     fn review_unit_id() -> ReviewUnitId {
@@ -513,7 +528,10 @@ mod tests {
         assert!(view.anchored);
         assert_eq!(view.current_commits.len(), 1);
         assert_eq!(view.current_commits[0].commit_oid, "target");
-        assert_eq!(view.current_commits[0].source, CommitEdgeSource::CaptureTarget);
+        assert_eq!(
+            view.current_commits[0].source,
+            CommitEdgeSource::CaptureTarget
+        );
         assert!(view.current_commits[0].commit_association_id.is_none());
     }
 
@@ -562,7 +580,10 @@ mod tests {
 
         assert!(view.anchored);
         assert_eq!(view.current_commits.len(), 1);
-        assert_eq!(view.current_commits[0].source, CommitEdgeSource::CaptureTarget);
+        assert_eq!(
+            view.current_commits[0].source,
+            CommitEdgeSource::CaptureTarget
+        );
     }
 
     #[test]
@@ -630,7 +651,10 @@ mod tests {
 
     #[test]
     fn ref_axis_tracks_current_and_units_for_ref() {
-        let view = view_of(&[worktree_capture(), ref_associated("refs/heads/feat/x", "oidH")]);
+        let view = view_of(&[
+            worktree_capture(),
+            ref_associated("refs/heads/feat/x", "oidH"),
+        ]);
         assert_eq!(view.current_refs.len(), 1);
         assert_eq!(view.current_refs[0].ref_name, "refs/heads/feat/x");
 

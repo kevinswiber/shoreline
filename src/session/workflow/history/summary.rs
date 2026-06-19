@@ -1,7 +1,8 @@
 use serde::Serialize;
 
 use crate::model::{
-    AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId, ReviewEndpoint,
+    AssessmentId, CommitAssociationId, CommitWithdrawalId, EventId, InputRequestId,
+    InputRequestResponseId, ObservationId, RefAssociationId, RefWithdrawalId, ReviewEndpoint,
     ReviewTargetRef, ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
     ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
     ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
@@ -180,6 +181,24 @@ pub enum ReviewHistorySummary {
         completed_at: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         log_artifact_content_hashes: Vec<String>,
+    },
+    ReviewUnitRefAssociated {
+        ref_association_id: RefAssociationId,
+        ref_name: String,
+        head_oid: String,
+    },
+    ReviewUnitRefWithdrawn {
+        ref_withdrawal_id: RefWithdrawalId,
+        ref_association_id: RefAssociationId,
+    },
+    ReviewUnitCommitAssociated {
+        commit_association_id: CommitAssociationId,
+        commit_oid: String,
+        tree_oid: String,
+    },
+    ReviewUnitCommitWithdrawn {
+        commit_withdrawal_id: CommitWithdrawalId,
+        commit_association_id: CommitAssociationId,
     },
 }
 

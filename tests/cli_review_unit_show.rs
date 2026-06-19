@@ -40,7 +40,7 @@ fn review_unit_show_emits_v1_json() {
             .unwrap()
             .starts_with("sha256:")
     );
-    assert_eq!(json["eventCount"], 1);
+    assert_eq!(json["eventCount"], 2);
     assert_eq!(json["reviewUnit"]["id"], json["filters"]["reviewUnitId"]);
     assert_eq!(json["currentAssessment"]["status"], "unassessed");
     assert!(json["currentAssessment"].get("assessment").is_none());

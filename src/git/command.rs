@@ -138,12 +138,7 @@ pub(crate) fn git_is_ancestor(
 ) -> Result<Ancestry> {
     let (code, _) = run_git_status(
         repo,
-        [
-            "merge-base",
-            "--is-ancestor",
-            ancestor_oid,
-            descendant_oid,
-        ],
+        ["merge-base", "--is-ancestor", ancestor_oid, descendant_oid],
         &[0, 1, 128],
     )?;
     Ok(match code {
@@ -543,7 +538,9 @@ mod tests {
         let tip = rev_parse(repo.path(), "HEAD");
 
         assert!(
-            entries.iter().any(|entry| entry.name == "refs/heads/feat/x"),
+            entries
+                .iter()
+                .any(|entry| entry.name == "refs/heads/feat/x"),
             "for-each-ref must list the nested branch: {entries:?}"
         );
         assert!(entries.iter().any(|entry| entry.oid == tip));

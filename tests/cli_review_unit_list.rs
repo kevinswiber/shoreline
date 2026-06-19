@@ -38,7 +38,7 @@ fn review_unit_list_emits_v1_json_with_freshness_metadata() {
             .unwrap()
             .starts_with("sha256:")
     );
-    assert_eq!(json["eventCount"], 1);
+    assert_eq!(json["eventCount"], 2);
     assert_eq!(json["reviewUnitCount"], 1);
 
     let entry = &json["entries"][0];
@@ -195,7 +195,7 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let json = parse_json(stdout.as_bytes());
 
-    assert_eq!(json["eventCount"], 1);
+    assert_eq!(json["eventCount"], 2);
     assert_eq!(json["reviewUnitCount"], 1);
     assert_eq!(
         json["entries"][0]["reviewUnitId"],
@@ -259,7 +259,7 @@ fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_linked_store
         .collect::<Vec<_>>();
 
     assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
-    assert_eq!(json["eventCount"], 2);
+    assert_eq!(json["eventCount"], 4);
     assert_eq!(json["reviewUnitCount"], 2);
     assert!(ids.contains(&first["reviewUnit"]["id"].as_str().unwrap()));
     assert!(ids.contains(&second["reviewUnit"]["id"].as_str().unwrap()));

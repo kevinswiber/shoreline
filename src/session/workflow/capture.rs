@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::crypto::EventSigner;
 use crate::error::Result;
 use crate::git::{
-    IngestOptions, capture_commit_range_diff_files, git_commit_tree_oid, git_rev_parse_commit_oid,
-    ingest_tracked_diff_with_options,
+    IngestOptions, capture_commit_range_diff_files, git_commit_tree_oid, git_head_oid,
+    git_head_ref, git_rev_parse_commit_oid, ingest_tracked_diff_with_options,
 };
 use crate::model::{
     ActorId, DiffFile, DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource,
@@ -210,6 +210,26 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     sign_event_if_requested(&mut event, &options.signing)?;
     recorder.record(&event_store, event)?;
 
+    // LB-11: a worktree capture is born floating; record its capture-time branch
+    // ref as a best-effort `ReviewUnitRefAssociated` after the capture event.
+    // Skipped on detached HEAD (no ref to name) and on a commit-range capture.
+    // Any failure degrades to a diagnostic and never blocks capture.
+    let mut auto_record_diagnostics = Vec::new();
+    if matches!(&options.source, CaptureSourceSpec::Worktree)
+        && let Err(error) = auto_record_capture_ref_association(
+            &worktree_root,
+            &event_store,
+            &fingerprint,
+            &session_id,
+            &options,
+        )
+    {
+        auto_record_diagnostics.push(ProjectionDiagnostic {
+            code: "ref_association_auto_record_skipped".to_owned(),
+            message: format!("capture-time ref association was not recorded: {error}"),
+        });
+    }
+
     let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(
         &store_dir.join("state.json"),
@@ -219,7 +239,8 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     // Write-through (INV-1) lands the capture in the store reads already resolve,
     // so there is no longer a batch-only diagnostic telling the user to run
     // `shore store link` before their own capture is visible.
-    let diagnostics = state.diagnostics;
+    let mut diagnostics = state.diagnostics;
+    diagnostics.extend(auto_record_diagnostics);
 
     Ok(CaptureResult {
         session_id,
@@ -243,6 +264,38 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
 /// defaults to the worktree adapter, so plain delegation preserves behavior.
 pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult> {
     capture_review(options)
+}
+
+/// Auto-record the capture-time branch ref as a `ReviewUnitRefAssociated`
+/// (LB-11). Returns `Ok(())` and records nothing on a detached HEAD — a ref name
+/// is never fabricated. Signs with the capture signer; the caller swallows any
+/// error into a diagnostic so capture never fails on this.
+fn auto_record_capture_ref_association(
+    worktree_root: &Path,
+    event_store: &EventStore,
+    fingerprint: &ReviewUnitFingerprint,
+    session_id: &SessionId,
+    options: &CaptureOptions,
+) -> Result<()> {
+    let Some(ref_name) = git_head_ref(worktree_root)? else {
+        return Ok(());
+    };
+    let head_oid = git_head_oid(worktree_root)?;
+    let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
+    let mut event = super::association::build_ref_association_event(
+        session_id,
+        &fingerprint.review_unit_id,
+        &fingerprint.revision_id,
+        &fingerprint.snapshot_id,
+        &ref_name,
+        &head_oid,
+        None,
+        writer,
+        current_timestamp(),
+    )?;
+    sign_event_if_requested(&mut event, &options.signing)?;
+    event_store.record_event_once(&event)?;
+    Ok(())
 }
 
 /// The row inventory plus resolved identity an adapter hands to the shared tail.
@@ -390,6 +443,106 @@ mod tests {
                 .starts_with("review-unit:sha256:")
         );
         assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+    }
+
+    #[test]
+    fn worktree_capture_auto_records_ref_association() {
+        let repo = committed_repo();
+        repo.git(["branch", "-M", "feat/x"]);
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+        let head_oid = repo.rev_parse("HEAD");
+
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        let projection =
+            crate::session::ReviewUnitCommitRangeProjection::from_events(&events).unwrap();
+        let view = projection.unit(&capture.review_unit_id).unwrap();
+        assert_eq!(view.current_refs.len(), 1);
+        assert_eq!(view.current_refs[0].ref_name, "refs/heads/feat/x");
+        assert_eq!(view.current_refs[0].head_oid, head_oid);
+    }
+
+    #[test]
+    fn commit_range_capture_records_no_ref_association() {
+        let repo = committed_repo();
+
+        capture_review(
+            CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
+            "a commit-range capture carries both endpoints and records no ref association"
+        );
+    }
+
+    #[test]
+    fn detached_head_capture_skips_ref_association_silently() {
+        let repo = committed_repo();
+        repo.git(["checkout", "--detach"]);
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
+            "a detached HEAD names no ref to associate"
+        );
+        assert!(
+            !capture
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ref_association_auto_record_skipped"),
+            "a detached HEAD is a clean skip, not a failure"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn auto_record_failure_never_blocks_capture() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = committed_repo();
+        repo.git(["branch", "-M", "main"]);
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+        let first = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        // A new branch at the same commit means the same review unit (so the
+        // capture event is idempotent) but a new ref-association write. Make the
+        // events dir read-only so only that write fails; reads still work.
+        repo.git(["checkout", "-b", "other"]);
+        let events_dir = repo.path().join(".shore/data/events");
+        let original = fs::metadata(&events_dir).unwrap().permissions();
+        fs::set_permissions(&events_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let again = capture_worktree_review(CaptureOptions::new(repo.path()));
+
+        // Restore writability so the tempdir can clean up regardless of outcome.
+        fs::set_permissions(&events_dir, original).unwrap();
+
+        let again = again.expect("capture still succeeds when the auto-record fails");
+        assert_eq!(again.review_unit_id, first.review_unit_id);
+        assert!(
+            again
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ref_association_auto_record_skipped"),
+            "a failed auto-record degrades to a diagnostic, never an error"
+        );
     }
 
     #[test]

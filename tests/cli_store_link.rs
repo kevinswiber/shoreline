@@ -36,7 +36,7 @@ fn store_link_imports_local_facts_into_clone_local_store_for_other_worktrees() {
     assert_eq!(link_json["schema"], "shore.store-link");
     assert_eq!(link_json["version"], 1);
     assert_eq!(link_json["mode"], "linked");
-    assert_eq!(link_json["eventsCreated"], 1);
+    assert_eq!(link_json["eventsCreated"], 2);
     assert_eq!(link_json["artifactsCreated"], 1);
     assert_eq!(link_json["sensitivity"]["policyOutcome"], "allow");
     assert!(!link_stdout.contains(fixture.main.path().to_str().unwrap()));
@@ -83,7 +83,7 @@ fn store_link_imports_local_facts_into_clone_local_store_for_other_worktrees() {
             .unwrap()
             .starts_with("clone:random:")
     );
-    assert_eq!(status_json["inventory"]["eventCount"], 1);
+    assert_eq!(status_json["inventory"]["eventCount"], 2);
     assert_eq!(status_json["inventory"]["artifactCount"], 1);
     assert!(!reader.join(".shore/data/events").exists());
     assert!(!status_stdout.contains(reader.to_str().unwrap()));

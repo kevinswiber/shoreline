@@ -57,11 +57,22 @@ fn inspector_harness_serves_history_for_minimal_store() {
     let history = inspector.get_json("/api/history");
 
     assert_eq!(history["schema"], "shore.inspect-history");
-    // A minimal store records exactly the capture event (no separate
-    // `review_initialized` event exists in the current event model).
+    // A minimal worktree capture records the capture event plus the auto-recorded
+    // capture-time ref association (no separate `review_initialized` event exists).
     let entries = history["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0]["eventType"], "review_unit_captured");
+    assert_eq!(entries.len(), 2);
+    let event_types: Vec<&str> = entries
+        .iter()
+        .filter_map(|entry| entry["eventType"].as_str())
+        .collect();
+    assert!(
+        event_types.contains(&"review_unit_captured"),
+        "{event_types:?}"
+    );
+    assert!(
+        event_types.contains(&"review_unit_ref_associated"),
+        "{event_types:?}"
+    );
 }
 
 #[test]
@@ -78,10 +89,11 @@ fn api_history_returns_chronological_typed_summaries() {
             .starts_with("sha256:")
     );
     let entries = history["entries"].as_array().unwrap();
-    // capture + observation + input-request + 2 assessments + 2 validation checks.
-    assert_eq!(history["eventCount"], 7);
-    assert_eq!(history["historyCount"], 7);
-    assert_eq!(entries.len(), 7, "one entry per recorded event");
+    // capture + auto-recorded ref association + observation + input-request
+    // + 2 assessments + 2 validation checks.
+    assert_eq!(history["eventCount"], 8);
+    assert_eq!(history["historyCount"], 8);
+    assert_eq!(entries.len(), 8, "one entry per recorded event");
 
     // Entries are chronological (occurredAt ascending).
     let stamps: Vec<u64> = entries.iter().map(occurred_ms).collect();

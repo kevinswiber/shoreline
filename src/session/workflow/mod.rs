@@ -1,5 +1,6 @@
 mod artifact_transfer;
 pub(in crate::session) mod assessment;
+mod association;
 mod capture;
 mod commit_range_liveness;
 mod event_signature;
@@ -28,11 +29,17 @@ pub use assessment::{
     AssessmentShowOptions, AssessmentShowResult, AssessmentTargetSelector, AssessmentView,
     CurrentAssessmentStatus, CurrentAssessmentView, record_assessment, show_assessments,
 };
-pub use commit_range_liveness::{
-    CommitGraphCondition, CommitLiveness, LivenessEnrichment, OrphanReason, enrich_liveness,
+pub use association::{
+    AssociateCommitOptions, AssociateCommitResult, AssociateRefOptions, AssociateRefResult,
+    AssociationAxis, ListAssociationsOptions, ListAssociationsResult, WithdrawCommitOptions,
+    WithdrawCommitResult, WithdrawRefOptions, WithdrawRefResult, associate_commit, associate_ref,
+    list_associations, withdraw_commit, withdraw_ref,
 };
 pub use capture::{
     CaptureOptions, CaptureResult, CommitRangeSpec, capture_review, capture_worktree_review,
+};
+pub use commit_range_liveness::{
+    CommitGraphCondition, CommitLiveness, LivenessEnrichment, OrphanReason, enrich_liveness,
 };
 pub use event_signature::{
     EventSignatureRecordOptions, EventSignatureRecordResult, record_event_signature,
@@ -65,7 +72,8 @@ pub use observation::{
 pub(crate) use reload::reload_diagnostics_for_document;
 pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
 pub use review_unit_list::{
-    ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitListResult, list_review_units,
+    RefFilterMode, ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitListResult,
+    list_review_units, list_units_for_ref,
 };
 pub use review_unit_projection::{
     AdapterNoteView, MemberReadback, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,

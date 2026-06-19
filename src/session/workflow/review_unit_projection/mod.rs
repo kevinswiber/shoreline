@@ -286,7 +286,8 @@ mod tests {
         assert_eq!(result.review_unit.revision_id, capture.revision_id);
         assert_eq!(result.review_unit.snapshot_id, capture.snapshot_id);
         assert_eq!(result.filters.review_unit_id, capture.review_unit_id);
-        assert_eq!(result.event_count, 1);
+        // Capture event plus the auto-recorded capture-time ref association.
+        assert_eq!(result.event_count, 2);
         assert!(result.event_set_hash.starts_with("sha256:"));
     }
 
@@ -456,7 +457,8 @@ mod tests {
 
         assert_ne!(first.review_unit_id, second.review_unit_id);
         assert_eq!(explicit.review_unit.id, first.review_unit_id);
-        assert_eq!(explicit.event_count, 2);
+        // Two worktree captures, each with its auto-recorded ref association.
+        assert_eq!(explicit.event_count, 4);
     }
 
     #[test]

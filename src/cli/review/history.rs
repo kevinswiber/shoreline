@@ -5,7 +5,9 @@ use clap::{Args, ValueEnum};
 use shoreline::documents::history_document;
 use shoreline::model::ReviewUnitId;
 use shoreline::session::event::EventType;
-use shoreline::session::{EventVerificationPolicy, ReviewHistoryOptions, review_history};
+use shoreline::session::{
+    EventVerificationPolicy, RefFilterMode, ReviewHistoryOptions, review_history,
+};
 
 use crate::cli::json;
 
@@ -26,6 +28,16 @@ pub(super) struct HistoryArgs {
     /// Filter to one or more durable event types.
     #[arg(long = "event-type")]
     event_types: Vec<HistoryEventTypeArg>,
+
+    /// Filter to events of units associated with this ref; a short branch name is
+    /// normalized to its full ref before matching.
+    #[arg(long = "ref", alias = "branch")]
+    ref_name: Option<String>,
+
+    /// How `--ref` matches: by the recorded label (offline) or by reachability
+    /// from the ref's live tip.
+    #[arg(long, value_enum, default_value = "label")]
+    by: HistoryRefByArg,
 
     /// Hydrate body-like text from inline payloads or body artifacts.
     #[arg(long)]
@@ -53,6 +65,27 @@ enum HistoryEventTypeArg {
     ReviewNoteImported,
     ReviewUnitLineageDeclared,
     ReviewUnitLineageRoundRecorded,
+    ReviewUnitRefAssociated,
+    ReviewUnitRefWithdrawn,
+    ReviewUnitCommitAssociated,
+    ReviewUnitCommitWithdrawn,
+}
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum HistoryRefByArg {
+    #[default]
+    Label,
+    Liveness,
+}
+
+impl From<HistoryRefByArg> for RefFilterMode {
+    fn from(by: HistoryRefByArg) -> Self {
+        match by {
+            HistoryRefByArg::Label => RefFilterMode::Label,
+            HistoryRefByArg::Liveness => RefFilterMode::Liveness,
+        }
+    }
 }
 
 pub(super) fn run(
@@ -78,6 +111,9 @@ fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
     }
     for event_type in args.event_types.iter().copied() {
         options = options.with_event_type(event_type.into());
+    }
+    if let Some(ref_name) = &args.ref_name {
+        options = options.with_ref_filter(ref_name.clone(), args.by.into());
     }
     if let Some(map) = super::common::discover_delegation_map(&args.repo) {
         options = options.with_delegation_map(map);
@@ -105,6 +141,10 @@ impl From<HistoryEventTypeArg> for EventType {
             HistoryEventTypeArg::ReviewUnitLineageRoundRecorded => {
                 Self::ReviewUnitLineageRoundRecorded
             }
+            HistoryEventTypeArg::ReviewUnitRefAssociated => Self::ReviewUnitRefAssociated,
+            HistoryEventTypeArg::ReviewUnitRefWithdrawn => Self::ReviewUnitRefWithdrawn,
+            HistoryEventTypeArg::ReviewUnitCommitAssociated => Self::ReviewUnitCommitAssociated,
+            HistoryEventTypeArg::ReviewUnitCommitWithdrawn => Self::ReviewUnitCommitWithdrawn,
         }
     }
 }
