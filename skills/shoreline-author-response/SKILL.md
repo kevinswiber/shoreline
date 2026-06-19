@@ -187,11 +187,37 @@ shore review observation add \
 Do not add, replace, or update an assessment. If the reviewer needs to revise the review call after
 your response, the reviewer records that later on the reviewer track.
 
-## Record the landing commit (optional)
+## Record the landing commit
 
-If you commit the reviewed change after the review reaches an accepting verdict, record the
-resulting commit as an observation on your author track. The commit is an author fact, not a review
-call: it never goes on the reviewer track and never becomes an assessment.
+After the review reaches an accepting verdict and you commit the reviewed change, record the landed
+commit as a structural association on your author track — the first-class "the work landed as commit
+X" record (a `ReviewUnitCommitAssociated` edge, ADR-0014):
+
+```bash
+shore review association associate-commit \
+  --review-unit "$review_unit_id" \
+  --track "$author_track" \
+  --commit <landed-sha>
+```
+
+Unlike a prose note, this association is git-resolved and machine-readable: the unit then reports
+`anchored` with merged/live reachability in `shore review unit show`, and `shore review unit list
+--ref <branch>` / `shore review history --ref <branch>` can find the landed work by branch. It is an
+author fact — it never goes on the reviewer track, never becomes an assessment, and is never a
+recapture (`shore review capture` is not re-run for the landing).
+
+Pick the landed commit deliberately:
+
+- A **worktree-captured** unit is born floating (no commit OID); `associate-commit` is its canonical
+  landing record — the event the capture left it waiting for.
+- A **commit-range-captured** unit is already anchored at its captured target commit. If the work
+  landed as that same commit (rebase or fast-forward), associate it — same OID, nothing diverges. If
+  landing produced a **new** commit (a squash or merge commit), associating it adds a second current
+  OID and the projection surfaces a `divergent_commit_association` diagnostic. That is correct — the
+  reviewed content is at the captured target and the work also landed as the squash commit — so leave
+  both, or `withdraw-commit` whichever edge you do not want to keep current.
+
+Optionally also record a human-readable companion for readers scanning observations:
 
 ```bash
 shore review observation add \
@@ -199,12 +225,8 @@ shore review observation add \
   --track "$author_track" \
   --tag state-change:landed \
   --title "landed as <sha>" \
-  --body "ReviewUnit $review_unit_id (accepted by $reviewer_track) committed as <full-sha> on <branch>."
+  --body "ReviewUnit $review_unit_id (accepted by $reviewer_track) landed as <full-sha> on <branch>."
 ```
-
-This is an interim convention pending a first-class landed-commit record
-(kevinswiber/shoreline#103; docs in kevinswiber/shoreline#104). Do not run `shore review capture`
-for the landing, and do not add or change the assessment.
 
 If more than one ReviewUnit is current, pin the landing to the one that was actually reviewed and
 accepted with `--review-unit`, or use `--lineage` when the accepted ReviewUnit is the current head of
@@ -262,7 +284,8 @@ did not change, and which input requests you responded to. Leave the assessment 
   otherwise leave it open and record what is still blocked.
 - **Writing to the reviewer track.** The response observations belong on the author's track.
 - **Recording the landing commit on the reviewer track or as an assessment.** The landed-commit
-  fact is an author observation; the reviewer owns the assessment.
+  fact is an author association (with an optional companion observation); the reviewer owns the
+  assessment.
 - **Pinning the landing to the wrong unit when captures are ambiguous.** With multiple current
   ReviewUnits, pass the exact accepted unit with `--review-unit`, or pass `--lineage` only when that
   lineage's current head is the accepted ReviewUnit.

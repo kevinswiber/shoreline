@@ -305,25 +305,26 @@ separate, later step where the reviewed change is actually committed. It happens
 reaches an accepting verdict and after any author response, and it belongs to the author, not the
 reviewer: the reviewer records its one assessment and stands down.
 
-Shoreline does not yet model landing as a first-class fact — a ReviewUnit is anchored to a base
-commit and the working tree, with no resulting-commit endpoint
-([#103](https://github.com/kevinswiber/shoreline/issues/103)). Until that exists, record the commit
-the work landed as with an observation on the author track, reusing the `state-change:*` tag
-convention:
+Record the landed commit as a structural association on the author track — the first-class "the work
+landed as commit X" record (a `ReviewUnitCommitAssociated` edge, ADR-0014):
 
 ```bash
-shore review observation add \
+shore review association associate-commit \
   --review-unit <review-unit-id> \
   --track <author-track> \
-  --tag state-change:landed \
-  --title "landed as <sha>" \
-  --body "ReviewUnit <review-unit-id> (accepted by <reviewer-track>) committed as <full-sha> on <branch>."
+  --commit <landed-sha>
 ```
 
-This is an interim convention
-([#104](https://github.com/kevinswiber/shoreline/issues/104)). Do not run `shore review capture`
-again for the landing, and do not add or change the assessment — the resulting commit is an author
-fact, not a review call.
+This is git-resolved and machine-readable: the unit then reports `anchored` with merged/live
+reachability in `shore review unit show`, and `shore review unit list --ref <branch>` /
+`shore review history --ref <branch>` can find the landed work by branch. A worktree-captured unit is
+born floating, so this is the event it was waiting for; a commit-range-captured unit is already
+anchored at its captured target, so associate that same commit on a rebase or fast-forward — or,
+when a squash or merge produced a new commit, expect a `divergent_commit_association` diagnostic and
+keep or `withdraw-commit` the edge you do not want. Optionally add a human-readable companion with
+`shore review observation add --tag state-change:landed --title "landed as <sha>"`. Do not run
+`shore review capture` again for the landing, and do not add or change the assessment — the resulting
+commit is an author fact, not a review call.
 
 When several captures are still current — re-captures stack, and Shoreline has no way to retire a
 stale one yet ([#106](https://github.com/kevinswiber/shoreline/issues/106)) — pin the landing to the
