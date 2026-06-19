@@ -31,9 +31,9 @@ use crate::session::event::{
     ShoreEvent, Writer, event_signature_pre_authentication_encoding,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store::resolution::resolve_write_validation_store;
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::workflow::write_store::fact_batch_only_diagnostics;
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_write_store, resolve_write_validation_store,
+};
 use crate::session::{
     CosignatureGateDecision, EventStore, EventWriteOutcome, TrustSet, current_timestamp,
     gate_cosignature_for_store, writer_from_options,
@@ -90,13 +90,14 @@ pub struct EventSignatureRecordResult {
 pub fn record_event_signature(
     options: EventSignatureRecordOptions,
 ) -> Result<EventSignatureRecordResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let worktree_root = paths.worktree_root();
-    let store_dir = paths.store_dir();
+    let write_store = resolve_write_store(&options.repo)?;
+    let worktree_root = write_store.worktree_root();
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
-    // The write half keeps the LOCAL prior batch for the single-writer state.json.
+    // The write half lands in the resolved write store (the clone-local store in
+    // linked mode) and rebuilds its state.json there.
     let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
 
@@ -166,10 +167,13 @@ pub fn record_event_signature(
     };
 
     let state = SessionState::from_prior_events_and_committed(&events, &record.carrier, outcome)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
 
-    let mut diagnostics = state.diagnostics;
-    diagnostics.extend(fact_batch_only_diagnostics(&validation_store));
+    let diagnostics = state.diagnostics;
 
     Ok(EventSignatureRecordResult {
         event_id,

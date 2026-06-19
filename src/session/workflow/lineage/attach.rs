@@ -9,9 +9,9 @@ use crate::session::event::{
 };
 use crate::session::projection::lineage::ReviewUnitLineageProjection;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store::resolution::resolve_write_validation_store;
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::workflow::write_store::fact_batch_only_diagnostics;
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_write_store, resolve_write_validation_store,
+};
 use crate::session::{EventStore, EventWriteOutcome, current_timestamp, writer_from_options};
 use crate::storage::{Durability, LocalStorage};
 
@@ -62,11 +62,11 @@ pub struct LineageAttachResult {
 }
 
 pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<LineageAttachResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let worktree_root = paths.worktree_root();
-    let store_dir = paths.store_dir();
+    let write_store = resolve_write_store(&options.repo)?;
+    let worktree_root = write_store.worktree_root();
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
     let review_unit_id =
         options
@@ -125,10 +125,15 @@ pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<Li
     )?;
     recorder.record(&event_store, round)?;
 
-    // The single-writer state.json projects the LOCAL store's events.
+    // state.json projects the resolved write store's events (the clone-local
+    // store in linked mode).
     let events_after = event_store.list_events()?;
     let state = SessionState::from_events(&events_after)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
 
     // The reported head and fork diagnostics must reflect the writer-visible
     // lineage: a cross-worktree predecessor's prior rounds live in the linked
@@ -145,7 +150,7 @@ pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<Li
         ))
     })?;
 
-    let mut result = LineageAttachResult {
+    let result = LineageAttachResult {
         lineage_id,
         head_review_unit_id: lineage.head_review_unit_id.clone(),
         events_created: recorder.events_created,
@@ -153,9 +158,6 @@ pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<Li
         events_created_by_type: recorder.events_created_by_type,
         diagnostics: lineage.diagnostics.clone(),
     };
-    result
-        .diagnostics
-        .extend(fact_batch_only_diagnostics(&validation_store));
     Ok(result)
 }
 

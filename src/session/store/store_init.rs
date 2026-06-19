@@ -131,15 +131,26 @@ pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, store_dir: &Path) -
     storage.sweep_temp_files(store_dir, TempSweepAge::workflow_startup())
 }
 
-pub(crate) fn prepare_shore_writer(paths: &ShoreStorePaths, storage: &LocalStorage) -> Result<()> {
-    sweep_stale_temp_files(storage, paths.store_dir())?;
-    ensure_store_dirs(paths.store_dir())?;
+/// Shared writer setup against an explicit store dir and worktree root: sweep
+/// stale temp files, ensure the store directory layout, and register the three
+/// `.git/info/exclude` entries (the private delegates and actor-attributes
+/// overrides, then the `.shore/data/` store). The write-landing seam's
+/// `prepare_write_landing` calls this with the resolved write store dir
+/// (clone-local in linked mode) and the worktree root, so every write workflow
+/// shares one exclude body and they can never drift on which excludes are written.
+pub(crate) fn prepare_store_writer_at(
+    storage: &LocalStorage,
+    store_dir: &Path,
+    worktree_root: &Path,
+) -> Result<()> {
+    sweep_stale_temp_files(storage, store_dir)?;
+    ensure_store_dirs(store_dir)?;
     // Record the private override's own exclude entry before the store exclude,
     // so it is captured explicitly even when a broader store exclude pattern is
     // present (and would otherwise mask the more specific probe).
-    ensure_local_delegates_excluded(paths.worktree_root())?;
-    ensure_local_actor_attributes_excluded(paths.worktree_root())?;
-    ensure_shore_storage_excluded(paths.worktree_root())
+    ensure_local_delegates_excluded(worktree_root)?;
+    ensure_local_actor_attributes_excluded(worktree_root)?;
+    ensure_shore_storage_excluded(worktree_root)
 }
 
 /// Keeps the `.shore/data/` store out of Git status without modifying any
@@ -175,7 +186,7 @@ pub fn ensure_shore_storage_excluded(worktree_root: &Path) -> Result<()> {
 /// tracked and never excluded.
 ///
 /// `pub` so the possession-based `--local` identity CLIs (`enroll`/`attest`) can
-/// call it before any store write — that path may run before `prepare_shore_writer`
+/// call it before any store write — that path may run before `prepare_store_writer_at`
 /// (which also calls it) ever does.
 pub fn ensure_local_delegates_excluded(worktree_root: &Path) -> Result<()> {
     if git_path_is_ignored(worktree_root, ".shore/delegates.local.json")? {
@@ -291,12 +302,12 @@ mod tests {
     }
 
     #[test]
-    fn prepare_shore_writer_creates_current_store_dirs_and_local_exclude_entry() {
+    fn prepare_store_writer_at_creates_current_store_dirs_and_local_exclude_entry() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.store_dir());
 
-        prepare_shore_writer(&paths, &storage).unwrap();
+        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
         assert!(paths.store_dir().join("events").is_dir());
         assert!(paths.store_dir().join("artifacts/notes").is_dir());
@@ -317,12 +328,12 @@ mod tests {
     }
 
     #[test]
-    fn prepare_shore_writer_excludes_local_delegates_override() {
+    fn prepare_store_writer_at_excludes_local_delegates_override() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.store_dir());
 
-        prepare_shore_writer(&paths, &storage).unwrap();
+        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
         let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
         assert!(
@@ -349,12 +360,12 @@ mod tests {
     }
 
     #[test]
-    fn prepare_shore_writer_excludes_local_actor_attributes_override() {
+    fn prepare_store_writer_at_excludes_local_actor_attributes_override() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.store_dir());
 
-        prepare_shore_writer(&paths, &storage).unwrap();
+        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
         let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
         assert!(
@@ -385,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_shore_writer_preserves_fresh_temp_files() {
+    fn prepare_store_writer_at_preserves_fresh_temp_files() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         fs::create_dir_all(paths.store_dir().join("events")).unwrap();
@@ -393,7 +404,7 @@ mod tests {
         fs::write(&temp, "in flight").unwrap();
         let storage = LocalStorage::new(paths.store_dir());
 
-        prepare_shore_writer(&paths, &storage).unwrap();
+        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
         assert_eq!(fs::read_to_string(temp).unwrap(), "in flight");
     }

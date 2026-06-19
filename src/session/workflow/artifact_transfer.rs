@@ -17,8 +17,9 @@ use crate::session::snapshot_artifact::{
     read_snapshot_artifact_bytes, snapshot_artifact_path, validate_snapshot_artifact_content_hash,
 };
 use crate::session::store::SnapshotArtifact;
-use crate::session::store::resolution::resolve_read_store;
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_read_store, resolve_write_store,
+};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 /// The kind of content-addressed artifact an event references.
@@ -165,13 +166,14 @@ pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result
 /// [`ImportArtifactOutcome::Existing`]. A conflicting existing artifact or
 /// bytes that do not match the reference hash are rejected.
 pub fn import_artifact(options: ImportArtifactOptions) -> Result<ImportArtifactResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let storage = LocalStorage::new(paths.store_dir());
-    prepare_shore_writer(&paths, &storage)?;
+    let write_store = resolve_write_store(&options.repo)?;
+    let store_dir = write_store.store_dir();
+    let storage = LocalStorage::new(store_dir);
+    prepare_write_landing(&write_store, &storage)?;
 
     let outcome = match &options.artifact.locator {
         ArtifactLocator::Snapshot { snapshot_id } => import_snapshot_artifact(
-            paths.store_dir(),
+            store_dir,
             &storage,
             snapshot_id,
             &options.artifact.content_hash,

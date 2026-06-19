@@ -9,7 +9,7 @@ use crate::session::event::{
     stamp_ingest_provenance,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
+use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
     COSIGNATURE_BINDING_MISMATCH_CODE, COSIGNATURE_INVALID_CODE, COSIGNATURE_TARGET_PENDING_CODE,
     COSIGNATURE_UNTRUSTED_SIGNER_CODE, CosignatureGateDecision, EventStore,
@@ -120,10 +120,10 @@ pub fn import_event(options: ImportEventOptions) -> Result<IngestEventsResult> {
 /// match what is on disk before the error is returned — re-ingesting the batch
 /// is safe.
 pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let store_dir = paths.store_dir();
+    let write_store = resolve_write_store(&options.repo)?;
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
     // Reject malformed attribution before any write so the batch is atomic on
     // attribution: a bad actor id can never partially corrupt the log.
@@ -152,7 +152,7 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
     );
 
     let event_store = EventStore::open(store_dir);
-    let worktree_root = paths.worktree_root();
+    let worktree_root = write_store.worktree_root();
     let mut events_created = 0usize;
     let mut events_existing = 0usize;
     let mut events_created_by_type: BTreeMap<String, usize> = BTreeMap::new();
@@ -236,7 +236,11 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
     // partial-batch failure — so state.json never drifts from the event log.
     let events = event_store.list_events()?;
     let state = SessionState::from_events(&events)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
     let mut diagnostics = state.diagnostics;
     diagnostics.extend(ingest_diagnostics);
 
@@ -574,6 +578,38 @@ mod tests {
     fn dest_repo() -> TestRepo {
         // The destination only needs a valid repo root to host its own .shore/data.
         modified_repo()
+    }
+
+    #[test]
+    fn linked_ingest_lands_events_in_clone_local_store() {
+        use crate::git::git_common_dir;
+        use crate::session::ShoreStorePaths;
+        use crate::session::store::resolution::register_clone_local_store;
+
+        let (_origin, events) = origin_events();
+        let dest = dest_repo();
+        register_clone_local_store(dest.path()).unwrap();
+
+        ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
+
+        // Write-through (INV-1): ingested events land in the clone-local store.
+        let clone_local = git_common_dir(dest.path()).unwrap().join("shore");
+        assert!(
+            !EventStore::open(&clone_local)
+                .list_events()
+                .unwrap()
+                .is_empty(),
+            "ingest lands events in the clone-local store"
+        );
+        // The worktree-local `.shore/data` received no ingested events.
+        let local = ShoreStorePaths::resolve(dest.path()).unwrap();
+        assert!(
+            EventStore::open(local.store_dir())
+                .list_events()
+                .unwrap_or_default()
+                .is_empty(),
+            "worktree-local store received no ingested events in linked mode"
+        );
     }
 
     fn on_disk_state(repo: &Path) -> serde_json::Value {

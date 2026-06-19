@@ -11,7 +11,9 @@ use crate::session::store::event_store::EventStore;
 use crate::session::store::manifest::{
     StoreGitProvenance, StoreManifest, load_or_create_store_manifest, read_store_manifest,
 };
-use crate::session::store::store_init::{ShoreStorePaths, ensure_shore_storage_excluded};
+use crate::session::store::store_init::{
+    ShoreStorePaths, ensure_shore_storage_excluded, prepare_store_writer_at,
+};
 use crate::storage::{Durability, LocalStorage};
 
 const STORE_REGISTRATION_SCHEMA: &str = "shore.store-registration";
@@ -120,8 +122,10 @@ impl ReadStore {
 }
 
 /// The read seam: read surfaces resolve their store here so linked mode reads
-/// the clone-local store; write surfaces keep `ShoreStorePaths::resolve` and
-/// stay worktree-local per the batch-only contract.
+/// the clone-local store. After write-through (INV-1) writes land in that same
+/// store, so `local_only_event_files` is non-empty only for **residual** events
+/// written before this worktree ran `shore store link`; they are surfaced by the
+/// divergence diagnostic, never unioned into reads.
 pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
     let resolution = resolve_store(repo)?;
@@ -149,18 +153,21 @@ pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
 
 /// The write-validation seam: write surfaces resolve their *validation and
 /// derivation reads* here so a fact written in a linked checkout is validated
-/// against everything the writer can see — the linked store ∪ worktree-local
-/// events not yet copied by `store link`. The write itself still resolves
-/// `ShoreStorePaths::resolve` and stays worktree-local per the batch-only
-/// contract.
+/// against everything the writer can see — the linked store ∪ any **residual**
+/// worktree-local events not yet in it. After write-through (INV-1) the write
+/// itself lands in the clone-local store, so the residual set is empty in steady
+/// state and this union reduces to the linked store; the union remains a safety
+/// net for residual pre-link events and for the unlinked (worktree-local) case.
 ///
-/// Three seams, deliberately distinct:
-/// - [`resolve_read_store`] — read surfaces; store-only, unsynced local events
+/// Three seams, deliberately distinct, but after write-through all three resolve
+/// the SAME store in linked mode (the union being a residual-handling safety net,
+/// not the common path):
+/// - [`resolve_read_store`] — read surfaces; store-only, residual local events
 ///   are surfaced by diagnostic and never unioned into the result.
 /// - [`resolve_write_validation_store`] — write-path validation/derivation
 ///   reads; the writer-visible **union** (this type).
-/// - [`ShoreStorePaths::resolve`] — the local write landing where events,
-///   artifacts, and `state.json` are written.
+/// - [`resolve_write_store`] — the write landing where events, artifacts, and
+///   `state.json` are written (the clone-local store in linked mode, INV-1).
 #[derive(Clone, Debug)]
 pub(crate) struct WriteValidationStore {
     read_store: ReadStore,
@@ -185,13 +192,6 @@ impl WriteValidationStore {
         merged.dedup_by(|a, b| a.event_id == b.event_id);
         Ok(merged)
     }
-
-    /// The underlying store-resolution view, for the batch-only diagnostic
-    /// adapter (`fact_batch_only_diagnostics`): it reads `resolution.mode` to
-    /// decide whether the fact landed local-only in a linked checkout.
-    pub(crate) fn read_store(&self) -> &ReadStore {
-        &self.read_store
-    }
 }
 
 pub(crate) fn resolve_write_validation_store(
@@ -204,6 +204,66 @@ pub(crate) fn resolve_write_validation_store(
         read_store: resolve_read_store(repo)?,
         worktree_store_dir,
     })
+}
+
+/// The write-landing seam (INV-1): in `CloneLocal` mode the write lands in the
+/// clone-local store (`.git/shore`); in `WorktreeLocal` mode it lands in the
+/// worktree-local `.shore/data`. Mirrors [`resolve_read_store`]'s mode logic so
+/// reads and writes resolve the SAME store in linked mode, closing the
+/// read/write asymmetry that otherwise leaves a linked worktree's own captures
+/// invisible to its own reads.
+///
+/// Concurrency safety rests on content-addressed exclusive-create writes plus a
+/// regenerable atomic-rename projection (INV-3): there is no store-dir lock in
+/// V1, and any future lock must be store-directory scoped (never
+/// one-clone-one-writer) so a cross-clone store inherits it.
+#[derive(Clone, Debug)]
+pub(crate) struct WriteStore {
+    store_dir: PathBuf,
+    worktree_root: PathBuf,
+}
+
+impl WriteStore {
+    pub(crate) fn store_dir(&self) -> &Path {
+        &self.store_dir
+    }
+
+    pub(crate) fn worktree_root(&self) -> &Path {
+        &self.worktree_root
+    }
+}
+
+/// Resolve the write landing for `repo`. See [`WriteStore`]. Deliberately reuses
+/// [`resolve_store`] (not a fresh mode computation) so it can never disagree with
+/// [`resolve_read_store`] on the mode boundary (INV-1, INV-7): an unlinked repo
+/// has no registration → `WorktreeLocal` → the worktree-local `.shore/data`.
+pub(crate) fn resolve_write_store(repo: impl AsRef<Path>) -> Result<WriteStore> {
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let resolution = resolve_store(repo.as_ref())?;
+    let store_dir = match resolution.mode {
+        StoreResolutionMode::WorktreeLocal => paths.store_dir().to_path_buf(),
+        StoreResolutionMode::CloneLocal => resolution.store_dir().to_path_buf(),
+    };
+    Ok(WriteStore {
+        store_dir,
+        worktree_root: paths.worktree_root().to_path_buf(),
+    })
+}
+
+/// Prepare the resolved write landing: ensure the store directory layout on the
+/// *write* store dir (the clone-local store in linked mode) while keeping the
+/// `.git/info/exclude` entries anchored on the worktree root (INV-1). Delegates
+/// to the same shared body as `prepare_shore_writer`, so the two never drift on
+/// which excludes are written.
+pub(crate) fn prepare_write_landing(
+    write_store: &WriteStore,
+    storage: &LocalStorage,
+) -> Result<()> {
+    prepare_store_writer_at(
+        storage,
+        write_store.store_dir(),
+        write_store.worktree_root(),
+    )
 }
 
 pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
@@ -562,6 +622,89 @@ mod tests {
         assert!(!json.contains(fixture.main.path().to_str().unwrap()));
         assert!(!json.contains(fixture.linked_path.to_str().unwrap()));
         assert!(!json.contains(".git"));
+    }
+
+    #[test]
+    fn resolve_write_store_unlinked_lands_worktree_local() {
+        let repo = GitRepo::new();
+        let write = resolve_write_store(repo.path()).unwrap();
+        // worktree-local: <root>/.shore/data (same dir ShoreStorePaths resolves).
+        assert_eq!(
+            ShoreStorePaths::resolve(repo.path()).unwrap().store_dir(),
+            write.store_dir()
+        );
+        assert_existing_paths_eq(write.worktree_root(), repo.path());
+    }
+
+    #[test]
+    fn resolve_write_store_linked_lands_clone_local() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+
+        let write = resolve_write_store(&fixture.linked_path).unwrap();
+
+        let expected = git_common_dir(fixture.main.path()).unwrap().join("shore");
+        // Linked mode lands in the clone-local store (.git/shore).
+        assert_existing_paths_eq(write.store_dir(), &expected);
+        // worktree_root is still the (linked) worktree's root, for exclude entries.
+        assert_existing_paths_eq(write.worktree_root(), &fixture.linked_path);
+    }
+
+    #[test]
+    fn resolve_write_store_linked_resolves_same_dir_as_read_store() {
+        // The point of the change: in linked mode the write landing and the read
+        // store are the SAME directory (closes the read/write asymmetry, INV-1).
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+
+        let write = resolve_write_store(&fixture.linked_path).unwrap();
+        let read = resolve_read_store(&fixture.linked_path).unwrap();
+
+        assert_eq!(write.store_dir(), read.store_dir());
+    }
+
+    #[test]
+    fn prepare_write_landing_creates_dirs_on_the_write_store_in_linked_mode() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let write = resolve_write_store(&fixture.linked_path).unwrap();
+        let storage = LocalStorage::new(write.store_dir());
+
+        prepare_write_landing(&write, &storage).unwrap();
+
+        // events/ + artifacts/* created under the CLONE-LOCAL store, not the worktree-local one.
+        assert!(write.store_dir().join("events").is_dir());
+        assert!(write.store_dir().join("artifacts/snapshots").is_dir());
+        // The worktree-local .shore/data is NOT where new dirs were created.
+        let worktree_local = ShoreStorePaths::resolve(&fixture.linked_path).unwrap();
+        assert_ne!(write.store_dir(), worktree_local.store_dir());
+    }
+
+    #[test]
+    fn write_through_steady_state_has_no_divergence_and_union_reduces_to_clone_local() {
+        // Facet 1 closure (INV-1/INV-6): after write-through an event lives in the
+        // clone-local store with nothing stranded worktree-local, so the read seam
+        // reports no local-only divergence and the write-validation union reduces
+        // to the clone-local store's events.
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+        // Write-through end state: the event lands in the clone-local store only.
+        record_review_initialized(resolution.store_dir(), "session:write-through");
+
+        let read = resolve_read_store(&fixture.linked_path).unwrap();
+        assert!(
+            read.local_only_event_files.is_empty(),
+            "no residual worktree-local divergence after write-through"
+        );
+
+        let validation = resolve_write_validation_store(&fixture.linked_path).unwrap();
+        let union = validation.validation_events().unwrap();
+        let direct = EventStore::open(resolution.store_dir())
+            .list_events()
+            .unwrap();
+        assert_eq!(union.len(), direct.len());
+        assert_eq!(union.len(), 1, "the union is exactly the clone-local store");
     }
 
     struct LinkedWorktreeFixture {

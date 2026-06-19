@@ -25,8 +25,14 @@ pub struct SnapshotArtifact {
     pub content_hash: String,
 }
 
-pub fn write_snapshot_artifact(
-    repo: impl AsRef<Path>,
+/// Write a snapshot artifact to an explicit store dir (the resolved write store).
+/// Capture resolves the write store once for the whole landing (artifact → event
+/// → `state.json` all target the same dir). The content-addressed
+/// exclusive-create write is idempotent: a byte-identical artifact already
+/// present returns `Ok` (INV-2/INV-3); a different artifact under the same path is
+/// a loud conflict.
+pub(crate) fn write_snapshot_artifact_to(
+    store_dir: &Path,
     fingerprint: &ReviewUnitFingerprint,
     snapshot: DiffSnapshot,
 ) -> Result<SnapshotArtifact> {
@@ -50,8 +56,6 @@ pub fn write_snapshot_artifact(
     };
     artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
 
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    let store_dir = paths.store_dir();
     let storage = LocalStorage::new(store_dir);
     let path = snapshot_artifact_path(store_dir, &artifact.snapshot.snapshot_id);
     let bytes = serde_json::to_vec(&artifact)?;
@@ -229,7 +233,7 @@ mod tests {
             fingerprint.snapshot_id.clone(),
             files,
         );
-        let artifact = super::write_snapshot_artifact(repo.path(), &fingerprint, snapshot).unwrap();
+        let artifact = write_snapshot_artifact(repo.path(), &fingerprint, snapshot).unwrap();
 
         let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.snapshot_id).unwrap();
         let added_file = stored
@@ -407,6 +411,22 @@ mod tests {
                 .contains("import referenced artifacts before reading"),
             "got: {error}"
         );
+    }
+
+    /// Test convenience: write a snapshot artifact to the worktree's resolved
+    /// write store. Production has a single snapshot writer
+    /// (`write_snapshot_artifact_to`); capture resolves the write store once and
+    /// calls it directly. These tests run in unlinked repos, so resolving the
+    /// worktree-local store dir matches that write store.
+    fn write_snapshot_artifact(
+        repo: impl AsRef<Path>,
+        fingerprint: &ReviewUnitFingerprint,
+        snapshot: DiffSnapshot,
+    ) -> Result<SnapshotArtifact> {
+        let store_dir = ShoreStorePaths::resolve(repo.as_ref())?
+            .store_dir()
+            .to_path_buf();
+        write_snapshot_artifact_to(&store_dir, fingerprint, snapshot)
     }
 
     fn write_current_snapshot_artifact(repo: &TestRepo) -> SnapshotArtifact {

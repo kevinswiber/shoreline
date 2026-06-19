@@ -82,7 +82,7 @@ fn review_capture_changes_when_untracked_content_changes() {
 }
 
 #[test]
-fn review_capture_on_linked_store_stays_batch_only_with_guidance() {
+fn review_capture_on_linked_store_writes_through_to_linked_store() {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
@@ -104,19 +104,20 @@ fn review_capture_on_linked_store_stays_batch_only_with_guidance() {
     let capture_stdout = String::from_utf8(capture.stdout).unwrap();
     let capture_json = parse_json(capture_stdout.as_bytes());
 
+    // Write-through (INV-1): the capture lands in the linked clone-local store,
+    // so there is no batch-only "run shore store link" guidance any more.
     let diagnostics = capture_json["diagnostics"].as_array().unwrap();
     assert!(
-        diagnostics.iter().any(|diagnostic| {
-            diagnostic["code"].as_str() == Some("clone_local_capture_batch_only")
-                && diagnostic["message"]
-                    .as_str()
-                    .is_some_and(|message| message.contains("shore store link"))
-        }),
-        "expected batch-only linked capture guidance in {diagnostics:?}"
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["code"].as_str() == Some("clone_local_capture_batch_only")),
+        "write-through capture must not emit a batch-only diagnostic, got {diagnostics:?}"
     );
     assert!(!capture_stdout.contains(".git"));
     assert!(!capture_stdout.contains(".shore/data"));
 
+    // The linked store sees the captured event in place — eventCount reflects the
+    // write-through capture rather than staying zero until a `shore store link`.
     let status = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         status.status.success(),
@@ -125,8 +126,7 @@ fn review_capture_on_linked_store_stays_batch_only_with_guidance() {
     );
     let status_json = parse_json(&status.stdout);
     assert_eq!(status_json["mode"], "linked");
-    assert_eq!(status_json["inventory"]["eventCount"], 0);
-    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert_eq!(status_json["inventory"]["eventCount"], 1);
 }
 
 #[test]

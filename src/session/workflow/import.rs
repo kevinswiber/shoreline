@@ -10,9 +10,10 @@ use crate::session::event::{
     EventTarget, EventType, ImportedNoteTarget, ReviewInitializedPayload,
     ReviewNoteImportedPayload, ShoreEvent, SidecarSource,
 };
+use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
-    EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, ShoreStorePaths,
-    current_timestamp, prepare_shore_writer, writer_from_git_config,
+    EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, current_timestamp,
+    writer_from_git_config,
 };
 use crate::sidecar::{ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar};
 use crate::storage::{Durability, LocalStorage};
@@ -54,13 +55,13 @@ pub struct ImportNotesResult {
 }
 
 pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let worktree_root = paths.worktree_root();
+    let write_store = resolve_write_store(&options.repo)?;
+    let worktree_root = write_store.worktree_root();
     let (sidecar_source, sidecar_content_hash, sidecar) = parsed_sidecar_input(&options)?;
 
-    let store_dir = paths.store_dir();
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
     let event_store = EventStore::open(store_dir);
     let existing_state = SessionState::from_events(&event_store.list_events()?)?;
@@ -121,7 +122,7 @@ pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
     }
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    let state_path = paths.state_path();
+    let state_path = store_dir.join("state.json");
     storage.write_json_atomic(&state_path, &state, Durability::Projection)?;
 
     Ok(ImportNotesResult {

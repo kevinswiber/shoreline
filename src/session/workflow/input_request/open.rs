@@ -19,9 +19,9 @@ use crate::session::observation::{
     ReviewUnitSelection, required_title, resolve_review_unit, staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store::resolution::resolve_write_validation_store;
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::workflow::write_store::fact_batch_only_diagnostics;
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_write_store, resolve_write_validation_store,
+};
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp,
     sign_event_if_requested, writer_from_options,
@@ -151,11 +151,11 @@ pub struct InputRequestOpenResult {
 }
 
 pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputRequestOpenResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let worktree_root = paths.worktree_root();
-    let store_dir = paths.store_dir();
+    let write_store = resolve_write_store(&options.repo)?;
+    let worktree_root = write_store.worktree_root();
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
     // Validation/derivation reads resolve the writer-visible union (linked store
     // ∪ unsynced local events) so a request opened in a linked checkout validates
@@ -176,7 +176,8 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         &options.target,
     )?;
 
-    // The write half keeps the LOCAL prior batch for the single-writer state.json.
+    // The write half lands in the resolved write store (the clone-local store in
+    // linked mode) and rebuilds its state.json there.
     let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
@@ -266,9 +267,13 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     };
 
     let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
 
-    let mut result = InputRequestOpenResult {
+    let result = InputRequestOpenResult {
         review_unit_id: resolved.review_unit_id,
         input_request_id,
         event_id,
@@ -282,9 +287,6 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         events_created_by_type,
         diagnostics: state.diagnostics,
     };
-    result
-        .diagnostics
-        .extend(fact_batch_only_diagnostics(&validation_store));
     Ok(result)
 }
 

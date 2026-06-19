@@ -10,7 +10,7 @@ use shoreline::model::SnapshotId;
 use shoreline::session::{
     ArtifactKind, ArtifactRef, ImportArtifactOptions, LineageListOptions, ReviewHistoryOptions,
     ReviewUnitListOptions, ReviewUnitShowOptions, export_artifact, import_artifact, list_lineages,
-    list_review_units, read_events, read_snapshot_artifact, referenced_artifacts, review_history,
+    list_review_units, read_snapshot_artifact, referenced_artifacts, review_history,
     show_review_unit,
 };
 use support::git_repo::GitRepo;
@@ -433,20 +433,17 @@ fn linked_reads_agree_on_event_set_hash_across_surfaces() {
 }
 
 #[test]
-fn divergence_diagnostic_appears_then_clears_after_store_link() {
+fn reader_local_capture_is_immediately_visible_via_write_through() {
     let fixture = LinkedFixture::new();
     let code = "clone_local_unsynced_local_events";
 
-    // Synced: no divergence diagnostic on any reader surface.
     let units = fixture.unit_list_json(&fixture.reader);
-    let history = fixture.history_json(&fixture.reader, false);
     assert!(!has_diagnostic(&units, code));
-    assert!(!has_diagnostic(&history, code));
+    assert_eq!(units["reviewUnitCount"], 1);
     let synced_hash = event_set_hash(&units).to_owned();
 
-    // The reader captures locally (writes land worktree-local): both surfaces
-    // report the gap, the local unit stays invisible (store-only), and the
-    // hash still reflects the linked store alone.
+    // The reader captures locally: write-through lands it in the clone-local
+    // store, so it is visible immediately with no divergence and no `store link`.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let local_capture = fixture.capture(&fixture.reader);
     let local_unit_id = local_capture["reviewUnit"]["id"]
@@ -454,19 +451,6 @@ fn divergence_diagnostic_appears_then_clears_after_store_link() {
         .unwrap()
         .to_owned();
 
-    let units = fixture.unit_list_json(&fixture.reader);
-    let history = fixture.history_json(&fixture.reader, false);
-    assert!(has_diagnostic(&units, code), "{}", units["diagnostics"]);
-    assert!(has_diagnostic(&history, code), "{}", history["diagnostics"]);
-    assert!(diagnostic_message(&units, code).contains("1 local event"));
-    assert_eq!(units["reviewUnitCount"], 1);
-    assert!(!units["entries"].to_string().contains(&local_unit_id));
-    assert_eq!(event_set_hash(&units), synced_hash);
-    assert_eq!(event_set_hash(&history), synced_hash);
-
-    // After store link from the reader: diagnostic gone, the unit appears,
-    // and the hash advances in step on both surfaces.
-    fixture.link(&fixture.reader);
     let units = fixture.unit_list_json(&fixture.reader);
     let history = fixture.history_json(&fixture.reader, false);
     assert!(!has_diagnostic(&units, code), "{}", units["diagnostics"]);
@@ -691,14 +675,15 @@ fn linked_reader_attaches_observation_to_linked_only_unit() {
 }
 
 #[test]
-fn linked_reader_observation_result_carries_fact_batch_only_diagnostic() {
+fn linked_reader_observation_writes_through_without_batch_only_diagnostic() {
     let fixture = LinkedFixture::new();
 
     let result = fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "note");
 
+    assert_eq!(result["eventsCreated"], 1);
     assert!(
-        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
-        "diagnostics: {}",
+        !diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "write-through: no batch-only fact diagnostic; diagnostics: {}",
         result["diagnostics"]
     );
 }
@@ -765,8 +750,8 @@ fn linked_reader_opens_input_request_against_linked_only_unit() {
     assert_eq!(result["eventsCreated"], 1);
     assert!(result["inputRequestId"].as_str().is_some());
     assert!(
-        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
-        "diagnostics: {}",
+        !diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "write-through: no batch-only fact diagnostic; diagnostics: {}",
         result["diagnostics"]
     );
 }
@@ -833,8 +818,8 @@ fn linked_reader_responds_to_linked_only_input_request() {
     assert_eq!(result["eventsCreated"], 1);
     assert_eq!(result["outcome"], "approved");
     assert!(
-        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
-        "diagnostics: {}",
+        !diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "write-through: no batch-only fact diagnostic; diagnostics: {}",
         result["diagnostics"]
     );
 }
@@ -847,12 +832,15 @@ fn linked_reader_respond_copies_request_event_target_fields() {
 
     fixture.respond_input_request(&fixture.reader, &request_id);
 
-    // The reader had nothing local; responding writes exactly the response event
-    // to its worktree-local store. Its EventTarget must be copied verbatim from
-    // the union-read request, not fabricated.
-    let events = read_events(&fixture.reader).expect("read reader worktree events");
-    assert_eq!(events.len(), 1, "only the response event is local");
-    let response = &events[0];
+    // The response lands in the clone-local store (write-through). Its EventTarget
+    // must be copied verbatim from the union-read request, not fabricated.
+    let events = read_store_events(&fixture.linked_store_dir());
+    let response = events
+        .iter()
+        .find(|event| {
+            event.event_type == shoreline::session::event::EventType::InputRequestResponded
+        })
+        .expect("the response event is in the linked store");
     assert_eq!(
         response
             .target
@@ -896,8 +884,8 @@ fn linked_reader_records_assessment_on_linked_only_unit() {
     assert_eq!(result["eventsCreated"], 1);
     assert!(result["assessmentId"].as_str().is_some());
     assert!(
-        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
-        "diagnostics: {}",
+        !diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "write-through: no batch-only fact diagnostic; diagnostics: {}",
         result["diagnostics"]
     );
 }
@@ -1010,8 +998,8 @@ fn linked_reader_records_validation_on_linked_only_unit() {
 
     assert_eq!(result["eventsCreated"], 1);
     assert!(
-        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
-        "diagnostics: {}",
+        !diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "write-through: no batch-only fact diagnostic; diagnostics: {}",
         result["diagnostics"]
     );
 }
@@ -1034,8 +1022,8 @@ fn linked_reader_attaches_linked_only_unit_to_lineage() {
     );
     assert_eq!(result["eventsCreated"], 2);
     assert!(
-        diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
-        "diagnostics: {}",
+        !diagnostic_codes(&result).contains(&"clone_local_fact_batch_only"),
+        "write-through: no batch-only fact diagnostic; diagnostics: {}",
         result["diagnostics"]
     );
 }
@@ -1088,7 +1076,7 @@ fn linked_reader_lineage_result_projection_uses_union_for_head() {
 }
 
 #[test]
-fn linked_fact_writes_land_in_worktree_local_store_not_linked_store() {
+fn linked_fact_writes_land_in_linked_store_not_worktree_local() {
     let fixture = LinkedFixture::new();
     // Seed an input request so the reader has one to respond to, and link so the
     // baseline captures everything the seed has published.
@@ -1154,21 +1142,22 @@ fn linked_fact_writes_land_in_worktree_local_store_not_linked_store() {
         unit,
     );
 
-    // The linked store gained NO event files — every migrated write is local-only.
+    // Every write-through fact landed in the clone-local store, not worktree-local.
     let linked_after = event_file_names(&fixture.linked_store_dir());
-    assert_eq!(
-        linked_before, linked_after,
-        "linked store must be unchanged by worktree-local writes"
-    );
-    // The reader's worktree-local .shore/data did gain the fact events.
     assert!(
-        !event_file_names(&fixture.reader.join(".shore/data")).is_empty(),
-        "reader local store gained the fact events"
+        linked_after.len() > linked_before.len(),
+        "linked store gained the write-through fact events: before={} after={}",
+        linked_before.len(),
+        linked_after.len()
+    );
+    assert!(
+        event_file_names(&fixture.reader.join(".shore/data")).is_empty(),
+        "reader worktree-local store received no fact events in linked mode"
     );
 }
 
 #[test]
-fn linked_fact_write_state_json_is_local_and_orphan_free() {
+fn linked_fact_write_state_json_is_orphan_free() {
     let fixture = LinkedFixture::new();
     fixture.observation_add(
         &fixture.reader,
@@ -1176,11 +1165,13 @@ fn linked_fact_write_state_json_is_local_and_orphan_free() {
         "cross-worktree note",
     );
 
-    // The reader's worktree-local state.json counts the fact even though the
-    // capture lives only in the linked store: the StateReducer does not
-    // cross-check facts against captures, so there is no orphan diagnostic.
-    let state = read_local_state_json(&fixture.reader);
-    assert_eq!(state["observationCount"], 1);
+    // The fact's state.json is rebuilt in the clone-local store (write-through).
+    // The StateReducer does not cross-check facts against captures, so there is
+    // no orphan diagnostic even though the capture and fact may interleave.
+    let bytes = fs::read(fixture.linked_store_dir().join("state.json"))
+        .expect("read clone-local state.json");
+    let state: Value = serde_json::from_slice(&bytes).expect("state.json is json");
+    assert!(state["observationCount"].as_u64().unwrap() >= 1);
     assert!(
         !state_diagnostic_codes(&state)
             .iter()
@@ -1229,6 +1220,42 @@ fn event_file_names(store_dir: &Path) -> Vec<String> {
     json_file_names(&store_dir.join("events"))
 }
 
+/// Deserialize every event file directly out of an explicit store directory.
+/// `read_events(worktree)` resolves the worktree-local `.shore/data` store; in
+/// linked mode write-through lands events in the clone-local store, so reading
+/// those events back means reading the clone-local store directory itself.
+fn read_store_events(store_dir: &Path) -> Vec<shoreline::session::event::ShoreEvent> {
+    let events_dir = store_dir.join("events");
+    let mut entries: Vec<PathBuf> = match fs::read_dir(&events_dir) {
+        Ok(read_dir) => read_dir
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    entries.sort();
+    entries
+        .iter()
+        .map(|path| {
+            let bytes = fs::read(path).expect("read event file");
+            serde_json::from_slice(&bytes).expect("event file is a ShoreEvent")
+        })
+        .collect()
+}
+
+/// Seed a residual pre-link worktree-local event: a content-addressed event file
+/// in the worktree-local `.shore/data/events/` that the clone-local store does
+/// not have. After write-through, normal CLI writes no longer create such
+/// residuals, so the read-side `clone_local_unsynced_local_events` diagnostic is
+/// exercised by seeding one directly (it is now a residual-only signal).
+fn seed_unsynced_local_event(worktree: &Path) {
+    let events_dir = worktree.join(".shore/data/events");
+    fs::create_dir_all(&events_dir).unwrap();
+    let name = format!("{}.json", "a".repeat(64));
+    fs::write(events_dir.join(name), b"{}").unwrap();
+}
+
 fn snapshot_artifact_names(store_dir: &Path) -> Vec<String> {
     json_file_names(&store_dir.join("artifacts/snapshots"))
 }
@@ -1246,12 +1273,6 @@ fn json_file_names(dir: &Path) -> Vec<String> {
     names
 }
 
-fn read_local_state_json(worktree: &Path) -> Value {
-    let bytes =
-        fs::read(worktree.join(".shore/data/state.json")).expect("read worktree-local state.json");
-    serde_json::from_slice(&bytes).expect("state.json is json")
-}
-
 fn state_diagnostic_codes(state: &Value) -> Vec<String> {
     state["diagnostics"]
         .as_array()
@@ -1265,34 +1286,22 @@ fn state_diagnostic_codes(state: &Value) -> Vec<String> {
 }
 
 #[test]
-fn cross_worktree_fact_is_invisible_until_store_link_then_visible() {
+fn cross_worktree_fact_is_immediately_visible_via_write_through() {
     let fixture = LinkedFixture::new();
     let added =
         fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "cross note");
     let observation_id = added["observationId"].as_str().unwrap().to_owned();
 
-    // Before link: the seed (a separate checkout reading the linked store) does
-    // NOT see the reader's observation, and the reader's own store-only reads
-    // surface the divergence diagnostic.
-    let before = observation_list_json(&fixture.seed, &fixture.seed_review_unit_id);
-    assert!(!contains_observation(&before, &observation_id));
-    assert!(
-        diagnostic_codes(&fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id))
-            .contains(&"clone_local_unsynced_local_events"),
-        "reader's read surfaces the unsynced-local diagnostic before link"
-    );
-
-    // store link from the reader copies exactly one event.
-    let link = fixture.link(&fixture.reader);
-    assert_eq!(link["eventsCreated"], 1);
-
-    // After link: the seed sees it and the divergence diagnostic clears.
-    let after = observation_list_json(&fixture.seed, &fixture.seed_review_unit_id);
-    assert!(contains_observation(&after, &observation_id));
+    // Write-through: the seed (a separate checkout reading the shared clone-local
+    // store) sees the reader's observation immediately, with no `store link`.
+    let seen = observation_list_json(&fixture.seed, &fixture.seed_review_unit_id);
+    assert!(contains_observation(&seen, &observation_id));
+    // The reader's own read surfaces no unsynced-local divergence: nothing is
+    // stranded worktree-local.
     assert!(
         !diagnostic_codes(&fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id))
             .contains(&"clone_local_unsynced_local_events"),
-        "the divergence diagnostic clears once the fact is synced"
+        "write-through leaves no unsynced-local divergence"
     );
 }
 
@@ -1300,9 +1309,9 @@ fn cross_worktree_fact_is_invisible_until_store_link_then_visible() {
 fn re_linking_a_synced_fact_copies_zero_events() {
     let fixture = LinkedFixture::new();
     fixture.observation_add(&fixture.reader, &fixture.seed_review_unit_id, "n");
-    assert_eq!(fixture.link(&fixture.reader)["eventsCreated"], 1);
-
-    // Idempotent: the second link copies nothing and reports no conflict.
+    // Write-through already landed the fact in the clone-local store, so `store
+    // link` finds nothing to copy.
+    assert_eq!(fixture.link(&fixture.reader)["eventsCreated"], 0);
     let second = fixture.link(&fixture.reader);
     assert_eq!(second["eventsCreated"], 0);
 }
@@ -1322,7 +1331,7 @@ fn re_running_the_same_fact_command_after_link_is_idempotent() {
 }
 
 #[test]
-fn file_targeted_cross_worktree_fact_copies_artifact_on_link() {
+fn file_targeted_cross_worktree_fact_is_immediately_readable() {
     let fixture = LinkedFixture::new();
     // The reader captures a unit locally and records a file-targeted observation
     // with a body against it (the artifact worktree-local fallback path).
@@ -1348,15 +1357,17 @@ fn file_targeted_cross_worktree_fact_copies_artifact_on_link() {
         &body,
     ]);
 
-    // store link copies the events and their artifacts (capture snapshot + body).
+    // Write-through already placed the events and their artifacts in the
+    // clone-local store, so `store link` copies nothing new.
     let link = fixture.link(&fixture.reader);
-    assert!(
-        link["artifactsCreated"].as_u64().unwrap() >= 2,
-        "snapshot and body artifacts copied: {}",
+    assert_eq!(
+        link["artifactsCreated"].as_u64().unwrap(),
+        0,
+        "{}",
         link["artifactsCreated"]
     );
 
-    // A third checkout reads the fact's body from the linked store.
+    // A third checkout reads the fact's body directly from the shared store.
     let listed = run_shore_json(&[
         "review",
         "observation",
@@ -1498,8 +1509,7 @@ where
 #[test]
 fn linked_unit_list_reports_unsynced_local_events_diagnostic() {
     let fixture = LinkedFixture::new();
-    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
-    fixture.capture(&fixture.reader);
+    seed_unsynced_local_event(&fixture.reader);
 
     let json = fixture.unit_list_json(&fixture.reader);
 
@@ -1579,9 +1589,7 @@ fn linked_history_reads_full_timeline_from_linked_store() {
 #[test]
 fn linked_history_emits_divergence_diagnostic_with_local_only_events() {
     let fixture = LinkedFixture::new();
-    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
-    let local_capture = fixture.capture(&fixture.reader);
-    let local_unit_id = local_capture["reviewUnit"]["id"].as_str().unwrap();
+    seed_unsynced_local_event(&fixture.reader);
 
     let json = fixture.history_json(&fixture.reader, false);
 
@@ -1590,9 +1598,8 @@ fn linked_history_emits_divergence_diagnostic_with_local_only_events() {
         "diagnostics: {}",
         json["diagnostics"]
     );
-    // Store-only: the reader's unsynced local capture is not in the timeline.
+    // Store-only: the seeded residual event is not in the linked-store timeline.
     assert_eq!(json["eventCount"], 1);
-    assert!(!json["entries"].to_string().contains(local_unit_id));
 }
 
 #[test]
@@ -1638,8 +1645,7 @@ fn linked_unit_show_loads_bound_snapshot_from_linked_store() {
 #[test]
 fn linked_unit_show_emits_divergence_diagnostic_with_local_only_events() {
     let fixture = LinkedFixture::new();
-    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
-    fixture.capture(&fixture.reader);
+    seed_unsynced_local_event(&fixture.reader);
 
     let json = fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id);
 
@@ -1682,8 +1688,7 @@ fn linked_observation_list_emits_divergence_diagnostic_with_local_only_events() 
     let body = "c".repeat(64);
     fixture.seed_full_facts(&body);
     fixture.link(&fixture.seed);
-    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
-    fixture.capture(&fixture.reader);
+    seed_unsynced_local_event(&fixture.reader);
 
     let json = run_shore_json(&[
         "review",
@@ -1820,8 +1825,7 @@ fn linked_lineage_list_emits_divergence_diagnostic_with_local_only_events() {
     let lineage_id = "review-unit-lineage:random:diag-test";
     fixture.lineage_attach(&fixture.seed, lineage_id, &fixture.seed_review_unit_id);
     fixture.link(&fixture.seed);
-    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
-    fixture.capture(&fixture.reader);
+    seed_unsynced_local_event(&fixture.reader);
 
     let result = list_lineages(LineageListOptions::new(&fixture.reader)).unwrap();
 
@@ -1896,7 +1900,7 @@ fn export_artifact_body_reads_from_linked_store() {
 }
 
 #[test]
-fn import_artifact_still_writes_worktree_local_in_linked_mode() {
+fn import_artifact_writes_through_to_linked_store() {
     let fixture = LinkedFixture::new();
     let body = "y".repeat(5000);
     fixture.observation_add(&fixture.seed, &fixture.seed_review_unit_id, &body);
@@ -1909,36 +1913,33 @@ fn import_artifact_still_writes_worktree_local_in_linked_mode() {
             .strip_prefix("sha256:")
             .expect("body content hash is sha256-prefixed")
     );
-    let bytes = fs::read(
-        fixture
-            .seed
-            .join(".shore/data")
-            .join(&artifact_relative_path),
-    )
-    .unwrap();
+    let bytes = fs::read(fixture.linked_store_dir().join(&artifact_relative_path)).unwrap();
 
     import_artifact(ImportArtifactOptions::new(&fixture.reader, body_ref, bytes))
         .expect("import into the linked reader succeeds");
 
-    // Writes stay worktree-local until shared-store writes land: the artifact
-    // lands in the reader's own .shore/data, not the linked clone-local store.
+    // Write-through (INV-1): import lands the artifact bytes in the clone-local
+    // store (the same store reads resolve), never the reader's worktree-local
+    // `.shore/data`.
     assert!(
         fixture
-            .reader
-            .join(".shore/data")
+            .linked_store_dir()
             .join(&artifact_relative_path)
             .is_file()
     );
     assert!(
         !fixture
-            .linked_store_dir()
+            .reader
+            .join(".shore/data")
             .join(&artifact_relative_path)
             .exists()
     );
 }
 
 fn seed_body_artifact_ref(fixture: &LinkedFixture) -> ArtifactRef {
-    let events = read_events(&fixture.seed).expect("read seed worktree events");
+    // The seed's observation write-throughs to the clone-local store, so the body
+    // artifact ref is derived from the clone-local events, not worktree-local.
+    let events = read_store_events(&fixture.linked_store_dir());
     referenced_artifacts(&events)
         .expect("derive artifact refs from seed events")
         .into_iter()
@@ -1971,4 +1972,100 @@ fn worktree_local_unit_list_is_unchanged() {
         "diagnostics: {}",
         json["diagnostics"]
     );
+}
+
+#[test]
+fn main_worktree_of_linked_clone_round_trips_a_capture_in_place() {
+    // The headline acceptance test: in the MAIN worktree of a linked clone, a
+    // capture round-trips in place — `unit list` / `unit show` / `history`
+    // resolve it with NO dedicated unlinked worktree and NO `--review-unit`.
+    let main = GitRepo::new();
+    main.write("README.md", "base\n");
+    main.commit_all("base");
+
+    // Link the MAIN worktree ITSELF so it resolves CloneLocal. Registration is
+    // per-worktree-root (resolution.rs `store_registration_path` =
+    // <root>/.shore/data/store-registration.json), so linking a sibling would
+    // leave main WorktreeLocal and pass the test vacuously — main must be linked.
+    run_shore_json(&["store", "link", "--repo", main.path().to_str().unwrap()]);
+
+    // A tracked change on a branch, captured in the main worktree.
+    main.git(["checkout", "-b", "feature"]);
+    main.write("README.md", "changed on a branch in the main worktree\n");
+    let capture = run_shore_json(&["review", "capture", "--repo", main.path().to_str().unwrap()]);
+    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+
+    // With NO --review-unit, the same worktree's reads resolve the capture in
+    // place (write-through landed it in the same `.git/shore` store reads use).
+    let list = run_shore_json(&[
+        "review",
+        "unit",
+        "list",
+        "--repo",
+        main.path().to_str().unwrap(),
+    ]);
+    assert_eq!(list["reviewUnitCount"], 1);
+    assert_eq!(
+        list["entries"][0]["reviewUnitId"],
+        Value::String(unit_id.clone())
+    );
+
+    let show = run_shore_json(&[
+        "review",
+        "unit",
+        "show",
+        "--repo",
+        main.path().to_str().unwrap(),
+    ]);
+    assert_eq!(show["reviewUnit"]["id"], Value::String(unit_id.clone()));
+
+    let history = run_shore_json(&["review", "history", "--repo", main.path().to_str().unwrap()]);
+    assert!(
+        history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry.to_string().contains(&unit_id)),
+        "history includes the captured unit: {}",
+        history["entries"]
+    );
+    // The capture landed in the clone-local store, not stranded worktree-local.
+    let status = run_shore_json(&["store", "status", "--repo", main.path().to_str().unwrap()]);
+    assert_eq!(status["mode"], "linked");
+    assert_eq!(status["inventory"]["eventCount"], 1);
+}
+
+#[test]
+fn fresh_unlinked_worktree_has_clean_own_only_reads() {
+    // Escape hatch (INV-7): a worktree with no registration stays WorktreeLocal
+    // with clean own-only reads — write-through does not regress it.
+    let repo = GitRepo::new();
+    repo.write("README.md", "base\n");
+    repo.commit_all("base");
+    repo.write("README.md", "changed locally\n");
+    let capture = run_shore_json(&["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+
+    let list = run_shore_json(&[
+        "review",
+        "unit",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    assert_eq!(list["reviewUnitCount"], 1);
+    assert_eq!(
+        list["entries"][0]["reviewUnitId"],
+        Value::String(unit_id.clone())
+    );
+    assert!(
+        !diagnostic_codes(&list).contains(&"clone_local_unsynced_local_events"),
+        "unlinked reads carry no divergence diagnostic: {}",
+        list["diagnostics"]
+    );
+
+    let status = run_shore_json(&["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    assert_eq!(status["mode"], "local");
+    // The capture landed in the worktree-local store, as before.
+    assert!(repo.path().join(".shore/data/events").is_dir());
 }

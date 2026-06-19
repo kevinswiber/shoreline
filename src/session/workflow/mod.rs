@@ -14,7 +14,6 @@ mod store_link;
 mod store_migrate;
 mod store_status;
 mod validation;
-mod write_store;
 
 pub(in crate::session) mod input_request;
 pub(in crate::session) mod observation;

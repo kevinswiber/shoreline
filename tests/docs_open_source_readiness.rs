@@ -124,7 +124,6 @@ fn public_docs_cover_clone_local_store_behavior() {
             "policyOutcome",
             "file:sha256:",
             "hard-blocking policy",
-            "clone_local_capture_batch_only",
             "review unit list",
         ],
     );

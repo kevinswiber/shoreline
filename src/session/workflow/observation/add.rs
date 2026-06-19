@@ -16,9 +16,10 @@ use crate::model::{
 };
 use crate::session::event::{EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store::resolution::resolve_write_validation_store;
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::workflow::write_store::fact_batch_only_diagnostics;
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_write_store, resolve_write_validation_store,
+};
+use crate::session::store_init::ShoreStorePaths;
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp,
     sign_event_if_requested, writer_from_options,
@@ -156,8 +157,9 @@ pub struct ObservationAddResult {
 pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationAddResult> {
     // Validation/derivation reads resolve the writer-visible union (linked store
     // ∪ unsynced local events) so a fact attached in a linked checkout validates
-    // against everything the writer can see. The write half below stays
-    // worktree-local and batch-synced via `shore store link`.
+    // against everything the writer can see. The write half below writes through
+    // to that same store (the clone-local store in linked mode), so the fact is
+    // visible to reads in place.
     let validation_store = resolve_write_validation_store(&options.repo)?;
     let events = validation_store.validation_events()?;
     let worktree_root = ShoreStorePaths::resolve(&options.repo)?
@@ -173,7 +175,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     let target = resolve_observation_target(&worktree_root, &resolved, &options.target)?;
     let title = required_title(options.title.as_deref())?;
 
-    let mut result = write_observation_event(ObservationWriteInput {
+    let result = write_observation_event(ObservationWriteInput {
         repo: options.repo,
         resolved,
         target,
@@ -187,9 +189,6 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
         actor_id: options.actor_id,
         signing: options.signing,
     })?;
-    result
-        .diagnostics
-        .extend(fact_batch_only_diagnostics(&validation_store));
     Ok(result)
 }
 
@@ -209,11 +208,11 @@ struct ObservationWriteInput {
 }
 
 fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAddResult> {
-    let paths = ShoreStorePaths::resolve(&input.repo)?;
-    let worktree_root = paths.worktree_root();
-    let store_dir = paths.store_dir();
+    let write_store = resolve_write_store(&input.repo)?;
+    let worktree_root = write_store.worktree_root();
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
     let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
@@ -301,7 +300,11 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     };
 
     let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
 
     Ok(ObservationAddResult {
         review_unit_id: input.resolved.review_unit_id,

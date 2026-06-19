@@ -178,8 +178,8 @@ tree, including untracked files (source `git_worktree`).
   endpoints serialize as `git_commit` and no worktree path appears in the output. `--target`
   requires `--base`. Re-capturing the same range is idempotent and reports `eventsExisting`, and an
   equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the same ReviewUnit because
-  rev spellings are never stored. The `clone_local_capture_batch_only` diagnostic applies the same
-  as for worktree capture.
+  rev spellings are never stored. Like worktree capture, a range capture in a linked worktree writes
+  through to the clone-local store (see below).
 - Durable state is created at the Git worktree root under `.shore/data/`. A legacy flat `.shore/`
   store from before this layout is upgraded with `just migrate-store [<repo>]` (an owner-run
   one-off driver, not a `shore` subcommand); see
@@ -205,20 +205,20 @@ V1 `.shore/data/` storage is local and synchronous. It assumes one active Shorel
 directory and does not add a daemon, delivery queue, approval flow, async storage, remote storage,
 or note mutation.
 
-When a worktree is linked to a clone-local store, `shore review capture` still writes the capture to
-that worktree's local `.shore/data/` store. The command includes a
-`clone_local_capture_batch_only` diagnostic that tells callers to run `shore store link` to copy the
-new local facts into the linked clone-local store.
+When a worktree is linked to a clone-local store, `shore review capture` writes the capture **through
+to that clone-local store** (`.git/shore`) — the same store the worktree's reads resolve — so the
+capture is visible to `review unit list`, `unit show`, and `history` in place, with no `shore store
+link` step. Captures in an unlinked worktree still write to that worktree's local `.shore/data/`
+store.
 
 The native review write commands — `shore review observation add`, `shore review input-request open`
 and `respond`, `shore review assessment add`, `shore review validation add`, and `shore review
 lineage attach` — behave the same way in a linked worktree. They validate against the linked family's
 review record plus your unsynced local facts, so you can record a fact against a review unit (or
-related observation, assessment, or request) captured in a sibling worktree, but the fact is written
-to your worktree-local `.shore/data/` store. In linked mode the result carries the
-`clone_local_fact_batch_only` diagnostic; run `shore store link` to copy the fact into the
-clone-local store so other checkouts can see it. The diagnostic is linked-mode only — unlinked output
-is unchanged.
+related observation, assessment, or request) captured in a sibling worktree, and the fact is written
+**through to the clone-local store** — the same store reads resolve — so other checkouts see it in
+place, with no `shore store link` step. In an unlinked worktree the fact writes to that worktree's
+local `.shore/data/` store, unchanged.
 
 ## `shore store`
 
@@ -255,9 +255,10 @@ deferred until movement can target a wider user-level or remote store. Blocking 
 only safe finding kinds, such as `known_token`, and command output does not print the secret text or
 file path.
 
-Linked capture is batch-only in this release: capture writes local facts first, emits the
-`clone_local_capture_batch_only` diagnostic when the worktree is linked, and `shore store link`
-copies those facts into the clone-local store. Every review read command resolves the linked store:
+Linked capture writes through to the clone-local store: in a linked worktree, `shore review capture`
+lands its event, snapshot artifact, and rebuilt `state.json` directly in the clone-local store, so no
+`shore store link` step is needed to make the capture visible. Every review read command resolves the
+linked store:
 `review unit list` and `unit show`, `history`, the observation, input-request, and validation
 lists, `assessment show`, and `lineage show` read the clone-local store from any linked worktree,
 including hydrated bodies and the captured snapshot, so their `eventCount` and `eventSetHash`

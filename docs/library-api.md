@@ -80,9 +80,10 @@ workflow above (`record_observation`, `open_input_request`, `respond_input_reque
 **writer-visible union**: the linked store's events plus the worktree-local events not yet synced.
 This is the write-path counterpart to the store-only read seam — a consumer can record a fact against
 a ReviewUnit, observation, assessment, or input request that lives only in the linked store. The
-write itself stays worktree-local and batch-syncs via `link_clone_local_store`; in linked mode the
-result diagnostics include `clone_local_fact_batch_only`. The unlinked path is unchanged: the union
-reduces to the local event list and no diagnostic is added.
+write itself lands **through to the clone-local store** (`resolve_write_store` resolves the same store
+the reads do in linked mode), so the fact is visible to reads in place with no `link_clone_local_store`
+step. The unlinked path is unchanged: the write lands in the worktree-local store and the validation
+union reduces to the local event list.
 
 `respond_input_request` answers **review-unit** input requests (the reviewer-to-author loop). Agent
 **task-attempt** input requests — the resumption domain that feeds ADR-0009 binding — are a separate

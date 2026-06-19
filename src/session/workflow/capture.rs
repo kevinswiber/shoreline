@@ -13,15 +13,12 @@ use crate::model::{
 };
 use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent};
 use crate::session::fingerprint::{ResolvedCommitEndpoint, ReviewUnitFingerprint};
-use crate::session::store::resolution::{StoreResolutionMode, resolve_store};
+use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, ProjectionDiagnostic,
-    SessionState, ShoreStorePaths, current_timestamp, prepare_shore_writer,
-    sign_event_if_requested, writer_from_options,
+    SessionState, current_timestamp, sign_event_if_requested, writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage};
-
-const CLONE_LOCAL_CAPTURE_BATCH_ONLY_CODE: &str = "clone_local_capture_batch_only";
 
 /// Commit-range capture input: a base rev and an optional target rev (defaults
 /// to `HEAD`). Revs are resolved to commit OIDs at capture time; the spellings
@@ -161,31 +158,33 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     );
     let _entered = span.enter();
 
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let worktree_root = paths.worktree_root();
-    let store_resolution = resolve_store(worktree_root)?;
-    let store_dir = paths.store_dir();
-    let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    // The write landing is mode-aware (INV-1): in a linked worktree the
+    // artifact, event, and state.json all land in the clone-local store, so the
+    // same worktree's reads (which already resolve it) see the capture in place.
+    let write_store = resolve_write_store(&options.repo)?;
+    let worktree_root = write_store.worktree_root().to_path_buf();
+    let store_dir = write_store.store_dir().to_path_buf();
+    let storage = LocalStorage::new(&store_dir);
+    prepare_write_landing(&write_store, &storage)?;
 
     let PreparedCapture { files, fingerprint } = match &options.source {
-        CaptureSourceSpec::Worktree => prepare_worktree_capture(worktree_root, &options)?,
+        CaptureSourceSpec::Worktree => prepare_worktree_capture(&worktree_root, &options)?,
         CaptureSourceSpec::CommitRange(range) => {
-            prepare_commit_range_capture(worktree_root, range)?
+            prepare_commit_range_capture(&worktree_root, range)?
         }
     };
     let review_id = ReviewId::new("review:default");
     let session_id = SessionId::new("session:default");
     let snapshot = DiffSnapshot::new(review_id, fingerprint.snapshot_id.clone(), files);
-    let artifact = crate::session::snapshot_artifact::write_snapshot_artifact(
-        worktree_root,
+    let artifact = crate::session::snapshot_artifact::write_snapshot_artifact_to(
+        &store_dir,
         &fingerprint,
         snapshot,
     )?;
 
-    let event_store = EventStore::open(store_dir);
+    let event_store = EventStore::open(&store_dir);
     let mut recorder = CaptureRecorder::default();
-    let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
+    let writer = writer_from_options(&worktree_root, options.actor_id.as_ref());
     let occurred_at = current_timestamp();
     let mut event = ShoreEvent::new(
         EventType::ReviewUnitCaptured,
@@ -212,16 +211,15 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     recorder.record(&event_store, event)?;
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
-    let mut diagnostics = state.diagnostics;
-    if store_resolution.mode == StoreResolutionMode::CloneLocal {
-        diagnostics.push(ProjectionDiagnostic {
-            code: CLONE_LOCAL_CAPTURE_BATCH_ONLY_CODE.to_owned(),
-            message:
-                "review capture writes local facts; run shore store link to copy them to the linked clone-local store"
-                    .to_owned(),
-        });
-    }
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
+    // Write-through (INV-1) lands the capture in the store reads already resolve,
+    // so there is no longer a batch-only diagnostic telling the user to run
+    // `shore store link` before their own capture is visible.
+    let diagnostics = state.diagnostics;
 
     Ok(CaptureResult {
         session_id,
@@ -346,12 +344,14 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
+    use crate::git::git_common_dir;
     use crate::model::{
         CommitRangeCaptureMode, ReviewEndpoint, ReviewUnitLineageId, ReviewUnitSource,
     };
     use crate::session::event::EventType;
+    use crate::session::store::resolution::register_clone_local_store;
     use crate::session::{
-        CaptureOptions, CommitRangeSpec, EventStore, LineageAttachOptions,
+        CaptureOptions, CommitRangeSpec, EventStore, LineageAttachOptions, ShoreStorePaths,
         attach_review_unit_to_lineage, capture_review, capture_worktree_review,
         read_snapshot_artifact,
     };
@@ -711,6 +711,106 @@ mod tests {
                 .as_str()
                 .starts_with("review-unit:sha256:")
         );
+    }
+
+    #[test]
+    fn linked_capture_event_lands_in_clone_local_store() {
+        let fixture = LinkedCapture::new();
+
+        capture_review(CaptureOptions::new(&fixture.linked_path)).unwrap();
+
+        // The event is in the CLONE-LOCAL store, not stranded in worktree-local.
+        let clone_local = fixture.clone_local_store_dir();
+        let captured: Vec<_> = EventStore::open(&clone_local)
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .collect();
+        assert_eq!(captured.len(), 1);
+
+        // Worktree-local .shore/data did NOT receive the capture event.
+        let worktree_local = ShoreStorePaths::resolve(&fixture.linked_path).unwrap();
+        let local: Vec<_> = EventStore::open(worktree_local.store_dir())
+            .list_events()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .collect();
+        assert!(local.is_empty());
+    }
+
+    #[test]
+    fn linked_capture_does_not_emit_batch_only_diagnostic() {
+        let fixture = LinkedCapture::new();
+
+        let result = capture_review(CaptureOptions::new(&fixture.linked_path)).unwrap();
+
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "clone_local_capture_batch_only"),
+            "write-through capture is no longer batch-only"
+        );
+    }
+
+    #[test]
+    fn unlinked_capture_still_lands_worktree_local() {
+        // Escape hatch (INV-7): unchanged behavior.
+        let repo = modified_repo();
+        capture_review(CaptureOptions::new(repo.path())).unwrap();
+        let store = ShoreStorePaths::resolve(repo.path()).unwrap();
+        assert!(
+            !EventStore::open(store.store_dir())
+                .list_events()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// A main repo plus a linked worktree carrying a tracked change ready to
+    /// capture, registered against the clone-local store. Mirrors the
+    /// `LinkedWorktreeFixture` in `resolution.rs` tests, specialized for capture.
+    struct LinkedCapture {
+        _main: TestRepo,
+        _linked_parent: tempfile::TempDir,
+        linked_path: std::path::PathBuf,
+    }
+
+    impl LinkedCapture {
+        fn new() -> Self {
+            let main = TestRepo::new();
+            main.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+            main.commit_all("base");
+
+            let linked_parent = tempfile::tempdir().expect("create linked worktree parent");
+            let linked_path = linked_parent.path().join("linked");
+            main.git([
+                "worktree",
+                "add",
+                "-b",
+                "linked",
+                linked_path.to_str().unwrap(),
+            ]);
+            // A tracked change in the linked worktree gives capture something to record.
+            fs::write(
+                linked_path.join("src/lib.rs"),
+                "pub fn value() -> u32 { 2 }\n",
+            )
+            .unwrap();
+            register_clone_local_store(&linked_path).unwrap();
+
+            Self {
+                _main: main,
+                _linked_parent: linked_parent,
+                linked_path,
+            }
+        }
+
+        fn clone_local_store_dir(&self) -> std::path::PathBuf {
+            git_common_dir(&self.linked_path).unwrap().join("shore")
+        }
     }
 
     fn modified_repo() -> TestRepo {

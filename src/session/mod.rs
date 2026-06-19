@@ -42,8 +42,8 @@ pub(crate) use signing::{sign_event_if_requested, verify_events_for_ingest};
 #[cfg(test)]
 pub(crate) use store::compute_review_unit_fingerprint;
 pub(crate) use store::{
-    EventStore, EventWriteOutcome, ReviewUnitFingerprint, ShoreStorePaths, prepare_shore_writer,
-    sweep_stale_temp_files, worktree_fingerprint_for_files,
+    EventStore, EventWriteOutcome, ReviewUnitFingerprint, ShoreStorePaths, sweep_stale_temp_files,
+    worktree_fingerprint_for_files,
 };
 pub use store::{
     SnapshotArtifact, capture_worktree_fingerprint, ensure_local_actor_attributes_excluded,

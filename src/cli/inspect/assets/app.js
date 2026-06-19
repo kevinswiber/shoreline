@@ -331,9 +331,8 @@ async function pollFreshness() {
     const f = await fetchJSON("/api/freshness");
     const refresh = $("#refresh");
     // Reload when the event set OR the diagnostic count changed. A divergence
-    // diagnostic (clone_local_unsynced_local_events / clone_local_fact_batch_only)
-    // can appear or clear without a new event; compare the count only, since
-    // either source can drive it.
+    // diagnostic (clone_local_unsynced_local_events) can appear or clear without
+    // a new event; compare the count only, since either source can drive it.
     const hashChanged = f.eventSetHash !== state.lastHash;
     const diagChanged = (f.diagnosticCount ?? 0) !== (state.lastDiagnosticCount ?? 0);
     if (hashChanged || diagChanged) {

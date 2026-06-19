@@ -15,9 +15,9 @@ use crate::model::{
 };
 use crate::session::event::{EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store::resolution::resolve_write_validation_store;
-use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
-use crate::session::workflow::write_store::fact_batch_only_diagnostics;
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_write_store, resolve_write_validation_store,
+};
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp,
     sign_event_if_requested, writer_from_options,
@@ -177,7 +177,8 @@ pub struct ValidationAddResult {
 
 pub fn record_validation_check(options: ValidationAddOptions) -> Result<ValidationAddResult> {
     // Unit existence resolves the writer-visible union so validation evidence
-    // attaches to a linked-only unit; the write half stays worktree-local.
+    // attaches to a linked-only unit; the write half writes through to that same
+    // store (the clone-local store in linked mode).
     let validation_store = resolve_write_validation_store(&options.repo)?;
     let events = validation_store.validation_events()?;
     let resolved = resolve_review_unit(
@@ -194,7 +195,7 @@ pub fn record_validation_check(options: ValidationAddOptions) -> Result<Validati
             reason: "status is required".to_owned(),
         })?;
 
-    let mut result = write_validation_check_event(ValidationWriteInput {
+    let result = write_validation_check_event(ValidationWriteInput {
         repo: options.repo,
         resolved,
         track: options.track,
@@ -212,9 +213,6 @@ pub fn record_validation_check(options: ValidationAddOptions) -> Result<Validati
         actor_id: options.actor_id,
         signing: options.signing,
     })?;
-    result
-        .diagnostics
-        .extend(fact_batch_only_diagnostics(&validation_store));
     Ok(result)
 }
 
@@ -238,11 +236,11 @@ struct ValidationWriteInput {
 }
 
 fn write_validation_check_event(input: ValidationWriteInput) -> Result<ValidationAddResult> {
-    let paths = ShoreStorePaths::resolve(&input.repo)?;
-    let worktree_root = paths.worktree_root();
-    let store_dir = paths.store_dir();
+    let write_store = resolve_write_store(&input.repo)?;
+    let worktree_root = write_store.worktree_root();
+    let store_dir = write_store.store_dir();
     let storage = LocalStorage::new(store_dir);
-    prepare_shore_writer(&paths, &storage)?;
+    prepare_write_landing(&write_store, &storage)?;
 
     let event_store = EventStore::open(store_dir);
     let events = event_store.list_events()?;
@@ -348,7 +346,11 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     };
 
     let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
 
     Ok(ValidationAddResult {
         review_unit_id: input.resolved.review_unit_id,
