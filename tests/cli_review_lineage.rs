@@ -251,7 +251,8 @@ fn review_capture_can_attach_to_lineage_in_one_command() {
     let duplicate = parse_json(&duplicate_capture.stdout);
     assert_eq!(duplicate["reviewUnit"]["id"], first["reviewUnit"]["id"]);
     assert_eq!(duplicate["eventsCreated"], 0);
-    assert_eq!(duplicate["eventsExisting"], 1);
+    // The re-capture re-records both the capture event and the auto-recorded ref.
+    assert_eq!(duplicate["eventsExisting"], 2);
     assert_eq!(duplicate["lineageAttach"]["eventsCreated"], 0);
     assert_eq!(duplicate["lineageAttach"]["eventsExisting"], 2);
 

@@ -219,6 +219,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         && let Err(error) = auto_record_capture_ref_association(
             &worktree_root,
             &event_store,
+            &mut recorder,
             &fingerprint,
             &session_id,
             &options,
@@ -273,6 +274,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
 fn auto_record_capture_ref_association(
     worktree_root: &Path,
     event_store: &EventStore,
+    recorder: &mut CaptureRecorder,
     fingerprint: &ReviewUnitFingerprint,
     session_id: &SessionId,
     options: &CaptureOptions,
@@ -294,8 +296,9 @@ fn auto_record_capture_ref_association(
         current_timestamp(),
     )?;
     sign_event_if_requested(&mut event, &options.signing)?;
-    event_store.record_event_once(&event)?;
-    Ok(())
+    // Route through the recorder so the capture's write-count envelope counts the
+    // auto-recorded ref event (created or existing) and its event type.
+    recorder.record(event_store, event)
 }
 
 /// The row inventory plus resolved identity an adapter hands to the shared tail.
@@ -374,12 +377,13 @@ struct CaptureRecorder {
 
 impl CaptureRecorder {
     fn record(&mut self, event_store: &EventStore, event: ShoreEvent) -> Result<()> {
+        let event_type = event.event_type;
         match event_store.record_event_once(&event)? {
             EventWriteOutcome::Created => {
                 self.events_created += 1;
                 *self
                     .events_created_by_type
-                    .entry("review_unit_captured".to_owned())
+                    .entry(event_type.as_str().to_owned())
                     .or_default() += 1;
             }
             EventWriteOutcome::Existing | EventWriteOutcome::ExistingDivergentSignature => {
@@ -453,6 +457,16 @@ mod tests {
         let head_oid = repo.rev_parse("HEAD");
 
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        // The write-count envelope counts the auto-recorded ref event, not only the
+        // capture event.
+        assert_eq!(capture.events_created, 2);
+        assert_eq!(capture.events_existing, 0);
+        assert_eq!(capture.events_created_by_type["review_unit_captured"], 1);
+        assert_eq!(
+            capture.events_created_by_type["review_unit_ref_associated"],
+            1
+        );
 
         let events = EventStore::open(repo.path().join(".shore/data"))
             .list_events()
@@ -590,10 +604,10 @@ mod tests {
         let second = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
         // Default spec is the worktree adapter; the second capture hits the same
-        // idempotency key and reports the existing event.
+        // idempotency keys and reports both existing events (capture + ref).
         assert_eq!(first.review_unit_id, second.review_unit_id);
         assert_eq!(first.snapshot_id, second.snapshot_id);
-        assert_eq!(second.events_existing, 1);
+        assert_eq!(second.events_existing, 2);
     }
 
     #[test]
