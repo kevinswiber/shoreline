@@ -401,16 +401,19 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
+    use crate::canonical_hash::sha256_json_prefixed;
     use crate::git::git_common_dir;
     use crate::model::{
-        CommitRangeCaptureMode, ReviewEndpoint, ReviewUnitLineageId, ReviewUnitSource,
+        CommitRangeCaptureMode, ReviewEndpoint, ReviewUnitLineageId, ReviewUnitSource, SnapshotId,
     };
     use crate::session::event::EventType;
     use crate::session::store::resolution::register_clone_local_store;
     use crate::session::{
-        CaptureOptions, CommitRangeSpec, EventStore, LineageAttachOptions, ShoreStorePaths,
-        attach_review_unit_to_lineage, capture_review, capture_worktree_review,
-        read_snapshot_artifact,
+        ArtifactKind, CaptureOptions, CaptureResult, CommitRangeSpec, EventStore,
+        ImportArtifactOptions, ImportArtifactOutcome, LineageAttachOptions, ReviewUnitShowOptions,
+        ShoreStorePaths, attach_review_unit_to_lineage, capture_review, capture_worktree_review,
+        export_artifact, import_artifact, read_snapshot_artifact, referenced_artifacts,
+        show_review_unit,
     };
 
     #[test]
@@ -941,6 +944,279 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn two_linked_worktrees_capture_same_range_into_shared_store() {
+        // The #146 marquee repro: two linked worktrees capture the SAME commit
+        // range into ONE shared clone-local store. Before the fix the second
+        // capture errored `snapshot artifact conflict`; now both succeed, sharing
+        // one byte-identical artifact and two distinct capture events.
+        let fixture = SharedRangeCapture::new();
+
+        let a = capture_review(
+            CaptureOptions::new(&fixture.worktree_a)
+                .with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+        let b = capture_review(
+            CaptureOptions::new(&fixture.worktree_b)
+                .with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+
+        assert_eq!(a.snapshot_id, b.snapshot_id);
+        assert_ne!(a.review_unit_id, b.review_unit_id); // identity namespace unchanged
+        assert_eq!(
+            a.snapshot_artifact_content_hash,
+            b.snapshot_artifact_content_hash
+        );
+
+        // One shared artifact, two capture events in the clone-local store.
+        let clone_local = fixture.clone_local_store_dir();
+        let captured: Vec<_> = EventStore::open(&clone_local)
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .collect();
+        assert_eq!(captured.len(), 2);
+        let snapshot_files = fs::read_dir(clone_local.join("artifacts/snapshots"))
+            .unwrap()
+            .count();
+        assert_eq!(
+            snapshot_files, 1,
+            "the two captures dedup to one shared artifact"
+        );
+
+        // Both ReviewUnits resolve + render their snapshot through the binding.
+        for review_unit_id in [&a.review_unit_id, &b.review_unit_id] {
+            let shown = show_review_unit(
+                ReviewUnitShowOptions::new(&fixture.worktree_a)
+                    .with_review_unit_id(review_unit_id.clone()),
+            )
+            .unwrap();
+            assert!(!shown.snapshot.files.is_empty());
+        }
+    }
+
+    #[test]
+    fn linked_capture_dedups_against_pre_existing_v1_and_both_units_render() {
+        // The dual-read mixed case end to end: worktree A is captured by an "old"
+        // binary (v1 artifact + v1-bound event), then worktree B captures the same
+        // range with the v2 binary. B dedups against the untouched v1 artifact, A's
+        // signed-shaped v1 binding stays valid, and both units render.
+        let fixture = SharedRangeCapture::new();
+        let a = capture_review(
+            CaptureOptions::new(&fixture.worktree_a)
+                .with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+        let clone_local = fixture.clone_local_store_dir();
+        let v1_hash = downgrade_capture_to_v1(&clone_local, &a.snapshot_id, &a);
+        assert_ne!(
+            v1_hash, a.snapshot_artifact_content_hash,
+            "the v1 body hash differs from the original v2 hash"
+        );
+
+        // Worktree B captures the same range: write dedups against the v1 body.
+        let b = capture_review(
+            CaptureOptions::new(&fixture.worktree_b)
+                .with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+        assert_eq!(a.snapshot_id, b.snapshot_id);
+        assert_ne!(a.review_unit_id, b.review_unit_id);
+        // B bound to the on-disk (v1) hash it deduped against.
+        assert_eq!(b.snapshot_artifact_content_hash, v1_hash);
+
+        // The shared artifact is still the untouched v1 body, and both units render.
+        let stored = read_snapshot_artifact(&fixture.worktree_a, &a.snapshot_id).unwrap();
+        assert_eq!(stored.version, 1);
+        let snapshot_files = fs::read_dir(clone_local.join("artifacts/snapshots"))
+            .unwrap()
+            .count();
+        assert_eq!(snapshot_files, 1);
+        for review_unit_id in [&a.review_unit_id, &b.review_unit_id] {
+            let shown = show_review_unit(
+                ReviewUnitShowOptions::new(&fixture.worktree_b)
+                    .with_review_unit_id(review_unit_id.clone()),
+            )
+            .unwrap();
+            assert!(!shown.snapshot.files.is_empty());
+        }
+    }
+
+    #[test]
+    fn independent_worktree_snapshot_artifacts_dedup_on_import() {
+        // Two independent stores capture the same range (byte-identical v2
+        // artifacts). Importing one's artifact into the other is a no-op Existing,
+        // not a conflict (INV-5).
+        let repo_a = committed_repo();
+        let repo_b = clone_repo(&repo_a);
+        let a = capture_review(
+            CaptureOptions::new(repo_a.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+        let _b = capture_review(
+            CaptureOptions::new(repo_b.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+
+        let events_a = EventStore::open(repo_a.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        let refs = referenced_artifacts(&events_a).unwrap();
+        let snap_ref = refs
+            .iter()
+            .find(|artifact| artifact.kind() == ArtifactKind::Snapshot)
+            .expect("snapshot artifact ref");
+        let bytes = export_artifact(repo_a.path(), snap_ref).unwrap();
+        let outcome = import_artifact(ImportArtifactOptions::new(
+            repo_b.path(),
+            snap_ref.clone(),
+            bytes,
+        ))
+        .unwrap();
+        assert_eq!(outcome.outcome, ImportArtifactOutcome::Existing);
+        assert_eq!(a.snapshot_id, _b.snapshot_id);
+    }
+
+    /// A main clone plus two linked worktrees both detached at the same commit, so
+    /// a `--base HEAD~1` capture from each resolves the identical commit range
+    /// (same `snapshot_id`) under a distinct worktree root (distinct
+    /// `review_unit_id`). Both share the clone-local `.git/shore` store.
+    struct SharedRangeCapture {
+        _main: TestRepo,
+        _parent: tempfile::TempDir,
+        worktree_a: std::path::PathBuf,
+        worktree_b: std::path::PathBuf,
+    }
+
+    impl SharedRangeCapture {
+        fn new() -> Self {
+            let main = TestRepo::new();
+            main.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+            main.commit_all("base");
+            main.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+            main.commit_all("change"); // HEAD = change, HEAD~1 = base
+
+            let parent = tempfile::tempdir().expect("create worktree parent");
+            let worktree_a = parent.path().join("wt-a");
+            let worktree_b = parent.path().join("wt-b");
+            main.git([
+                "worktree",
+                "add",
+                "--detach",
+                worktree_a.to_str().unwrap(),
+                "HEAD",
+            ]);
+            main.git([
+                "worktree",
+                "add",
+                "--detach",
+                worktree_b.to_str().unwrap(),
+                "HEAD",
+            ]);
+            register_clone_local_store(&worktree_a).unwrap();
+            register_clone_local_store(&worktree_b).unwrap();
+
+            Self {
+                _main: main,
+                _parent: parent,
+                worktree_a,
+                worktree_b,
+            }
+        }
+
+        fn clone_local_store_dir(&self) -> std::path::PathBuf {
+            git_common_dir(&self.worktree_a).unwrap().join("shore")
+        }
+    }
+
+    /// Rewrite a landed capture into a faithful v1 store: downgrade the snapshot
+    /// artifact to a full v1 body (re-adding the identity/endpoint fields and a v1
+    /// `contentHash`) and re-point its capture event's `snapshotArtifactContentHash`
+    /// + `payloadHash` to the v1 hash, so the store looks as an old binary wrote it.
+    fn downgrade_capture_to_v1(
+        store_dir: &Path,
+        snapshot_id: &SnapshotId,
+        capture: &CaptureResult,
+    ) -> String {
+        let artifact_path = find_store_file(&store_dir.join("artifacts/snapshots"), |json| {
+            json["snapshot"]["snapshot_id"] == snapshot_id.as_str()
+        });
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("version".to_owned(), serde_json::json!(1));
+        object.insert(
+            "reviewUnitId".to_owned(),
+            serde_json::json!(capture.review_unit_id.as_str()),
+        );
+        object.insert(
+            "source".to_owned(),
+            serde_json::json!({ "kind": "git_working_tree" }),
+        );
+        object.insert(
+            "base".to_owned(),
+            serde_json::json!({ "kind": "git_working_tree", "worktreeRoot": "/legacy" }),
+        );
+        object.insert(
+            "target".to_owned(),
+            serde_json::json!({ "kind": "git_working_tree", "worktreeRoot": "/legacy" }),
+        );
+        object.remove("contentHash");
+        let v1_hash = sha256_json_prefixed(&value).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("contentHash".to_owned(), serde_json::json!(v1_hash.clone()));
+        fs::write(&artifact_path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let event_path = find_store_file(&store_dir.join("events"), |json| {
+            json["eventType"] == "review_unit_captured"
+                && json["payload"]["reviewUnitId"] == capture.review_unit_id.as_str()
+        });
+        let mut event: serde_json::Value =
+            serde_json::from_slice(&fs::read(&event_path).unwrap()).unwrap();
+        event["payload"]["snapshotArtifactContentHash"] = serde_json::json!(v1_hash);
+        event["payloadHash"] = serde_json::json!(sha256_json_prefixed(&event["payload"]).unwrap());
+        fs::write(&event_path, serde_json::to_vec(&event).unwrap()).unwrap();
+
+        v1_hash
+    }
+
+    fn find_store_file(
+        dir: &Path,
+        matches: impl Fn(&serde_json::Value) -> bool,
+    ) -> std::path::PathBuf {
+        fs::read_dir(dir)
+            .expect("read store directory")
+            .map(|entry| entry.expect("read dir entry").path())
+            .find(|path| {
+                fs::read(path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                    .is_some_and(|json| matches(&json))
+            })
+            .expect("matching store file")
+    }
+
+    fn clone_repo(source: &TestRepo) -> TestRepo {
+        let root = tempfile::tempdir().expect("create clone temp directory");
+        let status = Command::new("git")
+            .args(["clone", "--quiet"])
+            .arg(source.path())
+            .arg(root.path())
+            .status()
+            .expect("run git clone");
+        assert!(status.success(), "git clone failed");
+        let clone = TestRepo { root };
+        clone.git(["config", "user.name", "Shore Tests"]);
+        clone.git(["config", "user.email", "shore-tests@example.com"]);
+        clone.git(["config", "commit.gpgsign", "false"]);
+        clone
     }
 
     /// A main repo plus a linked worktree carrying a tracked change ready to
