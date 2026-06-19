@@ -15,7 +15,9 @@ the local Git worktree from `HEAD` to the working tree, including untracked file
 between two resolved commits (`<rev>..--target`, target defaulting to `HEAD`),
 read as a tree diff with no working-tree involvement.
 
-Each ReviewUnit gets its own immutable snapshot artifact. Anything you record
+Each ReviewUnit binds an immutable snapshot artifact by content hash. The artifact body is
+snapshot-scoped, so two ReviewUnits capturing the same change in different worktrees share one
+byte-identical artifact rather than each owning a distinct copy. Anything you record
 afterwards — observations, input requests, assessments — attaches to that
 ReviewUnit and lives in the durable `.shore/data/events/` log.
 

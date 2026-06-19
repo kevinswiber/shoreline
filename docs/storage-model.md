@@ -86,7 +86,9 @@ ReviewUnit capture follows the same authority split:
 - a ReviewUnit is the base endpoint, target endpoint, and captured diff snapshot
 - V1 captures the local Git worktree from `HEAD` to the working tree
 - full captured snapshots live as Shoreline-owned immutable artifacts under `artifacts/snapshots/`
-- `review_unit_captured` events bind to the internal snapshot artifact's canonical `contentHash`
+- `review_unit_captured` events bind to the internal snapshot artifact's canonical `contentHash`;
+  the event/projection — not the artifact body — is the source of `reviewUnitId`, `source`, `base`,
+  and `target` (the snapshot-scoped V2 artifact carries none of them)
 - bounded `state.json` may summarize ReviewUnit count and current unambiguous ReviewUnit ID, but it
   is not the source of ReviewUnit identity or snapshot content
 
@@ -130,12 +132,22 @@ captured record itself is unchanged, and the full worktree path is not shown. Op
 detail for a unit captured in a different worktree is future work.
 
 `SnapshotArtifact.contentHash` is a canonical hash of the artifact body excluding the
-self-referential `contentHash` field. Under V1 it covers the source, endpoints, ReviewUnit
-identity, and the **full captured row inventory** — every `DiffFile`, every `FileMetadataRow`,
-every `ReviewHunk`, and every `DiffRow`. The hash is not a raw JSON file checksum, and its scope
-includes data that a hypothetical V2 might elide. Any future elision plan must bump
-`SNAPSHOT_ARTIFACT_VERSION` or introduce a separate `contentHashScope` field so consumers can
-tell which scope produced a given hash; see
+self-referential `contentHash` field. The **snapshot-scoped V2 body** (`SNAPSHOT_ARTIFACT_VERSION =
+2`, GitHub #146) is `{schema, version, snapshot, contentHash}`, so the hash covers only the
+namespace-independent `{schema, version, snapshot}` — the **full captured row inventory** (every
+`DiffFile`, `FileMetadataRow`, `ReviewHunk`, and `DiffRow`) and nothing worktree-specific. Two
+worktrees capturing the same `snapshot_id` therefore produce **byte-identical artifacts that dedup**
+instead of colliding; ReviewUnit identity and endpoints live in the `review_unit_captured`
+event/projection, never in the artifact. The hash is not a raw JSON file checksum.
+
+The legacy **V1 body** additionally embedded `reviewUnitId`/`source`/`base`/`target` and folded them
+into the hash (which is what made two worktrees' artifacts collide). V1 artifacts remain readable:
+the single decode path validates `contentHash` over whatever body is stored (version-agnostic), so a
+V1 artifact still validates and still binds to the event that referenced it — a **dual-read escape
+hatch** that avoids rewriting any pre-existing (possibly signed) capture event. There is no in-place
+V1→V2 migration; new captures write V2, and a V2 capture dedups against a pre-existing V1 artifact for
+the same snapshot. The dual-read V1 branch is transitional and slated for removal once stores have
+converged to V2. Any future elision plan must again bump `SNAPSHOT_ARTIFACT_VERSION`; see
 [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md).
 
 Imported review notes should follow the same split:
@@ -480,10 +492,11 @@ Artifact filenames follow two deliberate rules, paired to what the file represen
   and free of the characters that appear in semantic IDs (such as the `:` separators in
   `snap:git:sha256:…`). This is the same rule events use, applied to a different identifier.
   Snapshot artifacts also carry their own canonical `contentHash` field that the read path
-  recomputes and compares, so tamper or transcription errors are caught at load time. Under V1
-  the artifact body inlines every captured row; the `contentHash` therefore covers the full row
-  inventory. See [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md) for the V1 policy and
-  the V2 reversal shape.
+  recomputes and compares, so tamper or transcription errors are caught at load time. The V2 body
+  inlines every captured row but no worktree identity, so the `contentHash` covers the full row
+  inventory only (legacy V1 artifacts, still readable, additionally fold in the identity/endpoint
+  fields). See [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md) for the V2 namespace
+  decoupling (#146).
 - **Content-addressed artifacts** use a hash of the artifact body as the filename stem. Note-body
   artifacts live at `artifacts/notes/<sha256(body)>.json`. Hashing the body gives deterministic
   addressing and deduplication across observations, input requests, and assessments that share
@@ -618,10 +631,10 @@ elision threshold, no generated-file detection, and no metadata-only marker for 
 - **Read surface.** `shore review unit show` is narrative-first plus snapshot-complete: reviewed
   ledger material appears first, and the snapshot remainder includes every captured file, metadata
   row, hunk header, and diff row. No flag omits row bodies.
-- **Content-hash scope.** `SnapshotArtifact.contentHash` covers the full row inventory under V1.
-  Any future elision must change the hash scope explicitly (either bump
-  `SNAPSHOT_ARTIFACT_VERSION` from `1` to `2`, or add a separate `contentHashScope` field), so a
-  consumer can tell V1 hashes (full inventory) from V2 hashes (elided) on inspection.
+- **Content-hash scope.** `SnapshotArtifact.contentHash` covers the full row inventory. `SNAPSHOT_ARTIFACT_VERSION`
+  has already moved from `1` to `2` for namespace decoupling (#146) — V2 drops the
+  identity/endpoint fields from the body and hash. Any future elision must again change the version
+  so a consumer can tell which scope produced a given hash on inspection.
 
 The V1 policy is intentionally minimal: every question issue #64 asks ("elide?", "detect
 generated?", "metadata-only rows?", "omit-on-show?", "hash scope?") receives an explicit answer in

@@ -125,5 +125,41 @@ If a future workload makes elision attractive, the migration shape is:
 5. Invert the relevant tests pinned by this ADR. Each pinned test names the V1 invariant
    in its assertion, so the migration's test-side diff is small and reviewable.
 
-This migration is intentionally **not** in scope for the current issue. Recording its
-shape here keeps the option open without committing to any specific V2 design.
+This *elision* migration is intentionally **not** in scope for the current issue. Recording its
+shape here keeps the option open without committing to any specific elision design.
+
+## Amendment (2026-06-19): V2 realized for namespace decoupling, not elision (#146)
+
+`SNAPSHOT_ARTIFACT_VERSION` has been bumped to `2`, but for a **different reason than the elision
+reversal above**: GitHub [#146](https://github.com/kevinswiber/shoreline/issues/146) — snapshot-artifact
+body/namespace decoupling. The elision option (the `FileMetadataKind` variants, the row-body omission)
+stays open as a future V3 reusing the same `version` mechanism.
+
+**What V2 changes.** The V2 body is `{schema, version, snapshot, contentHash}`; it drops
+`reviewUnitId`/`source`/`base`/`target`, and the `contentHash` scope is now snapshot-only. Two
+worktrees capturing the same `snapshot_id` therefore produce byte-identical artifacts that dedup
+instead of colliding (the #146 bug). ReviewUnit identity/endpoints bind through the
+`review_unit_captured` event's `snapshotArtifactContentHash` + `snapshot_id` and the event's own
+`payloadHash`/signature.
+
+**History, so it is not re-litigated** (it cost an archaeology pass to recover). V1 embedded
+`reviewUnitId`/`source`/`base`/`target` in the body+hash **deliberately, for drift/tamper detection**
+(plan 0014, "bind review unit captures to snapshot artifacts") plus replay self-containment (plan
+0013) — **not** to namespace artifacts per worktree. The per-worktree namespacing (via `review_unit_id`
+folding the canonical worktree root, and `target.worktreeRoot`) was an **unintended side effect**, first
+identified as a problem in research 0011 (2026-06-19, via a live `shore store link` conflict). V2
+**preserves the original tamper/drift guarantee** — binding moved to the event, which is the real
+authority and is itself hashed/signed — so decoupling the body removes only the accidental namespacing,
+not the validation.
+
+**Migration shape — dual-read, not a one-time recapture (resolves Future-Reversal step 3 for this V2).**
+The owner chose a **dual-read** escape hatch over a clean break: new code writes V2 but reads **both**
+V1 and V2. The single decode path validates `contentHash` over the raw stored body minus `contentHash`
+(version-agnostic), so pre-existing V1 artifacts — including signed ones — keep validating and binding
+**without any rewrite**. There is **no in-place V1→V2 migration**: rewriting a capture event's payload
+to re-point its content hash would invalidate inline signatures and un-recreatable detached
+co-signatures, which a refusal-based migration could not carry forward (see plan 0074
+`findings/signed-v1-store-migration-gap.md`). #146 is fixed because new captures write byte-identical V2
+artifacts that dedup, and the write path dedups a new V2 capture against a pre-existing V1 artifact for
+the same snapshot. The dual-read V1 read branch is transitional and slated for removal once stores have
+converged to V2 (plan 0074 `findings/todo-remove-dual-read-after-fleet-migration.md`).

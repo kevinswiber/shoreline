@@ -158,11 +158,11 @@ small JSON API the page consumes (`/api/history`, `/api/units`, `/api/unit`, `/a
 a stable contract.
 
 In a linked worktree the inspector serves the clone-local store, so it can render snapshots
-captured in sibling worktrees. The snapshot payload therefore omits the captured worktree path:
-`target.worktreeRoot` is removed from the response after content-hash validation, with
-`worktreeRootRedacted: true`, `contentHashScope: "stored-artifact"`, and a path-private
-`targetDisplay` block marking the redaction. The stored snapshot artifact and its content hash are
-unchanged, so re-validating the hash means fetching the artifact, not hashing the response JSON.
+captured in sibling worktrees. The `/api/snapshot` payload is **snapshot-scoped** (#146): it carries
+the immutable diff content and its `contentHash` only — no `reviewUnitId`, `source`, `base`, or
+`target`. The captured worktree path is therefore simply absent from the snapshot wire (there is
+nothing to redact). Endpoint/target display lives on `/api/unit` and `/api/units`, derived from the
+ReviewUnit projection (a path-private `targetDisplay` block), not from the snapshot artifact.
 `shore review unit list` JSON still carries `target.worktreeRoot`, unchanged.
 
 ## `shore review capture`
@@ -201,7 +201,8 @@ tree, including untracked files (source `git_worktree`).
 - `.shore/data/state.json` is a rebuildable projection, not the authority.
 - Full captured snapshots are Shoreline-owned immutable artifacts under
   `.shore/data/artifacts/snapshots/`.
-- The `review_unit_captured` event binds to the snapshot artifact's canonical content hash.
+- The `review_unit_captured` event binds to the snapshot artifact's canonical content hash; the
+  snapshot-scoped artifact body carries no ReviewUnit identity or endpoints (those live on the event).
 - Output is compact `shore.review-capture` JSON and includes ReviewUnit, revision, and snapshot IDs
   plus `snapshotArtifactContentHash`.
 - With `--lineage`, capture immediately records lineage declaration/round facts for the newly
@@ -247,7 +248,10 @@ multi-repository store or remote sync service.
   Linked output also includes opaque `cloneRef` and `repositoryFamilyRef` values.
 - `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
   optional `untrackedBytes`, `largestArtifacts`, and `reviewUnitSnapshots`. Artifact entries use
-  opaque artifact refs rather than filesystem paths.
+  opaque artifact refs rather than filesystem paths. Each `reviewUnitSnapshots` entry carries a
+  `reviewUnitIds` **list** (sourced from the `review_unit_captured` events keyed by `snapshotId`),
+  because one snapshot-scoped artifact may be referenced by several ReviewUnits under the
+  shared-store model (#146).
 - `sensitivity` reports `policyOutcome` plus redacted findings. Finding references use
   `file:sha256:*` refs, and command output does not print secret values or source file paths.
 
