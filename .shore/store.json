@@ -1,0 +1,5 @@
+{
+  "schema": "shore.store-config",
+  "version": 1,
+  "mode": "shared"
+}
