@@ -12,8 +12,9 @@ use shoreline::model::{ActorId, Side};
 use shoreline::session::{
     ActorAttributesMap, AssessmentAddOptions, AssociateCommitOptions, AssociateRefOptions,
     BestEffortSkipSink, CaptureOptions, DelegationMap, InputRequestOpenOptions,
-    InputRequestRespondOptions, ObservationAddOptions, TrustSet, ValidationAddOptions,
-    WithdrawCommitOptions, WithdrawRefOptions, is_agent_actor_id, resolve_writer_actor_id,
+    InputRequestRespondOptions, ObservationAddOptions, RemoveOptions, TrustSet,
+    ValidationAddOptions, WithdrawCommitOptions, WithdrawRefOptions, is_agent_actor_id,
+    resolve_writer_actor_id,
 };
 
 /// Discover the layered delegation map under `<worktree-root>/.shore/`.
@@ -345,6 +346,7 @@ impl_signable_options!(
     WithdrawCommitOptions,
     AssociateRefOptions,
     WithdrawRefOptions,
+    RemoveOptions,
 );
 
 /// Pure resolution seam (env values AND the keystore root threaded in for

@@ -1,13 +1,19 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use clap::{ArgGroup, Args, Subcommand};
+use shoreline::model::{ReviewUnitId, SnapshotId};
 use shoreline::session::{
+    CompactOptions, CompactResult, RemoveOptions, RemoveResult, RemoveSelector, RemovedContent,
     StoreLinkOptions, StoreLinkResult, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
-    StoreStatusSensitivity, link_clone_local_store, store_status,
+    StoreStatusSensitivity, SweepOutcome, SweptBlob, compact_store, link_clone_local_store,
+    remove_content, store_status,
 };
 
 use crate::cli::json;
+use crate::cli::review::common::{
+    SigningSkip, apply_resolved_signer, resolve_and_surface_signer, surface_best_effort_skip,
+};
 
 #[derive(Debug, Args)]
 pub(super) struct StoreArgs {
@@ -19,6 +25,10 @@ pub(super) struct StoreArgs {
 enum StoreCommand {
     Link(StoreLinkArgs),
     Status(StoreStatusArgs),
+    Remove(StoreRemoveArgs),
+    /// Alias of `compact`.
+    Gc(StoreCompactArgs),
+    Compact(StoreCompactArgs),
 }
 
 #[derive(Debug, Args)]
@@ -32,6 +42,48 @@ struct StoreLinkArgs {
 
 #[derive(Debug, Args)]
 struct StoreStatusArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    pretty: bool,
+}
+
+/// Exactly one selector is required; the content-targeted removal key is derived
+/// solely from the content hash, so there is deliberately no `--idempotency-key`.
+#[derive(Debug, Args)]
+#[command(group(ArgGroup::new("selector").required(true).multiple(false)))]
+struct StoreRemoveArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Remove a single snapshot's bound artifact.
+    #[arg(long, group = "selector")]
+    snapshot: Option<String>,
+    /// Remove every artifact a review unit references.
+    #[arg(long, group = "selector")]
+    review_unit: Option<String>,
+    /// Remove artifacts of units anchored on the commit this ref resolves to.
+    #[arg(long, group = "selector")]
+    r#ref: Option<String>,
+    /// Remove artifacts of units anchored on a commit in the `<a>..<b>` range.
+    #[arg(long, group = "selector")]
+    range: Option<String>,
+    /// Remove artifacts of commit-anchored units whose commits are all orphaned.
+    #[arg(long, group = "selector")]
+    orphans: bool,
+
+    #[arg(long)]
+    pretty: bool,
+
+    /// Sign this write with a specific key: a keystore key name or a path to a
+    /// key file. Removal is a write, so a signed store stays signed.
+    #[arg(long)]
+    sign_key: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct StoreCompactArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
@@ -66,9 +118,40 @@ struct StoreStatusBody {
     sensitivity: StoreStatusSensitivity,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreRemoveBody {
+    removed: Vec<RemovedContentBody>,
+    events_created: usize,
+    events_existing: usize,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemovedContentBody {
+    content_hash: String,
+    created: bool,
+    co_referencing_units: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreCompactBody {
+    swept: Vec<SweptBlobBody>,
+    bytes_reclaimed: u64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SweptBlobBody {
+    content_hash: String,
+    outcome: String,
+}
+
 pub(super) fn run(
     args: StoreArgs,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         StoreCommand::Link(args) => {
@@ -78,6 +161,14 @@ pub(super) fn run(
         StoreCommand::Status(args) => {
             tracing::debug!(command = "store.status", "command_start");
             status(args, stdout)
+        }
+        StoreCommand::Remove(args) => {
+            tracing::debug!(command = "store.remove", "command_start");
+            remove(args, stdout, stderr)
+        }
+        StoreCommand::Gc(args) | StoreCommand::Compact(args) => {
+            tracing::debug!(command = "store.compact", "command_start");
+            compact(args, stdout)
         }
     }
 }
@@ -98,6 +189,67 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let document =
         json::DiagnosticDocument::new("shore.store-status", StoreStatusBody::from(result), vec![]);
     json::write_json(stdout, &document, args.pretty)
+}
+
+fn remove(
+    args: StoreRemoveArgs,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.remove");
+    let _entered = span.enter();
+    let selector = selector_from_args(&args)?;
+    let mut options = RemoveOptions::new(args.repo.clone(), selector);
+    // Removal is a write: resolve the signer exactly as the review write verbs do
+    // so a signed store stays signed; never default to unsigned.
+    let mut skip: SigningSkip = None;
+    if let Some(resolved) = resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+    {
+        let (signed, signer_skip) = apply_resolved_signer(options, resolved);
+        options = signed;
+        skip = signer_skip;
+    }
+    let result = remove_content(options)?;
+    surface_best_effort_skip(&skip, stderr);
+    let document =
+        json::DiagnosticDocument::new("shore.store-remove", StoreRemoveBody::from(result), vec![]);
+    json::write_json(stdout, &document, args.pretty)
+}
+
+fn compact(
+    args: StoreCompactArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.compact");
+    let _entered = span.enter();
+    let result = compact_store(CompactOptions::new(args.repo))?;
+    let document = json::DiagnosticDocument::new(
+        "shore.store-compact",
+        StoreCompactBody::from(result),
+        vec![],
+    );
+    json::write_json(stdout, &document, args.pretty)
+}
+
+/// Decode the clap selector group (exactly one is required) into a workflow
+/// selector. The clap `ArgGroup` enforces exactly-one; the trailing error is a
+/// defensive fallback if that guarantee is ever bypassed.
+fn selector_from_args(
+    args: &StoreRemoveArgs,
+) -> Result<RemoveSelector, Box<dyn std::error::Error>> {
+    if let Some(id) = &args.snapshot {
+        Ok(RemoveSelector::Snapshot(SnapshotId::new(id.clone())))
+    } else if let Some(id) = &args.review_unit {
+        Ok(RemoveSelector::ReviewUnit(ReviewUnitId::new(id.clone())))
+    } else if let Some(reference) = &args.r#ref {
+        Ok(RemoveSelector::Ref(reference.clone()))
+    } else if let Some(range) = &args.range {
+        Ok(RemoveSelector::Range(range.clone()))
+    } else if args.orphans {
+        Ok(RemoveSelector::Orphans)
+    } else {
+        Err("exactly one of --snapshot/--review-unit/--ref/--range/--orphans is required".into())
+    }
 }
 
 impl From<StoreLinkResult> for StoreLinkBody {
@@ -125,6 +277,56 @@ impl From<StoreStatusResult> for StoreStatusBody {
             repository_family_ref: result.repository_family_ref,
             inventory: result.inventory,
             sensitivity: result.sensitivity,
+        }
+    }
+}
+
+impl From<RemoveResult> for StoreRemoveBody {
+    fn from(result: RemoveResult) -> Self {
+        Self {
+            removed: result
+                .removed
+                .into_iter()
+                .map(RemovedContentBody::from)
+                .collect(),
+            events_created: result.events_created,
+            events_existing: result.events_existing,
+        }
+    }
+}
+
+impl From<RemovedContent> for RemovedContentBody {
+    fn from(content: RemovedContent) -> Self {
+        Self {
+            content_hash: content.content_hash,
+            created: content.created,
+            co_referencing_units: content
+                .co_referencing_units
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect(),
+        }
+    }
+}
+
+impl From<CompactResult> for StoreCompactBody {
+    fn from(result: CompactResult) -> Self {
+        Self {
+            swept: result.swept.into_iter().map(SweptBlobBody::from).collect(),
+            bytes_reclaimed: result.bytes_reclaimed,
+        }
+    }
+}
+
+impl From<SweptBlob> for SweptBlobBody {
+    fn from(blob: SweptBlob) -> Self {
+        Self {
+            content_hash: blob.content_hash,
+            outcome: match blob.outcome {
+                SweepOutcome::Removed => "removed",
+                SweepOutcome::Missing => "missing",
+            }
+            .to_owned(),
         }
     }
 }

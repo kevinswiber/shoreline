@@ -227,6 +227,36 @@ pub(crate) fn git_commit_tree_oid(repo: &Path, commit_oid: &str) -> Result<Strin
     git_rev_parse_peeled(repo, commit_oid, "tree", "commit tree oid")
 }
 
+/// List the full commit OIDs reachable in a `<a>..<b>` revision range via
+/// `git rev-list`.
+///
+/// Returns the commits the range selects, in `rev-list` order (newest first); an
+/// empty range yields an empty vec, not an error. The argument must denote a
+/// range (contain `..`): a bare rev like `HEAD` would make `git rev-list` list
+/// the whole reachable history, far broader than the `<a>..<b>` contract, so it
+/// is refused. `--end-of-options` keeps a range expression that looks like a flag
+/// (user input) from being parsed as an option. An unresolvable range surfaces an
+/// honest, range-naming error so a CLI flag can echo it verbatim.
+pub(crate) fn git_rev_list_range(repo: &Path, range: &str) -> Result<Vec<String>> {
+    if !range.contains("..") {
+        return Err(ShoreError::Message(format!(
+            "'{range}' is not a commit range; expected the form '<a>..<b>'"
+        )));
+    }
+    let output = run_git(repo, ["rev-list", "--end-of-options", range]).map_err(|_| {
+        ShoreError::Message(format!(
+            "cannot resolve commit range '{range}' in this repository"
+        ))
+    })?;
+    let listing = git_field_string(trim_git_stdout(&output.stdout), "rev-list output")?;
+    Ok(listing
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 /// Resolve `rev` peeled to `peel` (e.g. `commit`, `tree`) via
 /// `git rev-parse --verify --end-of-options <rev>^{<peel>}`.
 ///
@@ -503,6 +533,46 @@ mod tests {
     fn rev_parse(repo: &Path, rev: &str) -> String {
         let output = run_git(repo, ["rev-parse", rev]).unwrap();
         String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    #[test]
+    fn rev_list_range_lists_commits_in_the_range() {
+        let repo = TwoCommitRepo::new();
+        let head = rev_parse(repo.path(), "HEAD");
+        let base = rev_parse(repo.path(), "HEAD~1");
+
+        // `base..HEAD` excludes base, includes HEAD.
+        let range = git_rev_list_range(repo.path(), &format!("{base}..{head}")).unwrap();
+        assert_eq!(range, vec![head.clone()]);
+
+        // An empty range (nothing reachable from base that is not reachable from
+        // HEAD's first parent) yields an empty list, not an error.
+        let empty = git_rev_list_range(repo.path(), &format!("{head}..{base}")).unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn rev_list_range_rejects_an_unresolvable_range_with_honest_error() {
+        let repo = TwoCommitRepo::new();
+
+        let error = git_rev_list_range(repo.path(), "no-such-rev..HEAD").unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("no-such-rev..HEAD"), "message: {message}");
+    }
+
+    #[test]
+    fn rev_list_range_rejects_a_bare_rev_that_is_not_a_range() {
+        let repo = TwoCommitRepo::new();
+
+        // A bare rev like `HEAD` is not a range: `git rev-list HEAD` would list the
+        // whole reachable history, far broader than the `<a>..<b>` contract.
+        let error = git_rev_list_range(repo.path(), "HEAD").unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("HEAD"), "message: {message}");
+        assert!(
+            message.contains(".."),
+            "message names the expected range form: {message}"
+        );
     }
 
     #[test]

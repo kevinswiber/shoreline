@@ -125,7 +125,7 @@ fn run_cli(
             tracing::debug!(command = "show", "command_start");
             show::run(args, &cli.tracing)
         }
-        Command::Store(args) => store::run(args, stdout),
+        Command::Store(args) => store::run(args, stdout, stderr),
     }
 }
 

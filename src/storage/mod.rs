@@ -26,10 +26,9 @@ pub enum CreateFileOutcome {
     AlreadyExists,
 }
 
-/// Result of a durable content-blob removal. The `gc`/`compact` sweep is the
-/// consumer; the primitive lands here, ahead of that sweep wiring.
+/// Result of a durable content-blob removal, consumed by the `gc`/`compact`
+/// sweep.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) enum RemoveOutcome {
     Removed,
     Missing,
@@ -172,8 +171,7 @@ impl LocalStorage {
     /// the removal sweep can run repeatedly. After a successful unlink the parent
     /// directory is fsynced so the removal is crash-durable on POSIX, matching the
     /// durability the write paths give `create_file_exclusive`. The `gc`/`compact`
-    /// sweep is the consumer; this primitive lands ahead of it.
-    #[allow(dead_code)]
+    /// sweep is the consumer.
     pub(crate) fn remove_file(&self, relative_path: &str) -> Result<RemoveOutcome> {
         let candidate = Path::new(relative_path);
         if candidate.components().any(|component| {

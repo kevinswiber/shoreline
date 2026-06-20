@@ -234,6 +234,9 @@ local `.shore/data/` store, unchanged.
 ```bash
 shore store status [--repo <path>] [--pretty]
 shore store link [--repo <path>] [--pretty]
+shore store remove [--repo <path>] (--snapshot <id> | --review-unit <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
+shore store gc [--repo <path>] [--pretty]
+shore store compact [--repo <path>] [--pretty]
 ```
 
 `shore store` commands inspect or connect the current Git worktree to a clone-local store. A
@@ -279,6 +282,26 @@ reflect the linked store. Linked reads are store-only — local facts not yet co
 `clone_local_unsynced_local_events` diagnostic, and `shore store link` copies them and clears it.
 Run `shore store link` before removing a worktree whose review record should survive for its
 siblings.
+
+`shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
+selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--review-unit
+<id>` (every artifact a unit references), `--ref <name>` / `--range <a>..<b>` (artifacts of units
+anchored on the named commit or commit range), or `--orphans` (artifacts of commit-anchored units
+whose commits are all unreachable) — and records one removal fact per content hash. It emits
+`shore.store-remove` JSON listing each `contentHash`, whether it was newly `created`, and
+`coReferencingUnits` (other review units that still name the same shared artifact, reported before the
+removal), plus `eventsCreated` and `eventsExisting`. Removal is content-targeted and idempotent:
+re-removing a hash reports `created: false`. Removal is a write, so a signed store stays signed —
+`--sign-key` selects the signing key exactly as `shore review capture` does. There is deliberately no
+`--idempotency-key`; the removal key is derived solely from the content hash. Removal records the
+fact; it does not delete bytes — run `shore store gc` / `shore store compact` to reclaim them.
+
+`shore store gc` and `shore store compact` are the same local sweep: they physically delete the
+content-addressed blobs whose content hash has been removed, reclaiming disk. The sweep records no
+event and is fully re-derivable from the log — re-capturing the same content re-materializes the blob.
+It emits `shore.store-compact` JSON listing each swept blob's `contentHash` and `outcome`
+(`removed` or `missing`) plus `bytesReclaimed`. Running it again is a no-op (every removed blob is
+already `missing`).
 
 Command output is the stable integration surface. Raw clone-local store paths, event files, artifact
 paths, `.git` paths, `.shore/data` paths, and `state.json` remain internal storage details.

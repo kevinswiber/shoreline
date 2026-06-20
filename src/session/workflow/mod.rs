@@ -1,3 +1,4 @@
+mod artifact_removal;
 mod artifact_transfer;
 pub(in crate::session) mod assessment;
 mod association;
@@ -20,6 +21,10 @@ mod validation;
 pub(in crate::session) mod input_request;
 pub(in crate::session) mod observation;
 
+pub use artifact_removal::{
+    CompactOptions, CompactResult, RemoveOptions, RemoveResult, RemoveSelector, RemovedContent,
+    SweepOutcome, SweptBlob, compact_store, remove_content,
+};
 pub use artifact_transfer::{
     ArtifactKind, ArtifactRef, ImportArtifactOptions, ImportArtifactOutcome, ImportArtifactResult,
     export_artifact, import_artifact, referenced_artifacts,
