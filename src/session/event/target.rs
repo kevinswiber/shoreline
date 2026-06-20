@@ -109,6 +109,25 @@ impl EventTarget {
         }
     }
 
+    /// Constructor for the content-targeted removal carrier. The carrier
+    /// addresses its target blob by content identity through the payload
+    /// `content_hash`, so the envelope target carries only `session_id` —
+    /// filing the fact into the same session store without binding a review
+    /// unit (one blob is shared by many units).
+    pub fn for_artifact_removal(session_id: SessionId) -> Self {
+        Self {
+            session_id,
+            work_unit_id: None,
+            work_object_id: None,
+            work_object_type: None,
+            review_unit_id: None,
+            revision_id: None,
+            snapshot_id: None,
+            track_id: None,
+            subject: None,
+        }
+    }
+
     pub fn for_review_unit_lineage(
         session_id: SessionId,
         review_unit_lineage_id: ReviewUnitLineageId,
@@ -145,6 +164,18 @@ mod tests {
 
         // Path-free: the carrier files into the session store by identity, not path.
         assert!(!json.contains("/Users/"));
+        assert!(!json.contains("worktreeRoot"));
+    }
+
+    #[test]
+    fn event_target_for_artifact_removal_populates_session_only_and_round_trips() {
+        let target = EventTarget::for_artifact_removal(SessionId::new("session:fixture"));
+        assert_eq!(target.session_id, SessionId::new("session:fixture"));
+        let json = serde_json::to_string(&target).unwrap();
+        let parsed: EventTarget = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, target);
+        // Session-anchored, content-addressed: no review-unit, no path.
+        assert!(!json.contains("reviewUnitId"));
         assert!(!json.contains("worktreeRoot"));
     }
 

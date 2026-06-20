@@ -1,3 +1,4 @@
+pub mod artifact_removal;
 pub(crate) mod commit_range;
 pub(crate) mod cosignature;
 pub(crate) mod freshness;
@@ -8,6 +9,7 @@ pub(crate) mod task;
 #[cfg(test)]
 pub(crate) mod test_support;
 
+pub use artifact_removal::ArtifactRemovalProjection;
 pub use commit_range::{
     CommitEdgeSource, CurrentCommitAssociation, CurrentRefAssociation,
     ReviewUnitCommitRangeProjection, ReviewUnitCommitRangeView, WithdrawnCommitAssociation,

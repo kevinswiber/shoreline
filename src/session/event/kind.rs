@@ -21,6 +21,7 @@ pub enum EventType {
     TaskCheckpointCaptured,
     TaskObservationRecorded,
     EventSignatureRecorded,
+    ArtifactRemoved,
 }
 
 impl EventType {
@@ -46,6 +47,7 @@ impl EventType {
             Self::TaskCheckpointCaptured => "task_checkpoint_captured",
             Self::TaskObservationRecorded => "task_observation_recorded",
             Self::EventSignatureRecorded => "event_signature_recorded",
+            Self::ArtifactRemoved => "artifact_removed",
         }
     }
 }
@@ -75,6 +77,7 @@ mod tests {
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
             EventType::EventSignatureRecorded,
+            EventType::ArtifactRemoved,
         ] {
             let serde_wire = serde_json::to_value(variant).unwrap();
             assert_eq!(
@@ -114,6 +117,15 @@ mod tests {
                 serde_json::json!(variant.as_str())
             );
         }
+    }
+
+    #[test]
+    fn artifact_removed_event_type_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&EventType::ArtifactRemoved).unwrap(),
+            "\"artifact_removed\""
+        );
+        assert_eq!(EventType::ArtifactRemoved.as_str(), "artifact_removed");
     }
 
     #[test]

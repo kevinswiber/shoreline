@@ -1,6 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
@@ -24,6 +24,15 @@ pub enum Durability {
 pub enum CreateFileOutcome {
     Created,
     AlreadyExists,
+}
+
+/// Result of a durable content-blob removal. The `gc`/`compact` sweep is the
+/// consumer; the primitive lands here, ahead of that sweep wiring.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) enum RemoveOutcome {
+    Removed,
+    Missing,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,6 +160,43 @@ impl LocalStorage {
 
         sync_parent_if_durable(parent, durability)?;
         Ok(CreateFileOutcome::Created)
+    }
+
+    /// Durable, idempotent, store-scoped removal of a content-addressed file.
+    ///
+    /// `relative_path` must be store-relative: any parent-traversing (`..`), root,
+    /// or drive-prefix component is refused (mirroring the artifact path
+    /// validators), so the deletion can never escape the store dir on any platform
+    /// — an out-of-store path is refused rather than followed (a destructive
+    /// primitive enforces its own boundary). A missing target is not an error: it reports `Missing` so
+    /// the removal sweep can run repeatedly. After a successful unlink the parent
+    /// directory is fsynced so the removal is crash-durable on POSIX, matching the
+    /// durability the write paths give `create_file_exclusive`. The `gc`/`compact`
+    /// sweep is the consumer; this primitive lands ahead of it.
+    #[allow(dead_code)]
+    pub(crate) fn remove_file(&self, relative_path: &str) -> Result<RemoveOutcome> {
+        let candidate = Path::new(relative_path);
+        if candidate.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return Err(ShoreError::Message(format!(
+                "refusing to remove a path outside the store dir: {relative_path}"
+            )));
+        }
+        let path = self.root.join(candidate);
+        match fs::remove_file(&path) {
+            Ok(()) => {
+                sync_parent_directory(parent_dir(&path)?)?;
+                Ok(RemoveOutcome::Removed)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(RemoveOutcome::Missing)
+            }
+            Err(error) => Err(io_error("remove file", &path, error)),
+        }
     }
 
     pub fn list_dir(&self, dir: &Path) -> Result<Vec<PathBuf>> {
@@ -453,6 +499,68 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn remove_file_deletes_existing_and_is_idempotent() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+
+        storage
+            .create_file_exclusive(
+                &root.path().join("artifacts/snapshots/blob.json"),
+                b"payload",
+                Durability::Durable,
+            )
+            .unwrap();
+
+        assert_eq!(
+            storage
+                .remove_file("artifacts/snapshots/blob.json")
+                .unwrap(),
+            RemoveOutcome::Removed
+        );
+        assert!(!root.path().join("artifacts/snapshots/blob.json").exists());
+
+        assert_eq!(
+            storage
+                .remove_file("artifacts/snapshots/blob.json")
+                .unwrap(),
+            RemoveOutcome::Missing
+        );
+    }
+
+    #[test]
+    fn remove_file_reports_missing_for_absent_path() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        assert_eq!(
+            storage
+                .remove_file("artifacts/notes/never-here.json")
+                .unwrap(),
+            RemoveOutcome::Missing
+        );
+    }
+
+    #[test]
+    fn remove_file_is_store_dir_scoped() {
+        // A store-relative path resolves under the storage root; it never reaches
+        // outside the store dir.
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        let outcome = storage.remove_file("artifacts/snapshots/x.json").unwrap();
+        assert_eq!(outcome, RemoveOutcome::Missing);
+    }
+
+    #[test]
+    fn remove_file_refuses_paths_outside_the_store() {
+        // A destructive primitive enforces its own boundary: absolute and
+        // parent-traversing inputs are refused, not followed.
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        assert!(storage.remove_file("/etc/hosts").is_err());
+        assert!(storage.remove_file("../escape.json").is_err());
+        assert!(storage.remove_file("artifacts/../../escape.json").is_err());
     }
 
     #[test]

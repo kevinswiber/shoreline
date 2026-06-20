@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::error::Result;
-use crate::model::EventId;
+use crate::model::{DiffSnapshot, EventId, ReviewId};
 use crate::session::assessment::{AssessmentProjectionOptions, project_assessments};
 use crate::session::event::ShoreEvent;
 use crate::session::input_request::{
@@ -11,10 +11,11 @@ use crate::session::observation::{
     ObservationProjectionOptions, ReviewUnitSelection, project_observations, resolve_review_unit,
     validated_track_id,
 };
+use crate::session::projection::ArtifactRemovalProjection;
 use crate::session::projection::cosignature::{
     CosignatureIndex, endorsement_readbacks, enrich_endorser_attributes,
 };
-use crate::session::state::SessionState;
+use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::read_store::divergence_diagnostics;
 use crate::session::workflow::{ValidationCheckProjectionOptions, project_validation_checks};
@@ -41,7 +42,7 @@ use self::rows::{
     build_adapter_note_rows, build_assessment_rows, build_input_request_rows,
     build_observation_rows, build_snapshot_rows, build_validation_rows, renumber_projection_rows,
 };
-use self::snapshot::load_bound_snapshot_artifact;
+use self::snapshot::{SnapshotContent, resolve_snapshot_content};
 
 pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShowResult> {
     let read_store = resolve_read_store(&options.repo)?;
@@ -59,7 +60,19 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         )?,
     )?;
     let review_unit = selected_review_unit_capture(&events, &resolved)?;
-    let snapshot = load_bound_snapshot_artifact(&options.repo, &review_unit)?;
+    let removal = ArtifactRemovalProjection::from_events(&events)?;
+    let (snapshot, removed_snapshot_content_hash) =
+        match resolve_snapshot_content(&options.repo, &review_unit, &removal)? {
+            SnapshotContent::Present(snapshot) => (snapshot, None),
+            SnapshotContent::Removed { content_hash } => (
+                DiffSnapshot::new(
+                    ReviewId::new(review_unit.session_id.as_str()),
+                    review_unit.snapshot_id.clone(),
+                    Vec::new(),
+                ),
+                Some(content_hash),
+            ),
+        };
     let observations = project_observations(ObservationProjectionOptions {
         store_dir: read_store.store_dir(),
         events: &events,
@@ -101,7 +114,14 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         &snapshot,
         options.include_body,
     )?;
-    let (snapshot_rows, mut summary) = build_snapshot_rows(&snapshot, &review_unit.id);
+    let (snapshot_rows, mut summary) = if removed_snapshot_content_hash.is_some() {
+        // Removed content has no snapshot rows; the explained absence is carried
+        // by the result field and the diagnostic below, not a misleading
+        // empty-state row.
+        (Vec::new(), ReviewUnitProjectionSummary::default())
+    } else {
+        build_snapshot_rows(&snapshot, &review_unit.id)
+    };
     let mut narrative_rows = Vec::new();
     let observation_rows = build_observation_rows(&observations);
     summary.observation_count = observations.len();
@@ -130,6 +150,14 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         .expect("SessionState::from_events sets event_set_hash");
     let mut diagnostics = state.diagnostics;
     diagnostics.extend(divergence_diagnostics(&read_store));
+    if let Some(content_hash) = &removed_snapshot_content_hash {
+        diagnostics.push(ProjectionDiagnostic {
+            code: "snapshot_content_removed".to_owned(),
+            message: format!(
+                "snapshot content removed ({content_hash}); the captured diff bytes are no longer stored"
+            ),
+        });
+    }
 
     // Git-free commit-range lifecycle: fold the association events into the resolved
     // unit's view and surface its diagnostics. Liveness is layered by repo-holding
@@ -218,6 +246,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         event_count: events.len(),
         review_unit,
         snapshot,
+        removed_snapshot_content_hash,
         filters: ReviewUnitShowFilters {
             review_unit_id: resolved.review_unit_id,
             track_id,
@@ -252,8 +281,9 @@ mod tests {
         ValidationTarget, ValidationTrigger,
     };
     use crate::session::event::{
-        EventTarget, EventType, InputRequestReasonCode, InputRequestResponseOutcome,
-        ReviewAssessment, ShoreEvent, ValidationCheckRecordedPayload, Writer,
+        ArtifactRemovedPayload, EventTarget, EventType, InputRequestReasonCode,
+        InputRequestResponseOutcome, ReviewAssessment, ShoreEvent, ValidationCheckRecordedPayload,
+        Writer,
     };
     use crate::session::{
         AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CaptureResult,
@@ -1371,6 +1401,67 @@ mod tests {
             serde_json::to_vec_pretty(&json).expect("serialize rewritten capture event"),
         )
         .expect("write rewritten capture event");
+    }
+
+    fn record_artifact_removed(repo: &Path, content_hash: &str) {
+        let event = ShoreEvent::new(
+            EventType::ArtifactRemoved,
+            ArtifactRemovedPayload::idempotency_key(content_hash),
+            EventTarget::for_artifact_removal(crate::model::SessionId::new("session:default")),
+            Writer::shore_local("0.1.0"),
+            ArtifactRemovedPayload {
+                content_hash: content_hash.to_owned(),
+            },
+            "2026-05-10T00:00:00Z",
+        )
+        .unwrap();
+        EventStore::open(repo.join(".shore/data"))
+            .record_event_once(&event)
+            .unwrap();
+    }
+
+    fn delete_snapshot_blob(repo: &Path, snapshot_id: &SnapshotId) {
+        let path = snapshot_artifact_path(repo, snapshot_id);
+        fs::remove_file(path).expect("delete snapshot blob");
+    }
+
+    #[test]
+    fn removed_snapshot_renders_content_removed_not_a_hard_error() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_artifact_removed(repo.path(), &capture.snapshot_artifact_content_hash);
+        delete_snapshot_blob(repo.path(), &capture.snapshot_id);
+
+        let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
+
+        assert!(result.snapshot_is_removed());
+        assert_eq!(
+            result.removed_snapshot_content_hash.as_deref(),
+            Some(capture.snapshot_artifact_content_hash.as_str())
+        );
+        assert!(result.snapshot.files.is_empty());
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "snapshot_content_removed"),
+            "expected an explained content-removed diagnostic, got {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn truly_missing_unremoved_snapshot_still_errors() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        // Delete the blob WITHOUT a removal fact: not-yet-synced, not removed.
+        delete_snapshot_blob(repo.path(), &capture.snapshot_id);
+
+        let err = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap_err();
+        assert!(
+            err.to_string().contains("import referenced artifacts"),
+            "expected the hard missing-artifact error, got: {err}"
+        );
     }
 
     fn snapshot_artifact_path(repo: &Path, snapshot_id: &SnapshotId) -> PathBuf {

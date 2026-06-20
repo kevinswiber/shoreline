@@ -172,6 +172,10 @@ impl StateReducer {
                 // Detached co-signatures are read through the dedicated
                 // co-signature-set projection; they do not change session state.
             }
+            EventType::ArtifactRemoved => {
+                // Content removal is a local-blob fact rendered by the dedicated
+                // removal projection join; it does not change session state.
+            }
         }
 
         Ok(())

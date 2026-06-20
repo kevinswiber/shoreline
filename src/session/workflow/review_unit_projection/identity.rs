@@ -152,6 +152,10 @@ pub struct ReviewUnitShowResult {
     pub event_count: usize,
     pub review_unit: ReviewUnitProjectionIdentity,
     pub snapshot: DiffSnapshot,
+    /// Set when the bound snapshot artifact has a recorded `ArtifactRemoved`
+    /// fact: its content bytes are no longer stored, so `snapshot` is empty and
+    /// this carries the removed content hash. `None` for a present snapshot.
+    pub removed_snapshot_content_hash: Option<String>,
     pub filters: ReviewUnitShowFilters,
     pub summary: ReviewUnitProjectionSummary,
     pub current_assessment: CurrentAssessmentView,
@@ -170,6 +174,15 @@ pub struct ReviewUnitShowResult {
     /// verification policy is set.
     pub member_readbacks: BTreeMap<EventId, MemberReadback>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+impl ReviewUnitShowResult {
+    /// Whether the bound snapshot artifact's content was removed (an
+    /// `ArtifactRemoved` fact exists for its content hash). When true, `snapshot`
+    /// is empty and `removed_snapshot_content_hash` names the removed blob.
+    pub fn snapshot_is_removed(&self) -> bool {
+        self.removed_snapshot_content_hash.is_some()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

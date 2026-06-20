@@ -3,7 +3,38 @@ use std::path::Path;
 use super::identity::ReviewUnitProjectionIdentity;
 use crate::error::{Result, ShoreError};
 use crate::model::DiffSnapshot;
+use crate::session::projection::ArtifactRemovalProjection;
 use crate::session::snapshot_artifact::read_snapshot_artifact;
+
+/// Whether a content-addressed snapshot resolved to bytes or to a recorded
+/// removal. The join layer returns this instead of erroring when the bound
+/// content hash has an `ArtifactRemoved` fact, so a removed-and-swept snapshot
+/// renders as an explained absence rather than a hard missing-artifact error.
+pub(crate) enum SnapshotContent {
+    Present(DiffSnapshot),
+    Removed { content_hash: String },
+}
+
+/// Resolve the bound snapshot, mapping a recorded removal of its content hash to
+/// `Removed` before the byte read. The removed-vs-missing decision lives here, at
+/// the layer that holds the event set — the storage byte readers stay
+/// event-unaware. A still-missing, *not*-removed artifact falls through to the
+/// reader's hard error (removed != not-yet-synced).
+pub(super) fn resolve_snapshot_content(
+    repo: &Path,
+    review_unit: &ReviewUnitProjectionIdentity,
+    removal: &ArtifactRemovalProjection,
+) -> Result<SnapshotContent> {
+    if removal.is_removed(&review_unit.snapshot_artifact_content_hash) {
+        return Ok(SnapshotContent::Removed {
+            content_hash: review_unit.snapshot_artifact_content_hash.clone(),
+        });
+    }
+    Ok(SnapshotContent::Present(load_bound_snapshot_artifact(
+        repo,
+        review_unit,
+    )?))
+}
 
 pub(super) fn load_bound_snapshot_artifact(
     repo: &Path,

@@ -251,7 +251,8 @@ fn referenced_artifacts_for_event(
         | EventType::ReviewUnitCommitWithdrawn
         | EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured
-        | EventType::EventSignatureRecorded => Ok(()),
+        | EventType::EventSignatureRecorded
+        | EventType::ArtifactRemoved => Ok(()),
     }
 }
 

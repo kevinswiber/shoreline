@@ -5,6 +5,7 @@ use crate::crypto::SignerId;
 use crate::error::{Result, ShoreError};
 use crate::model::EventId;
 
+mod artifact_removal;
 mod assertion;
 mod assessment;
 mod association;
@@ -25,6 +26,7 @@ mod tbs;
 mod validation;
 mod writer;
 
+pub use artifact_removal::ArtifactRemovedPayload;
 pub use assertion::AssertionMode;
 pub use assessment::{ReviewAssessment, ReviewAssessmentRecordedPayload};
 pub use association::{
