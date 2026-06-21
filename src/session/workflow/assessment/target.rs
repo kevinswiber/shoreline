@@ -117,9 +117,9 @@ pub(crate) fn resolve_assessment_target(
     Ok(target)
 }
 
-fn validate_direct_target(review_unit_id: &RevisionId, target: &ReviewTargetRef) -> Result<()> {
+fn validate_direct_target(revision_id: &RevisionId, target: &ReviewTargetRef) -> Result<()> {
     let target_review_unit_id = review_unit_id_for_target(target);
-    if target_review_unit_id != review_unit_id {
+    if target_review_unit_id != revision_id {
         return Err(ShoreError::WorkflowInputInvalid {
             reason: "assessment target must belong to the selected review unit".to_owned(),
         });

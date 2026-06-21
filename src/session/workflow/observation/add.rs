@@ -29,7 +29,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationAddOptions {
     repo: PathBuf,
-    review_unit_id: Option<RevisionId>,
+    revision_id: Option<RevisionId>,
     track: Option<String>,
     title: Option<String>,
     body: Option<String>,
@@ -46,7 +46,7 @@ impl ObservationAddOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             title: None,
             body: None,
@@ -71,7 +71,7 @@ impl ObservationAddOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -133,7 +133,7 @@ impl ObservationAddOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationAddResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub observation_id: ObservationId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -159,7 +159,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
         .to_path_buf();
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -220,7 +220,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(input.body.as_deref())?;
     let observation_id = build_observation_id(ObservationIdMaterial {
-        review_unit_id: &input.resolved.revision_id,
+        revision_id: &input.resolved.revision_id,
         track_id: &track_id,
         target: &input.target,
         title: &input.title,
@@ -291,7 +291,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     )?;
 
     Ok(ObservationAddResult {
-        review_unit_id: input.resolved.revision_id,
+        revision_id: input.resolved.revision_id,
         observation_id,
         event_id,
         track_id,
@@ -306,7 +306,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
 }
 
 struct ObservationIdMaterial<'a> {
-    review_unit_id: &'a RevisionId,
+    revision_id: &'a RevisionId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
     title: &'a str,
@@ -327,7 +327,7 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
         .collect::<Vec<_>>();
     supersedes.sort();
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.review_unit_id.as_str(),
+        "reviewUnitId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "title": material.title,

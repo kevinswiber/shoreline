@@ -739,7 +739,7 @@ fn input_request_open_requires_review_unit_when_current_is_ambiguous() {
     repo.write("another.txt", "new untracked file\n");
     let second =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
     let ambiguous = shore([
         "review",
@@ -764,7 +764,7 @@ fn input_request_open_requires_review_unit_when_current_is_ambiguous() {
         "--repo",
         repo.path().to_str().unwrap(),
         "--revision",
-        first["reviewUnit"]["id"].as_str().unwrap(),
+        first["revision"]["id"].as_str().unwrap(),
         "--track",
         "human:kevin",
         "--title",
@@ -778,7 +778,7 @@ fn input_request_open_requires_review_unit_when_current_is_ambiguous() {
         String::from_utf8_lossy(&explicit.stderr)
     );
     let json = parse_json(&explicit.stdout);
-    assert_eq!(json["reviewUnitId"], first["reviewUnit"]["id"]);
+    assert_eq!(json["revisionId"], first["revision"]["id"]);
 }
 
 #[test]

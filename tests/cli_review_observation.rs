@@ -40,7 +40,7 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
     let json = parse_json(&output.stdout);
     assert_eq!(json["schema"], "shore.review-observation-add");
     assert_eq!(json["version"], 1);
-    assert_eq!(json["reviewUnitId"], capture["reviewUnit"]["id"]);
+    assert_eq!(json["revisionId"], capture["revision"]["id"]);
     assert!(
         json["observationId"]
             .as_str()
@@ -521,7 +521,7 @@ fn observation_add_with_explicit_review_unit_succeeds_when_current_is_ambiguous(
     repo.write("another.txt", "new untracked file\n");
     let second =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
     let output = shore([
         "review",
@@ -530,7 +530,7 @@ fn observation_add_with_explicit_review_unit_succeeds_when_current_is_ambiguous(
         "--repo",
         repo.path().to_str().unwrap(),
         "--revision",
-        first["reviewUnit"]["id"].as_str().unwrap(),
+        first["revision"]["id"].as_str().unwrap(),
         "--track",
         "agent:codex",
         "--title",
@@ -543,7 +543,7 @@ fn observation_add_with_explicit_review_unit_succeeds_when_current_is_ambiguous(
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["reviewUnitId"], first["reviewUnit"]["id"]);
+    assert_eq!(json["revisionId"], first["revision"]["id"]);
 }
 
 #[test]
@@ -610,7 +610,7 @@ fn observation_add_and_list_work_against_range_captured_unit() {
         ])
         .stdout,
     );
-    let review_unit_id = capture["reviewUnit"]["id"].as_str().unwrap();
+    let revision_id = capture["revision"]["id"].as_str().unwrap();
 
     let add = parse_json(
         &shore([
@@ -620,7 +620,7 @@ fn observation_add_and_list_work_against_range_captured_unit() {
             "--repo",
             repo.path().to_str().unwrap(),
             "--revision",
-            review_unit_id,
+            revision_id,
             "--track",
             "agent:codex",
             "--title",
@@ -628,7 +628,7 @@ fn observation_add_and_list_work_against_range_captured_unit() {
         ])
         .stdout,
     );
-    assert_eq!(add["reviewUnitId"], review_unit_id);
+    assert_eq!(add["revisionId"], revision_id);
     assert_eq!(add["eventsCreatedByType"]["review_observation_recorded"], 1);
 
     let list = parse_json(
@@ -639,11 +639,11 @@ fn observation_add_and_list_work_against_range_captured_unit() {
             "--repo",
             repo.path().to_str().unwrap(),
             "--revision",
-            review_unit_id,
+            revision_id,
         ])
         .stdout,
     );
-    assert_eq!(list["reviewUnitId"], review_unit_id);
+    assert_eq!(list["revisionId"], revision_id);
     assert_eq!(list["observations"].as_array().unwrap().len(), 1);
     assert_eq!(list["observations"][0]["title"], "Range observation");
 }

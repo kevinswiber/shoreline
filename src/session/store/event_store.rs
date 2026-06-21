@@ -722,17 +722,17 @@ mod tests {
     }
 
     fn review_assessment_recorded_event() -> ShoreEvent {
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let revision_id = RevisionId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
         let assessment_id = AssessmentId::new("assess:sha256:one");
         let target_ref = ReviewTargetRef::Revision {
-            revision_id: review_unit_id.clone(),
+            revision_id: revision_id.clone(),
         };
 
         ShoreEvent::new(
             EventType::ReviewAssessmentRecorded,
             ReviewAssessmentRecordedPayload::idempotency_key(
-                &review_unit_id,
+                &revision_id,
                 &track_id,
                 assessment_id.as_str(),
             ),

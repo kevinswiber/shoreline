@@ -190,7 +190,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.revision_id);
+        assert_eq!(result.revision_id, capture.revision_id);
         assert!(
             result
                 .input_request_id
@@ -293,7 +293,7 @@ mod tests {
         let event = only_input_request_opened_event(repo.path());
 
         let expected_digest = sha256_json_prefixed(&serde_json::json!({
-            "reviewUnitId": result.review_unit_id.as_str(),
+            "reviewUnitId": result.revision_id.as_str(),
             "trackId": result.track_id.as_str(),
             "target": result.target.clone(),
             "assertionMode": AssertionMode::Operative,
@@ -450,7 +450,7 @@ mod tests {
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
         )
         .unwrap();
-        assert_eq!(explicit.review_unit_id, first.revision_id);
+        assert_eq!(explicit.revision_id, first.revision_id);
     }
 
     #[test]
@@ -509,7 +509,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.revision_id);
+        assert_eq!(result.revision_id, capture.revision_id);
         assert!(matches!(
             result.target,
             ReviewTargetRef::Range { start_line: 2, .. }
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn collect_input_request_projection_records_is_order_independent_and_collapses_duplicates() {
         let session_id = LedgerId::new("session:default");
-        let review_unit_id = RevisionId::new("review-unit:sha256:test");
+        let revision_id = RevisionId::new("review-unit:sha256:test");
         let track_id = TrackId::new("human:kevin");
         let input_request_id = InputRequestId::new("input-request:sha256:alpha");
         let approve_response_id =
@@ -964,7 +964,7 @@ mod tests {
 
         let request_a = projection_request_event(
             &session_id,
-            &review_unit_id,
+            &revision_id,
             &track_id,
             &input_request_id,
             "retry-a",
@@ -972,7 +972,7 @@ mod tests {
         );
         let request_b = projection_request_event(
             &session_id,
-            &review_unit_id,
+            &revision_id,
             &track_id,
             &input_request_id,
             "retry-b",
@@ -980,7 +980,7 @@ mod tests {
         );
         let approve_x = projection_response_event(
             &session_id,
-            &review_unit_id,
+            &revision_id,
             &track_id,
             &input_request_id,
             &approve_response_id,
@@ -989,7 +989,7 @@ mod tests {
         );
         let approve_y = projection_response_event(
             &session_id,
-            &review_unit_id,
+            &revision_id,
             &track_id,
             &input_request_id,
             &approve_response_id,
@@ -998,7 +998,7 @@ mod tests {
         );
         let reject_z = projection_response_event(
             &session_id,
-            &review_unit_id,
+            &revision_id,
             &track_id,
             &input_request_id,
             &reject_response_id,
@@ -1274,7 +1274,7 @@ mod tests {
             EventTarget::for_subject(
                 LedgerId::new("session:default"),
                 TargetRef::Review(ReviewTargetRef::InputRequest {
-                    revision_id: requested.review_unit_id.clone(),
+                    revision_id: requested.revision_id.clone(),
                     input_request_id: requested.input_request_id.clone(),
                 }),
                 Some(requested.track_id.clone()),
@@ -1317,7 +1317,7 @@ mod tests {
 
     fn projection_request_event(
         session_id: &LedgerId,
-        review_unit_id: &RevisionId,
+        revision_id: &RevisionId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
         source_key: &str,
@@ -1326,7 +1326,7 @@ mod tests {
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
             target: ReviewTargetRef::Revision {
-                revision_id: review_unit_id.clone(),
+                revision_id: revision_id.clone(),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "projection".to_owned(),
@@ -1338,11 +1338,11 @@ mod tests {
         };
         ShoreEvent::new(
             EventType::InputRequestOpened,
-            InputRequestOpenedPayload::idempotency_key(review_unit_id, track_id, source_key),
+            InputRequestOpenedPayload::idempotency_key(revision_id, track_id, source_key),
             EventTarget::for_subject(
                 session_id.clone(),
                 TargetRef::Review(ReviewTargetRef::Revision {
-                    revision_id: review_unit_id.clone(),
+                    revision_id: revision_id.clone(),
                 }),
                 Some(track_id.clone()),
             ),
@@ -1355,7 +1355,7 @@ mod tests {
 
     fn projection_response_event(
         session_id: &LedgerId,
-        review_unit_id: &RevisionId,
+        revision_id: &RevisionId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
         response_id: &InputRequestResponseId,
@@ -1378,7 +1378,7 @@ mod tests {
             EventTarget::for_subject(
                 session_id.clone(),
                 TargetRef::Review(ReviewTargetRef::InputRequest {
-                    revision_id: review_unit_id.clone(),
+                    revision_id: revision_id.clone(),
                     input_request_id: input_request_id.clone(),
                 }),
                 Some(track_id.clone()),
@@ -1408,14 +1408,12 @@ mod tests {
         event_id: &str,
         created_at: &str,
     ) -> InputRequestView {
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let revision_id = RevisionId::new("review-unit:sha256:one");
         InputRequestView {
             id: InputRequestId::new(input_request_id),
             event_id: EventId::new(event_id),
             track_id: TrackId::new("agent:codex"),
-            target: ReviewTargetRef::Revision {
-                revision_id: review_unit_id,
-            },
+            target: ReviewTargetRef::Revision { revision_id },
             mode: AssertionMode::Operative,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "sort".to_owned(),

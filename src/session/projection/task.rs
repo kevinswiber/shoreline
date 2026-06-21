@@ -1795,7 +1795,7 @@ mod tests {
     }
 
     fn review_input_request_event(
-        review_unit_id: &RevisionId,
+        revision_id: &RevisionId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
         source_key: &str,
@@ -1804,14 +1804,14 @@ mod tests {
         let target = EventTarget::for_subject(
             LedgerId::new("session:review"),
             TargetRef::Review(ReviewTargetRef::Revision {
-                revision_id: review_unit_id.clone(),
+                revision_id: revision_id.clone(),
             }),
             Some(track_id.clone()),
         );
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
             target: ReviewTargetRef::Revision {
-                revision_id: review_unit_id.clone(),
+                revision_id: revision_id.clone(),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "review-domain".to_owned(),
@@ -1822,7 +1822,7 @@ mod tests {
             target_fingerprint: None,
         };
         let idempotency_key =
-            InputRequestOpenedPayload::idempotency_key(review_unit_id, track_id, source_key);
+            InputRequestOpenedPayload::idempotency_key(revision_id, track_id, source_key);
         ShoreEvent::new(
             EventType::InputRequestOpened,
             idempotency_key,
@@ -1916,7 +1916,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_ignores_review_domain_requests() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let review_unit_id = RevisionId::new("review-unit:sha256:u");
+        let revision_id = RevisionId::new("review-unit:sha256:u");
         let track_id = TrackId::new("agent:codex");
         let task_input_request_id = InputRequestId::new("input-request:sha256:task");
         let review_input_request_id = InputRequestId::new("input-request:sha256:review");
@@ -1933,7 +1933,7 @@ mod tests {
                 "task-domain",
             ),
             review_input_request_event(
-                &review_unit_id,
+                &revision_id,
                 &track_id,
                 &review_input_request_id,
                 "source:review",

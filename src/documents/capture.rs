@@ -7,12 +7,12 @@ use crate::session::CaptureResult;
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureBody {
-    review_unit: CaptureReviewUnitDocument,
+    revision: CaptureRevisionDocument,
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CaptureReviewUnitDocument {
+struct CaptureRevisionDocument {
     id: String,
     base: ReviewEndpoint,
     target: ReviewEndpoint,
@@ -26,7 +26,7 @@ pub fn capture_document(result: CaptureResult) -> EventWriteDocument<CaptureBody
     EventWriteDocument::new(
         "shore.review-capture",
         CaptureBody {
-            review_unit: CaptureReviewUnitDocument {
+            revision: CaptureRevisionDocument {
                 id: result.revision_id.as_str().to_owned(),
                 base: result.base,
                 target: result.target,

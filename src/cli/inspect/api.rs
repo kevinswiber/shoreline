@@ -6,6 +6,7 @@
 //! files. Errors are stringified so the server can surface them to the UI as
 //! a JSON `error` body instead of crashing a connection thread.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Serialize;
@@ -35,7 +36,7 @@ struct UnitsPayload {
     schema: &'static str,
     event_set_hash: String,
     event_count: usize,
-    review_unit_count: usize,
+    revision_count: usize,
     entries: Vec<UnitEntryDocument>,
     diagnostics: Vec<ProjectionDiagnostic>,
 }
@@ -48,6 +49,14 @@ struct ObjectsPayload {
     event_count: usize,
     thread_count: usize,
     threads: Vec<ThreadDocument>,
+    /// Forward supersession edges (revision -> the revisions it directly
+    /// supersedes), so the inspector can render the DAG and a supersedes chip on
+    /// the capture row. Only revisions that supersede something appear.
+    supersedes: BTreeMap<String, Vec<String>>,
+    /// Reverse supersession edges (revision -> the revisions that directly
+    /// supersede it), so a fact on a superseded revision can name *all* of its
+    /// superseding successors. Only superseded revisions appear.
+    superseded_by: BTreeMap<String, Vec<String>>,
     diagnostics: Vec<ProjectionDiagnostic>,
 }
 
@@ -187,19 +196,19 @@ fn head_display(base: &ReviewEndpoint) -> Option<HeadDisplay> {
     }
 }
 
-/// Insert a derived `targetDisplay` into the `reviewUnit` object of a serialized
+/// Insert a derived `targetDisplay` into the `revision` object of a serialized
 /// `/api/unit` document, leaving every existing field (including the verbatim
-/// `target`) in place. A no-op if `reviewUnit` is not an object.
+/// `target`) in place. A no-op if `revision` is not an object.
 fn splice_target_display(
     document: &mut serde_json::Value,
     target_display: TargetDisplay,
 ) -> Result<(), String> {
     let value = serde_json::to_value(target_display).map_err(|error| error.to_string())?;
-    if let Some(review_unit) = document
-        .get_mut("reviewUnit")
+    if let Some(revision) = document
+        .get_mut("revision")
         .and_then(|ru| ru.as_object_mut())
     {
-        review_unit.insert("targetDisplay".to_owned(), value);
+        revision.insert("targetDisplay".to_owned(), value);
     }
     Ok(())
 }
@@ -250,7 +259,7 @@ pub(super) fn units_json(repo: &Path) -> Result<String, String> {
         schema: "shore.inspect-units",
         event_set_hash: result.event_set_hash,
         event_count: result.event_count,
-        review_unit_count: result.review_unit_count,
+        revision_count: result.revision_count,
         entries: to_unit_entry_documents(result.entries),
         diagnostics: result.diagnostics,
     };
@@ -295,9 +304,29 @@ pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
         event_count: state.event_count,
         thread_count: threads.len(),
         threads,
+        supersedes: revision_edge_map(&view.supersedes),
+        superseded_by: revision_edge_map(&view.superseded_by),
         diagnostics: view.diagnostics,
     };
     serde_json::to_string(&payload).map_err(|error| error.to_string())
+}
+
+/// Flatten the projection's `RevisionId -> {RevisionId}` adjacency into a wire
+/// map of id strings, dropping any empty entry so only revisions that actually
+/// carry an edge appear.
+fn revision_edge_map(
+    edges: &std::collections::BTreeMap<RevisionId, std::collections::BTreeSet<RevisionId>>,
+) -> BTreeMap<String, Vec<String>> {
+    edges
+        .iter()
+        .filter(|(_, targets)| !targets.is_empty())
+        .map(|(revision, targets)| {
+            (
+                revision.as_str().to_owned(),
+                targets.iter().map(|t| t.as_str().to_owned()).collect(),
+            )
+        })
+        .collect()
 }
 
 /// The captured diff snapshot for one ReviewUnit, by snapshot id.
@@ -330,7 +359,7 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
         // projection), never on the shared snapshot artifact. The v2 body already
         // omits these; the removals also keep a dual-read v1 artifact path-private
         // here, so the endpoint is forward- and backward-compatible.
-        for key in ["reviewUnitId", "source", "base", "target"] {
+        for key in ["revisionId", "source", "base", "target"] {
             object.remove(key);
         }
     }
@@ -344,12 +373,12 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
 /// authoritative composite — current-assessment status, duplicate-collapsed
 /// facts, supersession, adapter notes, and projection rows — rather than
 /// re-deriving it client-side.
-pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, String> {
-    if review_unit_id.is_empty() {
+pub(super) fn unit_json(repo: &Path, revision_id: &str) -> Result<String, String> {
+    if revision_id.is_empty() {
         return Err("missing review unit id".to_owned());
     }
     let mut show_options = ReviewUnitShowOptions::new(repo)
-        .with_review_unit_id(RevisionId::new(review_unit_id.to_owned()))
+        .with_review_unit_id(RevisionId::new(revision_id.to_owned()))
         .with_include_body(true)
         .with_verification_policy(EventVerificationPolicy::advisory())
         .with_trust_set(crate::cli::review::common::discover_trust_set(repo))
@@ -358,8 +387,8 @@ pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, Str
         show_options = show_options.with_delegation_map(map);
     }
     let result = show_review_unit(show_options).map_err(|error| {
-        tracing::debug!(error = %error, review_unit = review_unit_id, "inspect_unit_read_failed");
-        format!("review unit not found or unreadable: {review_unit_id}")
+        tracing::debug!(error = %error, review_unit = revision_id, "inspect_unit_read_failed");
+        format!("review unit not found or unreadable: {revision_id}")
     })?;
     // Thread the typed endpoints and the commit-range view out before
     // `unit_show_document` consumes `result`, then splice the additive
@@ -407,12 +436,12 @@ fn resolve_head_live_branch(enrichment: &LivenessEnrichment, head_oid: &str) -> 
     labels.all(|label| label == first).then_some(first)
 }
 
-/// Insert `liveBranch` into the spliced `reviewUnit.targetDisplay.head` object.
+/// Insert `liveBranch` into the spliced `revision.targetDisplay.head` object.
 /// A no-op if the head block is absent (e.g. a working-tree base with no head).
 fn set_head_live_branch(document: &mut serde_json::Value, live_branch: String) {
     if let Some(head) = document
-        .get_mut("reviewUnit")
-        .and_then(|review_unit| review_unit.get_mut("targetDisplay"))
+        .get_mut("revision")
+        .and_then(|revision| revision.get_mut("targetDisplay"))
         .and_then(|target_display| target_display.get_mut("head"))
         .and_then(|head| head.as_object_mut())
     {
@@ -531,7 +560,7 @@ mod tests {
         // endpoints live on /api/unit (from the projection), never here — so the
         // worktree root is simply absent (nothing to redact).
         assert!(wire["contentHash"].is_string());
-        assert!(wire.get("reviewUnitId").is_none());
+        assert!(wire.get("revisionId").is_none());
         assert!(wire.get("source").is_none());
         assert!(wire.get("base").is_none());
         assert!(wire.get("target").is_none());
@@ -635,7 +664,6 @@ mod tests {
 
     fn entry(worktree: &str, commit: &str) -> ReviewUnitListEntry {
         ReviewUnitListEntry {
-            review_unit_id: RevisionId::new("review-unit:sha256:abc"),
             captured_at: "2026-05-13T10:00:00Z".to_owned(),
             revision_id: RevisionId::new("rev:sha256:abc"),
             snapshot_id: ObjectId::new("snap:sha256:abc"),
@@ -652,7 +680,7 @@ mod tests {
             },
             snapshot_artifact_content_hash: "sha256:artifact:abc".to_owned(),
             commit_range: shoreline::session::ReviewUnitCommitRangeView {
-                review_unit_id: RevisionId::new("review-unit:sha256:abc"),
+                revision_id: RevisionId::new("review-unit:sha256:abc"),
                 anchored: false,
                 current_commits: Vec::new(),
                 current_refs: Vec::new(),
@@ -661,7 +689,7 @@ mod tests {
                 diagnostics: Vec::new(),
             },
             merge_status: "unknown".to_owned(),
-            grouped_review_unit_ids: vec![RevisionId::new("review-unit:sha256:abc")],
+            grouped_revision_ids: vec![RevisionId::new("review-unit:sha256:abc")],
         }
     }
 
@@ -692,7 +720,10 @@ mod tests {
         );
         assert!(json["source"].is_object());
         assert_eq!(json["snapshotArtifactContentHash"], "sha256:artifact:abc");
-        assert_eq!(json["reviewUnitId"], "review-unit:sha256:abc");
+        assert!(
+            json.get("reviewUnitId").is_none(),
+            "the redundant reviewUnitId alias is dropped"
+        );
         assert_eq!(json["capturedAt"], "2026-05-13T10:00:00Z");
         assert_eq!(json["revisionId"], "rev:sha256:abc");
         assert_eq!(json["snapshotId"], "snap:sha256:abc");
@@ -700,9 +731,9 @@ mod tests {
 
     #[test]
     fn splice_target_display_adds_block_without_dropping_target_fields() {
-        // Mirrors the /api/unit document shape: reviewUnit carries the verbatim target.
+        // Mirrors the /api/unit document shape: revision carries the verbatim target.
         let mut document = serde_json::json!({
-            "reviewUnit": {
+            "revision": {
                 "id": "review-unit:sha256:abc",
                 "target": {
                     "kind": "git_working_tree",
@@ -718,20 +749,17 @@ mod tests {
 
         splice_target_display(&mut document, display).unwrap();
 
+        assert_eq!(document["revision"]["targetDisplay"]["label"], "plan-0006");
         assert_eq!(
-            document["reviewUnit"]["targetDisplay"]["label"],
-            "plan-0006"
-        );
-        assert_eq!(
-            document["reviewUnit"]["targetDisplay"]["head"]["commitOidShort"],
+            document["revision"]["targetDisplay"]["head"]["commitOidShort"],
             "545b0eb"
         );
         // Additive: the raw target endpoint is untouched.
         assert_eq!(
-            document["reviewUnit"]["target"]["worktreeRoot"],
+            document["revision"]["target"]["worktreeRoot"],
             "/Users/x/worktrees/boardwalk/plan-0006"
         );
-        assert_eq!(document["reviewUnit"]["target"]["kind"], "git_working_tree");
+        assert_eq!(document["revision"]["target"]["kind"], "git_working_tree");
     }
 
     #[test]
@@ -816,13 +844,13 @@ mod tests {
 
     #[test]
     fn unit_json_populates_live_branch_for_anchored_commit_on_a_branch() {
-        let (repo, review_unit_id, branch) = captured_commit_range_repo();
+        let (repo, revision_id, branch) = captured_commit_range_repo();
 
         let value: serde_json::Value =
-            serde_json::from_str(&unit_json(repo.path(), &review_unit_id).unwrap()).unwrap();
+            serde_json::from_str(&unit_json(repo.path(), &revision_id).unwrap()).unwrap();
 
         assert_eq!(
-            value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"],
+            value["revision"]["targetDisplay"]["head"]["liveBranch"],
             serde_json::json!(branch),
             "the anchored target commit is the branch tip → live on that branch"
         );
@@ -849,14 +877,14 @@ mod tests {
             serde_json::from_str(&unit_json(path, capture.revision_id.as_str()).unwrap()).unwrap();
 
         assert!(
-            value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"].is_null(),
+            value["revision"]["targetDisplay"]["head"]["liveBranch"].is_null(),
             "a floating worktree capture has no current commit → liveBranch omitted"
         );
     }
 
     #[test]
     fn unit_json_omits_live_branch_when_commit_objects_are_unavailable() {
-        let (repo, review_unit_id, _branch) = captured_commit_range_repo();
+        let (repo, revision_id, _branch) = captured_commit_range_repo();
 
         // A second repo that serves the same store but whose object database does
         // not hold the captured commits (the linked-inspector case). The store
@@ -875,10 +903,10 @@ mod tests {
         );
 
         let value: serde_json::Value =
-            serde_json::from_str(&unit_json(elsewhere.path(), &review_unit_id).unwrap()).unwrap();
+            serde_json::from_str(&unit_json(elsewhere.path(), &revision_id).unwrap()).unwrap();
 
         assert!(
-            value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"].is_null(),
+            value["revision"]["targetDisplay"]["head"]["liveBranch"].is_null(),
             "commit objects absent → reachability unknown → liveBranch omitted, request still 200s"
         );
     }

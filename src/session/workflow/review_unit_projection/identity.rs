@@ -20,7 +20,7 @@ use crate::session::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowOptions {
     pub(super) repo: PathBuf,
-    pub(super) review_unit_id: Option<RevisionId>,
+    pub(super) revision_id: Option<RevisionId>,
     pub(super) track: Option<String>,
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
@@ -33,7 +33,7 @@ impl ReviewUnitShowOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             include_body: false,
             verification_policy: None,
@@ -43,8 +43,8 @@ impl ReviewUnitShowOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, review_unit_id: RevisionId) -> Self {
-        self.review_unit_id = Some(review_unit_id);
+    pub fn with_review_unit_id(mut self, revision_id: RevisionId) -> Self {
+        self.revision_id = Some(revision_id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -194,7 +194,7 @@ pub struct ReviewUnitProjectionIdentity {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowFilters {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub track_id: Option<TrackId>,
     pub include_body: bool,
 }

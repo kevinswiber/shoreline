@@ -36,7 +36,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
     };
 
     let filters = ResolvedHistoryFilters {
-        review_unit_id: options.review_unit_id,
+        revision_id: options.revision_id,
         track_id,
         event_types: options.event_types,
         ref_matched_units,
@@ -420,7 +420,7 @@ mod tests {
         let capture = review_unit_captured_event_for("review-unit:sha256:one");
 
         let filters = ResolvedHistoryFilters {
-            review_unit_id: Some(RevisionId::new("review-unit:sha256:one")),
+            revision_id: Some(RevisionId::new("review-unit:sha256:one")),
             track_id: Some(TrackId::new("agent:codex")),
             event_types: vec![EventType::ReviewObservationRecorded],
             include_body: false,
@@ -693,21 +693,21 @@ mod tests {
         review_unit_captured_event_for("review-unit:sha256:one")
     }
 
-    fn review_unit_captured_event_for(review_unit_id: &str) -> ShoreEvent {
-        let review_unit_id = RevisionId::new(review_unit_id);
+    fn review_unit_captured_event_for(revision_id: &str) -> ShoreEvent {
+        let revision_id = RevisionId::new(revision_id);
         let payload = WorkObjectProposedPayload {
             engagement_id: EngagementId::new(format!(
                 "engagement:sha256:{}",
                 crate::canonical_hash::sha256_bytes_hex(
-                    (RevisionId::new(format!("rev:{}", review_unit_id.as_str())))
+                    (RevisionId::new(format!("rev:{}", revision_id.as_str())))
                         .as_str()
                         .as_bytes()
                 )
             )),
             work_object: WorkObjectProposal::Revision {
                 revision: Revision {
-                    id: RevisionId::new(format!("rev:{}", review_unit_id.as_str())),
-                    object_id: ObjectId::new(format!("snap:{}", review_unit_id.as_str())),
+                    id: RevisionId::new(format!("rev:{}", revision_id.as_str())),
+                    object_id: ObjectId::new(format!("snap:{}", revision_id.as_str())),
                     git_provenance: Some(GitProvenance {
                         source: ReviewUnitSource::GitWorktree {
                             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
@@ -729,7 +729,7 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             "capture:one",
-            EventTarget::for_revision(LedgerId::new("session:default"), review_unit_id, None),
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id, None),
             Writer::shore_local("test"),
             payload,
             "2026-05-13T10:00:00Z",
@@ -743,12 +743,12 @@ mod tests {
         event
     }
 
-    fn observation_event(review_unit_id: &str, track_id: &str, title: &str) -> ShoreEvent {
-        let review_unit_id = RevisionId::new(review_unit_id);
+    fn observation_event(revision_id: &str, track_id: &str, title: &str) -> ShoreEvent {
+        let revision_id = RevisionId::new(revision_id);
         let payload = ReviewObservationRecordedPayload {
             observation_id: ObservationId::new(format!("obs:sha256:{title}")),
             target: ReviewTargetRef::Revision {
-                revision_id: review_unit_id.clone(),
+                revision_id: revision_id.clone(),
             },
             title: title.to_owned(),
             body: None,
@@ -763,7 +763,7 @@ mod tests {
             EventType::ReviewObservationRecorded,
             &format!("observation:{title}:{track_id}"),
             track_id,
-            review_unit_id,
+            revision_id,
             payload,
             "2026-05-13T10:00:01Z",
         )
@@ -922,7 +922,7 @@ mod tests {
         let payload = ValidationCheckRecordedPayload {
             validation_check_id: ValidationCheckId::new("validation:sha256:one"),
             target: ValidationTarget::Revision {
-                revision_id: review_unit_id("one"),
+                revision_id: revision_id("one"),
             },
             check_name: "cargo test".to_owned(),
             command: None,
@@ -994,7 +994,7 @@ mod tests {
             event_type,
             idempotency_key,
             track_id,
-            review_unit_id("one"),
+            revision_id("one"),
             payload,
             occurred_at,
         )
@@ -1004,21 +1004,18 @@ mod tests {
         event_type: EventType,
         idempotency_key: &str,
         track_id: &str,
-        review_unit_id: RevisionId,
+        revision_id: RevisionId,
         payload: P,
         occurred_at: &str,
     ) -> ShoreEvent
     where
         P: crate::session::event::EventPayload,
     {
-        let mut target = EventTarget::for_revision(
-            LedgerId::new("session:default"),
-            review_unit_id.clone(),
-            None,
-        );
+        let mut target =
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id.clone(), None);
         target.track_id = Some(TrackId::new(track_id));
         target.subject = TargetRef::Review(ReviewTargetRef::Revision {
-            revision_id: review_unit_id.clone(),
+            revision_id: revision_id.clone(),
         });
         ShoreEvent::new(
             event_type,
@@ -1029,10 +1026,6 @@ mod tests {
             occurred_at,
         )
         .unwrap()
-    }
-
-    fn review_unit_id(suffix: &str) -> RevisionId {
-        RevisionId::new(format!("review-unit:sha256:{suffix}"))
     }
 
     fn revision_id(suffix: &str) -> RevisionId {

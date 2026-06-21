@@ -288,7 +288,7 @@ pub(crate) fn capture_has_worktree_identity_match(
 /// The review-unit ids whose `WorkObjectProposed` event has a positive
 /// worktree-identity match against `context`. Shared by the explicit worktree read
 /// selector on the list surfaces (the strict identity match, no fail-open).
-pub(crate) fn review_unit_ids_in_worktree(
+pub(crate) fn revision_ids_in_worktree(
     events: &[ShoreEvent],
     context: &CurrentReviewUnitContext,
 ) -> Result<std::collections::BTreeSet<RevisionId>> {
@@ -307,11 +307,11 @@ pub(crate) fn review_unit_ids_in_worktree(
     Ok(ids)
 }
 
-/// Whether the event set carries a `ReviewUnitRefAssociated` for `review_unit_id`
+/// Whether the event set carries a `ReviewUnitRefAssociated` for `revision_id`
 /// naming `head_ref` (the full ref, matching `git_head_ref`'s spelling).
 fn capture_has_ref_association(
     events: &[ShoreEvent],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     head_ref: &str,
 ) -> Result<bool> {
     for event in events
@@ -320,7 +320,7 @@ fn capture_has_ref_association(
     {
         let payload: ReviewUnitRefAssociatedPayload =
             serde_json::from_value(event.payload.clone())?;
-        if review_unit_of(&payload.target).as_ref() == Some(review_unit_id)
+        if review_unit_of(&payload.target).as_ref() == Some(revision_id)
             && payload.ref_name == head_ref
         {
             return Ok(true);
@@ -330,10 +330,10 @@ fn capture_has_ref_association(
 }
 
 /// Whether the event set carries any `ReviewUnitRefAssociated` for
-/// `review_unit_id`, regardless of which ref it names.
+/// `revision_id`, regardless of which ref it names.
 fn capture_has_any_ref_association(
     events: &[ShoreEvent],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
 ) -> Result<bool> {
     for event in events
         .iter()
@@ -341,7 +341,7 @@ fn capture_has_any_ref_association(
     {
         let payload: ReviewUnitRefAssociatedPayload =
             serde_json::from_value(event.payload.clone())?;
-        if review_unit_of(&payload.target).as_ref() == Some(review_unit_id) {
+        if review_unit_of(&payload.target).as_ref() == Some(revision_id) {
             return Ok(true);
         }
     }
@@ -738,7 +738,7 @@ mod scope_tests {
             range_capture("floaty"),
         ];
 
-        let ids = review_unit_ids_in_worktree(&events, &ctx("/wt/a", None)).unwrap();
+        let ids = revision_ids_in_worktree(&events, &ctx("/wt/a", None)).unwrap();
 
         assert!(ids.contains(&RevisionId::new("review-unit:sha256:here")));
         assert!(!ids.contains(&RevisionId::new("review-unit:sha256:there")));

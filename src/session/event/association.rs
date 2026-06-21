@@ -31,10 +31,10 @@ pub struct ReviewUnitCommitAssociatedPayload {
 }
 
 impl ReviewUnitCommitAssociatedPayload {
-    pub fn idempotency_key(review_unit_id: &RevisionId, commit_oid: &str) -> String {
+    pub fn idempotency_key(revision_id: &RevisionId, commit_oid: &str) -> String {
         format!(
             "revision_commit_associated:{}:{}",
-            review_unit_id.as_str(),
+            revision_id.as_str(),
             commit_oid
         )
     }
@@ -56,10 +56,10 @@ pub struct ReviewUnitRefAssociatedPayload {
 }
 
 impl ReviewUnitRefAssociatedPayload {
-    pub fn idempotency_key(review_unit_id: &RevisionId, ref_name: &str, head_oid: &str) -> String {
+    pub fn idempotency_key(revision_id: &RevisionId, ref_name: &str, head_oid: &str) -> String {
         format!(
             "revision_ref_associated:{}:{}",
-            review_unit_id.as_str(),
+            revision_id.as_str(),
             ref_distinguisher(ref_name, head_oid)
         )
     }
@@ -126,11 +126,11 @@ fn ref_distinguisher(ref_name: &str, head_oid: &str) -> String {
 /// the commit OID, excluding writer/track so the same edge converges across
 /// independently-authored copies.
 pub(crate) fn build_commit_association_id(
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     commit_oid: &str,
 ) -> Result<CommitAssociationId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": review_unit_id.as_str(),
+        "reviewUnitId": revision_id.as_str(),
         "commitOid": commit_oid,
     }))?;
     Ok(CommitAssociationId::new(format!("assoc-commit:{digest}")))
@@ -138,12 +138,12 @@ pub(crate) fn build_commit_association_id(
 
 /// Content id for a ref association, folding the full ref name and head OID.
 pub(crate) fn build_ref_association_id(
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     ref_name: &str,
     head_oid: &str,
 ) -> Result<RefAssociationId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": review_unit_id.as_str(),
+        "reviewUnitId": revision_id.as_str(),
         "refName": ref_name,
         "headOid": head_oid,
     }))?;
@@ -152,11 +152,11 @@ pub(crate) fn build_ref_association_id(
 
 /// Content id for a commit withdrawal, folding the association id it retracts.
 pub(crate) fn build_commit_withdrawal_id(
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     commit_association_id: &CommitAssociationId,
 ) -> Result<CommitWithdrawalId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": review_unit_id.as_str(),
+        "reviewUnitId": revision_id.as_str(),
         "commitAssociationId": commit_association_id.as_str(),
     }))?;
     Ok(CommitWithdrawalId::new(format!("withdraw-commit:{digest}")))
@@ -164,11 +164,11 @@ pub(crate) fn build_commit_withdrawal_id(
 
 /// Content id for a ref withdrawal, folding the association id it retracts.
 pub(crate) fn build_ref_withdrawal_id(
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     ref_association_id: &RefAssociationId,
 ) -> Result<RefWithdrawalId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": review_unit_id.as_str(),
+        "reviewUnitId": revision_id.as_str(),
         "refAssociationId": ref_association_id.as_str(),
     }))?;
     Ok(RefWithdrawalId::new(format!("withdraw-ref:{digest}")))
@@ -349,12 +349,9 @@ mod convergence_tests {
         RevisionId::new("ru:sha256:abc")
     }
 
-    fn target_for(review_unit_id: &RevisionId, track: &str) -> EventTarget {
-        let mut target = EventTarget::for_revision(
-            LedgerId::new("session:default"),
-            review_unit_id.clone(),
-            None,
-        );
+    fn target_for(revision_id: &RevisionId, track: &str) -> EventTarget {
+        let mut target =
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id.clone(), None);
         target.track_id = Some(TrackId::new(track));
         target
     }

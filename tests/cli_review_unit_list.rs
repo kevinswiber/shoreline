@@ -38,10 +38,10 @@ fn review_unit_list_emits_v1_json_with_freshness_metadata() {
             .starts_with("sha256:")
     );
     assert_eq!(json["eventCount"], 2);
-    assert_eq!(json["reviewUnitCount"], 1);
+    assert_eq!(json["revisionCount"], 1);
 
     let entry = &json["entries"][0];
-    assert_eq!(entry["reviewUnitId"], capture["reviewUnit"]["id"]);
+    assert_eq!(entry["revisionId"], capture["revision"]["id"]);
     assert!(!entry["capturedAt"].as_str().unwrap().is_empty());
     assert!(entry["revisionId"].as_str().unwrap().starts_with("rev:"));
     assert!(entry["snapshotId"].as_str().unwrap().starts_with("obj:"));
@@ -111,15 +111,15 @@ fn review_unit_list_returns_multiple_entries_in_capture_order() {
     let json = parse_json(&output.stdout);
     let entries = json["entries"].as_array().unwrap();
 
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
-    assert_eq!(json["reviewUnitCount"], 2);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
+    assert_eq!(json["revisionCount"], 2);
     assert_eq!(entries.len(), 2);
     let ids: Vec<&str> = entries
         .iter()
-        .map(|entry| entry["reviewUnitId"].as_str().unwrap())
+        .map(|entry| entry["revisionId"].as_str().unwrap())
         .collect();
-    assert!(ids.contains(&first["reviewUnit"]["id"].as_str().unwrap()));
-    assert!(ids.contains(&second["reviewUnit"]["id"].as_str().unwrap()));
+    assert!(ids.contains(&first["revision"]["id"].as_str().unwrap()));
+    assert!(ids.contains(&second["revision"]["id"].as_str().unwrap()));
     assert!(
         entries[0]["capturedAt"].as_str().unwrap() <= entries[1]["capturedAt"].as_str().unwrap()
     );
@@ -139,7 +139,7 @@ fn review_unit_list_succeeds_without_events() {
 
     assert!(output.status.success());
     assert_eq!(json["eventCount"], 0);
-    assert_eq!(json["reviewUnitCount"], 0);
+    assert_eq!(json["revisionCount"], 0);
     assert!(json["entries"].as_array().unwrap().is_empty());
 }
 
@@ -181,11 +181,8 @@ fn review_unit_list_reads_capture_from_the_shared_store_after_seed_worktree_remo
     let json = parse_json(stdout.as_bytes());
 
     assert_eq!(json["eventCount"], 2);
-    assert_eq!(json["reviewUnitCount"], 1);
-    assert_eq!(
-        json["entries"][0]["reviewUnitId"],
-        capture["reviewUnit"]["id"]
-    );
+    assert_eq!(json["revisionCount"], 1);
+    assert_eq!(json["entries"][0]["revisionId"], capture["revision"]["id"]);
     assert!(json["diagnostics"].as_array().unwrap().is_empty());
     assert!(!stdout.contains(".git"));
     assert!(!stdout.contains(".shore/data"));
@@ -230,14 +227,14 @@ fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_shared_store
         .as_array()
         .unwrap()
         .iter()
-        .map(|entry| entry["reviewUnitId"].as_str().unwrap())
+        .map(|entry| entry["revisionId"].as_str().unwrap())
         .collect::<Vec<_>>();
 
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
     assert_eq!(json["eventCount"], 4);
-    assert_eq!(json["reviewUnitCount"], 2);
-    assert!(ids.contains(&first["reviewUnit"]["id"].as_str().unwrap()));
-    assert!(ids.contains(&second["reviewUnit"]["id"].as_str().unwrap()));
+    assert_eq!(json["revisionCount"], 2);
+    assert!(ids.contains(&first["revision"]["id"].as_str().unwrap()));
+    assert!(ids.contains(&second["revision"]["id"].as_str().unwrap()));
     assert!(
         !json["diagnostics"]
             .as_array()
@@ -308,7 +305,7 @@ fn unit_list_hides_orphans_by_default_and_surfaces_with_flags() {
         ])
         .stdout,
     );
-    let orphan_id = orphan["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let orphan_id = orphan["revision"]["id"].as_str().unwrap().to_owned();
     repo.git(["checkout", "main"]);
     repo.git(["branch", "-D", "feature"]);
 
@@ -316,7 +313,7 @@ fn unit_list_hides_orphans_by_default_and_surfaces_with_flags() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let floating =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    let floating_id = floating["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let floating_id = floating["revision"]["id"].as_str().unwrap().to_owned();
     assert_ne!(orphan_id, floating_id);
 
     // Default: the orphan is hidden, the floating capture remains.
@@ -354,13 +351,13 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
     // A range capture anchored to HEAD (a live tip) reads "open".
     let range =
         parse_json(&shore(["review", "capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
-    let range_id = range["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let range_id = range["revision"]["id"].as_str().unwrap().to_owned();
 
     // A floating worktree capture reads "unknown"; its worktree path lets it
     // survive the worktree-identity scope.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let worktree = parse_json(&shore(["review", "capture", "--repo", repo_arg]).stdout);
-    let worktree_id = worktree["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let worktree_id = worktree["revision"]["id"].as_str().unwrap().to_owned();
 
     // Default list: each entry carries a structural merge-status.
     let default = parse_json(&shore(["review", "revisions", "--repo", repo_arg]).stdout);
@@ -369,7 +366,7 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
             .as_array()
             .unwrap()
             .iter()
-            .find(|entry| entry["reviewUnitId"] == id)
+            .find(|entry| entry["revisionId"] == id)
             .unwrap()["mergeStatus"]
             .as_str()
             .unwrap()
@@ -399,7 +396,7 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
         .as_array()
         .unwrap()
         .iter()
-        .map(|entry| entry["reviewUnitId"].as_str().unwrap().to_owned())
+        .map(|entry| entry["revisionId"].as_str().unwrap().to_owned())
         .collect();
     assert!(scoped_ids.contains(&worktree_id));
 }
@@ -423,7 +420,7 @@ fn unit_list_ids(repo: &GitRepo, extra: &[&str]) -> Vec<String> {
         .as_array()
         .unwrap()
         .iter()
-        .map(|entry| entry["reviewUnitId"].as_str().unwrap().to_owned())
+        .map(|entry| entry["revisionId"].as_str().unwrap().to_owned())
         .collect()
 }
 

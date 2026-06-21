@@ -12,7 +12,7 @@ use crate::session::{
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssessmentAddBody {
-    review_unit_id: String,
+    revision_id: String,
     assessment_id: String,
     event_id: String,
     track_id: String,
@@ -26,7 +26,7 @@ pub struct AssessmentAddBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssessmentShowBody {
-    review_unit_id: String,
+    revision_id: String,
     filters: AssessmentShowFiltersDocument,
     current: CurrentAssessmentDocument,
     assessments: Vec<AssessmentViewDocument>,
@@ -49,7 +49,7 @@ pub fn assessment_add_document(
     EventWriteDocument::new(
         schema,
         AssessmentAddBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             assessment_id: result.assessment_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
@@ -73,7 +73,7 @@ pub fn assessment_show_document(
     DiagnosticDocument::new(
         schema,
         AssessmentShowBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             filters: AssessmentShowFiltersDocument::from(result.filters),
             current: CurrentAssessmentDocument::from(result.current)
                 .with_resolved_principal(delegation_map),

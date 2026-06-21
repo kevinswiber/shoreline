@@ -49,7 +49,7 @@ pub struct StoreStatusInventory {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub untracked_bytes: Option<u64>,
     pub largest_artifacts: Vec<StoreStatusArtifactInventory>,
-    pub review_unit_snapshots: Vec<StoreStatusReviewUnitSnapshot>,
+    pub revision_snapshots: Vec<StoreStatusRevisionSnapshot>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -62,8 +62,8 @@ pub struct StoreStatusArtifactInventory {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StoreStatusReviewUnitSnapshot {
-    pub review_unit_ids: Vec<String>,
+pub struct StoreStatusRevisionSnapshot {
+    pub revision_ids: Vec<String>,
     pub snapshot_id: String,
     pub artifact_ref: String,
     pub byte_size: u64,
@@ -116,10 +116,10 @@ impl From<StoreInventory> for StoreStatusInventory {
                 .into_iter()
                 .map(StoreStatusArtifactInventory::from)
                 .collect(),
-            review_unit_snapshots: inventory
-                .review_unit_snapshots
+            revision_snapshots: inventory
+                .revision_snapshots
                 .into_iter()
-                .map(StoreStatusReviewUnitSnapshot::from)
+                .map(StoreStatusRevisionSnapshot::from)
                 .collect(),
         }
     }
@@ -135,10 +135,10 @@ impl From<ArtifactInventoryEntry> for StoreStatusArtifactInventory {
     }
 }
 
-impl From<ReviewUnitSnapshotInventory> for StoreStatusReviewUnitSnapshot {
+impl From<ReviewUnitSnapshotInventory> for StoreStatusRevisionSnapshot {
     fn from(snapshot: ReviewUnitSnapshotInventory) -> Self {
         Self {
-            review_unit_ids: snapshot.review_unit_ids,
+            revision_ids: snapshot.revision_ids,
             snapshot_id: snapshot.snapshot_id,
             artifact_ref: snapshot.artifact_ref,
             byte_size: snapshot.byte_size,

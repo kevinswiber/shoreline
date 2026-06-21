@@ -20,7 +20,7 @@ pub(crate) struct StoreInventory {
     pub total_bytes: u64,
     pub untracked_bytes: Option<u64>,
     pub largest_artifacts: Vec<ArtifactInventoryEntry>,
-    pub review_unit_snapshots: Vec<ReviewUnitSnapshotInventory>,
+    pub revision_snapshots: Vec<ReviewUnitSnapshotInventory>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -38,7 +38,7 @@ pub(crate) struct ReviewUnitSnapshotInventory {
     /// the snapshot-scoped artifact one artifact may be shared by several units, so
     /// identity is joined from the capture events keyed by `snapshot_id`, never
     /// read from the artifact body.
-    pub review_unit_ids: Vec<String>,
+    pub revision_ids: Vec<String>,
     pub snapshot_id: String,
     pub artifact_ref: String,
     pub byte_size: u64,
@@ -50,14 +50,14 @@ pub(crate) fn scan_store_inventory(
 ) -> Result<StoreInventory> {
     let (event_count, event_bytes) = scan_events(&store_dir.join("events"))?;
     let mut artifact_entries = Vec::new();
-    let mut review_unit_snapshots = Vec::new();
+    let mut revision_snapshots = Vec::new();
 
     let capture_owners = capture_owners_by_snapshot(&store_dir.join("events"))?;
     let (snapshot_count, snapshot_bytes) = scan_snapshot_artifacts(
         &store_dir.join("artifacts/snapshots"),
         &capture_owners,
         &mut artifact_entries,
-        &mut review_unit_snapshots,
+        &mut revision_snapshots,
     )?;
     let (note_count, note_bytes) =
         scan_note_artifacts(&store_dir.join("artifacts/notes"), &mut artifact_entries)?;
@@ -70,8 +70,8 @@ pub(crate) fn scan_store_inventory(
     });
     artifact_entries.truncate(5);
     // One snapshot artifact is one entry now, so sort by snapshot_id alone — this
-    // avoids an empty-`review_unit_ids` edge in the comparator.
-    review_unit_snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
+    // avoids an empty-`revision_ids` edge in the comparator.
+    revision_snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
 
     let artifact_count = snapshot_count + note_count;
     let artifact_bytes = snapshot_bytes + note_bytes;
@@ -83,7 +83,7 @@ pub(crate) fn scan_store_inventory(
         total_bytes: event_bytes + artifact_bytes,
         untracked_bytes: worktree_root.map(git_untracked_bytes).transpose()?,
         largest_artifacts: artifact_entries,
-        review_unit_snapshots,
+        revision_snapshots,
     })
 }
 
@@ -126,7 +126,7 @@ fn scan_snapshot_artifacts(
         let byte_size = contents.len() as u64;
         let snapshot_id = artifact.snapshot.snapshot_id.as_str().to_owned();
         let artifact_ref = format!("snapshot:{snapshot_id}");
-        let review_unit_ids = capture_owners
+        let revision_ids = capture_owners
             .get(&snapshot_id)
             .map(|ids| ids.iter().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
@@ -136,7 +136,7 @@ fn scan_snapshot_artifacts(
             byte_size,
         });
         snapshots.push(ReviewUnitSnapshotInventory {
-            review_unit_ids,
+            revision_ids,
             snapshot_id,
             artifact_ref,
             byte_size,
@@ -147,7 +147,7 @@ fn scan_snapshot_artifacts(
     Ok((count, bytes))
 }
 
-/// Join `snapshot_id → {review_unit_ids}` from the capture events. Identity lives
+/// Join `snapshot_id → {revision_ids}` from the capture events. Identity lives
 /// in the event log, so this is the inventory's only source for the capturing
 /// units of a snapshot artifact. A `BTreeSet` keeps the ids sorted and deduped for
 /// deterministic output.
@@ -166,7 +166,7 @@ fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTre
         // The captured revision and its content object id ride the payload's
         // tagged work object; the snapshot artifact is joined by the object id.
         let revision = &event.payload["workObject"]["revision"];
-        let (Some(snapshot_id), Some(review_unit_id)) =
+        let (Some(snapshot_id), Some(revision_id)) =
             (revision["objectId"].as_str(), revision["id"].as_str())
         else {
             continue;
@@ -174,7 +174,7 @@ fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTre
         owners
             .entry(snapshot_id.to_owned())
             .or_default()
-            .insert(review_unit_id.to_owned());
+            .insert(revision_id.to_owned());
     }
     Ok(owners)
 }
@@ -320,21 +320,21 @@ mod tests {
 
         let inventory = scan_store_inventory(&store_dir, Some(repo.path())).unwrap();
         let entry = inventory
-            .review_unit_snapshots
+            .revision_snapshots
             .iter()
             .find(|snapshot| snapshot.snapshot_id == capture.object_id.as_str())
             .expect("snapshot inventory entry");
         assert!(
             entry
-                .review_unit_ids
+                .revision_ids
                 .contains(&capture.revision_id.as_str().to_owned())
         );
         assert!(
             entry
-                .review_unit_ids
+                .revision_ids
                 .contains(&"review-unit:sha256:second-worktree".to_owned())
         );
-        assert!(entry.review_unit_ids.windows(2).all(|w| w[0] <= w[1])); // sorted
+        assert!(entry.revision_ids.windows(2).all(|w| w[0] <= w[1])); // sorted
     }
 
     /// Build and record a minimal capture event referencing `capture`'s snapshot
@@ -417,9 +417,9 @@ mod tests {
                 && !artifact.artifact_ref.contains(".shore/data")
                 && !artifact.artifact_ref.contains("state.json")
         }));
-        assert!(inventory.review_unit_snapshots.iter().any(|snapshot| {
+        assert!(inventory.revision_snapshots.iter().any(|snapshot| {
             snapshot
-                .review_unit_ids
+                .revision_ids
                 .contains(&capture.revision_id.as_str().to_owned())
                 && snapshot.snapshot_id == capture.object_id.as_str()
                 && snapshot.byte_size > 0

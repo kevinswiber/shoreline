@@ -1251,19 +1251,16 @@ mod tests {
         summary_content_hash: &str,
         summary_byte_size: u64,
     ) -> ShoreEvent {
-        let review_unit_id = RevisionId::new("review-unit:sha256:bundle");
+        let revision_id = RevisionId::new("review-unit:sha256:bundle");
         let track_id = TrackId::new("agent:codex");
-        let mut target = EventTarget::for_revision(
-            LedgerId::new("session:default"),
-            review_unit_id.clone(),
-            None,
-        );
+        let mut target =
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id.clone(), None);
         target.track_id = Some(track_id.clone());
 
         ShoreEvent::new(
             EventType::ValidationCheckRecorded,
             ValidationCheckRecordedPayload::idempotency_key(
-                &review_unit_id,
+                &revision_id,
                 &track_id,
                 "validation:sha256:bundle",
             ),
@@ -1271,9 +1268,7 @@ mod tests {
             Writer::shore_local("test"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new("validation:sha256:bundle"),
-                target: ValidationTarget::Revision {
-                    revision_id: review_unit_id,
-                },
+                target: ValidationTarget::Revision { revision_id },
                 check_name: "cargo nextest run".to_owned(),
                 command: None,
                 status: ValidationStatus::Passed,

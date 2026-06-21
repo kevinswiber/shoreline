@@ -363,7 +363,7 @@ fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -
     }
     let subject_revision_id = subject_revision_id(&event.target.subject);
     if filters
-        .review_unit_id
+        .revision_id
         .as_ref()
         .is_some_and(|revision_id| subject_revision_id != Some(revision_id))
     {

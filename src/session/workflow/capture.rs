@@ -937,7 +937,7 @@ mod tests {
 
         assert!(resolved_store_dir(repo.path()).join("events").is_dir());
         assert!(resolved_store_dir(repo.path()).join("state.json").is_file());
-        // The artifact binds via its content hash, not an embedded review_unit_id.
+        // The artifact binds via its content hash, not an embedded revision_id.
         assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
         assert!(result.revision_id.as_str().starts_with("rev:sha256:"));
         assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
@@ -1135,10 +1135,10 @@ mod tests {
         );
 
         // The converged ReviewUnit resolves + renders its snapshot through the binding.
-        for review_unit_id in [&a.revision_id, &b.revision_id] {
+        for revision_id in [&a.revision_id, &b.revision_id] {
             let shown = show_review_unit(
                 ReviewUnitShowOptions::new(&fixture.worktree_a)
-                    .with_review_unit_id(review_unit_id.clone()),
+                    .with_review_unit_id(revision_id.clone()),
             )
             .unwrap();
             assert!(!shown.snapshot.files.is_empty());

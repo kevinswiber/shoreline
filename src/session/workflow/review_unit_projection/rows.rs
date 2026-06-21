@@ -99,7 +99,7 @@ pub struct SnapshotOrder {
 
 pub(super) fn build_snapshot_rows(
     snapshot: &DiffSnapshot,
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
 ) -> (Vec<ReviewUnitProjectionRow>, ReviewUnitProjectionSummary) {
     let mut rows = Vec::new();
 
@@ -119,7 +119,7 @@ pub(super) fn build_snapshot_rows(
         let file_path = snapshot_file_path(file);
         let old_path = file.old_path.clone();
         let file_target = file_path.as_ref().map(|file_path| ReviewTargetRef::File {
-            revision_id: review_unit_id.clone(),
+            revision_id: revision_id.clone(),
             file_path: file_path.clone(),
         });
         rows.push(snapshot_row(
@@ -311,14 +311,14 @@ pub(super) fn build_validation_rows(
 
 pub(super) fn build_adapter_note_rows(
     adapter_notes: &[AdapterNoteView],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
 ) -> Vec<ReviewUnitProjectionRow> {
     adapter_notes
         .iter()
         .enumerate()
         .map(|(index, note)| {
             let target = note.target.as_ref().map(|target| ReviewTargetRef::Range {
-                revision_id: review_unit_id.clone(),
+                revision_id: revision_id.clone(),
                 file_path: note.file_path.clone(),
                 side: target.side,
                 start_line: target.start_line,

@@ -51,16 +51,16 @@ impl LinkedFixture {
         };
         fs::write(fixture.seed.join("README.md"), "changed in seed\n").unwrap();
         let capture = fixture.capture(&fixture.seed);
-        fixture.seed_review_unit_id = capture["reviewUnit"]["id"]
+        fixture.seed_review_unit_id = capture["revision"]["id"]
             .as_str()
             .expect("capture has review unit id")
             .to_owned();
-        fixture.seed_snapshot_id = capture["reviewUnit"]["snapshotId"]
+        fixture.seed_snapshot_id = capture["revision"]["snapshotId"]
             .as_str()
             .expect("capture has snapshot id")
             .to_owned();
         fixture.seed_snapshot_artifact_content_hash =
-            capture["reviewUnit"]["snapshotArtifactContentHash"]
+            capture["revision"]["snapshotArtifactContentHash"]
                 .as_str()
                 .expect("capture has snapshot artifact content hash")
                 .to_owned();
@@ -71,7 +71,7 @@ impl LinkedFixture {
         run_shore_json(&["review", "capture", "--repo", worktree.to_str().unwrap()])
     }
 
-    fn observation_add(&self, worktree: &Path, review_unit_id: &str, body: &str) -> Value {
+    fn observation_add(&self, worktree: &Path, revision_id: &str, body: &str) -> Value {
         run_shore_json(&[
             "review",
             "observation",
@@ -79,7 +79,7 @@ impl LinkedFixture {
             "--repo",
             worktree.to_str().unwrap(),
             "--revision",
-            review_unit_id,
+            revision_id,
             "--track",
             "agent:test-fixture",
             "--title",
@@ -101,14 +101,14 @@ impl LinkedFixture {
         run_shore_json(&args)
     }
 
-    fn unit_show_json(&self, worktree: &Path, review_unit_id: &str) -> Value {
+    fn unit_show_json(&self, worktree: &Path, revision_id: &str) -> Value {
         run_shore_json(&[
             "review",
             "show",
             "--repo",
             worktree.to_str().unwrap(),
             "--revision",
-            review_unit_id,
+            revision_id,
             "--include-body",
         ])
     }
@@ -225,9 +225,9 @@ fn deleted_worktree_unit_list_lists_unit() {
 
     let json = fixture.unit_list_json(&fixture.reader);
 
-    assert_eq!(json["reviewUnitCount"], 1);
+    assert_eq!(json["revisionCount"], 1);
     assert_eq!(
-        json["entries"][0]["reviewUnitId"],
+        json["entries"][0]["revisionId"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert_no_deleted_path_in_diagnostics(&fixture, &json);
@@ -379,21 +379,18 @@ fn reader_capture_is_immediately_visible_via_write_through() {
     let fixture = LinkedFixture::new();
 
     let units = fixture.unit_list_json(&fixture.reader);
-    assert_eq!(units["reviewUnitCount"], 1);
+    assert_eq!(units["revisionCount"], 1);
     let before_hash = event_set_hash(&units).to_owned();
 
     // The reader captures in its own worktree: write-through lands it in the
     // shared common-dir store, so it is visible immediately with no `store link`.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let local_capture = fixture.capture(&fixture.reader);
-    let local_unit_id = local_capture["reviewUnit"]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let local_unit_id = local_capture["revision"]["id"].as_str().unwrap().to_owned();
 
     let units = fixture.unit_list_json(&fixture.reader);
     let history = fixture.history_json(&fixture.reader, false);
-    assert_eq!(units["reviewUnitCount"], 2);
+    assert_eq!(units["revisionCount"], 2);
     assert!(units["entries"].to_string().contains(&local_unit_id));
     let advanced_hash = event_set_hash(&units);
     assert_ne!(advanced_hash, before_hash);
@@ -408,7 +405,7 @@ fn reader_capture_file_target_observation_resolves_artifact() {
     // write through to the shared common-dir store.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
-    let local_unit_id = capture["reviewUnit"]["id"]
+    let local_unit_id = capture["revision"]["id"]
         .as_str()
         .expect("local capture has review unit id")
         .to_owned();
@@ -813,7 +810,7 @@ fn linked_fact_write_does_not_copy_snapshot_artifacts_to_linked_store() {
     // Reader captures locally: its snapshot artifact lands in the reader's .shore/data.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
-    let local_unit = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let local_unit = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     let snapshots_before = snapshot_artifact_names(&fixture.linked_store_dir());
     // File-targeted observation against the locally captured unit (the artifact
@@ -919,7 +916,7 @@ fn file_targeted_cross_worktree_fact_is_immediately_readable() {
     // observation with a body against it; both write through to the shared store.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
-    let local_unit = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let local_unit = capture["revision"]["id"].as_str().unwrap().to_owned();
     let body = "z".repeat(5000);
     run_shore_json(&[
         "review",
@@ -954,7 +951,7 @@ fn file_targeted_cross_worktree_fact_is_immediately_readable() {
     assert_eq!(listed["observations"][0]["body"], Value::String(body));
 }
 
-fn observation_list_json(worktree: &Path, review_unit_id: &str) -> Value {
+fn observation_list_json(worktree: &Path, revision_id: &str) -> Value {
     run_shore_json(&[
         "review",
         "observation",
@@ -962,7 +959,7 @@ fn observation_list_json(worktree: &Path, review_unit_id: &str) -> Value {
         "--repo",
         worktree.to_str().unwrap(),
         "--revision",
-        review_unit_id,
+        revision_id,
     ])
 }
 
@@ -1026,10 +1023,10 @@ fn linked_unit_list_without_local_events_has_no_divergence_diagnostic() {
 
     let json = fixture.unit_list_json(&fixture.reader);
 
-    assert_eq!(json["reviewUnitCount"], 1);
+    assert_eq!(json["revisionCount"], 1);
     assert_eq!(json["eventCount"], 2);
     assert_eq!(
-        json["entries"][0]["reviewUnitId"],
+        json["entries"][0]["revisionId"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert!(
@@ -1078,7 +1075,7 @@ fn linked_unit_show_resolves_linked_only_unit() {
     let json = fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id);
 
     assert_eq!(
-        json["reviewUnit"]["id"],
+        json["revision"]["id"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert_eq!(json["summary"]["observationCount"], 1);
@@ -1099,7 +1096,7 @@ fn linked_unit_show_loads_bound_snapshot_from_linked_store() {
     let json = fixture.unit_show_json(&fixture.reader, &fixture.seed_review_unit_id);
 
     assert_eq!(
-        json["reviewUnit"]["snapshotArtifactContentHash"],
+        json["revision"]["snapshotArtifactContentHash"],
         Value::String(fixture.seed_snapshot_artifact_content_hash.clone())
     );
     assert!(
@@ -1126,7 +1123,7 @@ fn linked_observation_list_resolves_linked_unit() {
     ]);
 
     assert_eq!(
-        json["reviewUnitId"],
+        json["revisionId"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert_eq!(json["observations"].as_array().unwrap().len(), 1);
@@ -1149,7 +1146,7 @@ fn linked_input_request_list_resolves_linked_unit() {
     ]);
 
     assert_eq!(
-        json["reviewUnitId"],
+        json["revisionId"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
@@ -1191,7 +1188,7 @@ fn linked_assessment_show_resolves_linked_unit() {
     ]);
 
     assert_eq!(
-        json["reviewUnitId"],
+        json["revisionId"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert_eq!(json["assessments"].as_array().unwrap().len(), 1);
@@ -1214,7 +1211,7 @@ fn linked_validation_list_resolves_linked_unit() {
     ]);
 
     assert_eq!(
-        json["reviewUnitId"],
+        json["revisionId"],
         Value::String(fixture.seed_review_unit_id.clone())
     );
     assert_eq!(json["validationChecks"].as_array().unwrap().len(), 1);
@@ -1229,7 +1226,7 @@ fn snapshot_artifact_reads_from_linked_store() {
     let artifact = read_snapshot_artifact(&fixture.reader, &snapshot_id)
         .expect("snapshot artifact reads from the linked store");
 
-    // The snapshot-scoped v2 artifact carries no review_unit_id; resolving its
+    // The snapshot-scoped v2 artifact carries no revision_id; resolving its
     // snapshot id through the linked store is what proves the read.
     assert_eq!(artifact.snapshot.snapshot_id, snapshot_id);
 }
@@ -1313,7 +1310,7 @@ fn worktree_local_unit_list_is_unchanged() {
     assert_eq!(json["schema"], "shore.review-unit-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["eventCount"], 2);
-    assert_eq!(json["reviewUnitCount"], 1);
+    assert_eq!(json["revisionCount"], 1);
 }
 
 #[test]
@@ -1330,7 +1327,7 @@ fn main_worktree_of_a_clone_round_trips_a_capture_in_place() {
     main.git(["checkout", "-b", "feature"]);
     main.write("README.md", "changed on a branch in the main worktree\n");
     let capture = run_shore_json(&["review", "capture", "--repo", main.path().to_str().unwrap()]);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // With NO --review-unit, the same worktree's reads resolve the capture in
     // place (write-through landed it in the same `.git/shore` store reads use).
@@ -1340,14 +1337,14 @@ fn main_worktree_of_a_clone_round_trips_a_capture_in_place() {
         "--repo",
         main.path().to_str().unwrap(),
     ]);
-    assert_eq!(list["reviewUnitCount"], 1);
+    assert_eq!(list["revisionCount"], 1);
     assert_eq!(
-        list["entries"][0]["reviewUnitId"],
+        list["entries"][0]["revisionId"],
         Value::String(unit_id.clone())
     );
 
     let show = run_shore_json(&["review", "show", "--repo", main.path().to_str().unwrap()]);
-    assert_eq!(show["reviewUnit"]["id"], Value::String(unit_id.clone()));
+    assert_eq!(show["revision"]["id"], Value::String(unit_id.clone()));
 
     let history = run_shore_json(&["review", "history", "--repo", main.path().to_str().unwrap()]);
     assert!(
@@ -1374,7 +1371,7 @@ fn fresh_single_worktree_has_clean_own_only_reads() {
     repo.commit_all("base");
     repo.write("README.md", "changed locally\n");
     let capture = run_shore_json(&["review", "capture", "--repo", repo.path().to_str().unwrap()]);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     let list = run_shore_json(&[
         "review",
@@ -1382,9 +1379,9 @@ fn fresh_single_worktree_has_clean_own_only_reads() {
         "--repo",
         repo.path().to_str().unwrap(),
     ]);
-    assert_eq!(list["reviewUnitCount"], 1);
+    assert_eq!(list["revisionCount"], 1);
     assert_eq!(
-        list["entries"][0]["reviewUnitId"],
+        list["entries"][0]["revisionId"],
         Value::String(unit_id.clone())
     );
 

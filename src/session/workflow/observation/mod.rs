@@ -9,7 +9,7 @@ pub use self::list::{ObservationListOptions, ObservationListResult, list_observa
 pub use self::target::ObservationTargetSelector;
 pub(crate) use self::target::{
     CurrentReviewUnitContext, ResolvedReviewUnit, ReviewUnitScope, RevisionSelection,
-    resolve_observation_target, resolve_revision, review_unit_ids_in_worktree,
+    resolve_observation_target, resolve_revision, revision_ids_in_worktree,
 };
 pub(crate) use self::util::{required_title, staged_body, validated_track_id};
 #[cfg(test)]
@@ -114,8 +114,8 @@ mod tests {
     #[test]
     fn resolving_current_review_unit_errors_when_ambiguous() {
         let events = vec![
-            review_unit_captured_event_with_ids("review-unit:sha256:one", "rev:one", "snap:one"),
-            review_unit_captured_event_with_ids("review-unit:sha256:two", "rev:two", "snap:two"),
+            review_unit_captured_event_with_ids("rev:one", "snap:one"),
+            review_unit_captured_event_with_ids("rev:two", "snap:two"),
         ];
 
         let error = resolve_revision(
@@ -131,11 +131,7 @@ mod tests {
 
     #[test]
     fn explicit_unknown_revision_is_rejected() {
-        let events = vec![review_unit_captured_event_with_ids(
-            "review-unit:sha256:known",
-            "rev:one",
-            "snap:one",
-        )];
+        let events = vec![review_unit_captured_event_with_ids("rev:one", "snap:one")];
 
         let error = resolve_revision(
             &events,
@@ -307,7 +303,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.revision_id);
+        assert_eq!(result.revision_id, capture.revision_id);
         assert!(result.observation_id.as_str().starts_with("obs:sha256:"));
         assert_eq!(result.track_id.as_str(), "agent:codex");
         assert_eq!(result.events_created, 1);
@@ -553,7 +549,7 @@ mod tests {
 
         let result = list_observations(ObservationListOptions::new(repo.path())).unwrap();
 
-        assert_eq!(result.review_unit_id, capture.revision_id);
+        assert_eq!(result.revision_id, capture.revision_id);
         let mut actual_ids = result
             .observations
             .iter()
@@ -747,25 +743,15 @@ mod tests {
         }
     }
 
-    fn review_unit_captured_event_with_ids(
-        review_unit_id: &str,
-        revision_id: &str,
-        snapshot_id: &str,
-    ) -> ShoreEvent {
+    fn review_unit_captured_event_with_ids(revision_id: &str, snapshot_id: &str) -> ShoreEvent {
         // The envelope subject and the payload revision address one and the same
-        // revision, as a real capture stamps both from one minted id. The extra
-        // `revision_id` param only seeds the engagement hint.
+        // revision, as a real capture stamps both from one minted id.
         let revision_id = RevisionId::new(revision_id);
-        let review_unit_id = RevisionId::new(review_unit_id);
         let snapshot_id = ObjectId::new(snapshot_id);
         ShoreEvent::new(
             EventType::WorkObjectProposed,
-            format!("work_object_proposed:{}", review_unit_id.as_str()),
-            EventTarget::for_revision(
-                LedgerId::new("ledger:default"),
-                review_unit_id.clone(),
-                None,
-            ),
+            format!("work_object_proposed:{}", revision_id.as_str()),
+            EventTarget::for_revision(LedgerId::new("ledger:default"), revision_id.clone(), None),
             Writer::shore_local("0.1.0"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new(format!(
@@ -774,7 +760,7 @@ mod tests {
                 )),
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
-                        id: review_unit_id.clone(),
+                        id: revision_id.clone(),
                         object_id: snapshot_id.clone(),
                         git_provenance: Some(GitProvenance {
                             source: ReviewUnitSource::GitWorktree {
@@ -846,14 +832,12 @@ mod tests {
         event_id: &str,
         created_at: &str,
     ) -> ObservationView {
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let revision_id = RevisionId::new("review-unit:sha256:one");
         ObservationView {
             id: crate::model::ObservationId::new(observation_id),
             event_id: EventId::new(event_id),
             track_id: TrackId::new("agent:codex"),
-            target: ReviewTargetRef::Revision {
-                revision_id: review_unit_id,
-            },
+            target: ReviewTargetRef::Revision { revision_id },
             title: "sort".to_owned(),
             body: None,
             tags: vec![],

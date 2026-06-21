@@ -14,7 +14,7 @@ use crate::session::{
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequestOpenBody {
-    review_unit_id: String,
+    revision_id: String,
     input_request_id: String,
     event_id: String,
     track_id: String,
@@ -29,7 +29,7 @@ pub struct InputRequestOpenBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequestListBody {
-    review_unit_id: String,
+    revision_id: String,
     filters: InputRequestListFiltersDocument,
     input_requests: Vec<InputRequestViewDocument>,
 }
@@ -73,7 +73,7 @@ pub fn input_request_open_document(
     EventWriteDocument::new(
         "shore.review-input-request-open",
         InputRequestOpenBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             input_request_id: result.input_request_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
@@ -97,7 +97,7 @@ pub fn input_request_list_document(
     DiagnosticDocument::new(
         "shore.review-input-request-list",
         InputRequestListBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             filters: InputRequestListFiltersDocument {
                 track_id: result
                     .filters

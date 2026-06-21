@@ -351,7 +351,7 @@ mod tests {
 
     fn view_with(oids: &[&str]) -> ReviewUnitCommitRangeView {
         ReviewUnitCommitRangeView {
-            review_unit_id: RevisionId::new("review-unit:sha256:test"),
+            revision_id: RevisionId::new("review-unit:sha256:test"),
             anchored: !oids.is_empty(),
             current_commits: oids
                 .iter()

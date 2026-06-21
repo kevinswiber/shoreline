@@ -20,7 +20,7 @@ use crate::session::{
 pub struct UnitShowBody {
     event_set_hash: String,
     event_count: usize,
-    review_unit: UnitReviewUnitDocument,
+    revision: UnitRevisionDocument,
     filters: UnitShowFiltersDocument,
     summary: UnitShowSummaryDocument,
     current_assessment: CurrentAssessmentDocument,
@@ -39,13 +39,13 @@ pub struct UnitShowBody {
 pub struct UnitListBody {
     event_set_hash: String,
     event_count: usize,
-    review_unit_count: usize,
+    revision_count: usize,
     entries: Vec<ReviewUnitListEntry>,
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitReviewUnitDocument {
+struct UnitRevisionDocument {
     id: String,
     session_id: String,
     revision_id: String,
@@ -67,7 +67,7 @@ struct UnitReviewUnitDocument {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UnitShowFiltersDocument {
-    review_unit_id: String,
+    revision_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     track_id: Option<String>,
     include_body: bool,
@@ -192,7 +192,7 @@ pub fn unit_show_document(mut result: ReviewUnitShowResult) -> DiagnosticDocumen
         UnitShowBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,
-            review_unit: UnitReviewUnitDocument::from(result.review_unit).with_readback(&readbacks),
+            revision: UnitRevisionDocument::from(result.review_unit).with_readback(&readbacks),
             filters: UnitShowFiltersDocument::from(result.filters),
             summary: UnitShowSummaryDocument::from(result.summary),
             current_assessment: CurrentAssessmentDocument::from(result.current_assessment),
@@ -239,14 +239,14 @@ pub fn unit_list_document(result: ReviewUnitListResult) -> DiagnosticDocument<Un
         UnitListBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,
-            review_unit_count: result.review_unit_count,
+            revision_count: result.revision_count,
             entries: result.entries,
         },
         result.diagnostics,
     )
 }
 
-impl From<ReviewUnitProjectionIdentity> for UnitReviewUnitDocument {
+impl From<ReviewUnitProjectionIdentity> for UnitRevisionDocument {
     fn from(identity: ReviewUnitProjectionIdentity) -> Self {
         Self {
             id: identity.id.as_str().to_owned(),
@@ -264,7 +264,7 @@ impl From<ReviewUnitProjectionIdentity> for UnitReviewUnitDocument {
     }
 }
 
-impl UnitReviewUnitDocument {
+impl UnitRevisionDocument {
     /// Attach the reader-relative readback for the capture event. The identity has
     /// no `eventId` of its own, so it keys the side table on `capture_event_id`.
     fn with_readback(mut self, table: &BTreeMap<EventId, MemberReadback>) -> Self {
@@ -279,7 +279,7 @@ impl UnitReviewUnitDocument {
 impl From<ReviewUnitShowFilters> for UnitShowFiltersDocument {
     fn from(filters: ReviewUnitShowFilters) -> Self {
         Self {
-            review_unit_id: filters.review_unit_id.as_str().to_owned(),
+            revision_id: filters.revision_id.as_str().to_owned(),
             track_id: filters
                 .track_id
                 .map(|track_id| track_id.as_str().to_owned()),

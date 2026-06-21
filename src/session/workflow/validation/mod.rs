@@ -37,7 +37,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.revision_id);
+        assert_eq!(result.revision_id, capture.revision_id);
         assert_eq!(result.status, ValidationStatus::Passed);
         assert_eq!(result.events_created, 1);
         let event = validation_events(repo.path())
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn build_validation_check_id_uses_stable_material_digest() {
         let id = build_validation_check_id(ValidationCheckIdMaterial {
-            review_unit_id: &RevisionId::new("review-unit:sha256:unit"),
+            revision_id: &RevisionId::new("review-unit:sha256:unit"),
             track_id: &crate::model::TrackId::new("agent:codex"),
             target: &ValidationTarget::Revision {
                 revision_id: RevisionId::new("review-unit:sha256:unit"),

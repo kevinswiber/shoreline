@@ -42,7 +42,7 @@ pub(super) fn load_bound_snapshot_artifact(
 ) -> Result<DiffSnapshot> {
     let artifact = read_snapshot_artifact(repo, &review_unit.snapshot_id)?;
     // Bind via the namespace-independent snapshot_id + content_hash only. Identity
-    // (review_unit_id/source/base/target) lives in the capture event/projection,
+    // (revision_id/source/base/target) lives in the capture event/projection,
     // never the content-addressed artifact body.
     if artifact.snapshot.snapshot_id != review_unit.snapshot_id {
         return Err(ShoreError::Message(format!(
@@ -85,7 +85,7 @@ mod tests {
         load_bound_snapshot_artifact(repo.path(), &authentic).unwrap();
 
         // A second identity over the SAME snapshot + content hash but a DIFFERENT
-        // review_unit_id and a different worktree target also binds — identity is
+        // revision_id and a different worktree target also binds — identity is
         // not read from the artifact body (INV-3).
         let other = ReviewUnitProjectionIdentity {
             id: RevisionId::new("review-unit:sha256:other-worktree"),

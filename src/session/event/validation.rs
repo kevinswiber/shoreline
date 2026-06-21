@@ -38,13 +38,13 @@ pub struct ValidationCheckRecordedPayload {
 
 impl ValidationCheckRecordedPayload {
     pub fn idempotency_key(
-        review_unit_id: &RevisionId,
+        revision_id: &RevisionId,
         track_id: &TrackId,
         source_key: &str,
     ) -> String {
         format!(
             "validation_check_recorded:{}:{}:{}",
-            review_unit_id.as_str(),
+            revision_id.as_str(),
             track_id.as_str(),
             source_key
         )

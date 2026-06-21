@@ -28,7 +28,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationAddOptions {
     repo: PathBuf,
-    review_unit_id: Option<RevisionId>,
+    revision_id: Option<RevisionId>,
     track: Option<String>,
     check_name: Option<String>,
     command: Option<String>,
@@ -49,7 +49,7 @@ impl ValidationAddOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             check_name: None,
             command: None,
@@ -73,7 +73,7 @@ impl ValidationAddOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -155,7 +155,7 @@ impl ValidationAddOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationAddResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub validation_check_id: ValidationCheckId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -176,7 +176,7 @@ pub fn record_validation_check(options: ValidationAddOptions) -> Result<Validati
     let events = validation_store.validation_events()?;
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -254,7 +254,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
         revision_id: input.resolved.revision_id.clone(),
     };
     let validation_check_id = build_validation_check_id(ValidationCheckIdMaterial {
-        review_unit_id: &input.resolved.revision_id,
+        revision_id: &input.resolved.revision_id,
         track_id: &track_id,
         target: &target,
         check_name: &input.check_name,
@@ -343,7 +343,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     )?;
 
     Ok(ValidationAddResult {
-        review_unit_id: input.resolved.revision_id,
+        revision_id: input.resolved.revision_id,
         validation_check_id,
         event_id,
         track_id,
@@ -358,7 +358,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
 }
 
 pub(super) struct ValidationCheckIdMaterial<'a> {
-    pub review_unit_id: &'a RevisionId,
+    pub revision_id: &'a RevisionId,
     pub track_id: &'a TrackId,
     pub target: &'a ValidationTarget,
     pub check_name: &'a str,
@@ -381,7 +381,7 @@ pub(super) fn build_validation_check_id(
     log_hashes.sort();
     log_hashes.dedup();
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.review_unit_id.as_str(),
+        "reviewUnitId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "checkName": material.check_name,

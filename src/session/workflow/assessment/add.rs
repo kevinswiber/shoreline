@@ -34,7 +34,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentAddOptions {
     repo: PathBuf,
-    review_unit_id: Option<RevisionId>,
+    revision_id: Option<RevisionId>,
     track: Option<String>,
     assessment: Option<ReviewAssessment>,
     summary: Option<String>,
@@ -51,7 +51,7 @@ impl AssessmentAddOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             assessment: None,
             summary: None,
@@ -76,7 +76,7 @@ impl AssessmentAddOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -143,7 +143,7 @@ impl AssessmentAddOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentAddResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub assessment_id: AssessmentId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -175,7 +175,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let validation_events = validation_store.validation_events()?;
     let resolved = resolve_revision(
         &validation_events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -215,7 +215,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let related_observation_ids = sorted_unique(options.related_observation_ids);
     let related_input_request_ids = sorted_unique(options.related_input_request_ids);
     let assessment_id = build_assessment_id(AssessmentIdMaterial {
-        review_unit_id: &resolved.revision_id,
+        revision_id: &resolved.revision_id,
         track_id: &track_id,
         target: &target,
         assessment,
@@ -288,7 +288,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     )?;
 
     let result = AssessmentAddResult {
-        review_unit_id: resolved.revision_id,
+        revision_id: resolved.revision_id,
         assessment_id,
         event_id,
         track_id,
@@ -305,13 +305,13 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
 
 fn validate_assessment_relationships(
     events: &[ShoreEvent],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     replaces_assessment_ids: &[AssessmentId],
     related_observation_ids: &[ObservationId],
     related_input_request_ids: &[InputRequestId],
 ) -> Result<()> {
     for assessment_id in replaces_assessment_ids {
-        if !has_assessment(events, review_unit_id, assessment_id)? {
+        if !has_assessment(events, revision_id, assessment_id)? {
             return Err(ShoreError::Message(format!(
                 "unknown assessment: {}",
                 assessment_id.as_str()
@@ -319,7 +319,7 @@ fn validate_assessment_relationships(
         }
     }
     for observation_id in related_observation_ids {
-        if !has_observation(events, review_unit_id, observation_id)? {
+        if !has_observation(events, revision_id, observation_id)? {
             return Err(ShoreError::Message(format!(
                 "unknown observation: {}",
                 observation_id.as_str()
@@ -327,7 +327,7 @@ fn validate_assessment_relationships(
         }
     }
     for input_request_id in related_input_request_ids {
-        if !has_input_request(events, review_unit_id, input_request_id)? {
+        if !has_input_request(events, revision_id, input_request_id)? {
             return Err(ShoreError::Message(format!(
                 "unknown input request: {}",
                 input_request_id.as_str()
@@ -339,14 +339,14 @@ fn validate_assessment_relationships(
 
 fn has_assessment(
     events: &[ShoreEvent],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     assessment_id: &AssessmentId,
 ) -> Result<bool> {
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(revision_id) {
             continue;
         }
         let payload: ReviewAssessmentRecordedPayload =
@@ -360,14 +360,14 @@ fn has_assessment(
 
 fn has_observation(
     events: &[ShoreEvent],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     observation_id: &ObservationId,
 ) -> Result<bool> {
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(revision_id) {
             continue;
         }
         let payload: ReviewObservationRecordedPayload =
@@ -381,14 +381,14 @@ fn has_observation(
 
 fn has_input_request(
     events: &[ShoreEvent],
-    review_unit_id: &RevisionId,
+    revision_id: &RevisionId,
     input_request_id: &InputRequestId,
 ) -> Result<bool> {
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::InputRequestOpened)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(revision_id) {
             continue;
         }
         let payload = decode_input_request_opened_payload(event.payload.clone())?;
@@ -400,7 +400,7 @@ fn has_input_request(
 }
 
 struct AssessmentIdMaterial<'a> {
-    review_unit_id: &'a RevisionId,
+    revision_id: &'a RevisionId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
     assessment: ReviewAssessment,
@@ -432,7 +432,7 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
     related_input_requests.sort();
 
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.review_unit_id.as_str(),
+        "reviewUnitId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "assessment": material.assessment,
@@ -454,14 +454,14 @@ mod tests {
         const EXPECTED_ASSESSMENT_ID_FOR_FIXTURE: &str =
             "assess:sha256:608bbfbc30dddfe7af8fbbf5cc8bacb12671f79d19f5464511c722577d53e74d";
 
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let revision_id = RevisionId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
         let target = ReviewTargetRef::Revision {
-            revision_id: review_unit_id.clone(),
+            revision_id: revision_id.clone(),
         };
 
         let assessment_id = build_assessment_id(AssessmentIdMaterial {
-            review_unit_id: &review_unit_id,
+            revision_id: &revision_id,
             track_id: &track_id,
             target: &target,
             assessment: ReviewAssessment::Accepted,

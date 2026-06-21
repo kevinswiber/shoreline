@@ -32,11 +32,9 @@ pub struct SessionState {
     pub version: u32,
     pub ledger_id: LedgerId,
     pub current_revision_id: Option<RevisionId>,
-    pub current_snapshot_id: Option<ObjectId>,
+    pub current_object_id: Option<ObjectId>,
     #[serde(default)]
-    pub review_unit_count: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_review_unit_id: Option<RevisionId>,
+    pub revision_count: usize,
     pub event_count: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_set_hash: Option<String>,
@@ -247,7 +245,7 @@ impl StateReducer {
             _ => None,
         };
         let current_revision_id = current_revision.map(|(revision_id, _)| revision_id.clone());
-        let current_snapshot_id = current_revision.map(|(_, object_id)| object_id.clone());
+        let current_object_id = current_revision.map(|(_, object_id)| object_id.clone());
         let open_input_request_count = self
             .input_request_modes
             .keys()
@@ -308,10 +306,9 @@ impl StateReducer {
             schema: STATE_SCHEMA.to_owned(),
             version: STATE_VERSION,
             ledger_id: self.ledger_id,
-            current_revision_id: current_revision_id.clone(),
-            current_snapshot_id,
-            review_unit_count: self.captured_revisions.len(),
-            current_review_unit_id: current_revision_id,
+            current_revision_id,
+            current_object_id,
+            revision_count: self.captured_revisions.len(),
             event_count,
             event_set_hash: Some(event_set_hash),
             note_count: self.note_count,
@@ -377,9 +374,8 @@ mod tests {
 
         assert_eq!(state.schema, "shore.state");
         assert_eq!(state.version, 1);
-        assert_eq!(state.current_review_unit_id, None);
         assert_eq!(state.current_revision_id, None);
-        assert_eq!(state.current_snapshot_id, None);
+        assert_eq!(state.current_object_id, None);
         assert_eq!(state.event_count, 0);
     }
 
@@ -398,7 +394,7 @@ mod tests {
 
     #[test]
     fn projection_event_set_hash_is_order_independent() {
-        let first = review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one");
+        let first = review_unit_captured_event("rev:one", "snap:one");
         let second = observation_event("retry-a", "obs:sha256:one");
 
         let forward = SessionState::from_events(&[first.clone(), second.clone()]).unwrap();
@@ -411,12 +407,8 @@ mod tests {
 
     #[test]
     fn state_json_includes_event_set_hash_but_not_raw_events() {
-        let state = SessionState::from_events(&[review_unit_captured_event(
-            "review-unit:sha256:one",
-            "rev:one",
-            "snap:one",
-        )])
-        .unwrap();
+        let state = SessionState::from_events(&[review_unit_captured_event("rev:one", "snap:one")])
+            .unwrap();
 
         let json = serde_json::to_value(&state).unwrap();
 
@@ -431,37 +423,32 @@ mod tests {
 
     #[test]
     fn projection_tracks_current_review_unit_from_capture() {
-        let event = review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one");
+        let event = review_unit_captured_event("rev:one", "snap:one");
 
         let state = SessionState::from_events(&[event]).unwrap();
 
-        assert_eq!(
-            state.current_review_unit_id.as_ref().unwrap().as_str(),
-            "rev:one"
-        );
         assert_eq!(
             state.current_revision_id.as_ref().unwrap().as_str(),
             "rev:one"
         );
         assert_eq!(
-            state.current_snapshot_id.as_ref().unwrap().as_str(),
+            state.current_object_id.as_ref().unwrap().as_str(),
             "snap:one"
         );
-        assert_eq!(state.review_unit_count, 1);
+        assert_eq!(state.revision_count, 1);
     }
 
     #[test]
     fn projection_keeps_multi_capture_current_unset_without_ambient_diagnostic() {
         let events = vec![
-            review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one"),
-            review_unit_captured_event("review-unit:sha256:two", "rev:two", "snap:two"),
+            review_unit_captured_event("rev:one", "snap:one"),
+            review_unit_captured_event("rev:two", "snap:two"),
         ];
 
         let state = SessionState::from_events(&events).unwrap();
 
-        assert_eq!(state.current_review_unit_id, None);
         assert_eq!(state.current_revision_id, None);
-        assert_eq!(state.current_snapshot_id, None);
+        assert_eq!(state.current_object_id, None);
         assert!(
             !state
                 .diagnostics
@@ -501,16 +488,15 @@ mod tests {
 
         let state = SessionState::from_events(&[event]).expect("task event applies as no-op");
 
-        assert_eq!(state.review_unit_count, 0);
+        assert_eq!(state.revision_count, 0);
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
         assert_eq!(state.input_request_count, 0);
         assert_eq!(state.open_input_request_count, 0);
         assert_eq!(state.open_operative_input_request_count, 0);
-        assert!(state.current_review_unit_id.is_none());
         assert!(state.current_revision_id.is_none());
-        assert!(state.current_snapshot_id.is_none());
+        assert!(state.current_object_id.is_none());
     }
 
     #[test]
@@ -532,14 +518,14 @@ mod tests {
     #[test]
     fn session_state_increments_assessment_count_for_review_assessment_recorded_event() {
         let events = vec![
-            review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one"),
+            review_unit_captured_event("rev:one", "snap:one"),
             assessment_event("assess:sha256:one"),
         ];
 
         let state = SessionState::from_events(&events).unwrap();
 
         assert_eq!(state.event_count, 2);
-        assert_eq!(state.review_unit_count, 1);
+        assert_eq!(state.revision_count, 1);
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 1);
@@ -552,7 +538,7 @@ mod tests {
     #[test]
     fn session_state_increments_validation_check_count_for_validation_check_recorded_event() {
         let events = vec![
-            review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one"),
+            review_unit_captured_event("rev:one", "snap:one"),
             validation_event("retry-a", "validation:sha256:one"),
         ];
 
@@ -569,6 +555,31 @@ mod tests {
         let value = serde_json::to_value(state).unwrap();
 
         assert_eq!(value["validationCheckCount"], 0);
+    }
+
+    #[test]
+    fn projection_uses_revision_vocabulary_for_current_identity_and_count() {
+        let state = SessionState::from_events(&[review_unit_captured_event("rev:one", "snap:one")])
+            .unwrap();
+        let json = serde_json::to_value(&state).unwrap();
+
+        // The current-identity fields carry the revision/object vocabulary, and the
+        // redundant capture-count alias is gone (the count is named for revisions).
+        assert_eq!(json["currentRevisionId"], "rev:one");
+        assert_eq!(json["currentObjectId"], "snap:one");
+        assert_eq!(json["revisionCount"], 1);
+        assert!(
+            json.get("currentReviewUnitId").is_none(),
+            "the redundant currentReviewUnitId alias must not serialize"
+        );
+        assert!(
+            json.get("currentSnapshotId").is_none(),
+            "currentSnapshotId is renamed to currentObjectId"
+        );
+        assert!(
+            json.get("reviewUnitCount").is_none(),
+            "reviewUnitCount is renamed to revisionCount"
+        );
     }
 
     #[test]
@@ -770,11 +781,7 @@ mod tests {
 
     #[test]
     fn state_json_no_longer_contains_legacy_verdict_fields() {
-        let events = vec![review_unit_captured_event(
-            "review-unit:sha256:one",
-            "rev:one",
-            "snap:one",
-        )];
+        let events = vec![review_unit_captured_event("rev:one", "snap:one")];
 
         let state = SessionState::from_events(&events).unwrap();
         let json = serde_json::to_value(&state).unwrap();
@@ -792,7 +799,7 @@ mod tests {
             "version": 1,
             "ledgerId": "ledger:default",
             "currentRevisionId": null,
-            "currentSnapshotId": null,
+            "currentObjectId": null,
             "eventCount": 0,
             "noteCount": 0,
             "diagnostics": []
@@ -800,7 +807,7 @@ mod tests {
 
         let state: SessionState = serde_json::from_value(json).unwrap();
 
-        assert_eq!(state.review_unit_count, 0);
+        assert_eq!(state.revision_count, 0);
         assert_eq!(state.event_set_hash, None);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
@@ -808,14 +815,9 @@ mod tests {
         assert_eq!(state.validation_check_count, 0);
     }
 
-    fn review_unit_captured_event(
-        review_unit_id: &str,
-        revision_id: &str,
-        snapshot_id: &str,
-    ) -> ShoreEvent {
+    fn review_unit_captured_event(revision_id: &str, snapshot_id: &str) -> ShoreEvent {
         // The envelope subject addresses the same revision the payload proposes,
         // mirroring how a real capture stamps both from one minted revision id.
-        let _ = review_unit_id;
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{revision_id}"),

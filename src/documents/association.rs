@@ -9,7 +9,7 @@ use crate::session::{
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssociateCommitBody {
-    review_unit_id: String,
+    revision_id: String,
     commit_association_id: String,
     commit_oid: String,
     tree_oid: String,
@@ -19,7 +19,7 @@ pub struct AssociateCommitBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WithdrawCommitBody {
-    review_unit_id: String,
+    revision_id: String,
     commit_withdrawal_id: String,
     commit_association_id: String,
     event_id: String,
@@ -28,7 +28,7 @@ pub struct WithdrawCommitBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssociateRefBody {
-    review_unit_id: String,
+    revision_id: String,
     ref_association_id: String,
     ref_name: String,
     head_oid: String,
@@ -38,7 +38,7 @@ pub struct AssociateRefBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WithdrawRefBody {
-    review_unit_id: String,
+    revision_id: String,
     ref_withdrawal_id: String,
     ref_association_id: String,
     event_id: String,
@@ -47,7 +47,7 @@ pub struct WithdrawRefBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListAssociationsBody {
-    review_unit_id: String,
+    revision_id: String,
     anchored: bool,
     current_commits: Vec<CurrentCommitAssociation>,
     current_refs: Vec<CurrentRefAssociation>,
@@ -61,7 +61,7 @@ pub fn associate_commit_document(
     EventWriteDocument::new(
         "shore.review-association-commit",
         AssociateCommitBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             commit_association_id: result.commit_association_id.as_str().to_owned(),
             commit_oid: result.commit_oid,
             tree_oid: result.tree_oid,
@@ -80,7 +80,7 @@ pub fn withdraw_commit_document(
     EventWriteDocument::new(
         "shore.review-association-commit-withdrawn",
         WithdrawCommitBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             commit_withdrawal_id: result.commit_withdrawal_id.as_str().to_owned(),
             commit_association_id: result.commit_association_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
@@ -96,7 +96,7 @@ pub fn associate_ref_document(result: AssociateRefResult) -> EventWriteDocument<
     EventWriteDocument::new(
         "shore.review-association-ref",
         AssociateRefBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             ref_association_id: result.ref_association_id.as_str().to_owned(),
             ref_name: result.ref_name,
             head_oid: result.head_oid,
@@ -113,7 +113,7 @@ pub fn withdraw_ref_document(result: WithdrawRefResult) -> EventWriteDocument<Wi
     EventWriteDocument::new(
         "shore.review-association-ref-withdrawn",
         WithdrawRefBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             ref_withdrawal_id: result.ref_withdrawal_id.as_str().to_owned(),
             ref_association_id: result.ref_association_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
@@ -131,7 +131,7 @@ pub fn list_associations_document(
     DiagnosticDocument::new(
         "shore.review-association-list",
         ListAssociationsBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             anchored: result.anchored,
             current_commits: result.current_commits,
             current_refs: result.current_refs,

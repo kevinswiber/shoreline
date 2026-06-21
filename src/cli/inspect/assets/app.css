@@ -153,39 +153,36 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 .unit-card h3 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); }
 .unit-card .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 10px; font-size: 12px; font-family: var(--mono); color: var(--fg-dim); }
 .unit-card .kv b { color: var(--fg); font-weight: 500; }
-.lineage-card h3 { word-break: break-all; }
-.lineage-badges { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 8px; }
-.lineage-badge {
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: rgba(90, 169, 230, 0.12);
-  border: 1px solid rgba(90, 169, 230, 0.28);
-  color: #8ab4f8;
-  cursor: pointer;
-}
-.lineage-badge.lineage-head {
-  background: rgba(109, 210, 138, 0.12);
-  border-color: rgba(109, 210, 138, 0.3);
-  color: #6dd28a;
-}
-.mini-stack { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
-.mini-round {
+.thread-card h3 { word-break: break-all; }
+.supersession-badges { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 8px; }
+/* The competing-heads callout on a forked thread: surface every head, never a
+   null head. */
+.thread-competing { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }
+.thread-card.competing { border-color: rgba(240, 183, 90, 0.3); }
+.fact-status.competing { color: #f0b75a; }
+/* The revision DAG: one node per revision, each marked head/superseded with its
+   supersession edges. */
+.revision-dag { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.revision-node {
   font-family: var(--mono);
   font-size: 11px;
   border: 1px solid var(--border);
+  border-left-width: 3px;
   border-radius: 4px;
-  padding: 2px 6px;
-  color: var(--fg-dim);
+  padding: 5px 8px;
   background: var(--bg-row);
 }
-.mini-round.head { color: #6dd28a; border-color: rgba(109, 210, 138, 0.35); }
+.revision-node.head { border-left-color: #6dd28a; }
+.revision-node.superseded { border-left-color: rgba(240, 183, 90, 0.5); }
+.rev-node-head { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.rev-edge { margin-top: 4px; color: var(--fg-dim); }
 
 .error { background: #3a1416; color: #f3a0a0; padding: 8px 16px; border-top: 1px solid #5a2226; font-family: var(--mono); font-size: 12px; }
 
 .badge { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--bg-row); color: var(--fg-dim); }
 .badge.stale { color: #f3a0a0; background: rgba(243, 160, 160, 0.1); }
+.badge.head { color: #6dd28a; background: rgba(109, 210, 138, 0.1); }
+.badge.superseded, .badge.supersedes { color: #f0b75a; background: rgba(240, 183, 90, 0.1); }
 
 .unit-card .actions { margin-top: 8px; }
 .unit-card .diff-btn { font-size: 12px; }
@@ -380,40 +377,4 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 .endorse-ambiguous_endorser .endorse-label { color: #f0b75a; }
 .endorse-who { font-family: var(--mono); font-size: 12px; color: var(--fg); }
 .endorse-attrs { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
-
-.round-card, .diagnostic-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elev);
-  padding: 10px 12px;
-  margin-bottom: 8px;
-}
-.lineage-stack { position: relative; margin-left: 8px; padding-left: 18px; }
-.lineage-stack::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  top: 10px;
-  bottom: 10px;
-  width: 1px;
-  background: var(--border);
-}
-.round-card { position: relative; }
-.round-card::before {
-  content: "";
-  position: absolute;
-  left: -25px;
-  top: 16px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--bg-row);
-  border: 2px solid var(--border);
-}
-.round-card.head-round::before { border-color: #6dd28a; }
-.round-card.stale-round { border-color: rgba(243, 160, 160, 0.28); }
-.round-card .actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
-.round-identity { margin-top: 6px; }
-.lineage-facts { margin-top: 10px; }
-.lineage-facts .anno { margin-left: 0; }
 .diagnostic-card .code { font-family: var(--mono); color: #f0b75a; margin-right: 8px; }

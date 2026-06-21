@@ -74,11 +74,8 @@ fn api_unit_splices_target_display_for_locally_readable_unit() {
     let fixture = WorktreeCapture::on_branch("wt-bar", "feature/bar");
     let inspector = Inspector::spawn(&fixture.worktree);
 
-    let unit = inspector.get_json(&format!(
-        "/api/unit?id={}",
-        urlencode(&fixture.review_unit_id)
-    ));
-    let review_unit = &unit["reviewUnit"];
+    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&fixture.revision_id)));
+    let review_unit = &unit["revision"];
 
     assert_eq!(review_unit["targetDisplay"]["label"], "wt-bar");
     assert!(review_unit["targetDisplay"]["head"]["commitOidShort"].is_string());
@@ -201,7 +198,7 @@ fn api_units_label_survives_deleted_worktree() {
     let inspector = Inspector::spawn(&reader);
     let units = inspector.get_json("/api/units");
 
-    assert_eq!(units["reviewUnitCount"], 1);
+    assert_eq!(units["revisionCount"], 1);
     let entry = &units["entries"][0];
     assert_eq!(entry["targetDisplay"]["label"], "gone");
     let base_oid = entry["base"]["commitOid"].as_str().unwrap();
@@ -249,6 +246,15 @@ fn api_objects_threads_a_supersession_chain() {
     assert_eq!(superseded.len(), 1);
     assert_eq!(superseded[0], first);
 
+    // The supersession edges are surfaced so the inspector can render the DAG and
+    // name superseding successors: forward (revision -> what it supersedes) and
+    // reverse (revision -> who supersedes it).
+    assert_eq!(objects["supersedes"][&second][0], first);
+    assert_eq!(objects["supersededBy"][&first][0], second);
+    // A head supersedes nothing-it-was-superseded-by; a root is superseded by no one.
+    assert!(objects["supersededBy"].get(&second).is_none());
+    assert!(objects["supersedes"].get(&first).is_none());
+
     let objects_json = objects.to_string();
     assert!(
         !objects_json.contains(&repo.path().to_string_lossy().to_string()),
@@ -260,6 +266,61 @@ fn api_objects_threads_a_supersession_chain() {
     assert!(status.contains("404"), "status: {status}");
     let (status, _) = inspector.get_error(&format!("/api/lineage?id={}", urlencode("anything")));
     assert!(status.contains("404"), "status: {status}");
+}
+
+#[test]
+fn api_objects_surfaces_competing_heads_for_a_fork() {
+    // A root revision superseded by two distinct successors: the thread has two
+    // competing heads (a fork), and the root names BOTH superseding successors.
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let root = capture_supersession_round(repo.path(), None);
+    let branch_a = capture_supersession_round(repo.path(), Some(&root));
+    let branch_b = capture_supersession_round(repo.path(), Some(&root));
+    assert_ne!(branch_a, branch_b, "the two successors must be distinct");
+
+    let inspector = Inspector::spawn(repo.path());
+    let objects = inspector.get_json("/api/objects");
+
+    assert_eq!(objects["threadCount"], 1);
+    let thread = &objects["threads"][0];
+    assert_eq!(thread["competing"], true);
+
+    let heads: Vec<&str> = thread["heads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h.as_str().unwrap())
+        .collect();
+    assert_eq!(heads.len(), 2, "two competing heads: {heads:?}");
+    assert!(heads.contains(&branch_a.as_str()));
+    assert!(heads.contains(&branch_b.as_str()));
+
+    assert_eq!(
+        thread["superseded"].as_array().unwrap(),
+        std::slice::from_ref(&root)
+    );
+
+    // The root names ALL of its superseding successors (fork-tolerant; not a single head).
+    let superseders: Vec<&str> = objects["supersededBy"][&root]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        superseders.len(),
+        2,
+        "names all successors: {superseders:?}"
+    );
+    assert!(superseders.contains(&branch_a.as_str()));
+    assert!(superseders.contains(&branch_b.as_str()));
+
+    // No fork-induced diagnostic: competing heads are surfaced, never an error.
+    assert_eq!(objects["diagnostics"].as_array().unwrap().len(), 0);
 }
 
 /// The issue-140 user story over a real socket: a linked reader (whose source
@@ -277,8 +338,8 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     add_worktree(main.path(), &gone, "gone");
     std::fs::write(gone.join("README.md"), "changed in gone\n").unwrap();
     let capture = capture_json(&gone);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
-    let snapshot_id = capture["reviewUnit"]["snapshotId"]
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
+    let snapshot_id = capture["revision"]["snapshotId"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -301,12 +362,12 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     let inspector = Inspector::spawn(&reader);
 
     let units = inspector.get_json("/api/units");
-    assert_eq!(units["reviewUnitCount"], 1);
-    assert_eq!(units["entries"][0]["reviewUnitId"], unit_id.as_str());
+    assert_eq!(units["revisionCount"], 1);
+    assert_eq!(units["entries"][0]["revisionId"], unit_id.as_str());
     assert_eq!(units["entries"][0]["targetDisplay"]["label"], "gone");
 
     let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&unit_id)));
-    assert_eq!(unit["reviewUnit"]["id"], unit_id.as_str());
+    assert_eq!(unit["revision"]["id"], unit_id.as_str());
     assert_eq!(unit["summary"]["observationCount"], 1);
     assert_eq!(unit["summary"]["inputRequestCount"], 1);
     assert_eq!(unit["summary"]["assessmentCount"], 1);

@@ -81,7 +81,7 @@ pub use workflow::{
     ReviewUnitListResult, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
     ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
     ReviewUnitShowResult, SnapshotOrder, StoreMigrateResult, StoreStatusArtifactInventory,
-    StoreStatusInventory, StoreStatusOptions, StoreStatusResult, StoreStatusReviewUnitSnapshot,
+    StoreStatusInventory, StoreStatusOptions, StoreStatusResult, StoreStatusRevisionSnapshot,
     StoreStatusSensitivity, StoreStatusSensitivityFinding, SweepOutcome, SweptBlob,
     ValidationAddOptions, ValidationAddResult, ValidationCheckProjectionOptions,
     ValidationCheckView, ValidationListFilters, ValidationListOptions, ValidationListResult,

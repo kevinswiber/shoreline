@@ -16,7 +16,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentShowOptions {
     pub(super) repo: PathBuf,
-    pub(super) review_unit_id: Option<RevisionId>,
+    pub(super) revision_id: Option<RevisionId>,
     pub(super) track: Option<String>,
     pub(super) include_summary: bool,
     pub(super) include_all: bool,
@@ -26,7 +26,7 @@ impl AssessmentShowOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             include_summary: false,
             include_all: false,
@@ -34,7 +34,7 @@ impl AssessmentShowOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -55,7 +55,7 @@ impl AssessmentShowOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentShowResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub filters: AssessmentShowFilters,
     pub current: CurrentAssessmentView,
     pub assessments: Vec<AssessmentView>,
@@ -75,7 +75,7 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
     let events = EventStore::open(store_dir).list_events()?;
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -95,7 +95,7 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(AssessmentShowResult {
-        review_unit_id: resolved.revision_id,
+        revision_id: resolved.revision_id,
         filters: AssessmentShowFilters {
             track_id: track_filter,
             include_summary: options.include_summary,

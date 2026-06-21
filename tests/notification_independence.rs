@@ -46,13 +46,13 @@ fn repo_with_one_capture() -> (GitRepo, RevisionId) {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    let review_unit_id = RevisionId::new(capture(repo.path()));
-    (repo, review_unit_id)
+    let revision_id = RevisionId::new(capture(repo.path()));
+    (repo, revision_id)
 }
 
 #[test]
 fn write_is_byte_identical_with_or_without_a_liveness_read() {
-    let (repo, review_unit_id) = repo_with_one_capture();
+    let (repo, revision_id) = repo_with_one_capture();
 
     // The log as written, before any liveness read touches it.
     let before = event_fingerprints(repo.path());
@@ -64,7 +64,7 @@ fn write_is_byte_identical_with_or_without_a_liveness_read() {
     for _ in 0..16 {
         let events = read_events(repo.path()).expect("read events");
         let _ = LivenessToken::for_ledger(&events).expect("ledger token");
-        let _ = LivenessToken::for_work_object(&events, &review_unit_id).expect("scoped token");
+        let _ = LivenessToken::for_work_object(&events, &revision_id).expect("scoped token");
     }
 
     let after = event_fingerprints(repo.path());

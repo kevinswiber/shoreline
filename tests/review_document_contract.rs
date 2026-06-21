@@ -219,11 +219,11 @@ fn fixture_repo() -> (GitRepo, String) {
     )
     .expect("capture stdout is utf-8");
     let value: Value = serde_json::from_str(&raw).expect("valid capture json");
-    let review_unit_id = value["reviewUnit"]["id"]
+    let revision_id = value["revision"]["id"]
         .as_str()
         .expect("review unit id")
         .to_owned();
-    (repo, review_unit_id)
+    (repo, revision_id)
 }
 
 fn repo_arg(repo: &GitRepo) -> String {

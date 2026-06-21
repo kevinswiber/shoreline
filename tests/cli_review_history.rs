@@ -34,7 +34,7 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
     assert_eq!(json["entries"][0]["eventType"], "work_object_proposed");
     assert_eq!(
         json["entries"][0]["subject"]["revisionId"],
-        capture["reviewUnit"]["id"]
+        capture["revision"]["id"]
     );
     assert!(json.get("statePath").is_none());
 }
@@ -275,18 +275,18 @@ fn review_history_filters_by_review_unit() {
         "--repo",
         repo.path().to_str().unwrap(),
         "--review-unit",
-        first["reviewUnit"]["id"].as_str().unwrap(),
+        first["revision"]["id"].as_str().unwrap(),
         "--event-type",
         "revision-captured",
     ]);
     let json = parse_json(&output.stdout);
 
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
     assert_eq!(json["eventCount"], 4);
     assert_eq!(json["historyCount"], 1);
     assert_eq!(
         json["entries"][0]["subject"]["revisionId"],
-        first["reviewUnit"]["id"]
+        first["revision"]["id"]
     );
 }
 

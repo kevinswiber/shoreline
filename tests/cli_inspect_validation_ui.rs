@@ -65,35 +65,30 @@ fn served_app_js_registers_validation_timeline_type() {
 }
 
 #[test]
-fn served_app_js_includes_validation_in_lineage_facts() {
+fn served_app_js_includes_validation_in_supersedable_facts() {
     let app_js = spawn_and_get_app_js();
 
+    // Validation participates in supersession-staleness: a validation check on a
+    // superseded revision earns the stale badge, like every other review fact.
     let line = app_js
         .lines()
-        .find(|l| l.contains("LINEAGE_FACT_TYPES"))
-        .expect("LINEAGE_FACT_TYPES line");
+        .find(|l| l.contains("SUPERSEDABLE_FACT_TYPES"))
+        .expect("SUPERSEDABLE_FACT_TYPES line");
     assert!(
         line.contains("validation_check_recorded"),
-        "validation must be a lineage fact type"
+        "validation must be a supersedable fact type"
     );
 
-    // renderLineageFact derives a validation kind, title, and status tag.
-    let render = slice_between(
+    // The stale badge is gated on supersedable facts and reads the supersession
+    // reverse edges (naming every superseding successor).
+    let badge = slice_between(
         &app_js,
-        "function renderLineageFact(e, stale)",
-        "function renderLineagePage",
+        "function supersessionStaleBadge",
+        "function captureSupersedesBadge",
     );
     assert!(
-        render.contains("validation"),
-        "renderLineageFact needs a validation arm"
-    );
-    assert!(
-        render.contains("checkName"),
-        "validation card title reads checkName"
-    );
-    assert!(
-        render.contains("s.status"),
-        "validation card tags carry the status"
+        badge.contains("isSupersedableFact") && badge.contains("supersededByRevision"),
+        "the stale badge is computed from supersession, gated on supersedable facts"
     );
 }
 
@@ -286,13 +281,10 @@ fn api_history_carries_typed_validation_summaries() {
     assert_eq!(passed["summary"]["target"]["kind"], "revision");
     assert_eq!(
         passed["summary"]["target"]["revisionId"],
-        store.review_unit_id.as_str()
+        store.revision_id.as_str()
     );
     // Top-level joins the UI relies on (timeline track filter, lineage join key).
-    assert_eq!(
-        passed["subject"]["revisionId"],
-        store.review_unit_id.as_str()
-    );
+    assert_eq!(passed["subject"]["revisionId"], store.revision_id.as_str());
     assert_eq!(passed["trackId"], "agent:codex");
 
     let failed = entries
@@ -309,10 +301,7 @@ fn api_history_carries_typed_validation_summaries() {
 fn api_unit_serves_validation_checks_and_count() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/unit?id={}",
-        urlencode(&store.review_unit_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&store.revision_id)));
 
     assert_eq!(unit["schema"], "shore.review-unit");
     assert_eq!(unit["summary"]["validationCheckCount"], 2);
@@ -355,10 +344,7 @@ fn api_unit_serves_validation_checks_and_count() {
 fn api_unit_projects_validation_evidence_rows() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/unit?id={}",
-        urlencode(&store.review_unit_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&store.revision_id)));
 
     let check_ids: Vec<&str> = unit["validationChecks"]
         .as_array()
@@ -395,10 +381,7 @@ fn api_unit_projects_validation_evidence_rows() {
 fn api_unit_resolves_current_assessment_and_fact_arrays() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/unit?id={}",
-        urlencode(&store.review_unit_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&store.revision_id)));
 
     // The superseding assessment resolves the current assessment.
     let ca = &unit["currentAssessment"];
@@ -430,10 +413,7 @@ fn api_unit_resolves_current_assessment_and_fact_arrays() {
 fn validation_is_structurally_separate_from_assessment_authority() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/unit?id={}",
-        urlencode(&store.review_unit_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&store.revision_id)));
 
     // currentAssessment references an assessment id, never a validation id, and
     // carries no validation fields.

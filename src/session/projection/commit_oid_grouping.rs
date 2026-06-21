@@ -1,7 +1,7 @@
-//! Read-time inversion of the commit-range projection: `commit_oid → {review_unit_ids}`.
+//! Read-time inversion of the commit-range projection: `commit_oid → {revision_ids}`.
 //!
 //! Under the shared store two worktrees that capture the same range mint distinct
-//! `review_unit_id`s (the identity fold folds the per-worktree `source_repo_namespace`,
+//! `revision_id`s (the identity fold folds the per-worktree `source_repo_namespace`,
 //! `fingerprint.rs`), but their current commit sets converge on the same OID(s). This
 //! view recovers that convergence so a read surface can present co-grouped units as one.
 //! It is a pure projection — no git, no store reads, no re-identification. Reachability
@@ -32,14 +32,14 @@ impl CommitOidGroupingProjection {
     pub fn from_events(events: &[ShoreEvent]) -> Result<Self> {
         let commit_range = ReviewUnitCommitRangeProjection::from_events(events)?;
         let mut groups: BTreeMap<String, BTreeSet<RevisionId>> = BTreeMap::new();
-        for (review_unit_id, view) in &commit_range.units {
+        for (revision_id, view) in &commit_range.units {
             for current in &view.current_commits {
                 // Distinct ids sharing one OID is the designed cross-worktree outcome,
                 // not a bug to dedup away at identity time — the identity fold stays put.
                 groups
                     .entry(current.commit_oid.clone())
                     .or_default()
-                    .insert(review_unit_id.clone());
+                    .insert(revision_id.clone());
             }
         }
         Ok(Self { groups })
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn two_units_sharing_a_commit_oid_group_together() {
-        // Two distinct review_unit_ids whose current sets both contain "oidShared"
+        // Two distinct revision_ids whose current sets both contain "oidShared"
         // collapse into one grouping key. (Models the cross-worktree same-range case:
         // two units, one shared OID — no re-ID.)
         let unit_a = RevisionId::new("review-unit:sha256:a");

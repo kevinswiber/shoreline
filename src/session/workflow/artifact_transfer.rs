@@ -411,12 +411,9 @@ mod tests {
     }
 
     fn validation_event_with_summary_path(path: &str) -> ShoreEvent {
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
-        let mut target = EventTarget::for_revision(
-            LedgerId::new("session:default"),
-            review_unit_id.clone(),
-            None,
-        );
+        let revision_id = RevisionId::new("review-unit:sha256:one");
+        let mut target =
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id.clone(), None);
         target.track_id = Some(TrackId::new("agent:codex"));
         ShoreEvent::new(
             EventType::ValidationCheckRecorded,
@@ -425,9 +422,7 @@ mod tests {
             Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new("validation:sha256:one"),
-                target: ValidationTarget::Revision {
-                    revision_id: review_unit_id,
-                },
+                target: ValidationTarget::Revision { revision_id },
                 check_name: "cargo test".to_owned(),
                 command: None,
                 status: ValidationStatus::Passed,

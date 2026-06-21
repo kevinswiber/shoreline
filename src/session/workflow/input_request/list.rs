@@ -18,7 +18,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestListOptions {
     repo: PathBuf,
-    review_unit_id: Option<RevisionId>,
+    revision_id: Option<RevisionId>,
     track: Option<String>,
     mode: Option<AssertionMode>,
     file: Option<String>,
@@ -30,7 +30,7 @@ impl InputRequestListOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             mode: None,
             file: None,
@@ -40,7 +40,7 @@ impl InputRequestListOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -80,7 +80,7 @@ pub struct InputRequestListFilters {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestListResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub filters: InputRequestListFilters,
     pub input_requests: Vec<InputRequestView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -93,7 +93,7 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
     let events = event_store.list_events()?;
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -115,7 +115,7 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(InputRequestListResult {
-        review_unit_id: resolved.revision_id,
+        revision_id: resolved.revision_id,
         filters: InputRequestListFilters {
             track_id: track_filter,
             mode: options.mode,

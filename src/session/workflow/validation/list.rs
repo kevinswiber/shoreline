@@ -16,7 +16,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationListOptions {
     repo: PathBuf,
-    review_unit_id: Option<RevisionId>,
+    revision_id: Option<RevisionId>,
     track: Option<String>,
     status: Option<ValidationStatus>,
     include_body: bool,
@@ -26,7 +26,7 @@ impl ValidationListOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             status: None,
             include_body: false,
@@ -34,7 +34,7 @@ impl ValidationListOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -62,7 +62,7 @@ pub struct ValidationListFilters {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationListResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub filters: ValidationListFilters,
     pub validation_checks: Vec<ValidationCheckView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -75,7 +75,7 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
     let events = event_store.list_events()?;
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -87,7 +87,7 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
         store_dir,
         events: &events,
-        review_unit_id: &resolved.revision_id,
+        revision_id: &resolved.revision_id,
         track_filter: track_filter.clone(),
         status_filter: options.status,
         include_body: options.include_body,
@@ -95,7 +95,7 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(ValidationListResult {
-        review_unit_id: resolved.revision_id,
+        revision_id: resolved.revision_id,
         filters: ValidationListFilters {
             track_id: track_filter,
             status: options.status,

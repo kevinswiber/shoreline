@@ -136,14 +136,14 @@ mod tests {
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body {
-            review_unit_id: &'static str,
+            revision_id: &'static str,
             event_id: &'static str,
         }
 
         let doc = super::EventWriteDocument::new(
             "shore.test-write",
             Body {
-                review_unit_id: "unit:1",
+                revision_id: "unit:1",
                 event_id: "evt:1",
             },
             1,
@@ -154,7 +154,7 @@ mod tests {
 
         assert_eq!(
             write_compact(&doc),
-            "{\"schema\":\"shore.test-write\",\"version\":1,\"reviewUnitId\":\"unit:1\",\"eventId\":\"evt:1\",\"eventsCreated\":1,\"eventsExisting\":2,\"eventsCreatedByType\":{},\"diagnostics\":[]}"
+            "{\"schema\":\"shore.test-write\",\"version\":1,\"revisionId\":\"unit:1\",\"eventId\":\"evt:1\",\"eventsCreated\":1,\"eventsExisting\":2,\"eventsCreatedByType\":{},\"diagnostics\":[]}"
         );
     }
 
@@ -163,14 +163,14 @@ mod tests {
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body {
-            review_unit_id: &'static str,
+            revision_id: &'static str,
             count: usize,
         }
 
         let doc = super::DiagnosticDocument::new(
             "shore.test-read",
             Body {
-                review_unit_id: "unit:1",
+                revision_id: "unit:1",
                 count: 3,
             },
             Vec::new(),
@@ -178,7 +178,7 @@ mod tests {
 
         assert_eq!(
             write_compact(&doc),
-            "{\"schema\":\"shore.test-read\",\"version\":1,\"reviewUnitId\":\"unit:1\",\"count\":3,\"diagnostics\":[]}"
+            "{\"schema\":\"shore.test-read\",\"version\":1,\"revisionId\":\"unit:1\",\"count\":3,\"diagnostics\":[]}"
         );
     }
 
@@ -190,15 +190,13 @@ mod tests {
         };
         use crate::session::ValidationAddResult;
 
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let revision_id = RevisionId::new("review-unit:sha256:one");
         let doc = validation_add_document(ValidationAddResult {
-            review_unit_id: review_unit_id.clone(),
+            revision_id: revision_id.clone(),
             validation_check_id: ValidationCheckId::new("validation:sha256:one"),
             event_id: EventId::new("evt:sha256:one"),
             track_id: TrackId::new("agent:codex"),
-            target: ValidationTarget::Revision {
-                revision_id: review_unit_id,
-            },
+            target: ValidationTarget::Revision { revision_id },
             status: ValidationStatus::Passed,
             summary_content_hash: Some("sha256:summary".to_owned()),
             events_created: 1,
@@ -350,14 +348,12 @@ mod tests {
         };
         use crate::session::event::Writer;
 
-        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let revision_id = RevisionId::new("review-unit:sha256:one");
         crate::session::ValidationCheckView {
             id: ValidationCheckId::new("validation:sha256:one"),
             event_id: EventId::new("evt:sha256:one"),
             track_id: TrackId::new("agent:codex"),
-            target: ValidationTarget::Revision {
-                revision_id: review_unit_id,
-            },
+            target: ValidationTarget::Revision { revision_id },
             check_name: "cargo test".to_owned(),
             command: Some("cargo test --all".to_owned()),
             status: ValidationStatus::Passed,

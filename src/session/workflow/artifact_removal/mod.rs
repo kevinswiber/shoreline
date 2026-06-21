@@ -261,9 +261,9 @@ fn resolve_selector(
                 targeted_units,
             })
         }
-        RemoveSelector::ReviewUnit(review_unit_id) => {
+        RemoveSelector::ReviewUnit(revision_id) => {
             let mut targeted_units = BTreeSet::new();
-            targeted_units.insert(review_unit_id.clone());
+            targeted_units.insert(revision_id.clone());
             Ok(selection_for_units(targeted_units, index))
         }
         RemoveSelector::Ref(reference) => {

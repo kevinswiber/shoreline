@@ -35,7 +35,7 @@ fn review_unit_show_emits_v1_json() {
             .starts_with("sha256:")
     );
     assert_eq!(json["eventCount"], 2);
-    assert_eq!(json["reviewUnit"]["id"], json["filters"]["reviewUnitId"]);
+    assert_eq!(json["revision"]["id"], json["filters"]["revisionId"]);
     assert_eq!(json["currentAssessment"]["status"], "unassessed");
     assert!(json["currentAssessment"].get("assessment").is_none());
     assert!(json["currentAssessment"].get("assessmentId").is_none());
@@ -115,12 +115,12 @@ fn review_unit_show_supports_explicit_review_unit_when_ambiguous() {
         "--repo",
         repo.path().to_str().unwrap(),
         "--revision",
-        first["reviewUnit"]["id"].as_str().unwrap(),
+        first["revision"]["id"].as_str().unwrap(),
     ]);
     let json = parse_json(&explicit.stdout);
 
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
-    assert_eq!(json["reviewUnit"]["id"], first["reviewUnit"]["id"]);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
+    assert_eq!(json["revision"]["id"], first["revision"]["id"]);
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn unit_show_projects_range_capture_with_bound_snapshot() {
         ])
         .stdout,
     );
-    let review_unit_id = capture["reviewUnit"]["id"].as_str().unwrap();
+    let revision_id = capture["revision"]["id"].as_str().unwrap();
 
     let output = shore([
         "review",
@@ -333,7 +333,7 @@ fn unit_show_projects_range_capture_with_bound_snapshot() {
         "--repo",
         repo.path().to_str().unwrap(),
         "--revision",
-        review_unit_id,
+        revision_id,
     ]);
 
     // The command succeeding proves load_bound_snapshot_artifact validated the
@@ -345,9 +345,9 @@ fn unit_show_projects_range_capture_with_bound_snapshot() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json = parse_json(&output.stdout);
-    assert_eq!(json["reviewUnit"]["source"]["kind"], "git_commit_range");
-    assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
-    assert_eq!(json["reviewUnit"]["target"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["source"]["kind"], "git_commit_range");
+    assert_eq!(json["revision"]["base"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["target"]["kind"], "git_commit");
     assert!(json["summary"]["snapshotRowCount"].as_u64().unwrap() > 0);
     assert!(
         stdout.contains("src/lib.rs"),
@@ -388,12 +388,12 @@ fn unit_show_disambiguates_worktree_and_range_units() {
             "--repo",
             repo.path().to_str().unwrap(),
             "--revision",
-            range["reviewUnit"]["id"].as_str().unwrap(),
+            range["revision"]["id"].as_str().unwrap(),
         ])
         .stdout,
     );
-    assert_eq!(json["reviewUnit"]["id"], range["reviewUnit"]["id"]);
-    assert_eq!(json["reviewUnit"]["source"]["kind"], "git_commit_range");
+    assert_eq!(json["revision"]["id"], range["revision"]["id"]);
+    assert_eq!(json["revision"]["source"]["kind"], "git_commit_range");
 }
 
 #[test]
@@ -444,7 +444,7 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     // The capture identity (the captured event) carries the status.
-    assert_eq!(doc["reviewUnit"]["verificationStatus"], "untrusted_key");
+    assert_eq!(doc["revision"]["verificationStatus"], "untrusted_key");
     // Each narrative member carries the status of its own event.
     assert_eq!(
         doc["observations"][0]["verificationStatus"],
@@ -526,7 +526,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
         &[("SHORE_HOME", env_home)],
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    let endorsement = &doc["reviewUnit"]["endorsements"][0];
+    let endorsement = &doc["revision"]["endorsements"][0];
     assert_eq!(endorsement["classification"], "endorsement-trusted");
     assert_eq!(endorsement["endorser"], "actor:git-email:kevin@swiber.dev");
     assert_eq!(endorsement["endorserAttributes"]["kind"], "human");

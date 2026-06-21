@@ -44,7 +44,7 @@ pub struct ReviewUnitCommitRangeProjection {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewUnitCommitRangeView {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub anchored: bool,
     pub current_commits: Vec<CurrentCommitAssociation>,
     pub current_refs: Vec<CurrentRefAssociation>,
@@ -127,7 +127,7 @@ impl ReviewUnitCommitRangeProjection {
                     let payload: ReviewUnitCommitAssociatedPayload =
                         serde_json::from_value(event.payload.clone())?;
                     if let (
-                        Some(review_unit_id),
+                        Some(revision_id),
                         ReviewEndpoint::GitCommit {
                             commit_oid,
                             tree_oid,
@@ -135,7 +135,7 @@ impl ReviewUnitCommitRangeProjection {
                     ) = (review_unit_of(&payload.target), payload.commit)
                     {
                         builders
-                            .entry(review_unit_id)
+                            .entry(revision_id)
                             .or_default()
                             .associated_commits
                             .insert(payload.commit_association_id, (commit_oid, tree_oid));
@@ -144,9 +144,9 @@ impl ReviewUnitCommitRangeProjection {
                 EventType::RevisionCommitWithdrawn => {
                     let payload: ReviewUnitCommitWithdrawnPayload =
                         serde_json::from_value(event.payload.clone())?;
-                    if let Some(review_unit_id) = review_unit_of(&payload.target) {
+                    if let Some(revision_id) = review_unit_of(&payload.target) {
                         builders
-                            .entry(review_unit_id)
+                            .entry(revision_id)
                             .or_default()
                             .withdrawn_commits
                             .insert(payload.commit_association_id, payload.commit_withdrawal_id);
@@ -155,9 +155,9 @@ impl ReviewUnitCommitRangeProjection {
                 EventType::RevisionRefAssociated => {
                     let payload: ReviewUnitRefAssociatedPayload =
                         serde_json::from_value(event.payload.clone())?;
-                    if let Some(review_unit_id) = review_unit_of(&payload.target) {
+                    if let Some(revision_id) = review_unit_of(&payload.target) {
                         builders
-                            .entry(review_unit_id)
+                            .entry(revision_id)
                             .or_default()
                             .associated_refs
                             .insert(
@@ -169,9 +169,9 @@ impl ReviewUnitCommitRangeProjection {
                 EventType::RevisionRefWithdrawn => {
                     let payload: ReviewUnitRefWithdrawnPayload =
                         serde_json::from_value(event.payload.clone())?;
-                    if let Some(review_unit_id) = review_unit_of(&payload.target) {
+                    if let Some(revision_id) = review_unit_of(&payload.target) {
                         builders
-                            .entry(review_unit_id)
+                            .entry(revision_id)
                             .or_default()
                             .withdrawn_refs
                             .insert(payload.ref_association_id, payload.ref_withdrawal_id);
@@ -183,17 +183,17 @@ impl ReviewUnitCommitRangeProjection {
 
         let units = builders
             .into_iter()
-            .map(|(review_unit_id, builder)| {
-                let view = builder.finish(review_unit_id.clone());
-                (review_unit_id, view)
+            .map(|(revision_id, builder)| {
+                let view = builder.finish(revision_id.clone());
+                (revision_id, view)
             })
             .collect();
 
         Ok(Self { units })
     }
 
-    pub fn unit(&self, review_unit_id: &RevisionId) -> Option<&ReviewUnitCommitRangeView> {
-        self.units.get(review_unit_id)
+    pub fn unit(&self, revision_id: &RevisionId) -> Option<&ReviewUnitCommitRangeView> {
+        self.units.get(revision_id)
     }
 
     /// Units whose current refs include an exact `ref_name` label match. Used by
@@ -229,7 +229,7 @@ struct CommitRangeBuilder {
 }
 
 impl CommitRangeBuilder {
-    fn finish(self, review_unit_id: RevisionId) -> ReviewUnitCommitRangeView {
+    fn finish(self, revision_id: RevisionId) -> ReviewUnitCommitRangeView {
         let mut diagnostics = Vec::new();
 
         let commit_axis = partition_axis(self.associated_commits, self.withdrawn_commits);
@@ -320,7 +320,7 @@ impl CommitRangeBuilder {
                 RETRACTION_TARGET_MISSING_CODE,
                 format!(
                     "review unit {} withdraws association {missing}, which has no matching association",
-                    review_unit_id.as_str()
+                    revision_id.as_str()
                 ),
             ));
         }
@@ -335,14 +335,14 @@ impl CommitRangeBuilder {
                 DIVERGENT_COMMIT_ASSOCIATION_CODE,
                 format!(
                     "review unit {} has {} distinct current commit associations",
-                    review_unit_id.as_str(),
+                    revision_id.as_str(),
                     distinct_oids.len()
                 ),
             ));
         }
 
         ReviewUnitCommitRangeView {
-            review_unit_id,
+            revision_id,
             anchored: !current_commits.is_empty(),
             current_commits,
             current_refs,
@@ -407,24 +407,24 @@ mod tests {
         build_commit_withdrawal_id, build_ref_association_id,
     };
 
-    fn review_unit_id() -> RevisionId {
+    fn revision_id() -> RevisionId {
         RevisionId::new("rev:git:sha256:def")
     }
 
     fn target() -> ReviewTargetRef {
         ReviewTargetRef::Revision {
-            revision_id: review_unit_id(),
+            revision_id: revision_id(),
         }
     }
 
     fn envelope() -> EventTarget {
-        EventTarget::for_revision(LedgerId::new("session:default"), review_unit_id(), None)
+        EventTarget::for_revision(LedgerId::new("session:default"), revision_id(), None)
     }
 
     fn capture(target_endpoint: ReviewEndpoint) -> ShoreEvent {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
-            format!("work_object_proposed:{}", review_unit_id().as_str()),
+            format!("work_object_proposed:{}", revision_id().as_str()),
             envelope(),
             Writer::shore_local("test"),
             WorkObjectProposedPayload {
@@ -436,7 +436,7 @@ mod tests {
                 )),
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
-                        id: review_unit_id(),
+                        id: revision_id(),
                         object_id: ObjectId::new("snap:git:sha256:ghi"),
                         git_provenance: Some(GitProvenance {
                             source: ReviewUnitSource::GitWorktree {
@@ -466,7 +466,7 @@ mod tests {
     }
 
     fn commit_associated(commit_oid: &str) -> ShoreEvent {
-        let ru = review_unit_id();
+        let ru = revision_id();
         let cid = build_commit_association_id(&ru, commit_oid).unwrap();
         ShoreEvent::new(
             EventType::RevisionCommitAssociated,
@@ -487,7 +487,7 @@ mod tests {
     }
 
     fn commit_withdrawn(commit_oid: &str) -> ShoreEvent {
-        let ru = review_unit_id();
+        let ru = revision_id();
         let cid = build_commit_association_id(&ru, commit_oid).unwrap();
         let wid = build_commit_withdrawal_id(&ru, &cid).unwrap();
         ShoreEvent::new(
@@ -506,7 +506,7 @@ mod tests {
     }
 
     fn ref_associated(ref_name: &str, head_oid: &str) -> ShoreEvent {
-        let ru = review_unit_id();
+        let ru = revision_id();
         let rid = build_ref_association_id(&ru, ref_name, head_oid).unwrap();
         ShoreEvent::new(
             EventType::RevisionRefAssociated,
@@ -527,7 +527,7 @@ mod tests {
     fn view_of(events: &[ShoreEvent]) -> ReviewUnitCommitRangeView {
         ReviewUnitCommitRangeProjection::from_events(events)
             .unwrap()
-            .unit(&review_unit_id())
+            .unit(&revision_id())
             .unwrap()
             .clone()
     }

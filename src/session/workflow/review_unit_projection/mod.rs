@@ -53,7 +53,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let events = EventStore::open(read_store.store_dir()).list_events()?;
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -101,7 +101,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
         store_dir: read_store.store_dir(),
         events: &events,
-        review_unit_id: &resolved.revision_id,
+        revision_id: &resolved.revision_id,
         track_filter: track_id.clone(),
         status_filter: None,
         include_body: options.include_body,
@@ -163,7 +163,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         .unit(&resolved.revision_id)
         .cloned()
         .unwrap_or_else(|| ReviewUnitCommitRangeView {
-            review_unit_id: resolved.revision_id.clone(),
+            revision_id: resolved.revision_id.clone(),
             anchored: false,
             current_commits: Vec::new(),
             current_refs: Vec::new(),
@@ -245,7 +245,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         snapshot,
         removed_snapshot_content_hash,
         filters: ReviewUnitShowFilters {
-            review_unit_id: resolved.revision_id,
+            revision_id: resolved.revision_id,
             track_id,
             include_body: options.include_body,
         },
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(result.review_unit.id, capture.revision_id);
         assert_eq!(result.review_unit.revision_id, capture.revision_id);
         assert_eq!(result.review_unit.snapshot_id, capture.object_id);
-        assert_eq!(result.filters.review_unit_id, capture.revision_id);
+        assert_eq!(result.filters.revision_id, capture.revision_id);
         // Capture event plus the auto-recorded capture-time ref association.
         assert_eq!(result.event_count, 2);
         assert!(result.event_set_hash.starts_with("sha256:"));
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn unit_show_emits_diagnostic_for_unresolvable_agent_principal() {
-        let (repo, review_unit_id) = capture_with_agent_observation();
+        let (repo, revision_id) = capture_with_agent_observation();
         // A map that does not know this agent → no_delegation_record.
         let map = crate::session::delegation_map_from_value(serde_json::json!({
             "delegates": {}
@@ -395,7 +395,7 @@ mod tests {
 
         let result = show_review_unit(
             ReviewUnitShowOptions::new(repo.path())
-                .with_review_unit_id(review_unit_id)
+                .with_review_unit_id(revision_id)
                 .with_delegation_map(map),
         )
         .unwrap();
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn unit_show_emits_diagnostic_for_ambiguous_principal() {
-        let (repo, review_unit_id) = capture_with_agent_observation();
+        let (repo, revision_id) = capture_with_agent_observation();
         // Two overlapping open windows with distinct principals → ambiguous.
         let map = crate::session::delegation_map_from_value(serde_json::json!({
             "delegates": {
@@ -427,7 +427,7 @@ mod tests {
 
         let result = show_review_unit(
             ReviewUnitShowOptions::new(repo.path())
-                .with_review_unit_id(review_unit_id)
+                .with_review_unit_id(revision_id)
                 .with_delegation_map(map),
         )
         .unwrap();
@@ -451,9 +451,9 @@ mod tests {
 
     #[test]
     fn unit_show_without_map_emits_no_principal_diagnostics() {
-        let (repo, review_unit_id) = capture_with_agent_observation();
+        let (repo, revision_id) = capture_with_agent_observation();
         let result = show_review_unit(
-            ReviewUnitShowOptions::new(repo.path()).with_review_unit_id(review_unit_id),
+            ReviewUnitShowOptions::new(repo.path()).with_review_unit_id(revision_id),
         )
         .unwrap();
         assert!(
@@ -1384,10 +1384,10 @@ mod tests {
 
     fn rewrite_capture_event_snapshot_artifact_hash(
         repo: &Path,
-        review_unit_id: &RevisionId,
+        revision_id: &RevisionId,
         hash: &str,
     ) {
-        let path = capture_event_path(repo, review_unit_id);
+        let path = capture_event_path(repo, revision_id);
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).expect("read capture event"))
                 .expect("parse capture event json");
@@ -1481,7 +1481,7 @@ mod tests {
             .expect("find snapshot artifact")
     }
 
-    fn capture_event_path(repo: &Path, review_unit_id: &RevisionId) -> PathBuf {
+    fn capture_event_path(repo: &Path, revision_id: &RevisionId) -> PathBuf {
         fs::read_dir(resolved_store_dir(repo).join("events"))
             .expect("read events directory")
             .map(|entry| entry.expect("read event dir entry").path())
@@ -1493,7 +1493,7 @@ mod tests {
                     return false;
                 };
                 json["eventType"] == "work_object_proposed"
-                    && json["payload"]["workObject"]["revision"]["id"] == review_unit_id.as_str()
+                    && json["payload"]["workObject"]["revision"]["id"] == revision_id.as_str()
             })
             .expect("find capture event")
     }

@@ -133,13 +133,13 @@ mod tests {
         ]
     }
 
-    fn captured_event(review_unit_id: &str, occurred_at: &str) -> ShoreEvent {
+    fn captured_event(revision_id: &str, occurred_at: &str) -> ShoreEvent {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
-            format!("work_object_proposed:{review_unit_id}:{occurred_at}"),
+            format!("work_object_proposed:{revision_id}:{occurred_at}"),
             EventTarget::for_revision(
                 LedgerId::new("ledger:default"),
-                RevisionId::new(review_unit_id),
+                RevisionId::new(revision_id),
                 None,
             ),
             Writer::shore_local("0.1.0"),
@@ -147,15 +147,15 @@ mod tests {
                 engagement_id: EngagementId::new(format!(
                     "engagement:sha256:{}",
                     crate::canonical_hash::sha256_bytes_hex(
-                        (RevisionId::new(format!("rev:{review_unit_id}")))
+                        (RevisionId::new(format!("rev:{revision_id}")))
                             .as_str()
                             .as_bytes()
                     )
                 )),
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
-                        id: RevisionId::new(format!("rev:{review_unit_id}")),
-                        object_id: ObjectId::new(format!("snap:{review_unit_id}")),
+                        id: RevisionId::new(format!("rev:{revision_id}")),
+                        object_id: ObjectId::new(format!("snap:{revision_id}")),
                         git_provenance: Some(GitProvenance {
                             source: ReviewUnitSource::GitWorktree {
                                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,

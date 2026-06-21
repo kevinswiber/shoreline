@@ -41,7 +41,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.revision_id);
+        assert_eq!(result.revision_id, capture.revision_id);
         assert!(result.assessment_id.as_str().starts_with("assess:sha256:"));
         assert_eq!(result.track_id.as_str(), "human:kevin");
         assert_eq!(result.assessment, ReviewAssessment::Accepted);

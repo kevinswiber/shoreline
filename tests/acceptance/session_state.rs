@@ -243,8 +243,8 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     let state: SessionState =
         serde_json::from_str(&std::fs::read_to_string(store.join("state.json")).unwrap())
             .expect("state decodes");
-    assert_eq!(state.current_review_unit_id, Some(result.revision_id));
-    assert_eq!(state.review_unit_count, 1);
+    assert_eq!(state.current_revision_id, Some(result.revision_id));
+    assert_eq!(state.revision_count, 1);
     assert_eq!(state.event_count, 2);
 }
 
@@ -398,7 +398,7 @@ fn importing_notes_auto_initializes_shore() {
     assert_eq!(result.note_count, 1);
     assert_eq!(state.note_count, 1);
     assert_eq!(state.current_revision_id, None);
-    assert_eq!(state.current_snapshot_id, None);
+    assert_eq!(state.current_object_id, None);
 }
 
 #[test]
@@ -488,7 +488,7 @@ fn ledger_pipeline_records_capture_import_and_bounded_state() {
             .unwrap()
             .starts_with("sha256:")
     );
-    assert_eq!(state["reviewUnitCount"], 1);
+    assert_eq!(state["revisionCount"], 1);
     assert_eq!(state["noteCount"], 1);
     assert!(state.get("events").is_none());
     assert_eq!(event_file_count(&common_dir_store(repo.path())), 4);

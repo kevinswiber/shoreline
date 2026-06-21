@@ -24,27 +24,27 @@ fn review_capture_creates_review_unit_from_subdir() {
     assert_eq!(json["schema"], "shore.review-capture");
     assert_eq!(json["version"], 1);
     assert!(
-        json["reviewUnit"]["id"]
+        json["revision"]["id"]
             .as_str()
             .unwrap()
             .starts_with("rev:sha256:")
     );
     assert!(
-        json["reviewUnit"]["revisionId"]
+        json["revision"]["revisionId"]
             .as_str()
             .unwrap()
             .starts_with("rev:")
     );
     assert!(
-        json["reviewUnit"]["snapshotId"]
+        json["revision"]["snapshotId"]
             .as_str()
             .unwrap()
             .starts_with("obj:")
     );
-    assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
-    assert_eq!(json["reviewUnit"]["target"]["kind"], "git_working_tree");
+    assert_eq!(json["revision"]["base"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["target"]["kind"], "git_working_tree");
     assert!(
-        json["reviewUnit"]["snapshotArtifactContentHash"]
+        json["revision"]["snapshotArtifactContentHash"]
             .as_str()
             .unwrap()
             .starts_with("sha256:")
@@ -63,7 +63,7 @@ fn review_capture_is_idempotent_for_unchanged_diff() {
     let second =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    assert_eq!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_eq!(first["revision"]["id"], second["revision"]["id"]);
     assert_eq!(second["eventsCreated"], 0);
     assert!(second["eventsExisting"].as_u64().unwrap() >= 1);
 }
@@ -78,7 +78,7 @@ fn review_capture_changes_when_untracked_content_changes() {
     let second =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 }
 
 #[test]
@@ -178,9 +178,9 @@ fn capture_with_base_captures_committed_range_on_clean_worktree() {
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
     let json = parse_json(stdout.as_bytes());
-    assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
-    assert_eq!(json["reviewUnit"]["target"]["kind"], "git_commit");
-    assert_eq!(json["reviewUnit"]["target"]["commitOid"], head_oid);
+    assert_eq!(json["revision"]["base"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["target"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["target"]["commitOid"], head_oid);
     assert!(
         !stdout.contains("worktreeRoot"),
         "range capture document must not carry a worktree path: {stdout}"
@@ -210,10 +210,10 @@ fn capture_with_base_and_target_pins_both_endpoints() {
         .stdout,
     );
 
-    assert_eq!(json["reviewUnit"]["base"]["commitOid"], first_oid);
-    assert_eq!(json["reviewUnit"]["target"]["commitOid"], second_oid);
+    assert_eq!(json["revision"]["base"]["commitOid"], first_oid);
+    assert_eq!(json["revision"]["target"]["commitOid"], second_oid);
     assert_ne!(
-        json["reviewUnit"]["target"]["commitOid"], head_oid,
+        json["revision"]["target"]["commitOid"], head_oid,
         "target must not default to HEAD when --target is given"
     );
 }
@@ -236,7 +236,7 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
         .stdout,
     );
     let snapshot_id =
-        shoreline::model::ObjectId::new(capture["reviewUnit"]["snapshotId"].as_str().unwrap());
+        shoreline::model::ObjectId::new(capture["revision"]["snapshotId"].as_str().unwrap());
 
     let artifact = shoreline::session::read_snapshot_artifact(repo.path(), &snapshot_id)
         .expect("snapshot artifact for the range capture");
@@ -316,8 +316,8 @@ fn capture_without_base_keeps_worktree_behavior() {
     let show =
         parse_json(&shore(["review", "show", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    assert_eq!(show["reviewUnit"]["source"]["kind"], "git_worktree");
-    assert_eq!(show["reviewUnit"]["target"]["kind"], "git_working_tree");
+    assert_eq!(show["revision"]["source"]["kind"], "git_worktree");
+    assert_eq!(show["revision"]["target"]["kind"], "git_working_tree");
 }
 
 #[test]
@@ -327,7 +327,7 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
     // The first revision (no predecessors).
     let first =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    let first_id = first["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     // A capture never attaches lineage now.
     assert!(first.get("lineageAttach").is_none());
 
@@ -344,7 +344,7 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
         ])
         .stdout,
     );
-    let second_id = second["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let second_id = second["revision"]["id"].as_str().unwrap().to_owned();
     assert_ne!(first_id, second_id);
     assert!(second.get("lineageAttach").is_none());
 
@@ -361,7 +361,7 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
         ])
         .stdout,
     );
-    assert_eq!(resolved["reviewUnit"]["id"], second_id.as_str());
+    assert_eq!(resolved["revision"]["id"], second_id.as_str());
 }
 
 #[test]
@@ -391,7 +391,7 @@ fn capture_with_base_twice_reports_existing_event() {
         .stdout,
     );
 
-    assert_eq!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
+    assert_eq!(first["revision"]["id"], second["revision"]["id"]);
     assert_eq!(second["eventsCreated"], 0);
     // The capture event plus the auto-recorded HEAD-tipping ref association.
     assert_eq!(second["eventsExisting"], 2);

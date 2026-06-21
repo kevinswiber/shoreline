@@ -69,18 +69,18 @@ pub(crate) fn decode_input_request_opened_payload(
 impl InputRequestOpenedPayload {
     // The two idempotency-key constructors materialize one shared pattern:
     // `<event-kind>:<work-object-identity-in-domain-appropriate-form>:<source_key>`.
-    // Review-domain identity is `(review_unit_id, track_id)`; task-domain is
+    // Review-domain identity is `(revision_id, track_id)`; task-domain is
     // `(work_object_id, work_object_type)`. Two serializations of one pattern --
     // callers pick the constructor that matches their work-object kind.
 
     pub fn idempotency_key(
-        review_unit_id: &RevisionId,
+        revision_id: &RevisionId,
         track_id: &TrackId,
         source_key: &str,
     ) -> String {
         format!(
             "input_request_opened:{}:{}:{}",
-            review_unit_id.as_str(),
+            revision_id.as_str(),
             track_id.as_str(),
             source_key
         )

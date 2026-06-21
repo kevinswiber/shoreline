@@ -182,7 +182,7 @@ pub fn respond_input_request(
         storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
     }
 
-    let review_unit_id = crate::model::subject_revision_id(&request_event.target.subject)
+    let revision_id = crate::model::subject_revision_id(&request_event.target.subject)
         .cloned()
         .ok_or_else(|| ShoreError::Message("input request event missing review unit".to_owned()))?;
     let mut event = ShoreEvent::new(
@@ -191,7 +191,7 @@ pub fn respond_input_request(
         EventTarget::for_subject(
             request_event.target.ledger_id.clone(),
             TargetRef::Review(ReviewTargetRef::InputRequest {
-                revision_id: review_unit_id,
+                revision_id,
                 input_request_id: request_payload.input_request_id.clone(),
             }),
             request_event.target.track_id.clone(),

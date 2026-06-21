@@ -137,7 +137,7 @@ fn api_history_returns_chronological_typed_summaries() {
     assert_eq!(obs["summary"]["target"]["startLine"], 2);
     assert_eq!(obs["summary"]["target"]["endLine"], 2);
     assert_eq!(obs["trackId"], "agent:codex");
-    assert_eq!(obs["subject"]["revisionId"], store.review_unit_id.as_str());
+    assert_eq!(obs["subject"]["revisionId"], store.revision_id.as_str());
 }
 
 #[test]
@@ -147,9 +147,9 @@ fn api_units_lists_captured_unit_with_counts_and_target_display() {
     let units = inspector.get_json("/api/units");
 
     assert_eq!(units["schema"], "shore.inspect-units");
-    assert_eq!(units["reviewUnitCount"], 1);
+    assert_eq!(units["revisionCount"], 1);
     let entry = &units["entries"][0];
-    assert_eq!(entry["reviewUnitId"], store.review_unit_id.as_str());
+    assert_eq!(entry["revisionId"], store.revision_id.as_str());
     assert_eq!(entry["snapshotId"], store.snapshot_id.as_str());
 
     // The path-private derived display block is spliced in (regression alongside
@@ -176,7 +176,7 @@ fn api_snapshot_returns_snapshot_scoped_artifact() {
             .unwrap()
             .starts_with("sha256:")
     );
-    assert!(snapshot.get("reviewUnitId").is_none());
+    assert!(snapshot.get("revisionId").is_none());
     assert!(snapshot.get("target").is_none());
     assert!(snapshot.get("base").is_none());
     assert!(snapshot.get("source").is_none());

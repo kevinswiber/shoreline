@@ -91,7 +91,7 @@ fn main_worktree_capture_round_trips_through_the_common_dir_store() {
     let repo_arg = repo.path().to_str().unwrap();
 
     let capture = run_json(&["review", "capture", "--repo", repo_arg]);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The shared common-dir store holds the events; the worktree-local
     // `.shore/data` is not the store.
@@ -102,15 +102,15 @@ fn main_worktree_capture_round_trips_through_the_common_dir_store() {
     assert!(!repo.path().join(".shore/data/events").exists());
 
     let list = run_json(&["review", "revisions", "--repo", repo_arg]);
-    assert_eq!(list["reviewUnitCount"], 1);
+    assert_eq!(list["revisionCount"], 1);
     assert_eq!(
-        list["entries"][0]["reviewUnitId"],
+        list["entries"][0]["revisionId"],
         Value::String(unit_id.clone())
     );
     assert_no_storage_path_leak(&list);
 
     let show = run_json(&["review", "show", "--repo", repo_arg]);
-    assert_eq!(show["reviewUnit"]["id"], Value::String(unit_id.clone()));
+    assert_eq!(show["revision"]["id"], Value::String(unit_id.clone()));
     assert_no_storage_path_leak(&show);
 
     let history = run_json(&["review", "history", "--repo", repo_arg]);
@@ -141,7 +141,7 @@ fn capture_is_visible_from_a_sibling_worktree_without_a_link() {
 
     std::fs::write(seed.join("README.md"), "changed in seed\n").unwrap();
     let capture = run_json(&["review", "capture", "--repo", seed.to_str().unwrap()]);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The sibling reader sees the seed's unit through the shared store, no link.
     let list = run_json(&["review", "revisions", "--repo", reader.to_str().unwrap()]);
@@ -149,7 +149,7 @@ fn capture_is_visible_from_a_sibling_worktree_without_a_link() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|entry| entry["reviewUnitId"].as_str().unwrap())
+        .map(|entry| entry["revisionId"].as_str().unwrap())
         .collect();
     assert!(
         ids.contains(&unit_id.as_str()),
@@ -177,7 +177,7 @@ fn ephemeral_worktree_keeps_its_capture_out_of_the_shared_store() {
     assert_eq!(mode["mode"], "ephemeral");
     std::fs::write(ephemeral.join("README.md"), "changed ephemerally\n").unwrap();
     let capture = run_json(&["review", "capture", "--repo", ephemeral_arg]);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The capture landed in the worktree-local store, not the shared one.
     assert!(ephemeral.join(".shore/data/events").is_dir());
@@ -198,7 +198,7 @@ fn ephemeral_worktree_keeps_its_capture_out_of_the_shared_store() {
         .map(|entries| {
             entries
                 .iter()
-                .map(|entry| entry["reviewUnitId"].as_str().unwrap())
+                .map(|entry| entry["revisionId"].as_str().unwrap())
                 .collect()
         })
         .unwrap_or_default();
@@ -237,7 +237,7 @@ fn legacy_worktree_local_store_errors_until_migrated() {
     // populated `.shore/data` is now a legacy store on a non-ephemeral worktree.
     run_json(&["store", "mode", "ephemeral", "--repo", repo_arg]);
     let capture = run_json(&["review", "capture", "--repo", repo_arg]);
-    let unit_id = capture["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     run_json(&["store", "mode", "shared", "--repo", repo_arg]);
     assert!(repo.path().join(".shore/data/events").is_dir());
 
@@ -273,7 +273,7 @@ fn legacy_worktree_local_store_errors_until_migrated() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|entry| entry["reviewUnitId"].as_str().unwrap())
+        .map(|entry| entry["revisionId"].as_str().unwrap())
         .collect();
     assert!(
         ids.contains(&unit_id.as_str()),
@@ -298,17 +298,11 @@ fn each_worktree_unit_show_resolves_its_own_capture() {
 
     std::fs::write(alpha.join("README.md"), "alpha change\n").unwrap();
     let alpha_capture = run_json(&["review", "capture", "--repo", alpha.to_str().unwrap()]);
-    let alpha_id = alpha_capture["reviewUnit"]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let alpha_id = alpha_capture["revision"]["id"].as_str().unwrap().to_owned();
 
     std::fs::write(beta.join("README.md"), "beta change\n").unwrap();
     let beta_capture = run_json(&["review", "capture", "--repo", beta.to_str().unwrap()]);
-    let beta_id = beta_capture["reviewUnit"]["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let beta_id = beta_capture["revision"]["id"].as_str().unwrap().to_owned();
 
     assert_ne!(
         alpha_id, beta_id,
@@ -319,23 +313,20 @@ fn each_worktree_unit_show_resolves_its_own_capture() {
     // `unit show` (no `--review-unit`) resolves its OWN capture.
     let alpha_show = run_json(&["review", "show", "--repo", alpha.to_str().unwrap()]);
     assert_eq!(
-        alpha_show["reviewUnit"]["id"],
+        alpha_show["revision"]["id"],
         Value::String(alpha_id.clone())
     );
     assert_no_storage_path_leak(&alpha_show);
 
     let beta_show = run_json(&["review", "show", "--repo", beta.to_str().unwrap()]);
-    assert_eq!(
-        beta_show["reviewUnit"]["id"],
-        Value::String(beta_id.clone())
-    );
+    assert_eq!(beta_show["revision"]["id"], Value::String(beta_id.clone()));
     assert_no_storage_path_leak(&beta_show);
 }
 
 // 6. Two worktrees capture the SAME commit range: both succeed sharing one
 //    snapshot artifact, and because commit-range provenance carries no worktree
 //    path the two captures converge on ONE revision id. The read surface presents
-//    them as ONE grouped unit exposing that id in `groupedReviewUnitIds`.
+//    them as ONE grouped unit exposing that id in `groupedRevisionIds`.
 #[test]
 fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
     let main = GitRepo::new();
@@ -367,15 +358,15 @@ fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
         "HEAD~1",
     ]);
 
-    let a_id = a["reviewUnit"]["id"].as_str().unwrap().to_owned();
-    let b_id = b["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    let a_id = a["revision"]["id"].as_str().unwrap().to_owned();
+    let b_id = b["revision"]["id"].as_str().unwrap().to_owned();
     // Same commit range, no worktree path in the provenance: the two captures
     // converge on one revision id.
     assert_eq!(a_id, b_id);
     // One shared snapshot artifact: byte-identical content hashes.
     assert_eq!(
-        a["reviewUnit"]["snapshotArtifactContentHash"],
-        b["reviewUnit"]["snapshotArtifactContentHash"]
+        a["revision"]["snapshotArtifactContentHash"],
+        b["revision"]["snapshotArtifactContentHash"]
     );
 
     // Exactly one snapshot artifact on disk in the shared store.
@@ -403,9 +394,9 @@ fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
         1,
         "the two captures present as one grouped unit"
     );
-    let grouped: Vec<&str> = entries[0]["groupedReviewUnitIds"]
+    let grouped: Vec<&str> = entries[0]["groupedRevisionIds"]
         .as_array()
-        .expect("groupedReviewUnitIds is present")
+        .expect("groupedRevisionIds is present")
         .iter()
         .map(|id| id.as_str().unwrap())
         .collect();

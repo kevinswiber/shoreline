@@ -10,7 +10,7 @@ use crate::session::{DelegationMap, ValidationAddResult, ValidationListResult};
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationAddBody {
-    review_unit_id: String,
+    revision_id: String,
     validation_check_id: String,
     event_id: String,
     track_id: String,
@@ -24,7 +24,7 @@ pub struct ValidationAddBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationListBody {
-    review_unit_id: String,
+    revision_id: String,
     filters: ValidationListFiltersDocument,
     validation_checks: Vec<ValidationCheckViewDocument>,
 }
@@ -46,7 +46,7 @@ pub fn validation_add_document(
     EventWriteDocument::new(
         "shore.review-validation-add",
         ValidationAddBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             validation_check_id: result.validation_check_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
@@ -69,7 +69,7 @@ pub fn validation_list_document(
     DiagnosticDocument::new(
         "shore.review-validation-list",
         ValidationListBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             filters: ValidationListFiltersDocument {
                 track_id: result
                     .filters

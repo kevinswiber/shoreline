@@ -7,7 +7,7 @@ use crate::session::{DelegationMap, ObservationAddResult, ObservationListResult}
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservationAddBody {
-    review_unit_id: String,
+    revision_id: String,
     observation_id: String,
     event_id: String,
     track_id: String,
@@ -19,7 +19,7 @@ pub struct ObservationAddBody {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservationListBody {
-    review_unit_id: String,
+    revision_id: String,
     filters: ObservationListFiltersDocument,
     observations: Vec<ObservationViewDocument>,
 }
@@ -43,7 +43,7 @@ pub fn observation_add_document(
     EventWriteDocument::new(
         "shore.review-observation-add",
         ObservationAddBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             observation_id: result.observation_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
@@ -67,7 +67,7 @@ pub fn observation_list_document(
     DiagnosticDocument::new(
         "shore.review-observation-list",
         ObservationListBody {
-            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            revision_id: result.revision_id.as_str().to_owned(),
             filters: ObservationListFiltersDocument {
                 track_id: result
                     .filters

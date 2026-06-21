@@ -27,7 +27,7 @@ pub struct WorktreeCapture {
     pub _main: GitRepo,
     pub _parent: tempfile::TempDir,
     pub worktree: PathBuf,
-    pub review_unit_id: String,
+    pub revision_id: String,
 }
 
 impl WorktreeCapture {
@@ -41,13 +41,13 @@ impl WorktreeCapture {
         add_worktree(main.path(), &worktree, branch);
         std::fs::write(worktree.join("src/lib.rs"), "pub fn value() -> u32 { 2 }\n").unwrap();
 
-        let review_unit_id = capture(&worktree);
+        let revision_id = capture(&worktree);
 
         Self {
             _main: main,
             _parent: parent,
             worktree,
-            review_unit_id,
+            revision_id,
         }
     }
 }
@@ -281,7 +281,7 @@ pub fn capture(repo: &Path) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     let json: Value = serde_json::from_slice(&output.stdout).expect("parse capture JSON");
-    json["reviewUnit"]["id"]
+    json["revision"]["id"]
         .as_str()
         .expect("capture returns a ReviewUnit id")
         .to_owned()
@@ -295,7 +295,7 @@ pub fn capture(repo: &Path) -> String {
 /// track).
 pub struct RepresentativeStore {
     pub repo: GitRepo,
-    pub review_unit_id: String,
+    pub revision_id: String,
     pub snapshot_id: String,
 }
 
@@ -315,11 +315,11 @@ pub fn representative_store() -> RepresentativeStore {
 
     let repo_arg = repo.path().to_str().unwrap().to_owned();
     let capture = run_shore_json(&["review", "capture", "--repo", &repo_arg]);
-    let review_unit_id = capture["reviewUnit"]["id"]
+    let revision_id = capture["revision"]["id"]
         .as_str()
         .expect("capture returns a ReviewUnit id")
         .to_owned();
-    let snapshot_id = capture["reviewUnit"]["snapshotId"]
+    let snapshot_id = capture["revision"]["snapshotId"]
         .as_str()
         .expect("capture returns a snapshot id")
         .to_owned();
@@ -432,7 +432,7 @@ pub fn representative_store() -> RepresentativeStore {
 
     RepresentativeStore {
         repo,
-        review_unit_id,
+        revision_id,
         snapshot_id,
     }
 }
@@ -492,7 +492,7 @@ pub fn capture_supersession_round(repo: &Path, predecessor: Option<&str>) -> Str
     );
     let json: Value =
         serde_json::from_slice(&output.stdout).expect("parse supersession capture JSON");
-    json["reviewUnit"]["id"]
+    json["revision"]["id"]
         .as_str()
         .expect("supersession capture returns a ReviewUnit id")
         .to_owned()

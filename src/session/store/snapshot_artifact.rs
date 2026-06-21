@@ -628,7 +628,7 @@ mod tests {
     /// Real `git clone` of `source` into a fresh temp dir. Cloning preserves the
     /// commit/tree OIDs, so the same `--base HEAD~1` range captures the same
     /// `snapshot_id` while the differing canonical worktree root mints a distinct
-    /// `review_unit_id` — exactly the two-worktree shape of #146.
+    /// `revision_id` — exactly the two-worktree shape of #146.
     fn clone_repo(source: &TestRepo) -> TestRepo {
         let root = tempfile::tempdir().expect("create clone temp directory");
         let status = Command::new("git")

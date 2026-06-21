@@ -110,7 +110,7 @@ pub(super) fn run(
         result
             .entries
             .retain(|entry| entry.snapshot_id.as_str() == object);
-        result.review_unit_count = result.entries.len();
+        result.revision_count = result.entries.len();
     }
 
     let document = unit_list_document(result);

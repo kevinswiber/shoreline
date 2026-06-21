@@ -3,14 +3,12 @@
 // Known durable event types, with display labels and timeline colors.
 const TYPES = [
   { id: "review_initialized", label: "init", color: "#7f8c9b" },
-  { id: "review_unit_captured", label: "capture", color: "#5aa9e6" },
+  { id: "work_object_proposed", label: "capture", color: "#5aa9e6" },
   { id: "review_observation_recorded", label: "observation", color: "#6dd28a" },
   { id: "review_assessment_recorded", label: "assessment", color: "#b388ff" },
   { id: "input_request_opened", label: "request", color: "#f0b75a" },
   { id: "input_request_responded", label: "response", color: "#4fd0c0" },
   { id: "review_note_imported", label: "note", color: "#9aa7b5" },
-  { id: "review_unit_lineage_declared", label: "lineage", color: "#ff8f70" },
-  { id: "review_unit_lineage_round_recorded", label: "round", color: "#d2a86d" },
   { id: "validation_check_recorded", label: "validation", color: "#e88fb0" },
 ];
 const TYPE_MAP = Object.fromEntries(TYPES.map((t) => [t.id, t]));
@@ -18,14 +16,14 @@ const TYPE_MAP = Object.fromEntries(TYPES.map((t) => [t.id, t]));
 const state = {
   history: null,
   units: null,
-  lineages: null,
+  objects: null,
   view: "timeline",
   enabledTypes: new Set(TYPES.map((t) => t.id)),
   seenTypes: new Set(TYPES.map((t) => t.id)),
   filterText: "",
   filterTrack: "",
   filterUnit: "",
-  filterLineage: "",
+  filterObject: "",
   order: "desc", // "desc" = newest first (default), "asc" = chronological
   selectedEventId: null,
   lastHash: null,
@@ -89,9 +87,6 @@ function refInfo(token) {
   }
   let m = token.match(/^([a-z][a-z-]*):(?:git:)?sha256:[0-9a-f]+$/i);
   if (m) return { kind: m[1].toLowerCase(), clickable: true };
-  if (/^review-unit-lineage:[a-z0-9][a-z0-9._:-]*$/i.test(token)) {
-    return { kind: "review-unit-lineage", clickable: true };
-  }
   if (/^sha256:[0-9a-f]+$/i.test(token)) return { kind: "hash", clickable: false };
   if (/^[0-9a-f]{40}$/i.test(token)) return { kind: "commit", clickable: false };
   if (/^(agent|human):[a-z0-9][a-z0-9_-]*$/i.test(token)) return { kind: "track", clickable: true };
@@ -99,9 +94,11 @@ function refInfo(token) {
 }
 
 const REF_RE =
-  /\b(?:review-unit-lineage-round|review-unit-lineage|review-unit|input-request-response|input-request|obs|assess|snap|rev|evt|note|validation):(?:git:)?sha256:[0-9a-f]{6,}\b|\breview-unit-lineage:[a-z0-9][a-z0-9._:-]*\b|\bsha256:[0-9a-f]{16,}\b|\b[0-9a-f]{40}\b|\b(?:agent|human):[a-z0-9][a-z0-9_-]*\b/gi;
+  /\b(?:review-unit|input-request-response|input-request|obs|assess|snap|rev|evt|note|validation):(?:git:)?sha256:[0-9a-f]{6,}\b|\bsha256:[0-9a-f]{16,}\b|\b[0-9a-f]{40}\b|\b(?:agent|human):[a-z0-9][a-z0-9_-]*\b/gi;
 
-const LINEAGE_FACT_TYPES = new Set(["review_observation_recorded", "review_assessment_recorded", "input_request_opened", "validation_check_recorded"]);
+// Review facts whose currency depends on the revision they target: a fact on a
+// superseded revision is stale (named by all superseding successors).
+const SUPERSEDABLE_FACT_TYPES = new Set(["review_observation_recorded", "review_assessment_recorded", "input_request_opened", "validation_check_recorded"]);
 
 // Escape text, then replace embedded IDs with truncated reference chips.
 // Navigable kinds carry data attributes that the delegated click handler
@@ -120,29 +117,21 @@ function linkify(text) {
   });
 }
 
-// Render a single id as a reference chip (for fields that are exactly one id).
-function refChip(id) {
-  return id ? linkify(id) : "—";
-}
-
 function resolveRef(kind, id) {
   closeDiff();
   switch (kind) {
+    // The revision and the (retired) review-unit prefix both address a revision's
+    // composite — its identity is unified onto RevisionId.
+    case "rev":
     case "review-unit":
       openUnit(id);
-      break;
-    case "review-unit-lineage":
-      openLineage(id);
-      break;
-    case "review-unit-lineage-round":
-      revealBy((e) => e.eventType === "review_unit_lineage_round_recorded" && (e.summary || {}).roundId === id);
       break;
     case "track":
       navigateToTrack(id);
       break;
     case "snap": {
       const unit = (state.units?.entries || []).find((u) => u.snapshotId === id);
-      openDiff(id, unit ? shortId(unit.reviewUnitId) : "", unit?.reviewUnitId);
+      openDiff(id, unit ? shortId(unit.revisionId) : "", unit?.revisionId);
       break;
     }
     case "obs":
@@ -153,9 +142,6 @@ function resolveRef(kind, id) {
       break;
     case "input-request":
       revealBy((e) => e.eventType === "input_request_opened" && (e.summary || {}).inputRequestId === id);
-      break;
-    case "rev":
-      revealBy((e) => e.revisionId === id);
       break;
     case "evt":
       revealEvent(id);
@@ -170,11 +156,11 @@ function navigateToUnit(id) {
   // no-match text or track filter would otherwise leave an empty timeline.
   state.filterText = "";
   state.filterTrack = "";
-  state.filterLineage = "";
+  state.filterObject = "";
   state.filterUnit = id;
   $("#filter-text").value = "";
   $("#filter-track").value = "";
-  $("#filter-lineage").value = "";
+  $("#filter-object").value = "";
   $("#filter-unit").value = id;
   switchView("timeline");
   renderTimeline();
@@ -202,11 +188,11 @@ function revealEvent(eventId) {
   state.filterText = "";
   state.filterUnit = "";
   state.filterTrack = "";
-  state.filterLineage = "";
+  state.filterObject = "";
   $("#filter-text").value = "";
   $("#filter-unit").value = "";
   $("#filter-track").value = "";
-  $("#filter-lineage").value = "";
+  $("#filter-object").value = "";
   state.enabledTypes.add(e.eventType);
   state.selectedEventId = eventId;
   switchView("timeline");
@@ -239,6 +225,12 @@ function fmtDateTime(occurredAt) {
 // top-level. `subject` only carries the target ref, so we read from `summary`.
 function entryTrack(e) {
   return e.trackId || (e.writer && e.writer.actorId) || "";
+}
+// The revision a history entry addresses. The entry carries it through its
+// subject (the ReviewTargetRef) — every review subject variant keys on
+// revisionId — so there is no top-level id to read.
+function entryRevisionId(e) {
+  return (e.subject && e.subject.revisionId) || "";
 }
 // The human label derived client-side from the structured principal object
 // (ADR-0010 structured-first rule). Null unless the agent's principal resolved;
@@ -311,7 +303,7 @@ function entryTitle(e) {
   if (s.assessment) return s.assessment;
   if (s.outcome) return s.outcome;
   if (s.reasonCode) return s.reasonCode;
-  if (e.eventType === "review_unit_captured") {
+  if (e.eventType === "work_object_proposed") {
     const base = (s.base && s.base.commitOid) || "";
     return base ? `capture · base ${shortId(base)}` : "capture";
   }
@@ -360,16 +352,14 @@ function showError(message) {
 
 async function load() {
   try {
-    // The lineages route is retired; the revisions/threads view that replaces it
-    // is a follow-up. Drop the lineages fetch from the gating load so the page
-    // still renders — state.lineages stays null and every reader is null-safe, so
-    // the lineages tab simply shows empty until the replacement view lands.
-    const [history, units] = await Promise.all([
+    const [history, units, objects] = await Promise.all([
       fetchJSON("/api/history"),
       fetchJSON("/api/units"),
+      fetchJSON("/api/objects"),
     ]);
     state.history = history;
     state.units = units;
+    state.objects = objects;
     state.lastHash = history.eventSetHash;
     // Seed the diagnostic count alongside the hash so the poller can detect a
     // divergence appearing/clearing without a new event (#142). The history
@@ -413,20 +403,20 @@ function renderAll() {
   renderTypeToggles();
   renderTrackOptions();
   renderUnitOptions();
-  renderLineageOptions();
+  renderObjectOptions();
   renderTimeline();
   renderUnits();
-  renderLineages();
+  renderRevisions();
   renderDetail();
 }
 
 function renderStats() {
   const h = state.history || {};
   const u = state.units || {};
-  const l = state.lineages || {};
+  const o = state.objects || {};
   $("#stat-events").textContent = `${h.eventCount ?? "—"} events`;
-  $("#stat-units").textContent = `${u.reviewUnitCount ?? "—"} units`;
-  $("#stat-lineages").textContent = `${l.lineageCount ?? "—"} lineages`;
+  $("#stat-units").textContent = `${u.revisionCount ?? "—"} units`;
+  $("#stat-threads").textContent = `${o.threadCount ?? "—"} threads`;
   $("#stat-hash").textContent = shortId(h.eventSetHash);
 }
 
@@ -494,77 +484,79 @@ function renderTrackOptions() {
 }
 
 function renderUnitOptions() {
-  const units = [...new Set((state.history?.entries || []).map((e) => e.reviewUnitId).filter(Boolean))].sort();
+  const units = [...new Set((state.history?.entries || []).map(entryRevisionId).filter(Boolean))].sort();
   state.filterUnit = fillSelect($("#filter-unit"), units, state.filterUnit);
 }
 
-function renderLineageOptions() {
-  const lineages = (state.lineages?.entries || []).map((l) => l.lineageId).filter(Boolean).sort();
-  state.filterLineage = fillSelect($("#filter-lineage"), lineages, state.filterLineage);
+function renderObjectOptions() {
+  const objects = [...new Set((state.units?.entries || []).map((u) => u.snapshotId).filter(Boolean))].sort();
+  state.filterObject = fillSelect($("#filter-object"), objects, state.filterObject);
 }
 
-function lineageEntries() {
-  return state.lineages?.entries || [];
+// The supersession threads (connected components of the supersession DAG, each
+// labeled domain-side) and the forward/reverse edges, all from /api/objects.
+function objectThreads() {
+  return state.objects?.threads || [];
+}
+function supersededByRevision(revisionId) {
+  return (state.objects?.supersededBy && state.objects.supersededBy[revisionId]) || [];
+}
+function supersedesRevision(revisionId) {
+  return (state.objects?.supersedes && state.objects.supersedes[revisionId]) || [];
+}
+function revisionIsHead(revisionId) {
+  return objectThreads().some((thread) => (thread.heads || []).includes(revisionId));
 }
 
-function lineageRound(lineageId, reviewUnitId) {
-  const lineage = lineageEntries().find((l) => l.lineageId === lineageId);
-  return (lineage?.rounds || []).find((r) => r.reviewUnitId === reviewUnitId) || null;
+// The content object id captured for a revision, via the units list (its
+// snapshot id is the content-addressed object).
+function objectIdForRevision(revisionId) {
+  const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
+  return unit ? unit.snapshotId : "";
 }
 
-function lineageMembershipsForUnit(reviewUnitId) {
-  if (!reviewUnitId) return [];
-  const memberships = [];
-  for (const lineage of lineageEntries()) {
-    const round = (lineage.rounds || []).find((r) => r.reviewUnitId === reviewUnitId);
-    if (round) memberships.push({ lineage, lineageId: lineage.lineageId, round });
-  }
-  return memberships;
+function eventMatchesObject(e, objectId) {
+  if (!objectId) return true;
+  return objectIdForRevision(entryRevisionId(e)) === objectId;
 }
 
-function eventLineageId(e) {
-  return (e.summary || {}).lineageId || "";
+function isSupersedableFact(e) {
+  return SUPERSEDABLE_FACT_TYPES.has(e.eventType);
 }
 
-function eventMatchesLineage(e, lineageId) {
-  if (!lineageId) return true;
-  if (eventLineageId(e) === lineageId) return true;
-  return Boolean(e.reviewUnitId && lineageRound(lineageId, e.reviewUnitId));
+// A fact targeting a superseded revision is stale; the badge names every
+// superseding successor (fork-tolerant), never a single head.
+function supersessionStaleBadge(e) {
+  if (!isSupersedableFact(e)) return "";
+  const successors = supersededByRevision(entryRevisionId(e));
+  if (!successors.length) return "";
+  return `<span class="badge stale">superseded by ${successors.map(linkify).join(" ")}</span>`;
 }
 
-function isLineageFact(e) {
-  return LINEAGE_FACT_TYPES.has(e.eventType);
+// The capture row shows the supersession edge it declared (the predecessors it
+// supersedes), reusing the navigable revision chip.
+function captureSupersedesBadge(e) {
+  if (e.eventType !== "work_object_proposed") return "";
+  const predecessors = supersedesRevision(entryRevisionId(e));
+  if (!predecessors.length) return "";
+  return `<span class="badge supersedes">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
 }
 
-function staleInLineage(e, lineageId) {
-  if (!lineageId || !e.reviewUnitId || !isLineageFact(e)) return false;
-  const lineage = lineageEntries().find((l) => l.lineageId === lineageId);
-  if (!lineage?.headReviewUnitId) return false;
-  return Boolean(lineageRound(lineageId, e.reviewUnitId) && e.reviewUnitId !== lineage.headReviewUnitId);
-}
-
-function lineageBadgesForUnit(reviewUnitId) {
-  const memberships = lineageMembershipsForUnit(reviewUnitId);
-  if (!memberships.length) return "";
-  return memberships
-    .map(({ lineageId, round }) => {
-      const labels = [shortRef(lineageId)];
-      if (round.isHead) labels.push("head");
-      else if (round.roundIndex != null) labels.push(`round ${round.roundIndex}`);
-      return `<span class="lineage-badge${round.isHead ? " lineage-head" : ""}" role="link" tabindex="0" data-ref-kind="review-unit-lineage" data-ref-id="${escapeHtml(lineageId)}" title="${escapeHtml(lineageId)}">${escapeHtml(labels.join(" · "))}</span>`;
-    })
-    .join(" ");
-}
-
-function lineageFactsForRound(lineageId, reviewUnitId) {
-  return (state.history?.entries || []).filter((e) => e.reviewUnitId === reviewUnitId && eventMatchesLineage(e, lineageId) && isLineageFact(e));
+// The per-revision supersession status, for a unit card / unit page: "head" when
+// it is a current head, "superseded by <chips>" when superseded.
+function supersessionBadge(revisionId) {
+  if (!revisionId) return "";
+  if (revisionIsHead(revisionId)) return `<span class="badge head">head</span>`;
+  const successors = supersededByRevision(revisionId);
+  if (successors.length) return `<span class="badge superseded">superseded by ${successors.map(linkify).join(" ")}</span>`;
+  return "";
 }
 
 function matchesFilters(e) {
   if (!state.enabledTypes.has(e.eventType)) return false;
   if (state.filterTrack && entryTrack(e) !== state.filterTrack) return false;
-  if (state.filterUnit && e.reviewUnitId !== state.filterUnit) return false;
-  if (state.filterLineage && !eventMatchesLineage(e, state.filterLineage)) return false;
+  if (state.filterUnit && entryRevisionId(e) !== state.filterUnit) return false;
+  if (state.filterObject && !eventMatchesObject(e, state.filterObject)) return false;
   if (state.filterText) {
     const hay = JSON.stringify(e).toLowerCase();
     if (!hay.includes(state.filterText.toLowerCase())) return false;
@@ -594,16 +586,18 @@ function renderTimeline() {
     const tags = entryTags(e)
       .map((t) => `<span class="badge">${escapeHtml(t)}</span>`)
       .join(" ");
-    const lineageTags = state.filterLineage && staleInLineage(e, state.filterLineage) ? `<span class="badge stale">stale in lineage</span>` : "";
+    const revisionId = entryRevisionId(e);
+    const staleTag = supersessionStaleBadge(e);
+    const supersedesTag = captureSupersedesBadge(e);
     li.innerHTML = `
       <span class="time">${escapeHtml(fmtTime(e.occurredAt))}</span>
       <span class="rail" style="background:${typeColor(e.eventType)}"></span>
       <span class="body">
-        <span class="title">${linkify(entryTitle(e))} ${tags} ${lineageTags}</span>
+        <span class="title">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
         <span class="meta">
           <span class="type" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
-          ${e.reviewUnitId ? `<span>unit ${escapeHtml(shortId(e.reviewUnitId))}</span>` : ""}
+          ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
           ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
           ${verificationChip(e.verificationStatus)}
         </span>
@@ -627,17 +621,22 @@ function renderDetail() {
     el.innerHTML = `<p class="empty">Select an event to inspect its full payload.</p>`;
     return;
   }
+  const revisionId = entryRevisionId(e);
   const kv = [
     ["type", typeLabel(e.eventType) + ` (${e.eventType})`],
     ["occurredAt", fmtDateTime(e.occurredAt)],
     ["eventId", e.eventId],
     ["payloadHash", e.payloadHash],
-    ["reviewUnit", e.reviewUnitId || "—"],
+    ["revision", revisionId || "—"],
     ["track", entryTrack(e) || "—"],
     ["writer", principalLabel(e) || (e.writer ? (e.writer.actorId || "—") : "—")],
   ];
-  const snapshotId = e.reviewUnitId ? snapshotIdForUnit(e.reviewUnitId) : null;
+  const snapshotId = revisionId ? snapshotIdForUnit(revisionId) : null;
   const s = e.summary || {};
+  if (e.eventType === "work_object_proposed") {
+    const predecessors = supersedesRevision(revisionId);
+    if (predecessors.length) kv.push(["supersedes", predecessors.join(", ")]);
+  }
   if (e.eventType === "validation_check_recorded") {
     kv.push(["check", s.checkName || "—"]);
     kv.push(["status", s.status || "—"]);
@@ -673,21 +672,21 @@ function renderDetail() {
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
     const btn = el.querySelector("#detail-diff-btn");
-    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(e.reviewUnitId), e.reviewUnitId, focusId));
+    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(revisionId), revisionId, focusId));
   }
 }
 
-function snapshotIdForUnit(reviewUnitId) {
-  const unit = (state.units?.entries || []).find((u) => u.reviewUnitId === reviewUnitId);
+function snapshotIdForUnit(revisionId) {
+  const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
   return unit ? unit.snapshotId : null;
 }
 
-// Gather the review facts on a ReviewUnit — observations, input requests, and
+// Gather the review facts on a revision — observations, input requests, and
 // assessments — into one annotation list with a shared shape.
-function annotationsForUnit(reviewUnitId) {
+function annotationsForUnit(revisionId) {
   const out = [];
   for (const e of state.history?.entries || []) {
-    if (e.reviewUnitId !== reviewUnitId) continue;
+    if (entryRevisionId(e) !== revisionId) continue;
     const s = e.summary || {};
     if (e.eventType === "review_observation_recorded") {
       out.push({
@@ -725,16 +724,16 @@ function annotationsForUnit(reviewUnitId) {
   return out;
 }
 
-async function openDiff(snapshotId, label, reviewUnitId = null, focusId = null) {
+async function openDiff(snapshotId, label, revisionId = null, focusId = null) {
   const modal = $("#diff-modal");
   $("#diff-title").textContent = label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId);
   $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
   modal.classList.remove("hidden");
   try {
-    // The snapshot endpoint is snapshot-scoped (no reviewUnitId on the wire);
-    // the caller threads the review unit id for annotation lookup.
+    // The snapshot endpoint is snapshot-scoped (no revision id on the wire);
+    // the caller threads the revision id for annotation lookup.
     const artifact = await fetchJSON("/api/snapshot?id=" + encodeURIComponent(snapshotId));
-    const annotations = annotationsForUnit(reviewUnitId);
+    const annotations = annotationsForUnit(revisionId);
     $("#diff-body").innerHTML = renderDiff(artifact, annotations);
     if (focusId) {
       const target = $("#diff-body").querySelector(`[data-anno="${focusId}"]`);
@@ -791,7 +790,7 @@ function renderDiff(artifact, annotations) {
   const breakdown = Object.entries(counts)
     .map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`)
     .join(", ");
-  let html = `<div class="anno-summary">${annotations.length} review fact${annotations.length === 1 ? "" : "s"} on this ReviewUnit${
+  let html = `<div class="anno-summary">${annotations.length} review fact${annotations.length === 1 ? "" : "s"} on this revision${
     breakdown ? ` · ${breakdown}` : ""
   }${unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""}</div>`;
   if (unanchored.length) {
@@ -867,7 +866,7 @@ function renderUnits() {
   const el = $("#units");
   const entries = state.units?.entries || [];
   if (!entries.length) {
-    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">No captured ReviewUnits in this store.</p>`;
+    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">No captured revisions in this store.</p>`;
     return;
   }
   el.innerHTML = "";
@@ -875,27 +874,24 @@ function renderUnits() {
     const base = u.base || {};
     const card = document.createElement("div");
     card.className = "unit-card";
-    const lineageBadges = lineageBadgesForUnit(u.reviewUnitId);
+    const badge = supersessionBadge(u.revisionId);
     const rows = [
       ["captured", fmtDateTime(u.capturedAt)],
       ["base", base.commitOid ? shortId(base.commitOid) + " (" + (base.kind || "") + ")" : base.kind || "—"],
     ];
-    const tail = [
-      ["snapshot", shortId(u.snapshotId)],
-      ["session", shortId(u.sessionId)],
-    ];
+    const tail = [["snapshot", shortId(u.snapshotId)]];
     const kv = ([k, v]) => `<span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b>`;
     // The target cell carries pre-escaped derived HTML (label + head badge), so
     // it bypasses the generic escaping cell renderer rather than double-escaping.
     const targetCell = `<span>target</span><b>${targetDisplayLabel(u.targetDisplay)}${targetHeadBadge(u.targetDisplay)}</b>`;
     card.innerHTML = `
-      <h3>${escapeHtml(shortId(u.reviewUnitId))}</h3>
-      ${lineageBadges ? `<div class="lineage-badges">${lineageBadges}</div>` : ""}
+      <h3>${escapeHtml(shortId(u.revisionId))}</h3>
+      ${badge ? `<div class="supersession-badges">${badge}</div>` : ""}
       <div class="kv">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>`;
-    card.title = u.reviewUnitId + "\nclick to open the unit page";
+    card.title = u.revisionId + "\nclick to open the revision page";
     card.addEventListener("click", (ev) => {
       if (ev.target.closest("[data-ref-kind]")) return;
-      openUnit(u.reviewUnitId);
+      openUnit(u.revisionId);
     });
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -904,7 +900,7 @@ function renderUnits() {
     diffBtn.textContent = "view snapshot diff";
     diffBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      openDiff(u.snapshotId, shortId(u.reviewUnitId), u.reviewUnitId);
+      openDiff(u.snapshotId, shortId(u.revisionId), u.revisionId);
     });
     actions.appendChild(diffBtn);
     card.appendChild(actions);
@@ -912,42 +908,68 @@ function renderUnits() {
   }
 }
 
-function renderLineages() {
-  const el = $("#lineages");
-  const entries = state.lineages?.entries || [];
-  if (!entries.length) {
-    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">No ReviewUnit lineages in this store.</p>`;
+// One card per supersession thread (a connected component of the supersession
+// DAG, labeled domain-side), rendering the revision DAG: every revision is
+// marked head/superseded and carries its forward/reverse edges, so a fork shows
+// as multiple heads (competing) rather than a single linear stack.
+function renderRevisions() {
+  const el = $("#revisions");
+  const threads = objectThreads();
+  if (!threads.length) {
+    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">No captured revisions in this store.</p>`;
     return;
   }
   el.innerHTML = "";
-  for (const l of entries) {
-    const card = document.createElement("div");
-    card.className = "unit-card lineage-card";
-    const diagnosticCount = (l.diagnostics || []).length;
-    const head = l.headReviewUnitId ? refChip(l.headReviewUnitId) : "—";
-    card.innerHTML = `
-      <h3>${linkify(l.lineageId)}</h3>
-      <div class="kv">
-        <span>head</span><b>${head}</b>
-        <span>rounds</span><b>${escapeHtml(String(l.roundCount ?? 0))}</b>
-        <span>diagnostics</span><b>${escapeHtml(String(diagnosticCount))}</b>
-      </div>
-      ${renderMiniLineageStack(l)}`;
-    card.title = l.lineageId + "\nclick to open the lineage page";
-    card.addEventListener("click", (ev) => {
-      if (ev.target.closest("[data-ref-kind]")) return;
-      openLineage(l.lineageId);
-    });
-    el.appendChild(card);
+  for (const thread of threads) {
+    el.appendChild(renderThreadCard(thread));
   }
 }
 
-function renderMiniLineageStack(lineage) {
-  const rounds = lineage.rounds || [];
-  if (!rounds.length) return "";
-  return `<div class="mini-stack">${rounds
-    .map((r) => `<span class="mini-round${r.isHead ? " head" : ""}" title="${escapeHtml(r.reviewUnitId)}">${escapeHtml(shortId(r.reviewUnitId))}</span>`)
-    .join("")}</div>`;
+function threadLabel(thread) {
+  const heads = thread.heads || [];
+  if (thread.competing) return `revision thread · ${heads.length} competing heads`;
+  if (heads.length === 1) return `revision thread · head ${shortId(heads[0])}`;
+  return "revision thread";
+}
+
+function renderThreadCard(thread) {
+  const revisions = thread.revisions || [];
+  const heads = thread.heads || [];
+  const superseded = new Set(thread.superseded || []);
+  const card = document.createElement("div");
+  card.className = "unit-card thread-card" + (thread.competing ? " competing" : "");
+  // A fork surfaces every competing head as a navigable chip — never a null head.
+  const competingBadge = thread.competing
+    ? `<div class="thread-competing"><span class="fact-status competing">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>`
+    : "";
+  const nodes = revisions.map((rev) => renderRevisionNode(rev, heads, superseded)).join("");
+  card.innerHTML = `
+    <h3>${escapeHtml(threadLabel(thread))}</h3>
+    ${competingBadge}
+    <div class="kv">
+      <span>revisions</span><b>${escapeHtml(String(revisions.length))}</b>
+      <span>heads</span><b>${escapeHtml(String(heads.length))}</b>
+      <span>superseded</span><b>${escapeHtml(String(superseded.size))}</b>
+    </div>
+    <div class="revision-dag">${nodes}</div>`;
+  return card;
+}
+
+function renderRevisionNode(rev, heads, superseded) {
+  const isHead = heads.includes(rev);
+  const isSuperseded = superseded.has(rev);
+  const successors = supersededByRevision(rev);
+  const predecessors = supersedesRevision(rev);
+  const marks = [];
+  if (isHead) marks.push(`<span class="fact-status current">head</span>`);
+  if (isSuperseded) marks.push(`<span class="fact-status superseded">superseded by ${successors.map((s) => linkify(s)).join(" ")}</span>`);
+  const supersedesRow = predecessors.length
+    ? `<div class="rev-edge">supersedes ${predecessors.map((p) => linkify(p)).join(" ")}</div>`
+    : "";
+  return `<div class="revision-node${isHead ? " head" : ""}${isSuperseded ? " superseded" : ""}">
+    <div class="rev-node-head">${linkify(rev)} ${marks.join(" ")}</div>
+    ${supersedesRow}
+  </div>`;
 }
 
 function switchView(view) {
@@ -956,165 +978,25 @@ function switchView(view) {
   document.querySelectorAll(".tab").forEach((t) =>
     t.setAttribute(
       "aria-selected",
-      String(
-        t.dataset.view === view ||
-          (view === "unit" && t.dataset.view === "units") ||
-          (view === "lineage" && t.dataset.view === "lineages"),
-      ),
+      String(t.dataset.view === view || (view === "unit" && t.dataset.view === "units")),
     ),
   );
   $("#view-timeline").classList.toggle("hidden", view !== "timeline");
   $("#view-units").classList.toggle("hidden", view !== "units");
-  $("#view-lineages").classList.toggle("hidden", view !== "lineages");
+  $("#view-revisions").classList.toggle("hidden", view !== "revisions");
   $("#view-unit").classList.toggle("hidden", view !== "unit");
-  $("#view-lineage").classList.toggle("hidden", view !== "lineage");
 }
 
-async function openUnit(reviewUnitId) {
+async function openUnit(revisionId) {
   switchView("unit");
-  $("#unit-page-title").textContent = shortId(reviewUnitId);
+  $("#unit-page-title").textContent = shortId(revisionId);
   $("#unit-page").innerHTML = `<p class="up-empty">loading…</p>`;
   try {
-    const d = await fetchJSON("/api/unit?id=" + encodeURIComponent(reviewUnitId));
+    const d = await fetchJSON("/api/unit?id=" + encodeURIComponent(revisionId));
     renderUnitPage(d);
   } catch (err) {
     $("#unit-page").innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;
   }
-}
-
-async function openLineage(lineageId) {
-  switchView("lineage");
-  $("#lineage-page-title").textContent = shortRef(lineageId);
-  $("#lineage-page").innerHTML = `<p class="up-empty">loading…</p>`;
-  try {
-    const d = await fetchJSON("/api/lineage?id=" + encodeURIComponent(lineageId));
-    renderLineagePage(d);
-  } catch (err) {
-    $("#lineage-page").innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;
-  }
-}
-
-function diagnosticBlock(diagnostics) {
-  diagnostics = diagnostics || [];
-  if (!diagnostics.length) return `<p class="up-empty">none</p>`;
-  return diagnostics
-    .map(
-      (d) => `<div class="diagnostic-card"><span class="code">${escapeHtml(d.code || "diagnostic")}</span>${linkify(d.message || "")}</div>`,
-    )
-    .join("");
-}
-
-function navigateToLineageRound(roundId) {
-  revealBy((e) => e.eventType === "review_unit_lineage_round_recorded" && (e.summary || {}).roundId === roundId);
-}
-
-function navigateToLineageTimeline(lineageId) {
-  state.filterText = "";
-  state.filterTrack = "";
-  state.filterUnit = "";
-  state.filterLineage = lineageId;
-  $("#filter-text").value = "";
-  $("#filter-track").value = "";
-  $("#filter-unit").value = "";
-  $("#filter-lineage").value = lineageId;
-  switchView("timeline");
-  renderTimeline();
-}
-
-function renderLineageFact(e, stale) {
-  const s = e.summary || {};
-  const kind =
-    e.eventType === "review_assessment_recorded"
-      ? "assessment"
-      : e.eventType === "input_request_opened"
-        ? "input-request"
-        : e.eventType === "validation_check_recorded"
-          ? "validation"
-          : "observation";
-  const title = s.title || s.assessment || s.reasonCode || s.checkName || typeLabel(e.eventType);
-  // Reserve the card status slot for the lineage stale marker; carry the
-  // validation check status as a tag instead so it never displaces "stale".
-  const tags = Array.isArray(s.tags) ? s.tags.slice() : [];
-  if (e.eventType === "validation_check_recorded" && s.status) tags.push(s.status);
-  return factCard(kind, {
-    track: entryTrack(e),
-    title,
-    status: stale ? "stale" : "",
-    target: targetLabel(s.target),
-    tags,
-    body: s.body || s.summary || "",
-    createdAt: e.occurredAt,
-    verify: verificationChip(e.verificationStatus),
-    endorsements: endorsementsBlock(e.endorsements),
-    extra: `<div class="fact-rel">${linkify(e.eventId)}</div>`,
-  });
-}
-
-function renderLineagePage(d) {
-  const rounds = d.rounds || [];
-  $("#lineage-page-title").textContent = `${shortRef(d.lineageId)}${d.headReviewUnitId ? " · head " + shortId(d.headReviewUnitId) : ""}`;
-
-  const stat = (label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
-  const sections = [];
-  sections.push(`<section><h2>Lineage</h2><dl class="up-identity">
-    <dt>id</dt><dd>${linkify(d.lineageId)}</dd>
-    <dt>head</dt><dd>${d.headReviewUnitId ? linkify(d.headReviewUnitId) : "—"}</dd>
-    <dt>events</dt><dd>${escapeHtml(String(d.eventCount ?? 0))}</dd>
-    <dt>event set</dt><dd>${linkify(d.eventSetHash || "—")}</dd>
-  </dl></section>`);
-
-  sections.push(`<section><h2>Summary</h2><div class="up-stats">
-    ${stat("rounds", rounds.length)}${stat("diagnostics", (d.diagnostics || []).length)}
-  </div>
-  <div style="margin-top:10px">
-    <button class="ghost" id="lineage-timeline-btn">filter timeline</button>
-  </div></section>`);
-
-  sections.push(`<section><h2>Diagnostics</h2>${diagnosticBlock(d.diagnostics)}</section>`);
-
-  const roundCards = rounds.length
-    ? rounds
-        .map((r) => {
-          const index = r.roundIndex == null ? "—" : String(r.roundIndex);
-          const facts = lineageFactsForRound(d.lineageId, r.reviewUnitId);
-          const stale = Boolean(d.headReviewUnitId && r.reviewUnitId !== d.headReviewUnitId);
-          const headBadge = r.isHead ? `<span class="fact-status current">head</span>` : "";
-          const staleBadge = stale && facts.length ? `<span class="fact-status stale">stale facts</span>` : "";
-          const predecessor = r.predecessorReviewUnitId ? linkify(r.predecessorReviewUnitId) : "—";
-          const factList = facts.length
-            ? `<div class="lineage-facts">${facts.map((fact) => renderLineageFact(fact, stale)).join("")}</div>`
-            : "";
-          return `<div class="round-card${r.isHead ? " head-round" : ""}${stale ? " stale-round" : ""}">
-            <div class="anno-head">
-              <span class="anno-kind">round ${escapeHtml(index)}</span>
-              ${headBadge}
-              ${staleBadge}
-              <span class="anno-title">${linkify(r.reviewUnitId)}</span>
-            </div>
-            <dl class="up-identity round-identity">
-              <dt>round</dt><dd>${linkify(r.roundId)}</dd>
-              <dt>predecessor</dt><dd>${predecessor}</dd>
-            </dl>
-            <div class="actions">
-              <button class="ghost" data-open-unit="${escapeHtml(r.reviewUnitId)}">open unit</button>
-              <button class="ghost" data-open-round="${escapeHtml(r.roundId)}">show round event</button>
-            </div>
-            ${factList}
-          </div>`;
-        })
-        .join("")
-    : `<p class="up-empty">none</p>`;
-  sections.push(`<section><h2>Rounds (${rounds.length})</h2><div class="lineage-stack">${roundCards}</div></section>`);
-
-  $("#lineage-page").innerHTML = sections.join("");
-  $("#lineage-page").querySelectorAll("[data-open-unit]").forEach((btn) => {
-    btn.addEventListener("click", () => openUnit(btn.dataset.openUnit));
-  });
-  $("#lineage-page").querySelectorAll("[data-open-round]").forEach((btn) => {
-    btn.addEventListener("click", () => navigateToLineageRound(btn.dataset.openRound));
-  });
-  const timelineBtn = $("#lineage-timeline-btn");
-  if (timelineBtn) timelineBtn.addEventListener("click", () => navigateToLineageTimeline(d.lineageId));
 }
 
 function verdictBadge(ca) {
@@ -1153,8 +1035,8 @@ function targetLabel(t) {
       return `${escapeHtml(t.filePath)}:${t.startLine}-${t.endLine ?? t.startLine} (${escapeHtml(t.side || "new")})`;
     case "file":
       return escapeHtml(t.filePath || "");
-    case "review_unit":
-      return "whole unit";
+    case "revision":
+      return "whole revision";
     case "observation":
       return `→ ${linkify(t.observationId)}`;
     case "input_request":
@@ -1283,22 +1165,22 @@ function factSection(title, items, render) {
 }
 
 function renderUnitPage(d) {
-  const ru = d.reviewUnit || {};
+  const ru = d.revision || {};
   const base = ru.base || {};
   const s = d.summary || {};
-  const lineageBadges = lineageBadgesForUnit(ru.id);
+  const badge = supersessionBadge(ru.id);
   $("#unit-page-title").textContent = `${shortId(ru.id)}${base.commitOid ? " · base " + shortId(base.commitOid) : ""}`;
 
   const stat = (label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
   const sections = [];
 
-  sections.push(`<section><h2>ReviewUnit</h2><dl class="up-identity">
+  sections.push(`<section><h2>Revision</h2><dl class="up-identity">
     <dt>id</dt><dd>${linkify(ru.id)}</dd>
     <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="fact-status">${escapeHtml(base.kind)}</span>` : ""}</dd>
     <dt>target</dt><dd>${targetDisplayLabel(ru.targetDisplay)}${targetHeadBadge(ru.targetDisplay)}</dd>
     <dt>worktree</dt><dd>${escapeHtml(ru.targetDisplay?.label ?? "working tree")}</dd>
     <dt>head</dt><dd>${escapeHtml(ru.targetDisplay?.head?.label ?? "—")}</dd>
-    <dt>lineage</dt><dd>${lineageBadges || "—"}</dd>
+    <dt>supersession</dt><dd>${badge || "—"}</dd>
     <dt>snapshot</dt><dd>${linkify(ru.snapshotId)}</dd>
   </dl></section>`);
 
@@ -1354,25 +1236,24 @@ function wireControls() {
     state.filterUnit = ev.target.value;
     renderTimeline();
   });
-  $("#filter-lineage").addEventListener("change", (ev) => {
-    state.filterLineage = ev.target.value;
+  $("#filter-object").addEventListener("change", (ev) => {
+    state.filterObject = ev.target.value;
     renderTimeline();
   });
   $("#filter-clear").addEventListener("click", () => {
     state.filterText = "";
     state.filterTrack = "";
     state.filterUnit = "";
-    state.filterLineage = "";
+    state.filterObject = "";
     state.enabledTypes = new Set(presentTypes());
     $("#filter-text").value = "";
     $("#filter-track").value = "";
     $("#filter-unit").value = "";
-    $("#filter-lineage").value = "";
+    $("#filter-object").value = "";
     renderTypeToggles();
     renderTimeline();
   });
   $("#unit-back").addEventListener("click", () => switchView("units"));
-  $("#lineage-back").addEventListener("click", () => switchView("lineages"));
   $("#order-toggle").addEventListener("click", () => {
     state.order = state.order === "desc" ? "asc" : "desc";
     $("#order-toggle").textContent = state.order === "desc" ? "newest first" : "oldest first";

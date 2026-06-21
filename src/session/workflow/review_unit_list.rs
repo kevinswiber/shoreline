@@ -10,9 +10,7 @@ use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::association::normalize_ref;
 use crate::session::workflow::commit_range_liveness::{CommitGraphCondition, enrich_liveness};
-use crate::session::workflow::observation::{
-    CurrentReviewUnitContext, review_unit_ids_in_worktree,
-};
+use crate::session::workflow::observation::{CurrentReviewUnitContext, revision_ids_in_worktree};
 use crate::session::{
     CommitOidGroupingProjection, EventStore, ReviewUnitCommitRangeProjection,
     ReviewUnitCommitRangeView,
@@ -101,7 +99,6 @@ impl ReviewUnitListOptions {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewUnitListEntry {
-    pub review_unit_id: RevisionId,
     pub captured_at: String,
     pub revision_id: RevisionId,
     pub snapshot_id: ObjectId,
@@ -117,12 +114,12 @@ pub struct ReviewUnitListEntry {
     /// unknown`. `unknown` covers floating units, disagreeing per-commit
     /// conditions, and a repo error (which degrades gracefully, never an error).
     pub merge_status: String,
-    /// The review units this entry stands for. Singleton (`[review_unit_id]`) for an
+    /// The review units this entry stands for. Singleton (`[revision_id]`) for an
     /// ungrouped unit; for a unit whose current commit OID is shared by sibling
     /// captures (e.g. the same range captured in two worktrees, which mint distinct
-    /// ids), this lists every member. The representative `review_unit_id` is the
+    /// ids), this lists every member. The representative `revision_id` is the
     /// lexicographically smallest member, so the choice is deterministic and re-ID-free.
-    pub grouped_review_unit_ids: Vec<RevisionId>,
+    pub grouped_revision_ids: Vec<RevisionId>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -130,7 +127,7 @@ pub struct ReviewUnitListEntry {
 pub struct ReviewUnitListResult {
     pub event_set_hash: String,
     pub event_count: usize,
-    pub review_unit_count: usize,
+    pub revision_count: usize,
     pub entries: Vec<ReviewUnitListEntry>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
@@ -150,17 +147,17 @@ pub fn list_review_units(options: ReviewUnitListOptions) -> Result<ReviewUnitLis
         )?;
         result
             .entries
-            .retain(|entry| matching.contains(&entry.review_unit_id));
-        result.review_unit_count = result.entries.len();
+            .retain(|entry| matching.contains(&entry.revision_id));
+        result.revision_count = result.entries.len();
     }
 
     if let Some(worktree) = &options.worktree_scope {
         let context = CurrentReviewUnitContext::for_repo(worktree)?;
-        let in_scope = review_unit_ids_in_worktree(&events, &context)?;
+        let in_scope = revision_ids_in_worktree(&events, &context)?;
         result
             .entries
-            .retain(|entry| in_scope.contains(&entry.review_unit_id));
-        result.review_unit_count = result.entries.len();
+            .retain(|entry| in_scope.contains(&entry.revision_id));
+        result.revision_count = result.entries.len();
     }
 
     apply_orphan_visibility(&mut result, &options.repo, options.orphan_visibility);
@@ -173,7 +170,7 @@ pub fn list_review_units(options: ReviewUnitListOptions) -> Result<ReviewUnitLis
     // before merge-status, which is attached over the grouped entries.
     let grouping = CommitOidGroupingProjection::from_events(&events)?;
     result.entries = group_entries(result.entries, &grouping);
-    result.review_unit_count = result.entries.len();
+    result.revision_count = result.entries.len();
 
     attach_merge_status(
         &mut result,
@@ -233,13 +230,13 @@ fn apply_orphan_visibility(
             result
                 .entries
                 .retain(|entry| !is_hidden_orphan(&entry.commit_range, repo));
-            result.review_unit_count = result.entries.len();
+            result.revision_count = result.entries.len();
         }
         OrphanVisibility::OrphansOnly => {
             result
                 .entries
                 .retain(|entry| is_hidden_orphan(&entry.commit_range, repo));
-            result.review_unit_count = result.entries.len();
+            result.revision_count = result.entries.len();
         }
     }
 }
@@ -263,7 +260,7 @@ fn is_hidden_orphan(view: &ReviewUnitCommitRangeView, repo: &Path) -> bool {
 }
 
 /// Collapse capture entries that share a current commit OID into one entry per
-/// group. Two worktree captures of the same range mint distinct review_unit_ids
+/// group. Two worktree captures of the same range mint distinct revision_ids
 /// (the identity fold is per-worktree, in `fingerprint.rs` — deliberately NOT
 /// changed), but converge on a shared OID; this presents them as one row exposing
 /// both ids. Floating captures and captures whose OID no sibling shares pass through
@@ -281,7 +278,7 @@ fn group_entries(
 ) -> Vec<ReviewUnitListEntry> {
     let by_id: BTreeMap<RevisionId, ReviewUnitListEntry> = entries
         .into_iter()
-        .map(|entry| (entry.review_unit_id.clone(), entry))
+        .map(|entry| (entry.revision_id.clone(), entry))
         .collect();
 
     let mut grouped: Vec<ReviewUnitListEntry> = Vec::new();
@@ -297,22 +294,18 @@ fn group_entries(
             .get(&representative)
             .expect("representative is a known entry")
             .clone();
-        entry.grouped_review_unit_ids = members.into_iter().collect();
+        entry.grouped_revision_ids = members.into_iter().collect();
         debug_assert!(
-            entry
-                .grouped_review_unit_ids
-                .contains(&entry.review_unit_id),
+            entry.grouped_revision_ids.contains(&entry.revision_id),
             "the member set always contains the representative id"
         );
         grouped.push(entry);
     }
 
     grouped.sort_by(|left, right| {
-        left.captured_at.cmp(&right.captured_at).then_with(|| {
-            left.review_unit_id
-                .as_str()
-                .cmp(right.review_unit_id.as_str())
-        })
+        left.captured_at
+            .cmp(&right.captured_at)
+            .then_with(|| left.revision_id.as_str().cmp(right.revision_id.as_str()))
     });
     grouped
 }
@@ -390,7 +383,7 @@ pub(crate) fn review_units_matching_ref(
         RefFilterMode::Label => Ok(projection
             .units_for_ref(&normalized_ref)
             .into_iter()
-            .map(|view| view.review_unit_id.clone())
+            .map(|view| view.revision_id.clone())
             .collect()),
         RefFilterMode::Liveness => {
             let mut matching = BTreeSet::new();
@@ -402,7 +395,7 @@ pub(crate) fn review_units_matching_ref(
                         CommitGraphCondition::Merged | CommitGraphCondition::Live
                     )
                 }) {
-                    matching.insert(view.review_unit_id.clone());
+                    matching.insert(view.revision_id.clone());
                 }
             }
             Ok(matching)
@@ -427,17 +420,15 @@ fn list_from_events(
         .collect::<Result<Vec<_>>>()?;
 
     entries.sort_by(|left, right| {
-        left.captured_at.cmp(&right.captured_at).then_with(|| {
-            left.review_unit_id
-                .as_str()
-                .cmp(right.review_unit_id.as_str())
-        })
+        left.captured_at
+            .cmp(&right.captured_at)
+            .then_with(|| left.revision_id.as_str().cmp(right.revision_id.as_str()))
     });
 
     Ok(ReviewUnitListResult {
         event_set_hash,
         event_count: events.len(),
-        review_unit_count: entries.len(),
+        revision_count: entries.len(),
         entries,
         diagnostics: state.diagnostics,
     })
@@ -467,11 +458,10 @@ fn entry_from_event(
         .unit(&revision.id)
         .cloned()
         .unwrap_or_else(|| empty_view(revision.id.clone()));
-    let review_unit_id = revision.id;
+    let revision_id = revision.id;
     Ok(Some(ReviewUnitListEntry {
-        review_unit_id: review_unit_id.clone(),
         captured_at: event.occurred_at.clone(),
-        revision_id: review_unit_id.clone(),
+        revision_id: revision_id.clone(),
         snapshot_id: revision.object_id,
         source: provenance.source,
         base: provenance.base,
@@ -482,13 +472,13 @@ fn entry_from_event(
         merge_status: String::new(),
         // Every entry starts standing only for itself; the grouping pass rewrites this
         // for entries whose current commit OID is shared by sibling captures.
-        grouped_review_unit_ids: vec![review_unit_id],
+        grouped_revision_ids: vec![revision_id],
     }))
 }
 
-fn empty_view(review_unit_id: RevisionId) -> ReviewUnitCommitRangeView {
+fn empty_view(revision_id: RevisionId) -> ReviewUnitCommitRangeView {
     ReviewUnitCommitRangeView {
-        review_unit_id,
+        revision_id,
         anchored: false,
         current_commits: Vec::new(),
         current_refs: Vec::new(),
@@ -516,7 +506,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.event_count, 0);
-        assert_eq!(result.review_unit_count, 0);
+        assert_eq!(result.revision_count, 0);
         assert!(result.entries.is_empty());
         assert!(result.event_set_hash.starts_with("sha256:"));
     }
@@ -529,9 +519,9 @@ mod tests {
         let result = list_from_events(&events, &projection).unwrap();
 
         assert_eq!(result.event_count, 1);
-        assert_eq!(result.review_unit_count, 1);
+        assert_eq!(result.revision_count, 1);
         assert_eq!(
-            result.entries[0].review_unit_id.as_str(),
+            result.entries[0].revision_id.as_str(),
             "review-unit:sha256:a"
         );
         assert_eq!(result.entries[0].captured_at, "2026-05-13T10:00:00Z");
@@ -554,7 +544,7 @@ mod tests {
         let order: Vec<&str> = result
             .entries
             .iter()
-            .map(|entry| entry.review_unit_id.as_str())
+            .map(|entry| entry.revision_id.as_str())
             .collect();
         assert_eq!(
             order,
@@ -573,7 +563,8 @@ mod tests {
         let result = list_from_events(&events, &projection).unwrap();
         let json = serde_json::to_string(&result.entries[0]).unwrap();
 
-        assert!(json.contains("reviewUnitId"));
+        assert!(json.contains("revisionId"));
+        assert!(!json.contains("reviewUnitId"));
         assert!(json.contains("capturedAt"));
         assert!(json.contains("snapshotArtifactContentHash"));
         assert!(!json.contains("artifacts/"));
@@ -668,9 +659,9 @@ mod tests {
 
         let result = list_from_events(&events, &projection).unwrap();
 
-        assert_eq!(result.review_unit_count, 1);
+        assert_eq!(result.revision_count, 1);
         assert_eq!(
-            result.entries[0].review_unit_id.as_str(),
+            result.entries[0].revision_id.as_str(),
             "review-unit:sha256:rev"
         );
     }
@@ -845,11 +836,11 @@ mod tests {
         let projection = ReviewUnitCommitRangeProjection::from_events(events).unwrap();
         let mut result = list_from_events(events, &projection).unwrap();
         apply_orphan_visibility(&mut result, repo, visibility);
-        assert_eq!(result.review_unit_count, result.entries.len());
+        assert_eq!(result.revision_count, result.entries.len());
         result
             .entries
             .iter()
-            .map(|entry| entry.review_unit_id.as_str().to_owned())
+            .map(|entry| entry.revision_id.as_str().to_owned())
             .collect()
     }
 
@@ -966,7 +957,7 @@ mod tests {
     }
 
     /// Surface every entry (so orphaned units are present too) and attach
-    /// merge-status, returning `(review_unit_id, merge_status)` pairs.
+    /// merge-status, returning `(revision_id, merge_status)` pairs.
     fn merge_statuses(
         events: &[ShoreEvent],
         repo: &Path,
@@ -981,7 +972,7 @@ mod tests {
             .iter()
             .map(|entry| {
                 (
-                    entry.review_unit_id.as_str().to_owned(),
+                    entry.revision_id.as_str().to_owned(),
                     entry.merge_status.clone(),
                 )
             })
@@ -1135,7 +1126,7 @@ mod tests {
 
     #[test]
     fn cross_worktree_same_range_captures_present_as_one_grouped_entry() {
-        // Two captures (distinct review_unit_ids, as two worktrees would mint) whose
+        // Two captures (distinct revision_ids, as two worktrees would mint) whose
         // current commit sets both contain the same OID collapse into ONE list entry
         // that exposes BOTH ids in its grouped-member set. One shared artifact, two
         // capture events — no re-ID.
@@ -1158,7 +1149,7 @@ mod tests {
             1,
             "two same-range captures collapse to one entry"
         );
-        let members = &grouped[0].grouped_review_unit_ids;
+        let members = &grouped[0].grouped_revision_ids;
         assert_eq!(members.len(), 2);
         assert!(members.contains(&unit_a));
         assert!(members.contains(&unit_b));
@@ -1191,8 +1182,8 @@ mod tests {
         );
         for entry in &grouped {
             assert_eq!(
-                entry.grouped_review_unit_ids,
-                vec![entry.review_unit_id.clone()],
+                entry.grouped_revision_ids,
+                vec![entry.revision_id.clone()],
                 "an ungrouped entry's member set is just its own id"
             );
         }

@@ -31,7 +31,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestOpenOptions {
     repo: PathBuf,
-    review_unit_id: Option<RevisionId>,
+    revision_id: Option<RevisionId>,
     track: Option<String>,
     title: Option<String>,
     body: Option<String>,
@@ -47,7 +47,7 @@ impl InputRequestOpenOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            review_unit_id: None,
+            revision_id: None,
             track: None,
             title: None,
             body: None,
@@ -71,7 +71,7 @@ impl InputRequestOpenOptions {
     }
 
     pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
-        self.review_unit_id = Some(id);
+        self.revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -128,7 +128,7 @@ impl InputRequestOpenOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestOpenResult {
-    pub review_unit_id: RevisionId,
+    pub revision_id: RevisionId,
     pub input_request_id: InputRequestId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -156,7 +156,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let validation_events = validation_store.validation_events()?;
     let resolved = resolve_revision(
         &validation_events,
-        RevisionSelection::from_revision_seed(options.review_unit_id.as_ref()),
+        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
         &CurrentReviewUnitContext::for_repo(&options.repo)?,
         ReviewUnitScope::default(),
     )?;
@@ -189,7 +189,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(options.body.as_deref())?;
     let input_request_id = build_input_request_id(InputRequestIdMaterial {
-        review_unit_id: &resolved.revision_id,
+        revision_id: &resolved.revision_id,
         track_id: &track_id,
         target: &target,
         assertion_mode: options.assertion_mode,
@@ -258,7 +258,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     )?;
 
     let result = InputRequestOpenResult {
-        review_unit_id: resolved.revision_id,
+        revision_id: resolved.revision_id,
         input_request_id,
         event_id,
         track_id,
@@ -275,7 +275,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
 }
 
 struct InputRequestIdMaterial<'a> {
-    review_unit_id: &'a RevisionId,
+    revision_id: &'a RevisionId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
     assertion_mode: AssertionMode,
@@ -287,7 +287,7 @@ struct InputRequestIdMaterial<'a> {
 
 fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputRequestId> {
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.review_unit_id.as_str(),
+        "reviewUnitId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "assertionMode": material.assertion_mode,

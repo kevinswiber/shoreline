@@ -55,8 +55,8 @@ fn artifact_removed_event(repo: &Path) -> Value {
 fn store_remove_by_snapshot_emits_removed_document() {
     let repo = modified_repo();
     let captured = capture(repo.path());
-    let snapshot_id = captured["reviewUnit"]["snapshotId"].as_str().unwrap();
-    let content_hash = captured["reviewUnit"]["snapshotArtifactContentHash"]
+    let snapshot_id = captured["revision"]["snapshotId"].as_str().unwrap();
+    let content_hash = captured["revision"]["snapshotArtifactContentHash"]
         .as_str()
         .unwrap();
 
@@ -116,12 +116,12 @@ fn store_remove_by_review_unit_reports_co_referencing_units() {
     let cap1 = capture_worktree(&wt1);
     let cap2 = capture_worktree(&wt2);
 
-    let unit1 = cap1["reviewUnit"]["id"].as_str().unwrap();
-    let unit2 = cap2["reviewUnit"]["id"].as_str().unwrap().to_owned();
-    let hash1 = cap1["reviewUnit"]["snapshotArtifactContentHash"]
+    let unit1 = cap1["revision"]["id"].as_str().unwrap();
+    let unit2 = cap2["revision"]["id"].as_str().unwrap().to_owned();
+    let hash1 = cap1["revision"]["snapshotArtifactContentHash"]
         .as_str()
         .unwrap();
-    let hash2 = cap2["reviewUnit"]["snapshotArtifactContentHash"]
+    let hash2 = cap2["revision"]["snapshotArtifactContentHash"]
         .as_str()
         .unwrap();
     assert_eq!(
@@ -165,7 +165,7 @@ fn store_remove_by_review_unit_reports_co_referencing_units() {
 fn store_remove_has_no_idempotency_key_flag() {
     let repo = modified_repo();
     let captured = capture(repo.path());
-    let snapshot_id = captured["reviewUnit"]["snapshotId"].as_str().unwrap();
+    let snapshot_id = captured["revision"]["snapshotId"].as_str().unwrap();
 
     let output = shore([
         "store",
@@ -188,7 +188,7 @@ fn store_remove_has_no_idempotency_key_flag() {
 fn store_remove_is_idempotent() {
     let repo = modified_repo();
     let captured = capture(repo.path());
-    let snapshot_id = captured["reviewUnit"]["snapshotId"].as_str().unwrap();
+    let snapshot_id = captured["revision"]["snapshotId"].as_str().unwrap();
 
     let first = shore([
         "store",
@@ -219,8 +219,8 @@ fn store_remove_is_idempotent() {
 fn store_compact_deletes_removed_blob_and_emits_document() {
     let repo = modified_repo();
     let captured = capture(repo.path());
-    let snapshot_id = captured["reviewUnit"]["snapshotId"].as_str().unwrap();
-    let content_hash = captured["reviewUnit"]["snapshotArtifactContentHash"]
+    let snapshot_id = captured["revision"]["snapshotId"].as_str().unwrap();
+    let content_hash = captured["revision"]["snapshotArtifactContentHash"]
         .as_str()
         .unwrap();
 
@@ -263,7 +263,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
 fn store_gc_is_alias_of_compact() {
     let repo = modified_repo();
     let captured = capture(repo.path());
-    let snapshot_id = captured["reviewUnit"]["snapshotId"].as_str().unwrap();
+    let snapshot_id = captured["revision"]["snapshotId"].as_str().unwrap();
 
     shore([
         "store",
@@ -342,7 +342,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
         )
         .stdout,
     );
-    let snapshot_id = captured["reviewUnit"]["snapshotId"].as_str().unwrap();
+    let snapshot_id = captured["revision"]["snapshotId"].as_str().unwrap();
 
     let output = shore_env(
         [
