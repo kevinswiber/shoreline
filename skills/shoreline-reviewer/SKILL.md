@@ -12,7 +12,7 @@ answer, and make the review call.
 Record exactly one assessment with `shore review assessment add`. The assessment is the reviewer's
 call, so this role owns it. Never write to the author's track.
 
-Do not run `shore review unit show --pretty` as a readback surface. It includes the full captured
+Do not run `shore review show --pretty` as a readback surface. It includes the full captured
 snapshot and can emit megabytes for a real change. Use bounded list commands for the author's
 handoff, your reviewer notes, input requests, and assessment.
 
@@ -39,7 +39,7 @@ If the ReviewUnit ID is not already known, list captured units and pick the one 
 review:
 
 ```bash
-shore review unit list --pretty
+shore review revisions --pretty
 review_unit_id="<review-unit-id>"
 author_track="<author-track>"
 ```
@@ -48,9 +48,9 @@ If the author track is not supplied, use the bounded read surfaces to find the t
 the authored handoff:
 
 ```bash
-shore review observation list --review-unit "$review_unit_id" --pretty
-shore review validation list --review-unit "$review_unit_id" --include-body --pretty
-shore review input-request list --review-unit "$review_unit_id" --status open --pretty
+shore review observation list --revision "$review_unit_id" --pretty
+shore review validation list --revision "$review_unit_id" --include-body --pretty
+shore review input-request list --revision "$review_unit_id" --status open --pretty
 ```
 
 ## Read the author's handoff
@@ -59,17 +59,17 @@ Read only the author's track. Include bodies so you can see the substance of the
 
 ```bash
 shore review observation list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$author_track" \
   --include-body --pretty
 
 shore review validation list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$author_track" \
   --include-body --pretty
 
 shore review input-request list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$author_track" \
   --status open \
   --include-body --pretty
@@ -119,7 +119,7 @@ tests, full tests or checks when appropriate, lint, formatting, documentation ch
 status when the project uses it.
 
 The ReviewUnit snapshot is frozen at the author's capture moment, while your checkout may have moved
-since then. Compare the captured unit's endpoints from `shore review unit list --pretty` with the
+since then. Compare the captured unit's endpoints from `shore review revisions --pretty` with the
 commit or branch head you actually review. If they diverge or you cannot prove they match, record a
 reviewer observation that names the live commit and the possible snapshot mismatch.
 
@@ -138,14 +138,14 @@ cross-cutting conclusions.
 
 ```bash
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --title "Parser test covers the new token path" \
   --file tests/parser.rs --start-line 42 --end-line 71 \
   --body "Verified the new regression test fails against the old parser behavior and passes with this change."
 
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --title "Verification reproduced the author's green checks" \
   --body "Ran the repository's targeted parser test and full test suite from the reviewed checkout. Both passed."
@@ -161,7 +161,7 @@ evidence for command results, and observations for the reasoning around those re
 
 ```bash
 shore review validation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --check-name "just check" \
   --status passed \
@@ -181,7 +181,7 @@ answer one, leave it open and reflect that in the assessment.
 
 ```bash
 shore review input-request list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$author_track" \
   --mode operative \
   --status open \
@@ -202,7 +202,7 @@ reviewer track. Do not record decision-seeking follow-ups as plain observations.
 
 ```bash
 shore review input-request open \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --title "Decide whether to split the parser follow-up" \
   --reason manual-decision-required \
@@ -220,7 +220,7 @@ track. Use `accepted`, `accepted-with-follow-up`, `needs-changes`, or `needs-cla
 
 ```bash
 shore review assessment add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --assessment accepted-with-follow-up \
   --related-observation <observation-id> \
@@ -238,23 +238,23 @@ Verify the reviewer record with bounded read commands:
 
 ```bash
 shore review observation list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --include-body --pretty
 
 shore review validation list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --include-body --pretty
 
 shore review input-request list \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --status all \
   --include-body --pretty
 
 shore review assessment show \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$reviewer_track" \
   --include-summary --pretty
 ```
@@ -266,7 +266,7 @@ an implementation role.
 ## Common errors
 
 - **Using full ReviewUnit show for readback.** Use bounded observation, input-request, and
-  assessment read commands. Do not use `shore review unit show --pretty` for this review loop.
+  assessment read commands. Do not use `shore review show --pretty` for this review loop.
 - **Writing on the author's track.** The reviewer uses a separate reviewer track for every write.
 - **Rubber-stamping the handoff.** The author's observations are context. Verify claims yourself.
 - **Treating validation evidence as an assessment.** Check records are advisory context. The

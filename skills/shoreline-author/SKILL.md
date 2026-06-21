@@ -109,20 +109,20 @@ specific part of the diff.
 
 ```bash
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --title "Parser keeps the existing whitespace contract" \
   --file src/parser.rs --start-line 84 --end-line 123 \
   --body "The parser now accepts the new token form while preserving the old whitespace path. The branch stays local to parsing so callers do not need a compatibility shim."
 
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --title "Targeted parser test was red first" \
   --body "The targeted parser test failed before the implementation change, confirming it covered the old behavior. That pre-change failure did not run against the captured ReviewUnit, so it is recorded as context rather than validation evidence."
@@ -141,7 +141,7 @@ assessment.
 
 ```bash
 shore review validation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --check-name "targeted parser test" \
   --status passed \
@@ -150,7 +150,7 @@ shore review validation add \
   --summary "Passed after the final edit against the captured ReviewUnit."
 
 shore review validation add \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --check-name "just check" \
   --status passed \
@@ -172,7 +172,7 @@ pause the workflow.
 
 ```bash
 shore review input-request open \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --title "Confirm whether the relaxed parser should be documented" \
   --reason manual-decision-required \
@@ -180,7 +180,7 @@ shore review input-request open \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
 shore review input-request open \
-  --review-unit "$review_unit_id" \
+  --revision "$review_unit_id" \
   --track "$track" \
   --title "Choose the default for conflicting config values" \
   --reason ambiguous-state \
@@ -196,13 +196,13 @@ are acting as the reviewer, not while authoring the handoff.
 Verify that the handoff is visible before you stop:
 
 ```bash
-shore review observation list --review-unit "$review_unit_id" --track "$track" --pretty
-shore review validation list --review-unit "$review_unit_id" --track "$track" --include-body --pretty
-shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open --pretty
+shore review observation list --revision "$review_unit_id" --track "$track" --pretty
+shore review validation list --revision "$review_unit_id" --track "$track" --include-body --pretty
+shore review input-request list --revision "$review_unit_id" --track "$track" --status open --pretty
 ```
 
 These commands verify the author's writes without replaying the captured snapshot. The
-`shore review unit show --pretty` command emits the full integration-JSON document: it includes the
+`shore review show --pretty` command emits the full integration-JSON document: it includes the
 complete captured snapshot, is large for any real change, and is meant for tooling or the rare case
 where the full snapshot is genuinely needed. It is not the human readback surface.
 
@@ -210,11 +210,11 @@ Then stand down with a concise message:
 
 ```text
 Created the Shoreline handoff record on `<track>`. Read it with
-`shore review observation list --review-unit <id> --track <track> --include-body --pretty`
+`shore review observation list --revision <id> --track <track> --include-body --pretty`
 and
-`shore review validation list --review-unit <id> --track <track> --include-body --pretty`
+`shore review validation list --revision <id> --track <track> --include-body --pretty`
 and
-`shore review input-request list --review-unit <id> --track <track> --status open --include-body --pretty`.
+`shore review input-request list --revision <id> --track <track> --status open --include-body --pretty`.
 I did not add an assessment; that is for the reviewer.
 ```
 
@@ -238,7 +238,7 @@ capture a separate handoff when that task reaches its own end.
   `shore review validation add`; use observations for the surrounding decision or risk context.
 - **Treating validation as acceptance.** Validation evidence is advisory and never replaces the
   reviewer's assessment.
-- **Forgetting `--review-unit`.** If more than one ReviewUnit is current, write commands fail until
+- **Forgetting `--revision`.** If more than one ReviewUnit is current, write commands fail until
   you pass the captured ReviewUnit ID.
 - **Self-assessing.** The authoring agent records observations and input requests only. A reviewer
   records assessments.
