@@ -561,7 +561,7 @@ struct AssociationWriteOutcome {
 /// Shared scaffold: resolve the unit and write store, let the caller build the
 /// payload (track-free), then build the envelope (track on it only), sign,
 /// record unconditionally, and re-project state. Records always — withdrawals
-/// never check their referent (LB-10).
+/// never check their referent.
 fn record_association<P, F>(
     repo: &Path,
     review_unit_id: Option<&RevisionId>,

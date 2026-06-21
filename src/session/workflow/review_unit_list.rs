@@ -248,7 +248,7 @@ fn apply_orphan_visibility(
 /// commit classified `Orphaned` (any reason) by the landed reachability engine.
 /// Floating units (no current commits) are never orphaned. A repo-unavailable
 /// git error degrades to "not a hidden orphan" — never hide what we cannot
-/// classify, and never error (LB-9 graceful degradation).
+/// classify, and never error (graceful degradation).
 fn is_hidden_orphan(view: &ReviewUnitCommitRangeView, repo: &Path) -> bool {
     if view.current_commits.is_empty() {
         return false;

@@ -315,8 +315,8 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
     capture_review(options)
 }
 
-/// Auto-record the capture-time branch ref as a `ReviewUnitRefAssociated`
-/// (LB-11). Returns `Ok(())` and records nothing on a detached HEAD — a ref name
+/// Auto-record the capture-time branch ref as a ref association.
+/// Returns `Ok(())` and records nothing on a detached HEAD — a ref name
 /// is never fabricated. Signs with the capture signer; the caller swallows any
 /// error into a diagnostic so capture never fails on this.
 fn auto_record_capture_ref_association(
