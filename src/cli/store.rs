@@ -88,16 +88,16 @@ struct StoreRemoveArgs {
     /// Remove a single snapshot's bound artifact.
     #[arg(long, group = "selector")]
     snapshot: Option<String>,
-    /// Remove every artifact a review unit references.
+    /// Remove every artifact a revision references.
     #[arg(long, group = "selector")]
     revision: Option<String>,
-    /// Remove artifacts of units anchored on the commit this ref resolves to.
+    /// Remove artifacts of revisions anchored on the commit this ref resolves to.
     #[arg(long, group = "selector")]
     r#ref: Option<String>,
-    /// Remove artifacts of units anchored on a commit in the `<a>..<b>` range.
+    /// Remove artifacts of revisions anchored on a commit in the `<a>..<b>` range.
     #[arg(long, group = "selector")]
     range: Option<String>,
-    /// Remove artifacts of commit-anchored units whose commits are all orphaned.
+    /// Remove artifacts of commit-anchored revisions whose commits are all orphaned.
     #[arg(long, group = "selector")]
     orphans: bool,
 

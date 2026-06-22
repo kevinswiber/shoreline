@@ -324,7 +324,7 @@ fn each_worktree_unit_show_resolves_its_own_capture() {
 }
 
 // 6. Two worktrees capture the SAME commit range: both succeed sharing one
-//    snapshot artifact, and because commit-range provenance carries no worktree
+//    object artifact, and because commit-range provenance carries no worktree
 //    path the two captures converge on ONE revision id. The read surface presents
 //    them as ONE grouped unit exposing that id in `groupedRevisionIds`.
 #[test]
@@ -363,14 +363,14 @@ fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
     // Same commit range, no worktree path in the provenance: the two captures
     // converge on one revision id.
     assert_eq!(a_id, b_id);
-    // One shared snapshot artifact: byte-identical content hashes.
+    // One shared object artifact: byte-identical content hashes.
     assert_eq!(
-        a["revision"]["snapshotArtifactContentHash"],
-        b["revision"]["snapshotArtifactContentHash"]
+        a["revision"]["objectArtifactContentHash"],
+        b["revision"]["objectArtifactContentHash"]
     );
 
-    // Exactly one snapshot artifact on disk in the shared store.
-    let snapshots_dir = common_dir_store(main.path()).join("artifacts/snapshots");
+    // Exactly one object artifact on disk in the shared store.
+    let snapshots_dir = common_dir_store(main.path()).join("artifacts/objects");
     let snapshot_count = std::fs::read_dir(&snapshots_dir)
         .expect("snapshots dir exists")
         .filter_map(|entry| entry.ok())

@@ -72,10 +72,10 @@ fn bounded_large_changeset_exercises_full_read_only_pipeline() {
         shoreline::model::decode_json(&stream_json).expect("stream deserializes");
     assert_eq!(decoded_stream, built.stream);
 
-    let snapshot_json =
+    let object_json =
         serde_json::to_string(&ordered_snapshot).expect("ordered snapshot serializes");
     let decoded_snapshot: DiffSnapshot =
-        shoreline::model::decode_json(&snapshot_json).expect("ordered snapshot deserializes");
+        shoreline::model::decode_json(&object_json).expect("ordered snapshot deserializes");
     let notes_json = serde_json::to_string(&resolved.notes).expect("notes serialize");
     let decoded_notes: Vec<ReviewNote> =
         shoreline::model::decode_json(&notes_json).expect("notes deserialize");

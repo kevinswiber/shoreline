@@ -144,7 +144,7 @@ pub struct RevisionShowResult {
     pub event_count: usize,
     pub revision: RevisionProjectionIdentity,
     pub snapshot: DiffSnapshot,
-    /// Set when the bound snapshot artifact has a recorded `ArtifactRemoved`
+    /// Set when the bound object artifact has a recorded `ArtifactRemoved`
     /// fact: its content bytes are no longer stored, so `snapshot` is empty and
     /// this carries the removed content hash. `None` for a present snapshot.
     pub removed_snapshot_content_hash: Option<String>,
@@ -169,7 +169,7 @@ pub struct RevisionShowResult {
 }
 
 impl RevisionShowResult {
-    /// Whether the bound snapshot artifact's content was removed (an
+    /// Whether the bound object artifact's content was removed (an
     /// `ArtifactRemoved` fact exists for its content hash). When true, `snapshot`
     /// is empty and `removed_snapshot_content_hash` names the removed blob.
     pub fn snapshot_is_removed(&self) -> bool {
@@ -180,15 +180,15 @@ impl RevisionShowResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RevisionProjectionIdentity {
     pub id: RevisionId,
-    pub session_id: JournalId,
+    pub journal_id: JournalId,
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
     pub revision_id: RevisionId,
     pub object_id: ObjectId,
-    pub snapshot_artifact_content_hash: String,
+    pub object_artifact_content_hash: String,
     /// The capture event's id, so the document layer can key the readback side
-    /// table for the review-unit identity (the capture has no `eventId` of its own).
+    /// table for the revision identity (the capture has no `eventId` of its own).
     pub capture_event_id: EventId,
 }
 

@@ -53,7 +53,7 @@ pub(crate) fn task_attempt_event(
             claude_session_uuid: claude_session_uuid.to_owned(),
             initial_prompt_hash: "sha256:prompt".to_owned(),
             predecessor: None,
-            base_snapshot_fingerprint: None,
+            base_state_fingerprint: None,
             source_speaker: None,
         },
     };

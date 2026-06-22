@@ -44,7 +44,7 @@ fn review_capture_creates_revision_from_subdir() {
     assert_eq!(json["revision"]["base"]["kind"], "git_commit");
     assert_eq!(json["revision"]["target"]["kind"], "git_working_tree");
     assert!(
-        json["revision"]["snapshotArtifactContentHash"]
+        json["revision"]["objectArtifactContentHash"]
             .as_str()
             .unwrap()
             .starts_with("sha256:")
@@ -127,13 +127,13 @@ fn capture_preserves_inline_rows_for_normal_added_file() {
     let _capture =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let snapshots_dir = common_dir_store(&repo).join("artifacts/snapshots");
+    let snapshots_dir = common_dir_store(&repo).join("artifacts/objects");
     let artifact_path = std::fs::read_dir(&snapshots_dir)
         .expect("snapshots dir exists")
         .filter_map(|entry| entry.ok())
         .find(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("json"))
         .map(|entry| entry.path())
-        .expect("at least one snapshot artifact");
+        .expect("at least one object artifact");
     let artifact: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&artifact_path).expect("read artifact"))
             .expect("artifact JSON parses");
@@ -238,8 +238,8 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
     let snapshot_id =
         shoreline::model::ObjectId::new(capture["revision"]["objectId"].as_str().unwrap());
 
-    let artifact = shoreline::session::read_snapshot_artifact(repo.path(), &snapshot_id)
-        .expect("snapshot artifact for the range capture");
+    let artifact = shoreline::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for the range capture");
     let paths: Vec<&str> = artifact
         .snapshot
         .files

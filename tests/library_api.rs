@@ -79,8 +79,8 @@ fn import_all_artifacts(repo: &GitRepo, artifacts: &[(ArtifactRef, Vec<u8>)]) {
     }
 }
 
-fn remove_snapshot_artifacts(repo: &Path) {
-    let artifact_dir = support::common_dir_store(repo).join("artifacts/snapshots");
+fn remove_object_artifacts(repo: &Path) {
+    let artifact_dir = support::common_dir_store(repo).join("artifacts/objects");
     for entry in fs::read_dir(artifact_dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
@@ -210,16 +210,16 @@ fn review_history_can_include_verification_status_without_artifact_availability_
     assert!(
         artifacts
             .iter()
-            .any(|artifact| artifact.kind() == ArtifactKind::Snapshot),
-        "signed capture should reference a snapshot artifact"
+            .any(|artifact| artifact.kind() == ArtifactKind::Object),
+        "signed capture should reference a object artifact"
     );
-    remove_snapshot_artifacts(origin.path());
+    remove_object_artifacts(origin.path());
     assert!(
         artifacts
             .iter()
-            .filter(|artifact| artifact.kind() == ArtifactKind::Snapshot)
+            .filter(|artifact| artifact.kind() == ArtifactKind::Object)
             .all(|artifact| export_artifact(origin.path(), artifact).is_err()),
-        "snapshot artifact availability is separate from signature validity"
+        "object artifact availability is separate from signature validity"
     );
 
     let history = review_history(
@@ -362,7 +362,7 @@ fn referenced_artifacts_enumerates_snapshot_and_body_refs() {
     let refs = referenced_artifacts(&events).unwrap();
     let snapshot_refs = refs
         .iter()
-        .filter(|artifact| artifact.kind() == ArtifactKind::Snapshot)
+        .filter(|artifact| artifact.kind() == ArtifactKind::Object)
         .collect::<Vec<_>>();
     let body_refs = refs
         .iter()
@@ -443,7 +443,7 @@ fn events_only_ingest_reports_missing_artifact() {
 
     ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
     let error = show_revision(RevisionShowOptions::new(dest.path()))
-        .expect_err("events-only mirror should be missing the snapshot artifact");
+        .expect_err("events-only mirror should be missing the object artifact");
     let message = error.to_string();
 
     assert!(

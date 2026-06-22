@@ -381,7 +381,7 @@ pub(super) fn build_validation_check_id(
     log_hashes.sort();
     log_hashes.dedup();
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.revision_id.as_str(),
+        "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "checkName": material.check_name,

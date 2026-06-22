@@ -64,7 +64,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
             SnapshotContent::Present(snapshot) => (snapshot, None),
             SnapshotContent::Removed { content_hash } => (
                 DiffSnapshot::new(
-                    ReviewId::new(revision.session_id.as_str()),
+                    ReviewId::new(revision.journal_id.as_str()),
                     revision.object_id.clone(),
                     Vec::new(),
                 ),
@@ -504,10 +504,10 @@ mod tests {
     }
 
     #[test]
-    fn show_revision_rejects_snapshot_artifact_hash_mismatch() {
+    fn show_revision_rejects_object_artifact_hash_mismatch() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        tamper_snapshot_artifact_snapshot_field(repo.path(), &capture.object_id);
+        tamper_object_artifact_snapshot_field(repo.path(), &capture.object_id);
 
         let error = show_revision(RevisionShowOptions::new(repo.path()))
             .expect_err("tampered artifact should fail");
@@ -519,16 +519,12 @@ mod tests {
     fn show_revision_rejects_event_artifact_binding_mismatch() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        rewrite_capture_event_snapshot_artifact_hash(
-            repo.path(),
-            &capture.revision_id,
-            "sha256:bad",
-        );
+        rewrite_capture_event_object_artifact_hash(repo.path(), &capture.revision_id, "sha256:bad");
 
         let error = show_revision(RevisionShowOptions::new(repo.path()))
             .expect_err("event/artifact mismatch should fail");
 
-        assert!(error.to_string().contains("snapshot artifact content hash"));
+        assert!(error.to_string().contains("object artifact content hash"));
     }
 
     #[test]
@@ -576,7 +572,7 @@ mod tests {
         let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
         let debug = format!("{result:?}");
 
-        assert!(!debug.contains("artifacts/snapshots"));
+        assert!(!debug.contains("artifacts/objects"));
         assert!(!debug.contains(".shore/data/events"));
     }
 
@@ -1357,11 +1353,11 @@ mod tests {
         crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
-    fn tamper_snapshot_artifact_snapshot_field(repo: &Path, object_id: &ObjectId) {
-        let path = snapshot_artifact_path(repo, object_id);
+    fn tamper_object_artifact_snapshot_field(repo: &Path, object_id: &ObjectId) {
+        let path = object_artifact_path(repo, object_id);
         let mut json: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).expect("read snapshot artifact"))
-                .expect("parse snapshot artifact json");
+            serde_json::from_slice(&fs::read(&path).expect("read object artifact"))
+                .expect("parse object artifact json");
 
         assert_eq!(json["snapshot"]["object_id"], object_id.as_str());
         // Perturb a field inside the v2 content hash without re-stamping it.
@@ -1370,12 +1366,12 @@ mod tests {
 
         fs::write(
             &path,
-            serde_json::to_vec_pretty(&json).expect("serialize tampered snapshot artifact"),
+            serde_json::to_vec_pretty(&json).expect("serialize tampered object artifact"),
         )
-        .expect("write tampered snapshot artifact");
+        .expect("write tampered object artifact");
     }
 
-    fn rewrite_capture_event_snapshot_artifact_hash(
+    fn rewrite_capture_event_object_artifact_hash(
         repo: &Path,
         revision_id: &RevisionId,
         hash: &str,
@@ -1385,7 +1381,7 @@ mod tests {
             serde_json::from_slice(&fs::read(&path).expect("read capture event"))
                 .expect("parse capture event json");
 
-        json["payload"]["workObject"]["snapshotArtifactContentHash"] = hash.into();
+        json["payload"]["workObject"]["objectArtifactContentHash"] = hash.into();
         json["payloadHash"] = sha256_json_prefixed(&json["payload"])
             .expect("hash rewritten capture event payload")
             .into();
@@ -1415,7 +1411,7 @@ mod tests {
     }
 
     fn delete_snapshot_blob(repo: &Path, object_id: &ObjectId) {
-        let path = snapshot_artifact_path(repo, object_id);
+        let path = object_artifact_path(repo, object_id);
         fs::remove_file(path).expect("delete snapshot blob");
     }
 
@@ -1423,7 +1419,7 @@ mod tests {
     fn removed_snapshot_renders_content_removed_not_a_hard_error() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        record_artifact_removed(repo.path(), &capture.snapshot_artifact_content_hash);
+        record_artifact_removed(repo.path(), &capture.object_artifact_content_hash);
         delete_snapshot_blob(repo.path(), &capture.object_id);
 
         let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
@@ -1431,7 +1427,7 @@ mod tests {
         assert!(result.snapshot_is_removed());
         assert_eq!(
             result.removed_snapshot_content_hash.as_deref(),
-            Some(capture.snapshot_artifact_content_hash.as_str())
+            Some(capture.object_artifact_content_hash.as_str())
         );
         assert!(result.snapshot.files.is_empty());
         assert!(
@@ -1458,10 +1454,10 @@ mod tests {
         );
     }
 
-    fn snapshot_artifact_path(repo: &Path, object_id: &ObjectId) -> PathBuf {
-        fs::read_dir(resolved_store_dir(repo).join("artifacts/snapshots"))
-            .expect("read snapshot artifacts directory")
-            .map(|entry| entry.expect("read snapshot artifact dir entry").path())
+    fn object_artifact_path(repo: &Path, object_id: &ObjectId) -> PathBuf {
+        fs::read_dir(resolved_store_dir(repo).join("artifacts/objects"))
+            .expect("read object artifacts directory")
+            .map(|entry| entry.expect("read object artifact dir entry").path())
             .find(|path| {
                 let Ok(bytes) = fs::read(path) else {
                     return false;
@@ -1471,7 +1467,7 @@ mod tests {
                 };
                 json["snapshot"]["object_id"] == object_id.as_str()
             })
-            .expect("find snapshot artifact")
+            .expect("find object artifact")
     }
 
     fn capture_event_path(repo: &Path, revision_id: &RevisionId) -> PathBuf {

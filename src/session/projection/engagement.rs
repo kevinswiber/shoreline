@@ -238,7 +238,7 @@ mod tests {
                             },
                         }),
                     },
-                    snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
+                    object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                     supersedes,
                 },
             },

@@ -354,7 +354,7 @@ async function load() {
   try {
     const [history, units, objects] = await Promise.all([
       fetchJSON("/api/history"),
-      fetchJSON("/api/units"),
+      fetchJSON("/api/revisions"),
       fetchJSON("/api/objects"),
     ]);
     state.history = history;
@@ -631,7 +631,7 @@ function renderDetail() {
     ["track", entryTrack(e) || "—"],
     ["writer", principalLabel(e) || (e.writer ? (e.writer.actorId || "—") : "—")],
   ];
-  const snapshotId = revisionId ? snapshotIdForUnit(revisionId) : null;
+  const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : null;
   const s = e.summary || {};
   if (e.eventType === "work_object_proposed") {
     const predecessors = supersedesRevision(revisionId);
@@ -676,7 +676,7 @@ function renderDetail() {
   }
 }
 
-function snapshotIdForUnit(revisionId) {
+function snapshotIdForRevision(revisionId) {
   const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
   return unit ? unit.objectId : null;
 }
@@ -730,9 +730,9 @@ async function openDiff(snapshotId, label, revisionId = null, focusId = null) {
   $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
   modal.classList.remove("hidden");
   try {
-    // The snapshot endpoint is snapshot-scoped (no revision id on the wire);
+    // The object endpoint is object-scoped (no revision id on the wire);
     // the caller threads the revision id for annotation lookup.
-    const artifact = await fetchJSON("/api/snapshot?id=" + encodeURIComponent(snapshotId));
+    const artifact = await fetchJSON("/api/object?id=" + encodeURIComponent(snapshotId));
     const annotations = annotationsForUnit(revisionId);
     $("#diff-body").innerHTML = renderDiff(artifact, annotations);
     if (focusId) {
@@ -992,7 +992,7 @@ async function openUnit(revisionId) {
   $("#unit-page-title").textContent = shortId(revisionId);
   $("#unit-page").innerHTML = `<p class="up-empty">loading…</p>`;
   try {
-    const d = await fetchJSON("/api/unit?id=" + encodeURIComponent(revisionId));
+    const d = await fetchJSON("/api/revision?id=" + encodeURIComponent(revisionId));
     renderUnitPage(d);
   } catch (err) {
     $("#unit-page").innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;

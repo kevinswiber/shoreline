@@ -9,7 +9,7 @@ use serde_json::Value;
 use shoreline::model::ObjectId;
 use shoreline::session::{
     ArtifactKind, ArtifactRef, ImportArtifactOptions, export_artifact, import_artifact,
-    read_snapshot_artifact, referenced_artifacts,
+    read_object_artifact, referenced_artifacts,
 };
 use support::git_repo::GitRepo;
 use support::shore;
@@ -25,7 +25,7 @@ struct LinkedFixture {
     reader: PathBuf,
     seed_revision_id: String,
     seed_snapshot_id: String,
-    seed_snapshot_artifact_content_hash: String,
+    seed_object_artifact_content_hash: String,
 }
 
 impl LinkedFixture {
@@ -47,7 +47,7 @@ impl LinkedFixture {
             reader,
             seed_revision_id: String::new(),
             seed_snapshot_id: String::new(),
-            seed_snapshot_artifact_content_hash: String::new(),
+            seed_object_artifact_content_hash: String::new(),
         };
         fs::write(fixture.seed.join("README.md"), "changed in seed\n").unwrap();
         let capture = fixture.capture(&fixture.seed);
@@ -59,10 +59,10 @@ impl LinkedFixture {
             .as_str()
             .expect("capture has snapshot id")
             .to_owned();
-        fixture.seed_snapshot_artifact_content_hash =
-            capture["revision"]["snapshotArtifactContentHash"]
+        fixture.seed_object_artifact_content_hash =
+            capture["revision"]["objectArtifactContentHash"]
                 .as_str()
-                .expect("capture has snapshot artifact content hash")
+                .expect("capture has object artifact content hash")
                 .to_owned();
         fixture
     }
@@ -401,7 +401,7 @@ fn reader_capture_is_immediately_visible_via_write_through() {
 fn reader_capture_file_target_observation_resolves_artifact() {
     let fixture = LinkedFixture::new();
 
-    // The reader captures in its own worktree: the unit and its snapshot artifact
+    // The reader captures in its own worktree: the unit and its object artifact
     // write through to the shared common-dir store.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
@@ -411,7 +411,7 @@ fn reader_capture_file_target_observation_resolves_artifact() {
         .to_owned();
 
     // A file-targeted observation against that captured unit resolves its bound
-    // snapshot artifact from the shared store and records the file target.
+    // object artifact from the shared store and records the file target.
     let json = run_shore_json(&[
         "review",
         "observation",
@@ -805,14 +805,14 @@ fn linked_fact_write_state_json_is_orphan_free() {
 }
 
 #[test]
-fn linked_fact_write_does_not_copy_snapshot_artifacts_to_linked_store() {
+fn linked_fact_write_does_not_copy_object_artifacts_to_linked_store() {
     let fixture = LinkedFixture::new();
-    // Reader captures locally: its snapshot artifact lands in the reader's .shore/data.
+    // Reader captures locally: its object artifact lands in the reader's .shore/data.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
     let local_unit = capture["revision"]["id"].as_str().unwrap().to_owned();
 
-    let snapshots_before = snapshot_artifact_names(&fixture.linked_store_dir());
+    let snapshots_before = object_artifact_names(&fixture.linked_store_dir());
     // File-targeted observation against the locally captured unit (the artifact
     // worktree-local fallback path). The write must not push the snapshot
     // artifact to the linked store — only `store link` copies artifacts.
@@ -831,11 +831,11 @@ fn linked_fact_write_does_not_copy_snapshot_artifacts_to_linked_store() {
         "--file",
         "README.md",
     ]);
-    let snapshots_after = snapshot_artifact_names(&fixture.linked_store_dir());
+    let snapshots_after = object_artifact_names(&fixture.linked_store_dir());
 
     assert_eq!(
         snapshots_before, snapshots_after,
-        "no snapshot artifacts copied to the linked store by a write"
+        "no object artifacts copied to the linked store by a write"
     );
 }
 
@@ -867,8 +867,8 @@ fn read_store_events(store_dir: &Path) -> Vec<shoreline::session::event::ShoreEv
         .collect()
 }
 
-fn snapshot_artifact_names(store_dir: &Path) -> Vec<String> {
-    json_file_names(&store_dir.join("artifacts/snapshots"))
+fn object_artifact_names(store_dir: &Path) -> Vec<String> {
+    json_file_names(&store_dir.join("artifacts/objects"))
 }
 
 fn json_file_names(dir: &Path) -> Vec<String> {
@@ -1095,8 +1095,8 @@ fn linked_unit_show_loads_bound_snapshot_from_linked_store() {
     let json = fixture.unit_show_json(&fixture.reader, &fixture.seed_revision_id);
 
     assert_eq!(
-        json["revision"]["snapshotArtifactContentHash"],
-        Value::String(fixture.seed_snapshot_artifact_content_hash.clone())
+        json["revision"]["objectArtifactContentHash"],
+        Value::String(fixture.seed_object_artifact_content_hash.clone())
     );
     assert!(
         json["summary"]["snapshotRowCount"].as_u64().unwrap() > 0,
@@ -1218,14 +1218,14 @@ fn linked_validation_list_resolves_linked_unit() {
 }
 
 #[test]
-fn snapshot_artifact_reads_from_linked_store() {
+fn object_artifact_reads_from_linked_store() {
     let fixture = LinkedFixture::new();
     let snapshot_id = ObjectId::new(fixture.seed_snapshot_id.clone());
 
-    let artifact = read_snapshot_artifact(&fixture.reader, &snapshot_id)
-        .expect("snapshot artifact reads from the linked store");
+    let artifact = read_object_artifact(&fixture.reader, &snapshot_id)
+        .expect("object artifact reads from the linked store");
 
-    // The snapshot-scoped v2 artifact carries no revision_id; resolving its
+    // The object-scoped v2 artifact carries no revision_id; resolving its
     // snapshot id through the linked store is what proves the read.
     assert_eq!(artifact.snapshot.object_id, snapshot_id);
 }

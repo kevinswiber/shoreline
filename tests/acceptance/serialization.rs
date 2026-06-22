@@ -16,12 +16,12 @@ fn top_level_review_models_round_trip_through_json() {
     let stream = ReviewStream::empty(review.id.clone());
 
     let review_json = serde_json::to_string(&review).expect("review serializes");
-    let snapshot_json = serde_json::to_string(&snapshot).expect("snapshot serializes");
+    let object_json = serde_json::to_string(&snapshot).expect("snapshot serializes");
     let stream_json = serde_json::to_string(&stream).expect("stream serializes");
 
     let decoded_review: Review = serde_json::from_str(&review_json).expect("review deserializes");
     let decoded_snapshot: DiffSnapshot =
-        serde_json::from_str(&snapshot_json).expect("snapshot deserializes");
+        serde_json::from_str(&object_json).expect("snapshot deserializes");
     let decoded_stream: ReviewStream =
         serde_json::from_str(&stream_json).expect("stream deserializes");
 
@@ -58,15 +58,14 @@ fn durable_and_snapshot_local_ids_round_trip_as_distinct_types() {
     };
 
     let durable_json = serde_json::to_string(&durable).expect("durable ids serialize");
-    let snapshot_json =
-        serde_json::to_string(&snapshot_local).expect("snapshot-local ids serialize");
+    let object_json = serde_json::to_string(&snapshot_local).expect("snapshot-local ids serialize");
 
     assert_eq!(
         serde_json::from_str::<DurableIds>(&durable_json).expect("durable ids deserialize"),
         durable
     );
     assert_eq!(
-        serde_json::from_str::<SnapshotLocalIds>(&snapshot_json)
+        serde_json::from_str::<SnapshotLocalIds>(&object_json)
             .expect("snapshot-local ids deserialize"),
         snapshot_local
     );

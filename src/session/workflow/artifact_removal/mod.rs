@@ -313,14 +313,14 @@ fn capture_bound_to_snapshot(
         let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
         let WorkObjectProposal::Revision {
             revision,
-            snapshot_artifact_content_hash,
+            object_artifact_content_hash,
             ..
         } = payload.work_object
         else {
             continue;
         };
         if &revision.object_id == object_id {
-            return Ok((revision.id, snapshot_artifact_content_hash));
+            return Ok((revision.id, object_artifact_content_hash));
         }
     }
     Err(ShoreError::Message(format!(
@@ -468,13 +468,13 @@ pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
 
 /// A content-addressed blob on disk, paired with the `content_hash` it carries.
 struct OnDiskBlob {
-    /// Store-relative path under `artifacts/snapshots` or `artifacts/notes`.
+    /// Store-relative path under `artifacts/objects` or `artifacts/notes`.
     relative_path: String,
     /// The normalized `sha256:<hex>` content hash the blob carries.
     content_hash: String,
 }
 
-/// Enumerate every content-addressed blob under `artifacts/snapshots` and
+/// Enumerate every content-addressed blob under `artifacts/objects` and
 /// `artifacts/notes`, mapping each on-disk file to its `content_hash`. A snapshot
 /// file name is `sha256(snapshotId)` — *not* the content hash — so it is resolved
 /// through the `WorkObjectProposed` payloads; a note file name stem *is* the
@@ -483,14 +483,14 @@ fn on_disk_blobs(storage: &LocalStorage, events: &[ShoreEvent]) -> Result<Vec<On
     let snapshot_hash_by_stem = snapshot_content_hash_by_file_stem(events)?;
     let mut blobs = Vec::new();
 
-    for path in storage.list_dir(Path::new("artifacts/snapshots"))? {
+    for path in storage.list_dir(Path::new("artifacts/objects"))? {
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
         let stem = file_name.strip_suffix(".json").unwrap_or(file_name);
         if let Some(content_hash) = snapshot_hash_by_stem.get(stem) {
             blobs.push(OnDiskBlob {
-                relative_path: format!("artifacts/snapshots/{file_name}"),
+                relative_path: format!("artifacts/objects/{file_name}"),
                 content_hash: content_hash.clone(),
             });
         }
@@ -522,14 +522,14 @@ fn snapshot_content_hash_by_file_stem(events: &[ShoreEvent]) -> Result<BTreeMap<
         let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
         let WorkObjectProposal::Revision {
             revision,
-            snapshot_artifact_content_hash,
+            object_artifact_content_hash,
             ..
         } = payload.work_object
         else {
             continue;
         };
         let stem = sha256_bytes_hex(revision.object_id.as_str().as_bytes());
-        by_stem.insert(stem, snapshot_artifact_content_hash);
+        by_stem.insert(stem, object_artifact_content_hash);
     }
     Ok(by_stem)
 }
@@ -629,7 +629,7 @@ mod tests {
         ArtifactRemovalProjection::from_events(&list_events(repo)).unwrap()
     }
 
-    /// Count the blob files under a store subdir (e.g. `artifacts/snapshots`).
+    /// Count the blob files under a store subdir (e.g. `artifacts/objects`).
     fn blob_count(repo: &TestRepo, subdir: &str) -> usize {
         let dir = resolved_store_dir(repo.path()).join(subdir);
         match std::fs::read_dir(&dir) {
@@ -676,7 +676,7 @@ mod tests {
                             target: original.target.clone(),
                         }),
                     },
-                    snapshot_artifact_content_hash: original.snapshot_artifact_content_hash.clone(),
+                    object_artifact_content_hash: original.object_artifact_content_hash.clone(),
                     supersedes: vec![],
                 },
             },
@@ -704,11 +704,11 @@ mod tests {
         assert_eq!(result.removed.len(), 1);
         assert_eq!(
             result.removed[0].content_hash,
-            capture.snapshot_artifact_content_hash
+            capture.object_artifact_content_hash
         );
         assert!(result.removed[0].created);
         assert_eq!(result.events_created, 1);
-        assert!(removed_set(&repo).is_removed(&capture.snapshot_artifact_content_hash));
+        assert!(removed_set(&repo).is_removed(&capture.object_artifact_content_hash));
     }
 
     #[test]
@@ -739,11 +739,11 @@ mod tests {
             .iter()
             .map(|r| r.content_hash.as_str())
             .collect();
-        assert!(hashes.contains(&capture.snapshot_artifact_content_hash.as_str()));
+        assert!(hashes.contains(&capture.object_artifact_content_hash.as_str()));
         assert!(hashes.contains(&body_hash.as_str()));
         assert_eq!(result.events_created, 2);
         let removed = removed_set(&repo);
-        assert!(removed.is_removed(&capture.snapshot_artifact_content_hash));
+        assert!(removed.is_removed(&capture.object_artifact_content_hash));
         assert!(removed.is_removed(&body_hash));
     }
 
@@ -762,7 +762,7 @@ mod tests {
         let entry = result
             .removed
             .iter()
-            .find(|r| r.content_hash == capture.snapshot_artifact_content_hash)
+            .find(|r| r.content_hash == capture.object_artifact_content_hash)
             .expect("the shared snapshot hash is removed");
         assert!(
             entry.co_referencing_units.contains(&sibling),
@@ -805,11 +805,11 @@ mod tests {
             .map(|r| r.content_hash.as_str())
             .collect();
         assert!(
-            hashes.contains(&doomed_capture.snapshot_artifact_content_hash.as_str()),
+            hashes.contains(&doomed_capture.object_artifact_content_hash.as_str()),
             "the orphaned unit's hash is resolved"
         );
         assert!(
-            !hashes.contains(&reachable_capture.snapshot_artifact_content_hash.as_str()),
+            !hashes.contains(&reachable_capture.object_artifact_content_hash.as_str()),
             "a reachable unit's hash is not resolved"
         );
     }
@@ -843,8 +843,8 @@ mod tests {
             .iter()
             .map(|r| r.content_hash.as_str())
             .collect();
-        assert!(ref_hashes.contains(&mid_unit.snapshot_artifact_content_hash.as_str()));
-        assert!(!ref_hashes.contains(&tip_unit.snapshot_artifact_content_hash.as_str()));
+        assert!(ref_hashes.contains(&mid_unit.object_artifact_content_hash.as_str()));
+        assert!(!ref_hashes.contains(&tip_unit.object_artifact_content_hash.as_str()));
 
         // `--range mid..tip` resolves only the unit anchored on tip.
         let by_range = remove_content(RemoveOptions::new(
@@ -857,7 +857,7 @@ mod tests {
             .iter()
             .map(|r| r.content_hash.as_str())
             .collect();
-        assert!(range_hashes.contains(&tip_unit.snapshot_artifact_content_hash.as_str()));
+        assert!(range_hashes.contains(&tip_unit.object_artifact_content_hash.as_str()));
     }
 
     #[test]
@@ -935,7 +935,7 @@ mod tests {
     fn remove_then_compact_physically_deletes_blob() {
         let repo = TestRepo::init();
         let capture = capture_worktree(&repo);
-        assert_eq!(blob_count(&repo, "artifacts/snapshots"), 1);
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 1);
 
         remove_content(RemoveOptions::new(
             repo.path(),
@@ -945,11 +945,11 @@ mod tests {
         let result = compact_store(CompactOptions::new(repo.path())).unwrap();
 
         // The snapshot blob is gone; the sweep reports it removed with bytes back.
-        assert_eq!(blob_count(&repo, "artifacts/snapshots"), 0);
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 0);
         let swept = result
             .swept
             .iter()
-            .find(|blob| blob.content_hash == capture.snapshot_artifact_content_hash)
+            .find(|blob| blob.content_hash == capture.object_artifact_content_hash)
             .expect("the removed snapshot blob is swept");
         assert_eq!(swept.outcome, SweepOutcome::Removed);
         assert!(result.bytes_reclaimed > 0);
@@ -995,7 +995,7 @@ mod tests {
                 .with_commit_range(CommitRangeSpec::new(kept).with_target_rev(removed)),
         )
         .unwrap();
-        assert_eq!(blob_count(&repo, "artifacts/snapshots"), 2);
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 2);
 
         remove_content(RemoveOptions::new(
             repo.path(),
@@ -1005,8 +1005,8 @@ mod tests {
         compact_store(CompactOptions::new(repo.path())).unwrap();
 
         // Only the removed blob is gone; the live, non-removed one survives.
-        assert_eq!(blob_count(&repo, "artifacts/snapshots"), 1);
-        assert!(!removed_set(&repo).is_removed(&kept_unit.snapshot_artifact_content_hash));
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 1);
+        assert!(!removed_set(&repo).is_removed(&kept_unit.object_artifact_content_hash));
     }
 
     #[test]

@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::error::Result;
 use crate::git::git_worktree_root;
 use crate::session::store::inventory::{
-    ArtifactInventoryEntry, RevisionSnapshotInventory, StoreInventory, scan_store_inventory,
+    ArtifactInventoryEntry, RevisionObjectInventory, StoreInventory, scan_store_inventory,
 };
 use crate::session::store::resolution::resolve_store;
 use crate::session::store::sensitivity::{
@@ -49,7 +49,7 @@ pub struct StoreStatusInventory {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub untracked_bytes: Option<u64>,
     pub largest_artifacts: Vec<StoreStatusArtifactInventory>,
-    pub revision_snapshots: Vec<StoreStatusRevisionSnapshot>,
+    pub revision_objects: Vec<StoreStatusRevisionObject>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -62,7 +62,7 @@ pub struct StoreStatusArtifactInventory {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StoreStatusRevisionSnapshot {
+pub struct StoreStatusRevisionObject {
     pub revision_ids: Vec<String>,
     pub object_id: String,
     pub artifact_ref: String,
@@ -116,10 +116,10 @@ impl From<StoreInventory> for StoreStatusInventory {
                 .into_iter()
                 .map(StoreStatusArtifactInventory::from)
                 .collect(),
-            revision_snapshots: inventory
-                .revision_snapshots
+            revision_objects: inventory
+                .revision_objects
                 .into_iter()
-                .map(StoreStatusRevisionSnapshot::from)
+                .map(StoreStatusRevisionObject::from)
                 .collect(),
         }
     }
@@ -135,8 +135,8 @@ impl From<ArtifactInventoryEntry> for StoreStatusArtifactInventory {
     }
 }
 
-impl From<RevisionSnapshotInventory> for StoreStatusRevisionSnapshot {
-    fn from(snapshot: RevisionSnapshotInventory) -> Self {
+impl From<RevisionObjectInventory> for StoreStatusRevisionObject {
+    fn from(snapshot: RevisionObjectInventory) -> Self {
         Self {
             revision_ids: snapshot.revision_ids,
             object_id: snapshot.object_id,

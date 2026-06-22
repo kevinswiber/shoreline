@@ -352,7 +352,7 @@ mod tests {
                 claude_session_uuid: "uuid".to_owned(),
                 initial_prompt_hash: "sha256:prompt".to_owned(),
                 predecessor: None,
-                base_snapshot_fingerprint: None,
+                base_state_fingerprint: None,
                 source_speaker: None,
             },
         };
@@ -722,7 +722,7 @@ mod tests {
                         },
                     }),
                 },
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
         };

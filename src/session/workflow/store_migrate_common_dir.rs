@@ -228,11 +228,11 @@ mod tests {
         let result =
             migrate_store_to_common_dir(MigrateToCommonDirOptions::new(repo.path())).unwrap();
 
-        // Events + the snapshot artifact landed in the common dir.
+        // Events + the object artifact landed in the common dir.
         assert!(result.events_created >= 1);
         assert!(result.artifacts_created >= 1);
         assert!(common.join("events").is_dir());
-        assert!(common.join("artifacts/snapshots").is_dir());
+        assert!(common.join("artifacts/objects").is_dir());
         assert!(common.join("state.json").is_file());
         // Source is NEVER deleted (non-destructive).
         assert!(local.join("events").is_dir());

@@ -3,7 +3,7 @@
 //! A commit or ref association is a *structural edge* between a Revision and
 //! the commit graph. It must converge across independently-authored copies of a
 //! store, so identity is **writer-free and track-free**: the idempotency keys
-//! and the content-hash ids below fold only the review unit and the raw
+//! and the content-hash ids below fold only the revision and the raw
 //! distinguisher (`commit_oid`, or `ref_name@head_oid`). The writer and track
 //! ride on the event envelope for provenance and never enter identity.
 //!
@@ -122,7 +122,7 @@ fn ref_distinguisher(ref_name: &str, head_oid: &str) -> String {
     format!("{ref_name}@{head_oid}")
 }
 
-/// Content id for a commit association: a pure function of the review unit and
+/// Content id for a commit association: a pure function of the revision and
 /// the commit OID, excluding writer/track so the same edge converges across
 /// independently-authored copies.
 pub(crate) fn build_commit_association_id(
@@ -130,7 +130,7 @@ pub(crate) fn build_commit_association_id(
     commit_oid: &str,
 ) -> Result<CommitAssociationId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": revision_id.as_str(),
+        "revisionId": revision_id.as_str(),
         "commitOid": commit_oid,
     }))?;
     Ok(CommitAssociationId::new(format!("assoc-commit:{digest}")))
@@ -143,7 +143,7 @@ pub(crate) fn build_ref_association_id(
     head_oid: &str,
 ) -> Result<RefAssociationId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": revision_id.as_str(),
+        "revisionId": revision_id.as_str(),
         "refName": ref_name,
         "headOid": head_oid,
     }))?;
@@ -156,7 +156,7 @@ pub(crate) fn build_commit_withdrawal_id(
     commit_association_id: &CommitAssociationId,
 ) -> Result<CommitWithdrawalId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": revision_id.as_str(),
+        "revisionId": revision_id.as_str(),
         "commitAssociationId": commit_association_id.as_str(),
     }))?;
     Ok(CommitWithdrawalId::new(format!("withdraw-commit:{digest}")))
@@ -168,7 +168,7 @@ pub(crate) fn build_ref_withdrawal_id(
     ref_association_id: &RefAssociationId,
 ) -> Result<RefWithdrawalId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
-        "reviewUnitId": revision_id.as_str(),
+        "revisionId": revision_id.as_str(),
         "refAssociationId": ref_association_id.as_str(),
     }))?;
     Ok(RefWithdrawalId::new(format!("withdraw-ref:{digest}")))
@@ -327,8 +327,40 @@ mod tests {
         let id = build_commit_association_id(&ru, "oid123").unwrap();
         assert_eq!(
             id.as_str(),
-            "assoc-commit:sha256:b866412f864ba09281f6b3d710f7c0ea0e545e21fd9e5a2d69217d7f17c3443e",
+            "assoc-commit:sha256:b5b51f0ba5f3fb4372a4ba488a3fa66c255ceb551500789a8de24739738e1db7",
             "pinned digest mismatch — id material shape changed"
+        );
+    }
+
+    #[test]
+    fn association_ids_fold_the_revision_id_digest_key() {
+        // The content-id digests fold the work object under the `revisionId` key
+        // (the work object is a revision); the legacy `reviewUnitId` key is gone.
+        let revision_id = RevisionId::new("rev:sha256:abc");
+
+        let commit_material = sha256_json_prefixed(&serde_json::json!({
+            "revisionId": revision_id.as_str(),
+            "commitOid": "oid123",
+        }))
+        .unwrap();
+        assert_eq!(
+            build_commit_association_id(&revision_id, "oid123")
+                .unwrap()
+                .as_str(),
+            format!("assoc-commit:{commit_material}")
+        );
+
+        let ref_material = sha256_json_prefixed(&serde_json::json!({
+            "revisionId": revision_id.as_str(),
+            "refName": "refs/heads/feat/x",
+            "headOid": "oidH",
+        }))
+        .unwrap();
+        assert_eq!(
+            build_ref_association_id(&revision_id, "refs/heads/feat/x", "oidH")
+                .unwrap()
+                .as_str(),
+            format!("assoc-ref:{ref_material}")
         );
     }
 }

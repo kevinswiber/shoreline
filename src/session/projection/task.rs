@@ -100,7 +100,7 @@ pub(crate) struct TaskAttemptSummary {
     pub predecessor: Option<WorkObjectId>,
     /// Opaque fingerprint of the code state at the start of the attempt,
     /// preserved verbatim from the captured task-attempt fields.
-    pub base_snapshot_fingerprint: Option<String>,
+    pub base_state_fingerprint: Option<String>,
     pub latest_checkpoint: Option<TaskCheckpointSummary>,
     pub checkpoints: Vec<TaskCheckpointSummary>,
     pub observations_without_checkpoint: Vec<TaskObservationSummary>,
@@ -114,7 +114,7 @@ struct CapturedTaskAttempt {
     claude_session_uuid: String,
     initial_prompt_hash: String,
     predecessor: Option<WorkObjectId>,
-    base_snapshot_fingerprint: Option<String>,
+    base_state_fingerprint: Option<String>,
 }
 
 /// Roll up the task-attempt generative move, `TaskCheckpointCaptured`, and
@@ -156,7 +156,7 @@ pub(crate) fn task_attempt_summary_from_events(
                     claude_session_uuid,
                     initial_prompt_hash,
                     predecessor,
-                    base_snapshot_fingerprint,
+                    base_state_fingerprint,
                     source_speaker: _,
                 } = payload.work_object
                     && id == *task_attempt_id
@@ -168,7 +168,7 @@ pub(crate) fn task_attempt_summary_from_events(
                             claude_session_uuid,
                             initial_prompt_hash,
                             predecessor,
-                            base_snapshot_fingerprint,
+                            base_state_fingerprint,
                         },
                     ));
                 }
@@ -277,7 +277,7 @@ pub(crate) fn task_attempt_summary_from_events(
         claude_session_uuid: attempt_payload.claude_session_uuid,
         initial_prompt_hash: attempt_payload.initial_prompt_hash,
         predecessor: attempt_payload.predecessor,
-        base_snapshot_fingerprint: attempt_payload.base_snapshot_fingerprint,
+        base_state_fingerprint: attempt_payload.base_state_fingerprint,
         latest_checkpoint,
         checkpoints,
         observations_without_checkpoint,
@@ -4628,7 +4628,7 @@ mod tests {
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
 
-        let attempt = task_attempt_event_with_base_snapshot_fingerprint(
+        let attempt = task_attempt_event_with_base_state_fingerprint(
             &task_attempt_id,
             &session_id,
             "uuid-1",
@@ -4663,7 +4663,7 @@ mod tests {
             .unwrap()
             .expect("attempt present");
         assert_eq!(
-            summary.base_snapshot_fingerprint.as_deref(),
+            summary.base_state_fingerprint.as_deref(),
             Some(FP_A),
             "base snapshot fingerprint must surface on the attempt summary"
         );
@@ -4691,12 +4691,12 @@ mod tests {
         );
     }
 
-    fn task_attempt_event_with_base_snapshot_fingerprint(
+    fn task_attempt_event_with_base_state_fingerprint(
         task_attempt_id: &WorkObjectId,
         session_id: &JournalId,
         claude_session_uuid: &str,
         occurred_at: &str,
-        base_snapshot_fingerprint: Option<&str>,
+        base_state_fingerprint: Option<&str>,
     ) -> ShoreEvent {
         let target = EventTarget::for_subject(
             session_id.clone(),
@@ -4715,7 +4715,7 @@ mod tests {
                 claude_session_uuid: claude_session_uuid.to_owned(),
                 initial_prompt_hash: "sha256:prompt".to_owned(),
                 predecessor: None,
-                base_snapshot_fingerprint: base_snapshot_fingerprint.map(str::to_owned),
+                base_state_fingerprint: base_state_fingerprint.map(str::to_owned),
                 source_speaker: None,
             },
         };

@@ -432,7 +432,7 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
     related_input_requests.sort();
 
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.revision_id.as_str(),
+        "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "assessment": material.assessment,
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn build_assessment_id_uses_stable_material_digest() {
         const EXPECTED_ASSESSMENT_ID_FOR_FIXTURE: &str =
-            "assess:sha256:608bbfbc30dddfe7af8fbbf5cc8bacb12671f79d19f5464511c722577d53e74d";
+            "assess:sha256:7ad3d9d70d09ace46116a6fb440b582f50d2742399e7d985e9551fa7f336e7b9";
 
         let revision_id = RevisionId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");

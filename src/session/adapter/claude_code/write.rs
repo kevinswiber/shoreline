@@ -47,7 +47,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                     claude_session_uuid: claude_session_uuid.clone(),
                     initial_prompt_hash: initial_prompt_hash.clone(),
                     predecessor: predecessor.clone(),
-                    base_snapshot_fingerprint: None,
+                    base_state_fingerprint: None,
                     source_speaker: Some(*source_speaker),
                 },
             };

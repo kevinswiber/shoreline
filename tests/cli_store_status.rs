@@ -113,7 +113,7 @@ fn store_status_includes_inventory_without_artifact_paths() {
     let store_dir = common_dir_store(repo.path());
     let (event_count, event_bytes) = directory_file_stats(&store_dir.join("events"));
     let (snapshot_count, snapshot_bytes) =
-        directory_file_stats(&store_dir.join("artifacts/snapshots"));
+        directory_file_stats(&store_dir.join("artifacts/objects"));
     let (note_count, note_bytes) = directory_file_stats(&store_dir.join("artifacts/notes"));
 
     assert_eq!(inventory["eventCount"], event_count);

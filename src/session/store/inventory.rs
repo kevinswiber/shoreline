@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::error::{Result, ShoreError};
 use crate::session::event::{EventType, ShoreEvent};
 use crate::session::store::body_artifact::NoteBodyEnvelope;
-use crate::session::store::snapshot_artifact::SnapshotArtifact;
+use crate::session::store::object_artifact::ObjectArtifact;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +20,7 @@ pub(crate) struct StoreInventory {
     pub total_bytes: u64,
     pub untracked_bytes: Option<u64>,
     pub largest_artifacts: Vec<ArtifactInventoryEntry>,
-    pub revision_snapshots: Vec<RevisionSnapshotInventory>,
+    pub revision_objects: Vec<RevisionObjectInventory>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -33,9 +33,9 @@ pub(crate) struct ArtifactInventoryEntry {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RevisionSnapshotInventory {
-    /// The review units that captured this snapshot, sorted and deduped. Under
-    /// the snapshot-scoped artifact one artifact may be shared by several units, so
+pub(crate) struct RevisionObjectInventory {
+    /// The revisions that captured this object, sorted and deduped. Under the
+    /// object-scoped artifact one artifact may be shared by several revisions, so
     /// identity is joined from the capture events keyed by `object_id`, never
     /// read from the artifact body.
     pub revision_ids: Vec<String>,
@@ -50,14 +50,14 @@ pub(crate) fn scan_store_inventory(
 ) -> Result<StoreInventory> {
     let (event_count, event_bytes) = scan_events(&store_dir.join("events"))?;
     let mut artifact_entries = Vec::new();
-    let mut revision_snapshots = Vec::new();
+    let mut revision_objects = Vec::new();
 
     let capture_owners = capture_owners_by_snapshot(&store_dir.join("events"))?;
-    let (snapshot_count, snapshot_bytes) = scan_snapshot_artifacts(
-        &store_dir.join("artifacts/snapshots"),
+    let (snapshot_count, snapshot_bytes) = scan_object_artifacts(
+        &store_dir.join("artifacts/objects"),
         &capture_owners,
         &mut artifact_entries,
-        &mut revision_snapshots,
+        &mut revision_objects,
     )?;
     let (note_count, note_bytes) =
         scan_note_artifacts(&store_dir.join("artifacts/notes"), &mut artifact_entries)?;
@@ -69,9 +69,9 @@ pub(crate) fn scan_store_inventory(
             .then_with(|| left.artifact_ref.cmp(&right.artifact_ref))
     });
     artifact_entries.truncate(5);
-    // One snapshot artifact is one entry now, so sort by object_id alone — this
+    // One object artifact is one entry now, so sort by object_id alone — this
     // avoids an empty-`revision_ids` edge in the comparator.
-    revision_snapshots.sort_by(|left, right| left.object_id.cmp(&right.object_id));
+    revision_objects.sort_by(|left, right| left.object_id.cmp(&right.object_id));
 
     let artifact_count = snapshot_count + note_count;
     let artifact_bytes = snapshot_bytes + note_bytes;
@@ -83,7 +83,7 @@ pub(crate) fn scan_store_inventory(
         total_bytes: event_bytes + artifact_bytes,
         untracked_bytes: worktree_root.map(git_untracked_bytes).transpose()?,
         largest_artifacts: artifact_entries,
-        revision_snapshots,
+        revision_objects,
     })
 }
 
@@ -104,38 +104,40 @@ fn scan_events(events_dir: &Path) -> Result<(usize, u64)> {
     Ok((count, bytes))
 }
 
-fn scan_snapshot_artifacts(
-    snapshots_dir: &Path,
+fn scan_object_artifacts(
+    objects_dir: &Path,
     capture_owners: &BTreeMap<String, BTreeSet<String>>,
     artifacts: &mut Vec<ArtifactInventoryEntry>,
-    snapshots: &mut Vec<RevisionSnapshotInventory>,
+    objects: &mut Vec<RevisionObjectInventory>,
 ) -> Result<(usize, u64)> {
     let mut count = 0;
     let mut bytes = 0;
-    for path in list_files(snapshots_dir)? {
+    for path in list_files(objects_dir)? {
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
         }
         let contents =
-            fs::read(&path).map_err(|error| io_error("read snapshot artifact", &path, error))?;
-        let artifact: SnapshotArtifact = serde_json::from_slice(&contents)?;
-        // Dual-read: both v1 (legacy) and v2 (snapshot-scoped) artifacts count.
-        if artifact.schema != "shore.snapshot" || !matches!(artifact.version, 1 | 2) {
+            fs::read(&path).map_err(|error| io_error("read object artifact", &path, error))?;
+        let artifact: ObjectArtifact = serde_json::from_slice(&contents)?;
+        // Count v2 object artifacts (their body declares schema `shore.object`).
+        if artifact.schema != "shore.object" || !matches!(artifact.version, 1 | 2) {
             continue;
         }
         let byte_size = contents.len() as u64;
         let object_id = artifact.snapshot.object_id.as_str().to_owned();
-        let artifact_ref = format!("snapshot:{object_id}");
+        // The ref is the content-addressed object id itself (`obj:sha256:…`); it
+        // carries no extra kind prefix, so it never reads as `object:obj:…`.
+        let artifact_ref = object_id.clone();
         let revision_ids = capture_owners
             .get(&object_id)
             .map(|ids| ids.iter().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
         artifacts.push(ArtifactInventoryEntry {
             artifact_ref: artifact_ref.clone(),
-            artifact_kind: "snapshot".to_owned(),
+            artifact_kind: "object".to_owned(),
             byte_size,
         });
-        snapshots.push(RevisionSnapshotInventory {
+        objects.push(RevisionObjectInventory {
             revision_ids,
             object_id,
             artifact_ref,
@@ -149,7 +151,7 @@ fn scan_snapshot_artifacts(
 
 /// Join `object_id → {revision_ids}` from the capture events. Identity lives
 /// in the event log, so this is the inventory's only source for the capturing
-/// units of a snapshot artifact. A `BTreeSet` keeps the ids sorted and deduped for
+/// units of a object artifact. A `BTreeSet` keeps the ids sorted and deduped for
 /// deterministic output.
 fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTreeSet<String>>> {
     let mut owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -164,7 +166,7 @@ fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTre
             continue;
         }
         // The captured revision and its content object id ride the payload's
-        // tagged work object; the snapshot artifact is joined by the object id.
+        // tagged work object; the object artifact is joined by the object id.
         let revision = &event.payload["workObject"]["revision"];
         let (Some(object_id), Some(revision_id)) =
             (revision["objectId"].as_str(), revision["id"].as_str())
@@ -303,7 +305,7 @@ mod tests {
     };
 
     #[test]
-    fn revision_snapshots_list_all_capturing_units_for_a_shared_snapshot() {
+    fn revision_objects_list_all_capturing_units_for_a_shared_snapshot() {
         let repo = TestRepo::new();
         repo.write("README.md", "base\n");
         repo.commit_all("base");
@@ -320,7 +322,7 @@ mod tests {
 
         let inventory = scan_store_inventory(&store_dir, Some(repo.path())).unwrap();
         let entry = inventory
-            .revision_snapshots
+            .revision_objects
             .iter()
             .find(|snapshot| snapshot.object_id == capture.object_id.as_str())
             .expect("snapshot inventory entry");
@@ -365,7 +367,7 @@ mod tests {
                             target: capture.target.clone(),
                         }),
                     },
-                    snapshot_artifact_content_hash: capture.snapshot_artifact_content_hash.clone(),
+                    object_artifact_content_hash: capture.object_artifact_content_hash.clone(),
                     supersedes: vec![],
                 },
             },
@@ -400,7 +402,7 @@ mod tests {
 
         let (event_count, event_bytes) = directory_file_stats(&store_dir.join("events"));
         let (snapshot_count, snapshot_bytes) =
-            directory_file_stats(&store_dir.join("artifacts/snapshots"));
+            directory_file_stats(&store_dir.join("artifacts/objects"));
         let (note_count, note_bytes) = directory_file_stats(&store_dir.join("artifacts/notes"));
 
         assert_eq!(inventory.event_count, event_count);
@@ -417,7 +419,7 @@ mod tests {
                 && !artifact.artifact_ref.contains(".shore/data")
                 && !artifact.artifact_ref.contains("state.json")
         }));
-        assert!(inventory.revision_snapshots.iter().any(|snapshot| {
+        assert!(inventory.revision_objects.iter().any(|snapshot| {
             snapshot
                 .revision_ids
                 .contains(&capture.revision_id.as_str().to_owned())

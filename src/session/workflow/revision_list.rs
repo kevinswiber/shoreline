@@ -104,7 +104,7 @@ pub struct RevisionListEntry {
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
-    pub snapshot_artifact_content_hash: String,
+    pub object_artifact_content_hash: String,
     /// Git-free commit-range lifecycle view for this unit (anchored/floating,
     /// current and withdrawn associations). Structural merge-status is attached
     /// separately in `merge_status`.
@@ -266,9 +266,9 @@ fn is_hidden_orphan(view: &RevisionCommitRangeView, repo: &Path) -> bool {
 /// unchanged (singleton member set). No re-identification: the representative is just
 /// the smallest member id, chosen for a deterministic row.
 ///
-/// The representative entry's scalar fields (`snapshot_artifact_content_hash`,
+/// The representative entry's scalar fields (`object_artifact_content_hash`,
 /// `target`, …) come from the smallest-id member. Same-range captures already share
-/// one content-addressed snapshot artifact (the body is decoupled from the identity
+/// one content-addressed object artifact (the body is decoupled from the identity
 /// fields), so the artifact hash is identical across members — collapsing is honest,
 /// not lossy.
 fn group_entries(
@@ -440,7 +440,7 @@ fn entry_from_event(
     let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
     let WorkObjectProposal::Revision {
         revision,
-        snapshot_artifact_content_hash,
+        object_artifact_content_hash,
         ..
     } = payload.work_object
     else {
@@ -465,7 +465,7 @@ fn entry_from_event(
         source: provenance.source,
         base: provenance.base,
         target: provenance.target,
-        snapshot_artifact_content_hash,
+        object_artifact_content_hash,
         commit_range,
         // Filled by `attach_merge_status` after the visibility filter.
         merge_status: String::new(),
@@ -525,7 +525,7 @@ mod tests {
         );
         assert_eq!(result.entries[0].captured_at, "2026-05-13T10:00:00Z");
         assert_eq!(
-            result.entries[0].snapshot_artifact_content_hash,
+            result.entries[0].object_artifact_content_hash,
             "sha256:artifact:a"
         );
     }
@@ -565,7 +565,7 @@ mod tests {
         assert!(json.contains("revisionId"));
         assert!(!json.contains("reviewUnitId"));
         assert!(json.contains("capturedAt"));
-        assert!(json.contains("snapshotArtifactContentHash"));
+        assert!(json.contains("objectArtifactContentHash"));
         assert!(!json.contains("artifacts/"));
         assert!(!json.contains("statePath"));
         assert!(!json.contains("payloadHash"));
@@ -600,7 +600,7 @@ mod tests {
                         },
                     }),
                 },
-                snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
+                object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 supersedes: vec![],
             },
         };
@@ -627,7 +627,7 @@ mod tests {
                 claude_session_uuid: format!("uuid-{suffix}"),
                 initial_prompt_hash: format!("sha256:prompt:{suffix}"),
                 predecessor: None,
-                base_snapshot_fingerprint: None,
+                base_state_fingerprint: None,
                 source_speaker: None,
             },
         };
@@ -790,7 +790,7 @@ mod tests {
                         },
                     }),
                 },
-                snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
+                object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 supersedes: vec![],
             },
         };
@@ -1082,7 +1082,7 @@ mod tests {
                         },
                     }),
                 },
-                snapshot_artifact_content_hash: format!("sha256:artifact:{}", unit.as_str()),
+                object_artifact_content_hash: format!("sha256:artifact:{}", unit.as_str()),
                 supersedes: vec![],
             },
         };

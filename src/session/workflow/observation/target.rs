@@ -7,9 +7,9 @@ use crate::session::event::{
     EventType, Revision, RevisionRefAssociatedPayload, ShoreEvent, WorkObjectProposal,
     WorkObjectProposedPayload,
 };
+use crate::session::object_artifact::read_object_artifact_for_write_validation;
 use crate::session::projection::commit_range::revision_of;
 use crate::session::projection::supersession::SupersessionView;
-use crate::session::snapshot_artifact::read_snapshot_artifact_for_write_validation;
 use crate::session::store::fingerprint::normalized_worktree_root;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -362,7 +362,7 @@ pub(crate) fn resolve_observation_target(
         });
     };
 
-    let artifact = read_snapshot_artifact_for_write_validation(repo, &resolved.object_id)?;
+    let artifact = read_object_artifact_for_write_validation(repo, &resolved.object_id)?;
     if !artifact.snapshot.files.iter().any(|file| {
         file.new_path.as_deref() == Some(file_path) || file.old_path.as_deref() == Some(file_path)
     }) {
@@ -443,7 +443,7 @@ mod scope_tests {
                             target,
                         }),
                     },
-                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                    object_artifact_content_hash: "sha256:artifact".to_owned(),
                     supersedes: vec![],
                 },
             },

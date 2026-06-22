@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use shoreline::documents::unit_show_document;
+use shoreline::documents::revision_show_document;
 use shoreline::model::RevisionId;
 use shoreline::session::{
     EventVerificationPolicy, RevisionShowOptions, enrich_liveness, show_revision,
@@ -54,7 +54,7 @@ pub(super) fn run(
     // the git-free document workflow: best-effort, omitted when reachability is
     // unknown.
     let liveness = enrich_liveness(&result.commit_range, &args.repo, None).ok();
-    let document = unit_show_document(result);
+    let document = revision_show_document(result);
     let mut value = serde_json::to_value(&document)?;
     if let Some(liveness) = liveness
         && let Some(commit_range) = value

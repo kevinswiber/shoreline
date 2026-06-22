@@ -343,7 +343,7 @@ mod tests {
                         },
                     }),
                 },
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
         };
@@ -389,7 +389,7 @@ mod tests {
             "/repo"
         );
         assert_eq!(
-            json["payload"]["workObject"]["snapshotArtifactContentHash"],
+            json["payload"]["workObject"]["objectArtifactContentHash"],
             "sha256:artifact"
         );
     }
@@ -498,11 +498,11 @@ mod tests {
     }
 
     fn revision_captured_event_with_artifact_hash(
-        snapshot_artifact_content_hash: &str,
+        object_artifact_content_hash: &str,
     ) -> ShoreEvent {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
-            format!("work_object_proposed:review-unit:sha256:abc:{snapshot_artifact_content_hash}"),
+            format!("work_object_proposed:review-unit:sha256:abc:{object_artifact_content_hash}"),
             EventTarget::for_revision(
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:abc"),
@@ -534,7 +534,7 @@ mod tests {
                             },
                         }),
                     },
-                    snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
+                    object_artifact_content_hash: object_artifact_content_hash.to_owned(),
                     supersedes: vec![],
                 },
             },
@@ -964,7 +964,7 @@ mod tests {
     }
 
     fn revision_captured_event(
-        snapshot_artifact_content_hash: &str,
+        object_artifact_content_hash: &str,
         idempotency_key: &str,
     ) -> ShoreEvent {
         ShoreEvent::new(
@@ -1001,7 +1001,7 @@ mod tests {
                             },
                         }),
                     },
-                    snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
+                    object_artifact_content_hash: object_artifact_content_hash.to_owned(),
                     supersedes: vec![],
                 },
             },

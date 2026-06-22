@@ -393,7 +393,7 @@ mod tests {
         prepare_write_landing(&write, &storage).unwrap();
 
         assert!(write.store_dir().join("events").is_dir());
-        assert!(write.store_dir().join("artifacts/snapshots").is_dir());
+        assert!(write.store_dir().join("artifacts/objects").is_dir());
         // The common-dir store, not the worktree-local one.
         let worktree_local = ShoreStorePaths::resolve(repo.path()).unwrap();
         assert_ne!(write.store_dir(), worktree_local.store_dir());

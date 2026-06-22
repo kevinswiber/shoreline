@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::session::event::{EventType, IngestVia, ShoreEvent, stamp_ingest_provenance};
-use crate::session::snapshot_artifact::decode_and_validate_snapshot_artifact;
+use crate::session::object_artifact::decode_and_validate_object_artifact;
 use crate::session::store::body_artifact::NoteBodyEnvelope;
-use crate::session::store::{EventStore, SnapshotArtifact};
+use crate::session::store::{EventStore, ObjectArtifact};
 use crate::session::{
     EventVerificationPolicy, IngestEventVerification, SessionState, TrustSet, current_timestamp,
     verify_events_for_ingest,
@@ -63,7 +63,7 @@ pub(crate) struct ExportArtifact {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ExportArtifactKind {
-    Snapshot,
+    Object,
     NoteBody,
 }
 
@@ -245,9 +245,7 @@ fn read_source_artifacts(
         .artifacts
         .iter()
         .map(|artifact| match artifact.artifact_kind {
-            ExportArtifactKind::Snapshot => {
-                read_source_snapshot_artifact(source_store_dir, artifact)
-            }
+            ExportArtifactKind::Object => read_source_object_artifact(source_store_dir, artifact),
             ExportArtifactKind::NoteBody => {
                 read_source_note_body_artifact(source_store_dir, artifact)
             }
@@ -255,36 +253,29 @@ fn read_source_artifacts(
         .collect()
 }
 
-fn read_source_snapshot_artifact(
+fn read_source_object_artifact(
     source_store_dir: &Path,
     artifact: &ExportArtifact,
 ) -> Result<SourceArtifact> {
-    let snapshot_id = artifact
-        .artifact_ref
-        .strip_prefix("snapshot:")
-        .ok_or_else(|| {
-            ShoreError::Message(format!(
-                "invalid snapshot artifact ref {}",
-                artifact.artifact_ref
-            ))
-        })?;
-    let Some((path, parsed)) = find_snapshot_artifact(source_store_dir, snapshot_id)? else {
+    // The ref is the content-addressed object id itself (no kind prefix).
+    let object_id = artifact.artifact_ref.as_str();
+    let Some((path, parsed)) = find_object_artifact(source_store_dir, object_id)? else {
         return Err(ShoreError::Message(format!(
-            "missing snapshot artifact {}",
+            "missing object artifact {}",
             artifact.artifact_ref
         )));
     };
     if parsed.content_hash != artifact.content_hash {
         return Err(ShoreError::Message(format!(
-            "snapshot artifact content hash mismatch for {}",
+            "object artifact content hash mismatch for {}",
             artifact.artifact_ref
         )));
     }
 
     Ok(SourceArtifact {
-        relative_path: snapshot_relative_path(snapshot_id),
+        relative_path: object_relative_path(object_id),
         bytes: std::fs::read(&path).map_err(|error| {
-            ShoreError::Message(format!("failed to read source snapshot artifact: {error}"))
+            ShoreError::Message(format!("failed to read source object artifact: {error}"))
         })?,
     })
 }
@@ -406,27 +397,26 @@ struct ArtifactRequirement {
 
 impl ArtifactRequirement {
     fn from_ref(artifact_ref: &str, event_id: &str) -> Self {
-        if let Some(snapshot_id) = artifact_ref.strip_prefix("snapshot:") {
+        if let Some(content_hash) = artifact_ref.strip_prefix("note-body:") {
             return Self {
                 artifact_ref: artifact_ref.to_owned(),
-                kind: ExportArtifactKind::Snapshot,
-                locator: ArtifactLocator::Snapshot {
-                    snapshot_id: snapshot_id.to_owned(),
+                kind: ExportArtifactKind::NoteBody,
+                locator: ArtifactLocator::NoteBody {
+                    relative_path: note_body_relative_path(artifact_ref),
                 },
-                content_hash: None,
+                content_hash: Some(content_hash.to_owned()),
                 required_by_event_ids: vec![event_id.to_owned()],
             };
         }
 
+        // An object artifact's ref is the content-addressed object id itself.
         Self {
             artifact_ref: artifact_ref.to_owned(),
-            kind: ExportArtifactKind::NoteBody,
-            locator: ArtifactLocator::NoteBody {
-                relative_path: note_body_relative_path(artifact_ref),
+            kind: ExportArtifactKind::Object,
+            locator: ArtifactLocator::Object {
+                object_id: artifact_ref.to_owned(),
             },
-            content_hash: artifact_ref
-                .strip_prefix("note-body:")
-                .map(std::borrow::ToOwned::to_owned),
+            content_hash: None,
             required_by_event_ids: vec![event_id.to_owned()],
         }
     }
@@ -434,7 +424,7 @@ impl ArtifactRequirement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ArtifactLocator {
-    Snapshot { snapshot_id: String },
+    Object { object_id: String },
     NoteBody { relative_path: PathBuf },
 }
 
@@ -470,8 +460,9 @@ fn is_event_file(path: &Path) -> bool {
 
 fn event_artifact_refs(event: &ShoreEvent) -> Vec<String> {
     let mut refs = BTreeSet::new();
-    // A generative move binds its content-object snapshot through the proposed
-    // work object: the object id lives on the revision the proposal wraps.
+    // A generative move binds its content object through the proposed work
+    // object: the object id lives on the revision the proposal wraps. The ref is
+    // the content-addressed object id itself (no kind prefix).
     if event.event_type == EventType::WorkObjectProposed
         && let Some(object_id) = event
             .payload
@@ -480,7 +471,7 @@ fn event_artifact_refs(event: &ShoreEvent) -> Vec<String> {
             .and_then(|revision| revision.get("objectId"))
             .and_then(|value| value.as_str())
     {
-        refs.insert(format!("snapshot:{object_id}"));
+        refs.insert(object_id.to_owned());
     }
 
     for path in note_body_artifact_paths_for_event(event.event_type, &event.payload) {
@@ -536,8 +527,8 @@ fn read_required_artifact(
     requirement: &ArtifactRequirement,
 ) -> Result<Option<ExportArtifact>> {
     match &requirement.locator {
-        ArtifactLocator::Snapshot { snapshot_id } => {
-            read_snapshot_export_artifact(store_dir, snapshot_id, requirement)
+        ArtifactLocator::Object { object_id } => {
+            read_object_export_artifact(store_dir, object_id, requirement)
         }
         ArtifactLocator::NoteBody { relative_path } => {
             read_note_body_export_artifact(store_dir, relative_path, requirement)
@@ -545,12 +536,12 @@ fn read_required_artifact(
     }
 }
 
-fn read_snapshot_export_artifact(
+fn read_object_export_artifact(
     store_dir: &Path,
-    snapshot_id: &str,
+    object_id: &str,
     requirement: &ArtifactRequirement,
 ) -> Result<Option<ExportArtifact>> {
-    let Some((path, artifact)) = find_snapshot_artifact(store_dir, snapshot_id)? else {
+    let Some((path, artifact)) = find_object_artifact(store_dir, object_id)? else {
         return Ok(None);
     };
     let byte_size = file_size(&path)?;
@@ -566,23 +557,23 @@ fn read_snapshot_export_artifact(
     }))
 }
 
-fn snapshot_relative_path(snapshot_id: &str) -> PathBuf {
+fn object_relative_path(object_id: &str) -> PathBuf {
     PathBuf::from("artifacts")
-        .join("snapshots")
-        .join(format!("{}.json", sha256_bytes_hex(snapshot_id.as_bytes())))
+        .join("objects")
+        .join(format!("{}.json", sha256_bytes_hex(object_id.as_bytes())))
 }
 
-fn find_snapshot_artifact(
+fn find_object_artifact(
     store_dir: &Path,
-    snapshot_id: &str,
-) -> Result<Option<(PathBuf, SnapshotArtifact)>> {
-    let artifact_dir = store_dir.join("artifacts/snapshots");
+    object_id: &str,
+) -> Result<Option<(PathBuf, ObjectArtifact)>> {
+    let artifact_dir = store_dir.join("artifacts/objects");
     let entries = match std::fs::read_dir(&artifact_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(ShoreError::Message(format!(
-                "failed to list snapshot artifacts for export manifest: {error}"
+                "failed to list object artifacts for export manifest: {error}"
             )));
         }
     };
@@ -590,7 +581,7 @@ fn find_snapshot_artifact(
     for entry in entries {
         let path = entry
             .map_err(|error| {
-                ShoreError::Message(format!("failed to read snapshot artifact entry: {error}"))
+                ShoreError::Message(format!("failed to read object artifact entry: {error}"))
             })?
             .path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
@@ -598,14 +589,14 @@ fn find_snapshot_artifact(
         }
 
         let bytes = std::fs::read(&path).map_err(|error| {
-            ShoreError::Message(format!("failed to read snapshot artifact: {error}"))
+            ShoreError::Message(format!("failed to read object artifact: {error}"))
         })?;
-        // Cheap snapshot-id match first (so an unrelated corrupt artifact in the
+        // Cheap object-id match first (so an unrelated corrupt artifact in the
         // dir does not abort the scan), then validate the match through the shared
-        // dual-read decode path (v1 + v2).
-        let parsed: SnapshotArtifact = serde_json::from_slice(&bytes)?;
-        if parsed.snapshot.object_id.as_str() == snapshot_id {
-            let artifact = decode_and_validate_snapshot_artifact(&bytes)?;
+        // decode path.
+        let parsed: ObjectArtifact = serde_json::from_slice(&bytes)?;
+        if parsed.snapshot.object_id.as_str() == object_id {
+            let artifact = decode_and_validate_object_artifact(&bytes)?;
             return Ok(Some((path, artifact)));
         }
     }
@@ -711,7 +702,7 @@ mod tests {
     };
 
     #[test]
-    fn export_manifest_includes_events_and_snapshot_artifacts() {
+    fn export_manifest_includes_events_and_object_artifacts() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let store = EventStore::open(resolved_store_dir(repo.path()));
@@ -745,20 +736,17 @@ mod tests {
         assert!(event.event_file_hash.starts_with("sha256:"));
         assert_ne!(event.event_envelope_hash, event.event_file_hash);
 
-        let snapshot_ref = format!("snapshot:{}", capture.object_id.as_str());
-        assert_eq!(event.artifact_refs, vec![snapshot_ref.clone()]);
+        let object_ref = capture.object_id.as_str().to_owned();
+        assert_eq!(event.artifact_refs, vec![object_ref.clone()]);
         let artifact = manifest
             .artifacts
             .iter()
-            .find(|artifact| artifact.artifact_ref == snapshot_ref)
-            .expect("snapshot artifact");
-        assert_eq!(artifact.artifact_kind, ExportArtifactKind::Snapshot);
-        assert_eq!(artifact.schema, "shore.snapshot");
+            .find(|artifact| artifact.artifact_ref == object_ref)
+            .expect("object artifact");
+        assert_eq!(artifact.artifact_kind, ExportArtifactKind::Object);
+        assert_eq!(artifact.schema, "shore.object");
         assert_eq!(artifact.version, 2);
-        assert_eq!(
-            artifact.content_hash,
-            capture.snapshot_artifact_content_hash
-        );
+        assert_eq!(artifact.content_hash, capture.object_artifact_content_hash);
         assert!(artifact.byte_size > 0);
         assert_eq!(
             artifact.required_by_event_ids,
@@ -767,7 +755,7 @@ mod tests {
 
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(!json.contains(".shore/data"));
-        assert!(!json.contains("artifacts/snapshots"));
+        assert!(!json.contains("artifacts/objects"));
         assert!(!json.contains("events/"));
     }
 
@@ -890,7 +878,7 @@ mod tests {
     fn export_manifest_marks_missing_artifacts_as_not_full_fidelity() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        remove_snapshot_artifacts(repo.path());
+        remove_object_artifacts(repo.path());
 
         let manifest = build_export_manifest(resolved_store_dir(repo.path())).unwrap();
 
@@ -902,8 +890,8 @@ mod tests {
             manifest.events.iter().any(|event| event
                 .artifact_refs
                 .iter()
-                .any(|artifact_ref| artifact_ref.starts_with("snapshot:"))),
-            "the capture event references the snapshot artifact"
+                .any(|artifact_ref| artifact_ref.starts_with("obj:"))),
+            "the capture event references the object artifact"
         );
     }
 
@@ -1015,7 +1003,7 @@ mod tests {
     fn strict_import_rejects_events_when_referenced_artifact_is_missing() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        remove_snapshot_artifacts(repo.path());
+        remove_object_artifacts(repo.path());
         let target = tempfile::tempdir().unwrap();
 
         let error = import_store_bundle(
@@ -1050,7 +1038,7 @@ mod tests {
                 ImportCommitStep::State,
             ]
         );
-        assert!(target_store_dir.join("artifacts/snapshots").is_dir());
+        assert!(target_store_dir.join("artifacts/objects").is_dir());
         assert!(target_store_dir.join("events").is_dir());
         let rebuilt_state = fs::read_to_string(target_store_dir.join("state.json")).unwrap();
         assert!(!rebuilt_state.contains("must not be imported"));
@@ -1294,8 +1282,8 @@ mod tests {
             .expect("write test event");
     }
 
-    fn remove_snapshot_artifacts(repo: &Path) {
-        let artifact_dir = resolved_store_dir(repo).join("artifacts/snapshots");
+    fn remove_object_artifacts(repo: &Path) {
+        let artifact_dir = resolved_store_dir(repo).join("artifacts/objects");
         for entry in fs::read_dir(artifact_dir).unwrap() {
             let path = entry.unwrap().path();
             if path.extension() == Some(OsStr::new("json")) {

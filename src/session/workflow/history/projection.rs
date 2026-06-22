@@ -73,7 +73,7 @@ pub(super) fn history_entry_from_event(
             match payload.work_object {
                 WorkObjectProposal::Revision {
                     revision,
-                    snapshot_artifact_content_hash,
+                    object_artifact_content_hash,
                     ..
                 } => {
                     let (source, base, target) = match revision.git_provenance {
@@ -91,7 +91,7 @@ pub(super) fn history_entry_from_event(
                         source,
                         base,
                         target,
-                        snapshot_artifact_content_hash,
+                        object_artifact_content_hash,
                     }
                 }
                 // A task-attempt proposal is a task-domain event; the upstream

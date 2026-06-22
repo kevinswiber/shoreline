@@ -56,7 +56,7 @@ fn store_remove_by_snapshot_emits_removed_document() {
     let repo = modified_repo();
     let captured = capture(repo.path());
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
-    let content_hash = captured["revision"]["snapshotArtifactContentHash"]
+    let content_hash = captured["revision"]["objectArtifactContentHash"]
         .as_str()
         .unwrap();
 
@@ -118,10 +118,10 @@ fn store_remove_by_revision_reports_co_referencing_units() {
 
     let unit1 = cap1["revision"]["id"].as_str().unwrap();
     let unit2 = cap2["revision"]["id"].as_str().unwrap().to_owned();
-    let hash1 = cap1["revision"]["snapshotArtifactContentHash"]
+    let hash1 = cap1["revision"]["objectArtifactContentHash"]
         .as_str()
         .unwrap();
-    let hash2 = cap2["revision"]["snapshotArtifactContentHash"]
+    let hash2 = cap2["revision"]["objectArtifactContentHash"]
         .as_str()
         .unwrap();
     assert_eq!(
@@ -220,7 +220,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
     let repo = modified_repo();
     let captured = capture(repo.path());
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
-    let content_hash = captured["revision"]["snapshotArtifactContentHash"]
+    let content_hash = captured["revision"]["objectArtifactContentHash"]
         .as_str()
         .unwrap();
 
@@ -252,7 +252,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
     assert!(json["bytesReclaimed"].as_u64().unwrap() > 0);
 
     // The snapshot blob is physically gone.
-    let snapshots = repo.path().join(".shore/data/artifacts/snapshots");
+    let snapshots = repo.path().join(".shore/data/artifacts/objects");
     let remaining = fs::read_dir(&snapshots)
         .map(|entries| entries.count())
         .unwrap_or(0);

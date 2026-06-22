@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
-use shoreline::documents::unit_list_document;
+use shoreline::documents::revision_list_document;
 use shoreline::session::{OrphanVisibility, RefFilterMode, RevisionListOptions, list_revisions};
 
 use crate::cli::json;
@@ -111,6 +111,6 @@ pub(super) fn run(
         result.revision_count = result.entries.len();
     }
 
-    let document = unit_list_document(result);
+    let document = revision_list_document(result);
     json::write_json(stdout, &document, pretty)
 }

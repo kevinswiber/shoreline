@@ -49,7 +49,7 @@ fn revision_list_emits_v1_json_with_freshness_metadata() {
     assert!(entry["base"].is_object());
     assert!(entry["target"].is_object());
     assert!(
-        entry["snapshotArtifactContentHash"]
+        entry["objectArtifactContentHash"]
             .as_str()
             .unwrap()
             .starts_with("sha256:")

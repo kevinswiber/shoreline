@@ -85,7 +85,7 @@ mod tests {
                         object_id: ObjectId::new(format!("obj:sha256:{suffix}")),
                         git_provenance,
                     },
-                    snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
+                    object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                     supersedes: vec![],
                 },
             },

@@ -10,13 +10,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Serialize;
-use shoreline::documents::unit_show_document;
+use shoreline::documents::revision_show_document;
 use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId};
 use shoreline::session::{
     EventVerificationPolicy, LivenessEnrichment, ProjectionDiagnostic, ReviewHistoryEntry,
     ReviewHistoryOptions, RevisionListEntry, RevisionListOptions, RevisionShowOptions,
     SessionState, SupersessionView, enrich_liveness, list_revisions, read_events,
-    read_snapshot_artifact, review_history, show_revision,
+    read_object_artifact, review_history, show_revision,
 };
 
 #[derive(Serialize)]
@@ -32,12 +32,12 @@ struct HistoryPayload {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitsPayload {
+struct RevisionsPayload {
     schema: &'static str,
     event_set_hash: String,
     event_count: usize,
     revision_count: usize,
-    entries: Vec<UnitEntryDocument>,
+    entries: Vec<RevisionEntryDocument>,
     diagnostics: Vec<ProjectionDiagnostic>,
 }
 
@@ -73,12 +73,12 @@ struct ThreadDocument {
     competing: bool,
 }
 
-/// One `/api/units` entry: the full `RevisionListEntry` flattened verbatim,
+/// One `/api/revisions` entry: the full `RevisionListEntry` flattened verbatim,
 /// plus an additive, path-private `targetDisplay`. `#[serde(flatten)]` keeps
 /// every existing field byte-present and unchanged.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitEntryDocument {
+struct RevisionEntryDocument {
     #[serde(flatten)]
     entry: RevisionListEntry,
     target_display: TargetDisplay,
@@ -197,7 +197,7 @@ fn head_display(base: &ReviewEndpoint) -> Option<HeadDisplay> {
 }
 
 /// Insert a derived `targetDisplay` into the `revision` object of a serialized
-/// `/api/unit` document, leaving every existing field (including the verbatim
+/// `/api/revision` document, leaving every existing field (including the verbatim
 /// `target`) in place. A no-op if `revision` is not an object.
 fn splice_target_display(
     document: &mut serde_json::Value,
@@ -215,12 +215,12 @@ fn splice_target_display(
 
 /// Wrap each list entry with its derived, path-private `targetDisplay`, leaving
 /// every existing field on the entry untouched.
-fn to_unit_entry_documents(entries: Vec<RevisionListEntry>) -> Vec<UnitEntryDocument> {
+fn to_unit_entry_documents(entries: Vec<RevisionListEntry>) -> Vec<RevisionEntryDocument> {
     entries
         .into_iter()
         .map(|entry| {
             let target_display = derive_target_display(&entry.target, &entry.base);
-            UnitEntryDocument {
+            RevisionEntryDocument {
                 entry,
                 target_display,
             }
@@ -252,11 +252,11 @@ pub(super) fn history_json(repo: &Path) -> Result<String, String> {
 }
 
 /// Captured Revisions with their base/target/snapshot identity.
-pub(super) fn units_json(repo: &Path) -> Result<String, String> {
+pub(super) fn revisions_json(repo: &Path) -> Result<String, String> {
     let result =
         list_revisions(RevisionListOptions::new(repo)).map_err(|error| error.to_string())?;
-    let payload = UnitsPayload {
-        schema: "shore.inspect-units",
+    let payload = RevisionsPayload {
+        schema: "shore.inspect-revisions",
         event_set_hash: result.event_set_hash,
         event_count: result.event_count,
         revision_count: result.revision_count,
@@ -331,8 +331,8 @@ fn revision_edge_map(
 
 /// The captured diff snapshot for one Revision, by snapshot id.
 ///
-/// Reads the immutable snapshot artifact through the validated read path
-/// (`read_snapshot_artifact` recomputes and checks the content hash), so the
+/// Reads the immutable object artifact through the validated read path
+/// (`read_object_artifact` recomputes and checks the content hash), so the
 /// inspector renders exactly the frozen diff that was reviewed.
 ///
 /// The wire shape redacts the hash-baked `target.worktreeRoot` after
@@ -342,12 +342,12 @@ fn revision_edge_map(
 /// records that `contentHash` covers the stored bytes (including the redacted
 /// field) — consumers re-validate by fetching the artifact, not by hashing
 /// this wire JSON.
-pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, String> {
+pub(super) fn object_json(repo: &Path, snapshot_id: &str) -> Result<String, String> {
     if snapshot_id.is_empty() {
         return Err("missing snapshot id".to_owned());
     }
     let artifact =
-        read_snapshot_artifact(repo, &ObjectId::new(snapshot_id.to_owned())).map_err(|error| {
+        read_object_artifact(repo, &ObjectId::new(snapshot_id.to_owned())).map_err(|error| {
             // Keep the full error (which may include the internal artifact path)
             // in the server trace, but return a path-free message to the client.
             tracing::debug!(error = %error, snapshot = snapshot_id, "inspect_snapshot_read_failed");
@@ -355,8 +355,8 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
         })?;
     let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
     if let Some(object) = wire.as_object_mut() {
-        // Snapshot-scoped wire: identity/endpoints live on /api/unit (from the
-        // projection), never on the shared snapshot artifact. The v2 body already
+        // Object-scoped wire: identity/endpoints live on /api/revision (from the
+        // projection), never on the shared object artifact. The v2 body already
         // omits these; the removals also keep a dual-read v1 artifact path-private
         // here, so the endpoint is forward- and backward-compatible.
         for key in ["revisionId", "source", "base", "target"] {
@@ -368,14 +368,14 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
 
 /// The full composite projection for one Revision.
 ///
-/// Reuses the exact `shore.review-revision` document the `shore review unit show`
-/// command builds (`unit_show_document`), so the inspector renders the same
+/// Reuses the exact `shore.review-revision` document the `shore review show`
+/// command builds (`revision_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
 /// facts, supersession, adapter notes, and projection rows — rather than
 /// re-deriving it client-side.
-pub(super) fn unit_json(repo: &Path, revision_id: &str) -> Result<String, String> {
+pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, String> {
     if revision_id.is_empty() {
-        return Err("missing review unit id".to_owned());
+        return Err("missing revision id".to_owned());
     }
     let mut show_options = RevisionShowOptions::new(repo)
         .with_revision_id(RevisionId::new(revision_id.to_owned()))
@@ -388,10 +388,10 @@ pub(super) fn unit_json(repo: &Path, revision_id: &str) -> Result<String, String
     }
     let result = show_revision(show_options).map_err(|error| {
         tracing::debug!(error = %error, revision = revision_id, "inspect_unit_read_failed");
-        format!("review unit not found or unreadable: {revision_id}")
+        format!("revision not found or unreadable: {revision_id}")
     })?;
     // Thread the typed endpoints and the commit-range view out before
-    // `unit_show_document` consumes `result`, then splice the additive
+    // `revision_show_document` consumes `result`, then splice the additive
     // `targetDisplay` into the serialized document.
     let target_display = derive_target_display(&result.revision.target, &result.revision.base);
     let head_oid = match &result.revision.base {
@@ -399,7 +399,7 @@ pub(super) fn unit_json(repo: &Path, revision_id: &str) -> Result<String, String
         ReviewEndpoint::GitWorkingTree { .. } => None,
     };
     let commit_range = result.commit_range.clone();
-    let document = unit_show_document(result);
+    let document = revision_show_document(result);
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     splice_target_display(&mut value, target_display)?;
 
@@ -538,25 +538,25 @@ mod tests {
         Path::new(&common_dir).join("shore")
     }
 
-    fn stored_snapshot_artifact_path(repo: &Path) -> std::path::PathBuf {
-        let snapshots_dir = common_dir_store(repo).join("artifacts/snapshots");
+    fn stored_object_artifact_path(repo: &Path) -> std::path::PathBuf {
+        let snapshots_dir = common_dir_store(repo).join("artifacts/objects");
         let mut entries: Vec<_> = std::fs::read_dir(&snapshots_dir)
-            .expect("snapshot artifacts dir exists")
+            .expect("object artifacts dir exists")
             .map(|entry| entry.unwrap().path())
             .collect();
-        assert_eq!(entries.len(), 1, "exactly one stored snapshot artifact");
+        assert_eq!(entries.len(), 1, "exactly one stored object artifact");
         entries.remove(0)
     }
 
     #[test]
-    fn snapshot_json_serves_snapshot_scoped_wire() {
+    fn object_json_serves_snapshot_scoped_wire() {
         let (repo, snapshot_id) = captured_repo();
 
         let wire: serde_json::Value =
-            serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id).unwrap()).unwrap();
+            serde_json::from_str(&object_json(repo.path(), &snapshot_id).unwrap()).unwrap();
 
-        // Snapshot-scoped wire: content hash + frozen diff only. Identity and
-        // endpoints live on /api/unit (from the projection), never here — so the
+        // Object-scoped wire: content hash + frozen diff only. Identity and
+        // endpoints live on /api/revision (from the projection), never here — so the
         // worktree root is simply absent (nothing to redact).
         assert!(wire["contentHash"].is_string());
         assert!(wire.get("revisionId").is_none());
@@ -569,9 +569,9 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_json_rejects_tampered_artifact_before_wire_shaping() {
+    fn object_json_rejects_tampered_artifact_before_wire_shaping() {
         let (repo, snapshot_id) = captured_repo();
-        let artifact_path = stored_snapshot_artifact_path(repo.path());
+        let artifact_path = stored_object_artifact_path(repo.path());
         let mut json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&artifact_path).unwrap()).unwrap();
         // Tamper a field that is inside the content hash for both v1 and v2 (the
@@ -579,7 +579,7 @@ mod tests {
         json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         std::fs::write(&artifact_path, serde_json::to_vec(&json).unwrap()).unwrap();
 
-        let error = snapshot_json(repo.path(), &snapshot_id)
+        let error = object_json(repo.path(), &snapshot_id)
             .expect_err("tampered artifact is rejected before wire shaping");
 
         assert!(error.contains("snapshot not found or unreadable"));
@@ -677,7 +677,7 @@ mod tests {
             target: ReviewEndpoint::GitWorkingTree {
                 worktree_root: worktree.to_owned(),
             },
-            snapshot_artifact_content_hash: "sha256:artifact:abc".to_owned(),
+            object_artifact_content_hash: "sha256:artifact:abc".to_owned(),
             commit_range: shoreline::session::RevisionCommitRangeView {
                 revision_id: RevisionId::new("review-unit:sha256:abc"),
                 anchored: false,
@@ -718,7 +718,7 @@ mod tests {
             "545b0eb81463aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
         assert!(json["source"].is_object());
-        assert_eq!(json["snapshotArtifactContentHash"], "sha256:artifact:abc");
+        assert_eq!(json["objectArtifactContentHash"], "sha256:artifact:abc");
         assert!(
             json.get("reviewUnitId").is_none(),
             "the redundant reviewUnitId alias is dropped"
@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn splice_target_display_adds_block_without_dropping_target_fields() {
-        // Mirrors the /api/unit document shape: revision carries the verbatim target.
+        // Mirrors the /api/revision document shape: revision carries the verbatim target.
         let mut document = serde_json::json!({
             "revision": {
                 "id": "review-unit:sha256:abc",
@@ -787,7 +787,7 @@ mod tests {
                         },
                     }),
                 },
-                snapshot_artifact_content_hash: "sha256:artifact:legacy".to_owned(),
+                object_artifact_content_hash: "sha256:artifact:legacy".to_owned(),
                 supersedes: vec![],
             },
         };
@@ -842,11 +842,11 @@ mod tests {
     }
 
     #[test]
-    fn unit_json_populates_live_branch_for_anchored_commit_on_a_branch() {
+    fn revision_json_populates_live_branch_for_anchored_commit_on_a_branch() {
         let (repo, revision_id, branch) = captured_commit_range_repo();
 
         let value: serde_json::Value =
-            serde_json::from_str(&unit_json(repo.path(), &revision_id).unwrap()).unwrap();
+            serde_json::from_str(&revision_json(repo.path(), &revision_id).unwrap()).unwrap();
 
         assert_eq!(
             value["revision"]["targetDisplay"]["head"]["liveBranch"],
@@ -856,7 +856,7 @@ mod tests {
     }
 
     #[test]
-    fn unit_json_omits_live_branch_for_floating_worktree_capture() {
+    fn revision_json_omits_live_branch_for_floating_worktree_capture() {
         let root = tempfile::tempdir().expect("create temp repo");
         let path = root.path();
         git(path, &["init"]);
@@ -873,7 +873,8 @@ mod tests {
         .expect("capture worktree review");
 
         let value: serde_json::Value =
-            serde_json::from_str(&unit_json(path, capture.revision_id.as_str()).unwrap()).unwrap();
+            serde_json::from_str(&revision_json(path, capture.revision_id.as_str()).unwrap())
+                .unwrap();
 
         assert!(
             value["revision"]["targetDisplay"]["head"]["liveBranch"].is_null(),
@@ -882,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn unit_json_omits_live_branch_when_commit_objects_are_unavailable() {
+    fn revision_json_omits_live_branch_when_commit_objects_are_unavailable() {
         let (repo, revision_id, _branch) = captured_commit_range_repo();
 
         // A second repo that serves the same store but whose object database does
@@ -902,7 +903,7 @@ mod tests {
         );
 
         let value: serde_json::Value =
-            serde_json::from_str(&unit_json(elsewhere.path(), &revision_id).unwrap()).unwrap();
+            serde_json::from_str(&revision_json(elsewhere.path(), &revision_id).unwrap()).unwrap();
 
         assert!(
             value["revision"]["targetDisplay"]["head"]["liveBranch"].is_null(),

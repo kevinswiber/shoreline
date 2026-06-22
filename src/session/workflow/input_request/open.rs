@@ -287,7 +287,7 @@ struct InputRequestIdMaterial<'a> {
 
 fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputRequestId> {
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.revision_id.as_str(),
+        "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "assertionMode": material.assertion_mode,

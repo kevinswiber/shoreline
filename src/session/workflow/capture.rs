@@ -156,7 +156,7 @@ pub struct CaptureResult {
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
-    pub snapshot_artifact_content_hash: String,
+    pub object_artifact_content_hash: String,
     pub events_created: usize,
     pub events_existing: usize,
     pub events_created_by_type: BTreeMap<String, usize>,
@@ -165,7 +165,7 @@ pub struct CaptureResult {
 
 /// Canonical capture entry point. Dispatches on the options' source spec to a
 /// source adapter (worktree by default, or a commit range), then runs the
-/// shared tail: write the snapshot artifact, record the idempotent
+/// shared tail: write the object artifact, record the idempotent
 /// `revision_captured` event, rebuild projection state, and surface the
 /// clone-local diagnostic.
 pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
@@ -194,7 +194,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     let review_id = ReviewId::new("review:default");
     let journal_id = JournalId::new("journal:default");
     let snapshot = DiffSnapshot::new(review_id, fingerprint.object_id.clone(), files);
-    let artifact = crate::session::snapshot_artifact::write_snapshot_artifact_to(
+    let artifact = crate::session::object_artifact::write_object_artifact_to(
         &store_dir,
         &fingerprint,
         snapshot,
@@ -241,7 +241,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
                     object_id: fingerprint.object_id.clone(),
                     git_provenance: Some(fingerprint.git_provenance()),
                 },
-                snapshot_artifact_content_hash: artifact.content_hash.clone(),
+                object_artifact_content_hash: artifact.content_hash.clone(),
                 supersedes,
             },
         },
@@ -302,7 +302,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         source: fingerprint.source,
         base: fingerprint.base,
         target: fingerprint.target,
-        snapshot_artifact_content_hash: artifact.content_hash,
+        object_artifact_content_hash: artifact.content_hash,
         events_created: recorder.events_created,
         events_existing: recorder.events_existing,
         events_created_by_type: recorder.events_created_by_type,
@@ -498,7 +498,7 @@ mod tests {
     use crate::session::{
         ArtifactKind, CaptureOptions, CommitRangeSpec, EventStore, ImportArtifactOptions,
         ImportArtifactOutcome, RevisionShowOptions, ShoreStorePaths, capture_review,
-        capture_worktree_review, export_artifact, import_artifact, read_snapshot_artifact,
+        capture_worktree_review, export_artifact, import_artifact, read_object_artifact,
         referenced_artifacts, show_revision,
     };
 
@@ -770,16 +770,16 @@ mod tests {
     }
 
     #[test]
-    fn capture_review_from_commit_range_binds_snapshot_artifact() {
+    fn capture_review_from_commit_range_binds_object_artifact() {
         let repo = committed_repo();
 
         let result = capture_review(
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
         )
         .unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
 
-        // The snapshot-scoped v2 artifact no longer carries source/base/target;
+        // The object-scoped v2 artifact no longer carries source/base/target;
         // those live on the CaptureResult/event. The artifact binds via its
         // content hash (INV-3).
         assert!(matches!(
@@ -788,7 +788,7 @@ mod tests {
         ));
         assert!(matches!(result.base, ReviewEndpoint::GitCommit { .. }));
         assert!(matches!(result.target, ReviewEndpoint::GitCommit { .. }));
-        assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
+        assert_eq!(artifact.content_hash, result.object_artifact_content_hash);
         assert!(
             artifact
                 .snapshot
@@ -877,7 +877,7 @@ mod tests {
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
         )
         .unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
 
         let paths: Vec<&str> = artifact
             .snapshot
@@ -898,7 +898,7 @@ mod tests {
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD")),
         )
         .unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &first.object_id).unwrap();
+        let artifact = read_object_artifact(repo.path(), &first.object_id).unwrap();
         assert!(artifact.snapshot.files.is_empty());
 
         let second = capture_review(
@@ -933,8 +933,8 @@ mod tests {
         assert_ne!(worktree.revision_id, range.revision_id);
         // The shared artifact is independently readable under either capture: the
         // converged object id never conflicted on write.
-        read_snapshot_artifact(repo.path(), &worktree.object_id).unwrap();
-        read_snapshot_artifact(repo.path(), &range.object_id).unwrap();
+        read_object_artifact(repo.path(), &worktree.object_id).unwrap();
+        read_object_artifact(repo.path(), &range.object_id).unwrap();
 
         let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
@@ -951,12 +951,12 @@ mod tests {
         let repo = modified_repo();
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
 
         assert!(resolved_store_dir(repo.path()).join("events").is_dir());
         assert!(resolved_store_dir(repo.path()).join("state.json").is_file());
         // The artifact binds via its content hash, not an embedded revision_id.
-        assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
+        assert_eq!(artifact.content_hash, result.object_artifact_content_hash);
         assert!(result.revision_id.as_str().starts_with("rev:sha256:"));
         assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
         assert!(
@@ -1008,11 +1008,11 @@ mod tests {
     }
 
     #[test]
-    fn capture_worktree_review_binds_event_to_snapshot_artifact_hash() {
+    fn capture_worktree_review_binds_event_to_object_artifact_hash() {
         let repo = modified_repo();
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
         let event_store = EventStore::open(resolved_store_dir(repo.path()));
         let events = event_store.list_events().unwrap();
         let event = events
@@ -1020,9 +1020,9 @@ mod tests {
             .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
 
-        assert_eq!(result.snapshot_artifact_content_hash, artifact.content_hash);
+        assert_eq!(result.object_artifact_content_hash, artifact.content_hash);
         assert_eq!(
-            event.payload["workObject"]["snapshotArtifactContentHash"],
+            event.payload["workObject"]["objectArtifactContentHash"],
             artifact.content_hash
         );
     }
@@ -1112,7 +1112,7 @@ mod tests {
         // pair with no working-tree path, so identical content under identical
         // provenance converges to one revision: the second capture dedups against
         // the first, leaving one capture event and one shared artifact. Before the
-        // artifact-sharing fix the second capture errored `snapshot artifact
+        // artifact-sharing fix the second capture errored `object artifact
         // conflict`; now it is a clean no-op convergence.
         let fixture = SharedRangeCapture::new();
 
@@ -1130,8 +1130,8 @@ mod tests {
         assert_eq!(a.object_id, b.object_id);
         assert_eq!(a.revision_id, b.revision_id);
         assert_eq!(
-            a.snapshot_artifact_content_hash,
-            b.snapshot_artifact_content_hash
+            a.object_artifact_content_hash,
+            b.object_artifact_content_hash
         );
 
         // One shared artifact and one converged capture event in the clone-local
@@ -1144,7 +1144,7 @@ mod tests {
             .filter(|event| event.event_type == EventType::WorkObjectProposed)
             .collect();
         assert_eq!(captured.len(), 1);
-        let snapshot_files = fs::read_dir(clone_local.join("artifacts/snapshots"))
+        let snapshot_files = fs::read_dir(clone_local.join("artifacts/objects"))
             .unwrap()
             .count();
         assert_eq!(
@@ -1163,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    fn independent_worktree_snapshot_artifacts_dedup_on_import() {
+    fn independent_worktree_object_artifacts_dedup_on_import() {
         // Two independent stores capture the same range (byte-identical v2
         // artifacts). Importing one's artifact into the other is a no-op Existing,
         // not a conflict (INV-5).
@@ -1184,8 +1184,8 @@ mod tests {
         let refs = referenced_artifacts(&events_a).unwrap();
         let snap_ref = refs
             .iter()
-            .find(|artifact| artifact.kind() == ArtifactKind::Snapshot)
-            .expect("snapshot artifact ref");
+            .find(|artifact| artifact.kind() == ArtifactKind::Object)
+            .expect("object artifact ref");
         let bytes = export_artifact(repo_a.path(), snap_ref).unwrap();
         let outcome = import_artifact(ImportArtifactOptions::new(
             repo_b.path(),

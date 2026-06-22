@@ -159,22 +159,22 @@ fn served_documents_carry_no_revision_wire_key() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
-    for path in ["/api/units", "/api/history", "/api/objects"] {
+    for path in ["/api/revisions", "/api/history", "/api/objects"] {
         let body = inspector.get_text(path);
         assert!(
             !body.contains(&camel) && !body.contains(&snake),
             "{path} must not emit a review-unit wire key:\n{body}"
         );
     }
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     assert!(units["entries"][0]["revisionId"].is_string());
     assert!(units["revisionCount"].is_u64());
 
     let revision_id = units["entries"][0]["revisionId"].as_str().unwrap();
-    let unit_body = inspector.get_text(&format!("/api/unit?id={}", urlencode(revision_id)));
+    let unit_body = inspector.get_text(&format!("/api/revision?id={}", urlencode(revision_id)));
     assert!(
         !unit_body.contains(&camel) && !unit_body.contains(&snake),
-        "/api/unit must not emit a review-unit wire key:\n{unit_body}"
+        "/api/revision must not emit a review-unit wire key:\n{unit_body}"
     );
     let unit: serde_json::Value = serde_json::from_str(&unit_body).unwrap();
     assert!(
@@ -187,29 +187,29 @@ fn served_documents_carry_no_revision_wire_key() {
 fn served_documents_carry_no_snapshot_id_wire_key() {
     // The served identity key finishes Snapshot->Object: the content id serves
     // as `objectId` (matching the `obj:` value and `currentObjectId`), never the
-    // legacy `snapshotId`. The "snapshot artifact" concept is untouched
-    // (`snapshotArtifactContentHash` does not contain the forbidden token), and
-    // the /api/snapshot route serves the artifact body, which has no identity key.
+    // legacy `snapshotId`. The "object artifact" concept is untouched
+    // (`objectArtifactContentHash` does not contain the forbidden token), and
+    // the /api/object route serves the artifact body, which has no identity key.
     let forbidden = ["snapshot", "Id"].concat();
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     assert!(
         units["entries"][0]["objectId"].is_string(),
         "the units entry serves the content id under `objectId`"
     );
-    let units_body = inspector.get_text("/api/units");
+    let units_body = inspector.get_text("/api/revisions");
     assert!(
         !units_body.contains(&forbidden),
-        "/api/units must not emit a `snapshotId` key:\n{units_body}"
+        "/api/revisions must not emit a `snapshotId` key:\n{units_body}"
     );
 
     let revision_id = units["entries"][0]["revisionId"].as_str().unwrap();
-    let unit_body = inspector.get_text(&format!("/api/unit?id={}", urlencode(revision_id)));
+    let unit_body = inspector.get_text(&format!("/api/revision?id={}", urlencode(revision_id)));
     assert!(
         !unit_body.contains(&forbidden),
-        "/api/unit must not emit a `snapshotId` key:\n{unit_body}"
+        "/api/revision must not emit a `snapshotId` key:\n{unit_body}"
     );
     let unit: serde_json::Value = serde_json::from_str(&unit_body).unwrap();
     assert!(

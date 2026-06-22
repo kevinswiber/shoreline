@@ -18,7 +18,7 @@ struct CaptureRevisionDocument {
     target: ReviewEndpoint,
     revision_id: String,
     object_id: String,
-    snapshot_artifact_content_hash: String,
+    object_artifact_content_hash: String,
 }
 
 /// Build the `shore.review-capture` document from a capture result.
@@ -32,7 +32,7 @@ pub fn capture_document(result: CaptureResult) -> EventWriteDocument<CaptureBody
                 target: result.target,
                 revision_id: result.revision_id.as_str().to_owned(),
                 object_id: result.object_id.as_str().to_owned(),
-                snapshot_artifact_content_hash: result.snapshot_artifact_content_hash,
+                object_artifact_content_hash: result.object_artifact_content_hash,
             },
         },
         result.events_created,

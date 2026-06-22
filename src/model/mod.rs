@@ -23,7 +23,7 @@ pub use ids::{
     ActorId, AssessmentId, CheckpointId, CommitAssociationId, CommitWithdrawalId, EngagementId,
     EventId, FileId, HunkId, InputRequestId, InputRequestResponseId, JournalId, ObjectId,
     ObservationId, RefAssociationId, RefWithdrawalId, ReviewId, ReviewNoteId, RevisionId, RowId,
-    TrackId, ValidationCheckId, WorkObjectId, WorkUnitId,
+    TrackId, ValidationCheckId, WorkObjectId,
 };
 pub use review::{DiffSnapshot, Review, ReviewStream};
 pub use review_note::{

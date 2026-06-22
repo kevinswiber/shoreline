@@ -76,8 +76,7 @@ pub fn work_object_type_of_subject(subject: &TargetRef) -> Option<WorkObjectType
 }
 
 /// The revision a subject addresses, if any. Every review-domain variant keys on
-/// a `revision_id`; the journal carrier, task subjects, and the lineage variant
-/// address no revision.
+/// a `revision_id`; the journal carrier and task subjects address no revision.
 pub fn subject_revision_id(subject: &TargetRef) -> Option<&RevisionId> {
     match subject {
         TargetRef::Review(review) => match review {

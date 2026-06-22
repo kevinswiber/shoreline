@@ -16,7 +16,7 @@ pub(super) fn selected_revision_capture(
         let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
         let WorkObjectProposal::Revision {
             revision,
-            snapshot_artifact_content_hash,
+            object_artifact_content_hash,
             ..
         } = payload.work_object
         else {
@@ -36,13 +36,13 @@ pub(super) fn selected_revision_capture(
             };
             return Ok(RevisionProjectionIdentity {
                 id: revision.id.clone(),
-                session_id: event.target.journal_id.clone(),
+                journal_id: event.target.journal_id.clone(),
                 source,
                 base,
                 target,
                 revision_id: revision.id,
                 object_id: revision.object_id,
-                snapshot_artifact_content_hash,
+                object_artifact_content_hash,
                 capture_event_id: event.event_id.clone(),
             });
         }

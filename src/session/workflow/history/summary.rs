@@ -56,7 +56,7 @@ pub enum ReviewHistorySummary {
         base: Option<ReviewEndpoint>,
         #[serde(skip_serializing_if = "Option::is_none")]
         target: Option<ReviewEndpoint>,
-        snapshot_artifact_content_hash: String,
+        object_artifact_content_hash: String,
     },
     ReviewObservationRecorded {
         observation_id: ObservationId,

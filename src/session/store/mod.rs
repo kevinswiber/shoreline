@@ -4,9 +4,9 @@ mod event_migrate;
 mod event_store;
 pub(in crate::session) mod fingerprint;
 pub(in crate::session) mod inventory;
+pub(in crate::session) mod object_artifact;
 pub(in crate::session) mod resolution;
 pub(in crate::session) mod sensitivity;
-pub(in crate::session) mod snapshot_artifact;
 pub(in crate::session) mod store_config;
 pub(in crate::session) mod store_init;
 
@@ -16,7 +16,7 @@ pub(crate) use event_store::{EventStore, EventWriteOutcome};
 pub use fingerprint::compute_revision_fingerprint;
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
 pub use fingerprint::{RevisionFingerprint, capture_worktree_fingerprint};
-pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact};
+pub use object_artifact::{ObjectArtifact, read_object_artifact};
 // `StoreMode` and the thin repo-level entry points re-export from `session::mod`
 // for the binary crate. The underlying read/write helpers stay crate-internal:
 // the resolver reaches them by submodule path and the CLI only ever names the

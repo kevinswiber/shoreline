@@ -28,7 +28,6 @@ id_type!(RevisionId);
 id_type!(ObjectId);
 id_type!(HunkId);
 id_type!(RowId);
-id_type!(WorkUnitId);
 id_type!(ActorId);
 id_type!(TrackId);
 id_type!(ObservationId);

@@ -45,11 +45,11 @@ pub struct Revision {
 pub enum WorkObjectProposal {
     Revision {
         revision: Revision,
-        /// Content hash of the stored snapshot artifact this revision's object
+        /// Content hash of the stored object artifact this revision's object
         /// was captured into. A binding fact about the artifact (not part of
         /// revision identity); the artifact-transfer layer resolves the
-        /// snapshot artifact by it.
-        snapshot_artifact_content_hash: String,
+        /// object artifact by it.
+        object_artifact_content_hash: String,
         /// The revisions this one supersedes (an evolution forward-pointer). Sorted
         /// and deduped before hashing, so set-equal inputs converge byte-for-byte;
         /// empty (a root revision) serializes to nothing, leaving an existing root
@@ -66,7 +66,7 @@ pub enum WorkObjectProposal {
         #[serde(skip_serializing_if = "Option::is_none")]
         predecessor: Option<WorkObjectId>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        base_snapshot_fingerprint: Option<String>,
+        base_state_fingerprint: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         source_speaker: Option<SourceSpeaker>,
     },
@@ -119,7 +119,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: Some(git_provenance()),
                 },
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
         }
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(json["workObject"]["revision"]["id"], "rev:sha256:r");
         assert_eq!(json["workObject"]["revision"]["objectId"], "obj:sha256:o");
         assert_eq!(
-            json["workObject"]["snapshotArtifactContentHash"],
+            json["workObject"]["objectArtifactContentHash"],
             "sha256:artifact"
         );
         assert_eq!(
@@ -157,7 +157,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: None,
                 },
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
         };
@@ -173,6 +173,43 @@ mod tests {
     }
 
     #[test]
+    fn revision_arm_serializes_object_artifact_content_hash() {
+        // The capture payload names the stored object artifact's content hash
+        // under the object vocabulary; the legacy `snapshotArtifactContentHash`
+        // key is retired.
+        let payload = revision_payload();
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            json["workObject"]["objectArtifactContentHash"],
+            "sha256:artifact"
+        );
+        assert!(
+            json["workObject"]
+                .get("snapshotArtifactContentHash")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn task_attempt_arm_serializes_base_state_fingerprint() {
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new("engagement:sha256:t"),
+            work_object: WorkObjectProposal::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:a"),
+                project_path: "/repo".to_owned(),
+                claude_session_uuid: "uuid-1".to_owned(),
+                initial_prompt_hash: "sha256:prompt".to_owned(),
+                predecessor: None,
+                base_state_fingerprint: Some("sha256:base".to_owned()),
+                source_speaker: None,
+            },
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["workObject"]["baseStateFingerprint"], "sha256:base");
+        assert!(json["workObject"].get("baseSnapshotFingerprint").is_none());
+    }
+
+    #[test]
     fn task_attempt_arm_round_trips_and_tags_with_kind() {
         let payload = WorkObjectProposedPayload {
             engagement_id: EngagementId::new("engagement:sha256:t"),
@@ -182,7 +219,7 @@ mod tests {
                 claude_session_uuid: "uuid-1".to_owned(),
                 initial_prompt_hash: "sha256:prompt".to_owned(),
                 predecessor: None,
-                base_snapshot_fingerprint: None,
+                base_state_fingerprint: None,
                 source_speaker: Some(SourceSpeaker::Agent),
             },
         };
@@ -230,7 +267,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: None,
                 },
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![
                     RevisionId::new("rev:sha256:a"),
                     RevisionId::new("rev:sha256:b"),
@@ -269,7 +306,7 @@ mod tests {
                             object_id: ObjectId::new("obj:sha256:o"),
                             git_provenance: None,
                         },
-                        snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                        object_artifact_content_hash: "sha256:artifact".to_owned(),
                         supersedes,
                     },
                 },

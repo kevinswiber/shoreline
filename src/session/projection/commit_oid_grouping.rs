@@ -97,7 +97,7 @@ mod tests {
                             target,
                         }),
                     },
-                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
+                    object_artifact_content_hash: "sha256:artifact".to_owned(),
                     supersedes: vec![],
                 },
             },

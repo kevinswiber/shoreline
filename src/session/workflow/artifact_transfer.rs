@@ -13,8 +13,8 @@ use crate::session::event::{
     TaskObservationRecordedPayload, ValidationCheckRecordedPayload, WorkObjectProposal,
     WorkObjectProposedPayload, decode_input_request_opened_payload,
 };
-use crate::session::snapshot_artifact::{
-    decode_and_validate_snapshot_artifact, read_snapshot_artifact_bytes, snapshot_artifact_path,
+use crate::session::object_artifact::{
+    decode_and_validate_object_artifact, object_artifact_path, read_object_artifact_bytes,
 };
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_read_store, resolve_write_store,
@@ -24,8 +24,8 @@ use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 /// The kind of content-addressed artifact an event references.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArtifactKind {
-    /// A captured Revision snapshot artifact.
-    Snapshot,
+    /// A captured Revision's content object artifact.
+    Object,
     /// A large note-shaped body artifact.
     Body,
 }
@@ -49,7 +49,7 @@ impl ArtifactRef {
     /// The artifact's broad kind.
     pub fn kind(&self) -> ArtifactKind {
         match self.locator {
-            ArtifactLocator::Snapshot { .. } => ArtifactKind::Snapshot,
+            ArtifactLocator::Object { .. } => ArtifactKind::Object,
             ArtifactLocator::Body { .. } => ArtifactKind::Body,
         }
     }
@@ -71,7 +71,7 @@ impl fmt::Debug for ArtifactRef {
 
 #[derive(Clone, Eq, PartialEq)]
 enum ArtifactLocator {
-    Snapshot { object_id: ObjectId },
+    Object { object_id: ObjectId },
     Body { relative_path: String },
 }
 
@@ -135,12 +135,12 @@ pub fn referenced_artifacts(events: &[ShoreEvent]) -> Result<Vec<ArtifactRef>> {
 /// for the worktree. Imports stay worktree-local; see [`import_artifact`].
 pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result<Vec<u8>> {
     match &artifact.locator {
-        ArtifactLocator::Snapshot { object_id } => {
-            let bytes = read_snapshot_artifact_bytes(repo, object_id)?;
-            let stored = decode_and_validate_snapshot_artifact(&bytes)?;
+        ArtifactLocator::Object { object_id } => {
+            let bytes = read_object_artifact_bytes(repo, object_id)?;
+            let stored = decode_and_validate_object_artifact(&bytes)?;
             if stored.content_hash != artifact.content_hash {
                 return Err(ShoreError::Message(format!(
-                    "snapshot artifact content hash mismatch for {}",
+                    "object artifact content hash mismatch for {}",
                     artifact.content_hash
                 )));
             }
@@ -170,7 +170,7 @@ pub fn import_artifact(options: ImportArtifactOptions) -> Result<ImportArtifactR
     prepare_write_landing(&write_store, &storage)?;
 
     let outcome = match &options.artifact.locator {
-        ArtifactLocator::Snapshot { object_id } => import_snapshot_artifact(
+        ArtifactLocator::Object { object_id } => import_object_artifact(
             store_dir,
             &storage,
             object_id,
@@ -201,16 +201,17 @@ fn referenced_artifacts_for_event(
             match payload.work_object {
                 WorkObjectProposal::Revision {
                     revision,
-                    snapshot_artifact_content_hash,
+                    object_artifact_content_hash,
                     ..
                 } => insert_artifact_ref(
                     refs,
-                    format!("snapshot:{}", revision.object_id.as_str()),
+                    // The ref is the content-addressed object id itself (no prefix).
+                    revision.object_id.as_str().to_owned(),
                     ArtifactRef {
-                        locator: ArtifactLocator::Snapshot {
+                        locator: ArtifactLocator::Object {
                             object_id: revision.object_id,
                         },
-                        content_hash: snapshot_artifact_content_hash,
+                        content_hash: object_artifact_content_hash,
                     },
                 ),
                 // A task-attempt proposal references no content-addressed artifact.
@@ -317,34 +318,34 @@ fn read_body_artifact_bytes(
     Ok(bytes)
 }
 
-fn import_snapshot_artifact(
+fn import_object_artifact(
     store_dir: &Path,
     storage: &LocalStorage,
     object_id: &ObjectId,
     expected_content_hash: &str,
     bytes: &[u8],
 ) -> Result<ImportArtifactOutcome> {
-    let artifact = decode_and_validate_snapshot_artifact(bytes)?;
+    let artifact = decode_and_validate_object_artifact(bytes)?;
     if artifact.snapshot.object_id != *object_id {
         return Err(ShoreError::Message(format!(
-            "snapshot artifact locator mismatch for {}",
+            "object artifact locator mismatch for {}",
             object_id.as_str()
         )));
     }
     if artifact.content_hash != expected_content_hash {
         return Err(ShoreError::Message(format!(
-            "snapshot artifact content hash mismatch for {expected_content_hash}"
+            "object artifact content hash mismatch for {expected_content_hash}"
         )));
     }
 
-    let path = snapshot_artifact_path(store_dir, object_id);
+    let path = object_artifact_path(store_dir, object_id);
     match storage.create_file_exclusive(&path, bytes, Durability::Durable)? {
         CreateFileOutcome::Created => Ok(ImportArtifactOutcome::Created),
         CreateFileOutcome::AlreadyExists => {
             let existing_bytes = std::fs::read(&path).map_err(|error| {
                 ShoreError::Message(format!("read file {}: {error}", path.display()))
             })?;
-            let existing = decode_and_validate_snapshot_artifact(&existing_bytes)?;
+            let existing = decode_and_validate_object_artifact(&existing_bytes)?;
             // Byte-identical artifacts (both native v2) dedup. A v1/v2 mix for the
             // same snapshot does not converge here — the signed event's hash and
             // the on-disk hash differ — and is the accepted cross-peer residual.
@@ -352,7 +353,7 @@ fn import_snapshot_artifact(
                 Ok(ImportArtifactOutcome::Existing)
             } else {
                 Err(ShoreError::Message(format!(
-                    "snapshot artifact conflict for {}",
+                    "object artifact conflict for {}",
                     object_id.as_str()
                 )))
             }

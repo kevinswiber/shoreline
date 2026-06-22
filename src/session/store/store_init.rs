@@ -131,8 +131,7 @@ pub(crate) fn ensure_store_dirs(store_dir: &Path) -> Result<()> {
     for dir in [
         store_dir.join("events"),
         store_dir.join("artifacts/notes"),
-        store_dir.join("artifacts/revisions"),
-        store_dir.join("artifacts/snapshots"),
+        store_dir.join("artifacts/objects"),
     ] {
         fs::create_dir_all(&dir).map_err(|error| io_error("create directory", &dir, error))?;
     }
@@ -340,8 +339,7 @@ mod tests {
 
         assert!(paths.store_dir().join("events").is_dir());
         assert!(paths.store_dir().join("artifacts/notes").is_dir());
-        assert!(paths.store_dir().join("artifacts/revisions").is_dir());
-        assert!(paths.store_dir().join("artifacts/snapshots").is_dir());
+        assert!(paths.store_dir().join("artifacts/objects").is_dir());
 
         // Storage is ignored via the repository-local exclude, never the
         // tracked worktree .gitignore.

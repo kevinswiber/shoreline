@@ -24,7 +24,7 @@ mod capture;
 mod history;
 mod input_request;
 mod observation;
-mod unit;
+mod revision;
 mod validation;
 mod view;
 
@@ -46,7 +46,9 @@ pub use input_request::{
 pub use observation::{
     ObservationAddBody, ObservationListBody, observation_add_document, observation_list_document,
 };
-pub use unit::{UnitListBody, UnitShowBody, unit_list_document, unit_show_document};
+pub use revision::{
+    RevisionListBody, RevisionShowBody, revision_list_document, revision_show_document,
+};
 pub use validation::{
     ValidationAddBody, ValidationListBody, validation_add_document, validation_list_document,
 };
@@ -300,8 +302,8 @@ mod tests {
     }
 
     #[test]
-    fn unit_show_document_includes_validation_checks_and_count() {
-        use crate::documents::unit_show_document;
+    fn revision_show_document_includes_validation_checks_and_count() {
+        use crate::documents::revision_show_document;
         use crate::model::ValidationStatus;
         use crate::session::{
             CaptureOptions, RevisionShowOptions, ValidationAddOptions, capture_worktree_review,
@@ -325,7 +327,7 @@ mod tests {
                 .with_include_body(true),
         )
         .unwrap();
-        let value = serde_json::to_value(unit_show_document(result)).unwrap();
+        let value = serde_json::to_value(revision_show_document(result)).unwrap();
 
         assert!(value["validationChecks"].is_array());
         assert_eq!(value["summary"]["validationCheckCount"], 1);

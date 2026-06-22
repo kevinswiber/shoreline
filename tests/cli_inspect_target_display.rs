@@ -5,8 +5,8 @@
 //! not reachable from an integration test by a direct call. These tests instead
 //! exercise the genuine production JSON end to end: they spawn the real
 //! `shore inspect --port 0` server (which prints its bound URL and supports an
-//! ephemeral port) and issue raw HTTP/1.1 GETs against `/api/units` and
-//! `/api/unit`. That locks the additive on-the-wire contract — a derived
+//! ephemeral port) and issue raw HTTP/1.1 GETs against `/api/revisions` and
+//! `/api/revision`. That locks the additive on-the-wire contract — a derived
 //! worktree/head label spliced in without disturbing any existing field.
 
 mod support;
@@ -30,7 +30,7 @@ fn api_units_derives_label_for_symbolic_branch_worktree() {
     let fixture = WorktreeCapture::on_branch("wt-foo", "feature/foo");
     let inspector = Inspector::spawn(&fixture.worktree);
 
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     let entry = &units["entries"][0];
 
     assert_eq!(entry["targetDisplay"]["label"], "wt-foo");
@@ -54,7 +54,7 @@ fn api_units_derives_label_for_symbolic_branch_worktree() {
     assert!(entry["base"]["treeOid"].is_string());
     assert!(entry["source"].is_object());
     assert!(
-        entry["snapshotArtifactContentHash"]
+        entry["objectArtifactContentHash"]
             .as_str()
             .unwrap()
             .starts_with("sha256:")
@@ -66,7 +66,7 @@ fn api_units_derives_label_for_symbolic_branch_worktree() {
 }
 
 /// Test A (continued): the same derived block also appears on the single-unit
-/// `/api/unit` document for a locally-readable unit, alongside the verbatim
+/// `/api/revision` document for a locally-readable unit, alongside the verbatim
 /// target. Linked drill-in is covered separately by
 /// `linked_inspector_drill_in_survives_deleted_source_worktree`.
 #[test]
@@ -74,7 +74,10 @@ fn api_unit_splices_target_display_for_locally_readable_unit() {
     let fixture = WorktreeCapture::on_branch("wt-bar", "feature/bar");
     let inspector = Inspector::spawn(&fixture.worktree);
 
-    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&fixture.revision_id)));
+    let unit = inspector.get_json(&format!(
+        "/api/revision?id={}",
+        urlencode(&fixture.revision_id)
+    ));
     let revision = &unit["revision"];
 
     assert_eq!(revision["targetDisplay"]["label"], "wt-bar");
@@ -115,7 +118,7 @@ fn inspector_units_render_commit_target_display_for_range_capture() {
     );
 
     let inspector = Inspector::spawn(repo.path());
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     let entry = &units["entries"][0];
 
     assert_eq!(entry["targetDisplay"]["kind"], "git_commit");
@@ -146,7 +149,7 @@ fn api_units_derives_label_for_detached_head_capture() {
     capture(repo.path());
 
     let inspector = Inspector::spawn(repo.path());
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     let entry = &units["entries"][0];
 
     let worktree_root = entry["target"]["worktreeRoot"].as_str().unwrap();
@@ -196,7 +199,7 @@ fn api_units_label_survives_deleted_worktree() {
     assert!(!gone.exists());
 
     let inspector = Inspector::spawn(&reader);
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
 
     assert_eq!(units["revisionCount"], 1);
     let entry = &units["entries"][0];
@@ -358,12 +361,12 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
 
     let inspector = Inspector::spawn(&reader);
 
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     assert_eq!(units["revisionCount"], 1);
     assert_eq!(units["entries"][0]["revisionId"], unit_id.as_str());
     assert_eq!(units["entries"][0]["targetDisplay"]["label"], "gone");
 
-    let unit = inspector.get_json(&format!("/api/unit?id={}", urlencode(&unit_id)));
+    let unit = inspector.get_json(&format!("/api/revision?id={}", urlencode(&unit_id)));
     assert_eq!(unit["revision"]["id"], unit_id.as_str());
     assert_eq!(unit["summary"]["observationCount"], 1);
     assert_eq!(unit["summary"]["inputRequestCount"], 1);
@@ -371,9 +374,9 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     assert_eq!(unit["summary"]["validationCheckCount"], 1);
     assert!(unit["currentAssessment"]["status"].is_string());
 
-    // The snapshot wire is snapshot-scoped: content hash + diff only, no
-    // target/targetDisplay (those are on /api/unit(s), asserted above).
-    let snapshot = inspector.get_json(&format!("/api/snapshot?id={}", urlencode(&snapshot_id)));
+    // The snapshot wire is object-scoped: content hash + diff only, no
+    // target/targetDisplay (those are on /api/revision(s), asserted above).
+    let snapshot = inspector.get_json(&format!("/api/object?id={}", urlencode(&snapshot_id)));
     assert!(
         snapshot["contentHash"]
             .as_str()
@@ -413,12 +416,12 @@ fn linked_inspector_unit_error_message_stays_path_free_for_unknown_unit() {
     add_worktree(main.path(), &reader, "reader");
 
     let inspector = Inspector::spawn(&reader);
-    let (status, body) = inspector.get_error("/api/unit?id=review-unit%3Asha256%3Amissing");
+    let (status, body) = inspector.get_error("/api/revision?id=review-unit%3Asha256%3Amissing");
 
     assert!(!status.contains("200"), "status: {status}");
     assert_eq!(
         body["error"],
-        "review unit not found or unreadable: review-unit:sha256:missing"
+        "revision not found or unreadable: review-unit:sha256:missing"
     );
     assert!(!body["error"].as_str().unwrap().contains('/'));
 }

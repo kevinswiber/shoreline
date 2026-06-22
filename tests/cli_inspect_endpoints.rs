@@ -144,9 +144,9 @@ fn api_history_returns_chronological_typed_summaries() {
 fn api_units_lists_captured_unit_with_counts_and_target_display() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
 
-    assert_eq!(units["schema"], "shore.inspect-units");
+    assert_eq!(units["schema"], "shore.inspect-revisions");
     assert_eq!(units["revisionCount"], 1);
     let entry = &units["entries"][0];
     assert_eq!(entry["revisionId"], store.revision_id.as_str());
@@ -163,13 +163,10 @@ fn api_units_lists_captured_unit_with_counts_and_target_display() {
 fn api_snapshot_returns_snapshot_scoped_artifact() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let snapshot = inspector.get_json(&format!(
-        "/api/snapshot?id={}",
-        urlencode(&store.snapshot_id)
-    ));
+    let snapshot = inspector.get_json(&format!("/api/object?id={}", urlencode(&store.snapshot_id)));
 
-    // Snapshot-scoped wire (#146): content hash + frozen diff only — no
-    // identity/endpoint fields. Identity/target display live on /api/unit(s).
+    // Object-scoped wire (#146): content hash + frozen diff only — no
+    // identity/endpoint fields. Identity/target display live on /api/revision(s).
     assert!(
         snapshot["contentHash"]
             .as_str()
@@ -216,7 +213,7 @@ fn error_routes_over_real_socket() {
     assert_eq!(body["error"], "no such route");
 
     // Missing required ?id= → 400 JSON.
-    let (status, body) = inspector.get_error("/api/snapshot");
+    let (status, body) = inspector.get_error("/api/object");
     assert!(status.contains("400"), "status: {status}");
     assert!(body["error"].as_str().unwrap().contains("id"));
 
@@ -235,23 +232,20 @@ fn payloads_never_expose_raw_repository_paths_on_path_private_surfaces() {
     let freshness = inspector.get_json("/api/freshness");
     assert!(!freshness.to_string().contains(&repo_path));
 
-    // The snapshot wire is snapshot-scoped — it carries no endpoint/target at all,
+    // The snapshot wire is object-scoped — it carries no endpoint/target at all,
     // so there is no worktree path to leak (the redaction logic is gone).
-    let snapshot = inspector.get_json(&format!(
-        "/api/snapshot?id={}",
-        urlencode(&store.snapshot_id)
-    ));
+    let snapshot = inspector.get_json(&format!("/api/object?id={}", urlencode(&store.snapshot_id)));
     assert!(snapshot.get("target").is_none());
     assert!(
         !snapshot.to_string().contains(&repo_path),
-        "snapshot-scoped wire must not carry the raw worktree path"
+        "object-scoped wire must not carry the raw worktree path"
     );
 
-    // The derived targetDisplay label on /api/units is always path-private
+    // The derived targetDisplay label on /api/revisions is always path-private
     // (basename + short OID only), even though the verbatim `target.worktreeRoot`
     // it sits beside legitimately carries the path for a working-tree capture
     // (see finding: no-raw-paths scope widened post-0062).
-    let units = inspector.get_json("/api/units");
+    let units = inspector.get_json("/api/revisions");
     let target_display = &units["entries"][0]["targetDisplay"];
     assert!(!target_display.to_string().contains(&repo_path));
 }

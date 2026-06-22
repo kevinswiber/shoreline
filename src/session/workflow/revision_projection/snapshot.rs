@@ -3,8 +3,8 @@ use std::path::Path;
 use super::identity::RevisionProjectionIdentity;
 use crate::error::{Result, ShoreError};
 use crate::model::DiffSnapshot;
+use crate::session::object_artifact::read_object_artifact;
 use crate::session::projection::ArtifactRemovalProjection;
-use crate::session::snapshot_artifact::read_snapshot_artifact;
 
 /// Whether a content-addressed snapshot resolved to bytes or to a recorded
 /// removal. The join layer returns this instead of erroring when the bound
@@ -25,33 +25,33 @@ pub(super) fn resolve_snapshot_content(
     revision: &RevisionProjectionIdentity,
     removal: &ArtifactRemovalProjection,
 ) -> Result<SnapshotContent> {
-    if removal.is_removed(&revision.snapshot_artifact_content_hash) {
+    if removal.is_removed(&revision.object_artifact_content_hash) {
         return Ok(SnapshotContent::Removed {
-            content_hash: revision.snapshot_artifact_content_hash.clone(),
+            content_hash: revision.object_artifact_content_hash.clone(),
         });
     }
-    Ok(SnapshotContent::Present(load_bound_snapshot_artifact(
+    Ok(SnapshotContent::Present(load_bound_object_artifact(
         repo, revision,
     )?))
 }
 
-pub(super) fn load_bound_snapshot_artifact(
+pub(super) fn load_bound_object_artifact(
     repo: &Path,
     revision: &RevisionProjectionIdentity,
 ) -> Result<DiffSnapshot> {
-    let artifact = read_snapshot_artifact(repo, &revision.object_id)?;
+    let artifact = read_object_artifact(repo, &revision.object_id)?;
     // Bind via the namespace-independent object_id + content_hash only. Identity
     // (revision_id/source/base/target) lives in the capture event/projection,
     // never the content-addressed artifact body.
     if artifact.snapshot.object_id != revision.object_id {
         return Err(ShoreError::Message(format!(
-            "snapshot artifact metadata mismatch for {}",
+            "object artifact metadata mismatch for {}",
             revision.id.as_str()
         )));
     }
-    if artifact.content_hash != revision.snapshot_artifact_content_hash {
+    if artifact.content_hash != revision.object_artifact_content_hash {
         return Err(ShoreError::Message(format!(
-            "snapshot artifact content hash mismatch for {}",
+            "object artifact content hash mismatch for {}",
             revision.id.as_str()
         )));
     }
@@ -81,7 +81,7 @@ mod tests {
 
         // The authentic projection identity binds.
         let authentic = identity_from(&captured, repo.path());
-        load_bound_snapshot_artifact(repo.path(), &authentic).unwrap();
+        load_bound_object_artifact(repo.path(), &authentic).unwrap();
 
         // A second identity over the SAME snapshot + content hash but a DIFFERENT
         // revision_id and a different worktree target also binds — identity is
@@ -93,7 +93,7 @@ mod tests {
             },
             ..authentic.clone()
         };
-        let snapshot = load_bound_snapshot_artifact(repo.path(), &other).unwrap();
+        let snapshot = load_bound_object_artifact(repo.path(), &other).unwrap();
         assert_eq!(snapshot.object_id, captured.object_id);
     }
 
@@ -102,8 +102,8 @@ mod tests {
         let repo = committed_repo();
         let captured = capture_range(&repo);
         let mut tampered = identity_from(&captured, repo.path());
-        tampered.snapshot_artifact_content_hash = "sha256:not-the-real-hash".to_owned();
-        let err = load_bound_snapshot_artifact(repo.path(), &tampered).unwrap_err();
+        tampered.object_artifact_content_hash = "sha256:not-the-real-hash".to_owned();
+        let err = load_bound_object_artifact(repo.path(), &tampered).unwrap_err();
         assert!(err.to_string().contains("content hash"));
     }
 
@@ -131,13 +131,13 @@ mod tests {
             .expect("capture event");
         RevisionProjectionIdentity {
             id: captured.revision_id.clone(),
-            session_id: captured.journal_id.clone(),
+            journal_id: captured.journal_id.clone(),
             source: captured.source.clone(),
             base: captured.base.clone(),
             target: captured.target.clone(),
             revision_id: captured.revision_id.clone(),
             object_id: captured.object_id.clone(),
-            snapshot_artifact_content_hash: captured.snapshot_artifact_content_hash.clone(),
+            object_artifact_content_hash: captured.object_artifact_content_hash.clone(),
             capture_event_id: event.event_id.clone(),
         }
     }

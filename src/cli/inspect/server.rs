@@ -143,16 +143,16 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
         "/app.css" => Response::asset("text/css; charset=utf-8", APP_CSS),
         "/app.js" => Response::asset("application/javascript; charset=utf-8", APP_JS),
         "/api/history" => api_response(api::history_json(repo)),
-        "/api/units" => api_response(api::units_json(repo)),
+        "/api/revisions" => api_response(api::revisions_json(repo)),
         "/api/objects" => api_response(api::objects_json(repo)),
         "/api/freshness" => api_response(api::freshness_json(repo)),
-        "/api/snapshot" => match query_param(query, "id") {
-            Some(id) if !id.is_empty() => api_response(api::snapshot_json(repo, &id)),
-            _ => Response::json_error("400 Bad Request", "missing ?id=<snapshotId>"),
+        "/api/object" => match query_param(query, "id") {
+            Some(id) if !id.is_empty() => api_response(api::object_json(repo, &id)),
+            _ => Response::json_error("400 Bad Request", "missing ?id=<objectId>"),
         },
-        "/api/unit" => match query_param(query, "id") {
-            Some(id) if !id.is_empty() => api_response(api::unit_json(repo, &id)),
-            _ => Response::json_error("400 Bad Request", "missing ?id=<reviewUnitId>"),
+        "/api/revision" => match query_param(query, "id") {
+            Some(id) if !id.is_empty() => api_response(api::revision_json(repo, &id)),
+            _ => Response::json_error("400 Bad Request", "missing ?id=<revisionId>"),
         },
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
         _ => Response::json_error("404 Not Found", "no such route"),
@@ -384,12 +384,12 @@ mod tests {
 
     #[test]
     fn snapshot_without_id_is_bad_request() {
-        assert_eq!(route_for("GET", "/api/snapshot").status, "400 Bad Request");
+        assert_eq!(route_for("GET", "/api/object").status, "400 Bad Request");
     }
 
     #[test]
     fn unit_without_id_is_bad_request() {
-        assert_eq!(route_for("GET", "/api/unit").status, "400 Bad Request");
+        assert_eq!(route_for("GET", "/api/revision").status, "400 Bad Request");
     }
 
     #[test]
@@ -412,8 +412,8 @@ mod tests {
     #[test]
     fn split_target_separates_path_and_query() {
         assert_eq!(
-            split_target("/api/snapshot?id=x"),
-            ("/api/snapshot", Some("id=x"))
+            split_target("/api/object?id=x"),
+            ("/api/object", Some("id=x"))
         );
         assert_eq!(split_target("/"), ("/", None));
     }

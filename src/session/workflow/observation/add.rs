@@ -327,7 +327,7 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
         .collect::<Vec<_>>();
     supersedes.sort();
     let digest = sha256_json_prefixed(&json!({
-        "reviewUnitId": material.revision_id.as_str(),
+        "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
         "title": material.title,

@@ -9,51 +9,51 @@ use crate::session::store::resolution::resolve_read_store;
 use crate::session::{RevisionFingerprint, ShoreStorePaths};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
-const SNAPSHOT_ARTIFACT_SCHEMA: &str = "shore.snapshot";
-const SNAPSHOT_ARTIFACT_VERSION: u32 = 2;
+const OBJECT_ARTIFACT_SCHEMA: &str = "shore.object";
+const OBJECT_ARTIFACT_VERSION: u32 = 2;
 
-/// The snapshot-scoped v2 artifact body (#146). It carries only namespace-
+/// The object-scoped v2 artifact body (#146). It carries only namespace-
 /// independent content, so two worktrees capturing the same `object_id`
 /// produce **byte-identical** artifacts that dedup. Revision identity and
 /// endpoints (`revision_id`/`source`/`base`/`target`) live in the
 /// `WorkObjectProposed` event/projection, never here (INV-1/INV-3).
 ///
 /// All writes and reads are v2. The legacy dual-read that also accepted
-/// identity-bearing v1 bodies has been removed: [`decode_and_validate_snapshot_artifact`]
+/// identity-bearing v1 bodies has been removed: [`decode_and_validate_object_artifact`]
 /// now rejects any non-v2 body, and the one-shot store migrator re-emits every
 /// artifact as a clean v2 body, so no v1 artifact survives to be read.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotArtifact {
+pub struct ObjectArtifact {
     pub schema: String,
     pub version: u32,
     pub snapshot: DiffSnapshot,
     pub content_hash: String,
 }
 
-/// Write a snapshot artifact to an explicit store dir (the resolved write store).
+/// Write a object artifact to an explicit store dir (the resolved write store).
 /// Capture resolves the write store once for the whole landing (artifact → event
 /// → `state.json` all target the same dir). The content-addressed
 /// exclusive-create write is idempotent: a byte-identical artifact already
 /// present returns `Ok` (INV-2/INV-3); a different artifact under the same path is
 /// a loud conflict.
-pub(crate) fn write_snapshot_artifact_to(
+pub(crate) fn write_object_artifact_to(
     store_dir: &Path,
     fingerprint: &RevisionFingerprint,
     snapshot: DiffSnapshot,
-) -> Result<SnapshotArtifact> {
+) -> Result<ObjectArtifact> {
     if snapshot.object_id != fingerprint.object_id {
         return Err(ShoreError::Message(format!(
-            "snapshot id {} does not match review unit fingerprint {}",
+            "object id {} does not match revision fingerprint {}",
             snapshot.object_id.as_str(),
             fingerprint.object_id.as_str()
         )));
     }
 
-    let artifact = build_snapshot_artifact_v2(snapshot)?;
+    let artifact = build_object_artifact_v2(snapshot)?;
 
     let storage = LocalStorage::new(store_dir);
-    let path = snapshot_artifact_path(store_dir, &artifact.snapshot.object_id);
+    let path = object_artifact_path(store_dir, &artifact.snapshot.object_id);
     let bytes = serde_json::to_vec(&artifact)?;
 
     match storage.create_file_exclusive(&path, &bytes, Durability::Durable)? {
@@ -67,12 +67,12 @@ pub(crate) fn write_snapshot_artifact_to(
             let existing_bytes = std::fs::read(&path).map_err(|error| {
                 missing_artifact_or_io(error, &artifact.snapshot.object_id, &path)
             })?;
-            let existing = decode_and_validate_snapshot_artifact(&existing_bytes)?;
+            let existing = decode_and_validate_object_artifact(&existing_bytes)?;
             if existing.snapshot == artifact.snapshot {
                 Ok(existing)
             } else {
                 Err(ShoreError::Message(format!(
-                    "snapshot artifact conflict for {}",
+                    "object artifact conflict for {}",
                     artifact.snapshot.object_id.as_str()
                 )))
             }
@@ -80,43 +80,43 @@ pub(crate) fn write_snapshot_artifact_to(
     }
 }
 
-/// Build a v2 snapshot-scoped artifact with its content hash filled in. The
-/// single place that assembles a [`SnapshotArtifact`] for writing; reuse it so
+/// Build a v2 object-scoped artifact with its content hash filled in. The
+/// single place that assembles a [`ObjectArtifact`] for writing; reuse it so
 /// every native v2 capture of the same snapshot produces byte-identical bytes.
-pub(crate) fn build_snapshot_artifact_v2(snapshot: DiffSnapshot) -> Result<SnapshotArtifact> {
-    let mut artifact = SnapshotArtifact {
-        schema: SNAPSHOT_ARTIFACT_SCHEMA.to_owned(),
-        version: SNAPSHOT_ARTIFACT_VERSION,
+pub(crate) fn build_object_artifact_v2(snapshot: DiffSnapshot) -> Result<ObjectArtifact> {
+    let mut artifact = ObjectArtifact {
+        schema: OBJECT_ARTIFACT_SCHEMA.to_owned(),
+        version: OBJECT_ARTIFACT_VERSION,
         content_hash: String::new(),
         snapshot,
     };
-    artifact.content_hash = snapshot_artifact_content_hash(&artifact)?;
+    artifact.content_hash = object_artifact_content_hash(&artifact)?;
     Ok(artifact)
 }
 
-/// Read and hash-validate a stored snapshot artifact.
+/// Read and hash-validate a stored object artifact.
 ///
 /// Reads resolve through the worktree's resolved store — the shared common-dir
 /// store by default, or the worktree-local `.shore/data` store when the worktree
 /// is ephemeral.
-pub fn read_snapshot_artifact(
+pub fn read_object_artifact(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
-) -> Result<SnapshotArtifact> {
-    let bytes = read_snapshot_artifact_bytes(repo, object_id)?;
-    decode_and_validate_snapshot_artifact(&bytes)
+) -> Result<ObjectArtifact> {
+    let bytes = read_object_artifact_bytes(repo, object_id)?;
+    decode_and_validate_object_artifact(&bytes)
 }
 
-pub(crate) fn read_snapshot_artifact_bytes(
+pub(crate) fn read_object_artifact_bytes(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
-    let path = snapshot_artifact_path(read_store.store_dir(), object_id);
+    let path = object_artifact_path(read_store.store_dir(), object_id);
     std::fs::read(&path).map_err(|error| missing_artifact_or_io(error, object_id, &path))
 }
 
-/// Read a snapshot artifact for WRITE-PATH target validation. Resolves the
+/// Read a object artifact for WRITE-PATH target validation. Resolves the
 /// worktree's store first (matching read surfaces), then falls back to the
 /// worktree-local `.shore/data/` when the artifact lives only there — an
 /// ephemeral or pre-migration capture the resolved common-dir store does not
@@ -124,20 +124,20 @@ pub(crate) fn read_snapshot_artifact_bytes(
 /// choice is invisible to the caller. This closes a split-brain where a unit's
 /// events validate (write-path unit validation reads the resolved store) but its
 /// file target could not resolve its artifact from a different store.
-pub(crate) fn read_snapshot_artifact_for_write_validation(
+pub(crate) fn read_object_artifact_for_write_validation(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
-) -> Result<SnapshotArtifact> {
-    let bytes = read_snapshot_artifact_bytes_with_local_fallback(repo, object_id)?;
-    decode_and_validate_snapshot_artifact(&bytes)
+) -> Result<ObjectArtifact> {
+    let bytes = read_object_artifact_bytes_with_local_fallback(repo, object_id)?;
+    decode_and_validate_object_artifact(&bytes)
 }
 
-fn read_snapshot_artifact_bytes_with_local_fallback(
+fn read_object_artifact_bytes_with_local_fallback(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
-    let resolved_path = snapshot_artifact_path(read_store.store_dir(), object_id);
+    let resolved_path = object_artifact_path(read_store.store_dir(), object_id);
     match std::fs::read(&resolved_path) {
         Ok(bytes) => Ok(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -145,7 +145,7 @@ fn read_snapshot_artifact_bytes_with_local_fallback(
             // content-addressed artifact lives only in `.shore/data` (an
             // ephemeral or pre-migration capture) and not in the resolved store.
             let local = ShoreStorePaths::resolve(repo.as_ref())?;
-            let local_path = snapshot_artifact_path(local.store_dir(), object_id);
+            let local_path = object_artifact_path(local.store_dir(), object_id);
             std::fs::read(&local_path)
                 .map_err(|error| missing_artifact_or_io(error, object_id, &local_path))
         }
@@ -168,51 +168,51 @@ fn missing_artifact_or_io(error: std::io::Error, object_id: &ObjectId, path: &Pa
 }
 
 /// The one decode path for stored snapshot-artifact bytes. Strict v2-only:
-/// rejects any `version` other than v2 (the snapshot-scoped body), then validates
+/// rejects any `version` other than v2 (the object-scoped body), then validates
 /// the `contentHash` over the typed v2 struct. The legacy dual-read that also
 /// accepted identity-bearing v1 bodies is gone — the one-shot migrator re-emits
 /// every artifact as v2, so a v1 body in a migrated store is a stray and is
 /// loudly rejected rather than silently accepted.
-pub(crate) fn decode_and_validate_snapshot_artifact(bytes: &[u8]) -> Result<SnapshotArtifact> {
-    let artifact: SnapshotArtifact = serde_json::from_slice(bytes)?;
-    if artifact.version != SNAPSHOT_ARTIFACT_VERSION {
+pub(crate) fn decode_and_validate_object_artifact(bytes: &[u8]) -> Result<ObjectArtifact> {
+    let artifact: ObjectArtifact = serde_json::from_slice(bytes)?;
+    if artifact.version != OBJECT_ARTIFACT_VERSION {
         return Err(ShoreError::Message(format!(
-            "unsupported snapshot artifact version {}; only v{SNAPSHOT_ARTIFACT_VERSION} (snapshot-scoped) is supported",
+            "unsupported object artifact version {}; only v{OBJECT_ARTIFACT_VERSION} (object-scoped) is supported",
             artifact.version
         )));
     }
-    let expected = snapshot_artifact_content_hash(&artifact)?;
+    let expected = object_artifact_content_hash(&artifact)?;
     if artifact.content_hash != expected {
         return Err(ShoreError::Message(format!(
-            "snapshot artifact content hash mismatch for {}",
+            "object artifact content hash mismatch for {}",
             artifact.snapshot.object_id.as_str()
         )));
     }
     Ok(artifact)
 }
 
-/// Hash a v2 artifact's body minus `contentHash` (the value [`build_snapshot_artifact_v2`]
-/// stamps in). With the snapshot-scoped struct the hashed material is
+/// Hash a v2 artifact's body minus `contentHash` (the value [`build_object_artifact_v2`]
+/// stamps in). With the object-scoped struct the hashed material is
 /// `{schema, version, snapshot}` — namespace-independent (INV-2).
-fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String> {
+fn object_artifact_content_hash(artifact: &ObjectArtifact) -> Result<String> {
     let mut material = serde_json::to_value(artifact)?;
     let Some(object) = material.as_object_mut() else {
         return Err(ShoreError::Message(
-            "snapshot artifact hash material must be an object".to_owned(),
+            "object artifact hash material must be an object".to_owned(),
         ));
     };
     if object.remove("contentHash").is_none() {
         return Err(ShoreError::Message(
-            "snapshot artifact hash material is missing contentHash".to_owned(),
+            "object artifact hash material is missing contentHash".to_owned(),
         ));
     }
 
     sha256_json_prefixed(&material)
 }
 
-pub(crate) fn snapshot_artifact_path(store_dir: &Path, object_id: &ObjectId) -> PathBuf {
+pub(crate) fn object_artifact_path(store_dir: &Path, object_id: &ObjectId) -> PathBuf {
     store_dir
-        .join("artifacts/snapshots")
+        .join("artifacts/objects")
         .join(format!("{}.json", artifact_file_stem(object_id.as_str())))
 }
 
@@ -236,19 +236,20 @@ mod tests {
     use crate::session::store::resolution::resolve_store;
     use crate::session::{
         CaptureOptions, CommitRangeSpec, capture_review, compute_revision_fingerprint,
-        read_snapshot_artifact,
+        read_object_artifact,
     };
 
     #[test]
-    fn snapshot_artifact_schema_is_pinned_at_shore_snapshot_v2() {
+    fn object_artifact_schema_is_pinned_at_shore_object_v2() {
+        // The artifact stores a content object, so its schema is `shore.object`.
         // Native writes are v2. Any future elision-aware artifact must bump one of
         // these constants (see docs/adr/adr-0002-large-snapshot-artifact-policy.md).
-        assert_eq!(super::SNAPSHOT_ARTIFACT_SCHEMA, "shore.snapshot");
-        assert_eq!(super::SNAPSHOT_ARTIFACT_VERSION, 2);
+        assert_eq!(super::OBJECT_ARTIFACT_SCHEMA, "shore.object");
+        assert_eq!(super::OBJECT_ARTIFACT_VERSION, 2);
     }
 
     #[test]
-    fn snapshot_artifact_body_uses_object_id_wire_key() {
+    fn object_artifact_body_uses_object_id_wire_key() {
         // The stored artifact body finishes Snapshot->Object on the wire: the
         // content-only id serializes under `object_id` (value already `obj:`),
         // not the legacy `snapshot_id` field name.
@@ -257,7 +258,7 @@ mod tests {
             ObjectId::new("obj:sha256:abc"),
             Vec::new(),
         );
-        let artifact = build_snapshot_artifact_v2(snapshot).unwrap();
+        let artifact = build_object_artifact_v2(snapshot).unwrap();
 
         let json = serde_json::to_value(&artifact.snapshot).unwrap();
         assert!(
@@ -275,9 +276,9 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_artifact_body_is_snapshot_scoped_v2() {
+    fn object_artifact_body_is_snapshot_scoped_v2() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
+        let artifact = write_current_object_artifact(&repo);
 
         let json = serde_json::to_value(&artifact).unwrap();
         let keys = json
@@ -311,41 +312,41 @@ mod tests {
         // converges across the two repos (the local repo path never enters it).
         assert_eq!(a.revision_id, b.revision_id);
         assert_eq!(
-            a.snapshot_artifact_content_hash,
-            b.snapshot_artifact_content_hash
+            a.object_artifact_content_hash,
+            b.object_artifact_content_hash
         );
 
-        let bytes_a = fs::read(snapshot_artifact_path(
+        let bytes_a = fs::read(object_artifact_path(
             &resolved_store_dir(repo_a.path()),
             &a.object_id,
         ))
         .unwrap();
-        let bytes_b = fs::read(snapshot_artifact_path(
+        let bytes_b = fs::read(object_artifact_path(
             &resolved_store_dir(repo_b.path()),
             &b.object_id,
         ))
         .unwrap();
         assert_eq!(
             bytes_a, bytes_b,
-            "snapshot-scoped artifacts must be byte-identical"
+            "object-scoped artifacts must be byte-identical"
         );
     }
 
     #[test]
     fn v1_snapshot_body_is_rejected_after_the_break() {
         // The dual-read is gone: an identity-bearing v1 body no longer decodes;
-        // only the snapshot-scoped v2 body does. A clean store carries only v2
+        // only the object-scoped v2 body does. A clean store carries only v2
         // artifacts (the one-shot migrator re-emits them), so a stray v1 body is a
         // loud rejection, not a silently-accepted legacy shape.
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
-        let path = snapshot_artifact_path(
+        let artifact = write_current_object_artifact(&repo);
+        let path = object_artifact_path(
             &resolved_store_dir(repo.path()),
             &artifact.snapshot.object_id,
         );
         let v1_bytes = rewrite_as_v1(&fs::read(&path).unwrap());
 
-        let error = decode_and_validate_snapshot_artifact(&v1_bytes)
+        let error = decode_and_validate_object_artifact(&v1_bytes)
             .expect_err("a v1 body must be rejected after the break");
         assert!(
             error.to_string().contains("v2"),
@@ -356,14 +357,14 @@ mod tests {
     #[test]
     fn v2_snapshot_body_decodes_cleanly() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
-        let path = snapshot_artifact_path(
+        let artifact = write_current_object_artifact(&repo);
+        let path = object_artifact_path(
             &resolved_store_dir(repo.path()),
             &artifact.snapshot.object_id,
         );
         let v2_bytes = fs::read(&path).unwrap();
 
-        let decoded = decode_and_validate_snapshot_artifact(&v2_bytes).unwrap();
+        let decoded = decode_and_validate_object_artifact(&v2_bytes).unwrap();
         assert_eq!(decoded.version, 2);
         assert_eq!(decoded, artifact);
     }
@@ -371,8 +372,8 @@ mod tests {
     #[test]
     fn decode_rejects_a_tampered_v2_artifact() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
-        let path = snapshot_artifact_path(
+        let artifact = write_current_object_artifact(&repo);
+        let path = object_artifact_path(
             &resolved_store_dir(repo.path()),
             &artifact.snapshot.object_id,
         );
@@ -381,7 +382,7 @@ mod tests {
         // Mutate a body field without re-stamping the hash.
         value["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
 
-        let error = decode_and_validate_snapshot_artifact(&serde_json::to_vec(&value).unwrap())
+        let error = decode_and_validate_object_artifact(&serde_json::to_vec(&value).unwrap())
             .expect_err("tampered v2 artifact is rejected");
         assert!(error.to_string().contains("content hash"));
     }
@@ -404,18 +405,18 @@ mod tests {
             .store_dir()
             .to_path_buf();
 
-        let first = write_snapshot_artifact_to(&store_dir, &fingerprint, snapshot.clone()).unwrap();
+        let first = write_object_artifact_to(&store_dir, &fingerprint, snapshot.clone()).unwrap();
         assert_eq!(first.version, 2);
-        let path = snapshot_artifact_path(&store_dir, &fingerprint.object_id);
+        let path = object_artifact_path(&store_dir, &fingerprint.object_id);
         let on_disk = fs::read(&path).unwrap();
 
-        let deduped = write_snapshot_artifact_to(&store_dir, &fingerprint, snapshot).unwrap();
+        let deduped = write_object_artifact_to(&store_dir, &fingerprint, snapshot).unwrap();
         assert_eq!(deduped, first, "dedup returns the existing v2 artifact");
         assert_eq!(fs::read(&path).unwrap(), on_disk, "artifact left untouched");
     }
 
     #[test]
-    fn captured_text_rows_remain_inline_in_snapshot_artifact() {
+    fn captured_text_rows_remain_inline_in_object_artifact() {
         let repo = TestRepo::new();
         repo.write("README.md", "base\n");
         repo.commit_all("base");
@@ -430,9 +431,9 @@ mod tests {
             fingerprint.object_id.clone(),
             files,
         );
-        let artifact = write_snapshot_artifact(repo.path(), &fingerprint, snapshot).unwrap();
+        let artifact = write_object_artifact(repo.path(), &fingerprint, snapshot).unwrap();
 
-        let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
+        let stored = read_object_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
         let added_file = stored
             .snapshot
             .files
@@ -447,13 +448,13 @@ mod tests {
     }
 
     #[test]
-    fn write_snapshot_artifact_stores_full_snapshot() {
+    fn write_object_artifact_stores_full_snapshot() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
+        let artifact = write_current_object_artifact(&repo);
 
-        let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
+        let stored = read_object_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
 
-        assert_eq!(stored.schema, "shore.snapshot");
+        assert_eq!(stored.schema, "shore.object");
         assert_eq!(stored.version, 2);
         assert_eq!(stored.snapshot.object_id, artifact.snapshot.object_id);
         assert_eq!(stored.snapshot.files.len(), 1);
@@ -465,12 +466,12 @@ mod tests {
     }
 
     #[test]
-    fn stored_snapshot_artifact_survives_worktree_drift() {
+    fn stored_object_artifact_survives_worktree_drift() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
+        let artifact = write_current_object_artifact(&repo);
 
         repo.write("src/lib.rs", "pub fn value() -> u32 { 99 }\n");
-        let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
+        let stored = read_object_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
 
         assert_eq!(
             stored.snapshot.files[0].new_path.as_deref(),
@@ -481,10 +482,10 @@ mod tests {
     }
 
     #[test]
-    fn read_snapshot_artifact_rejects_tampered_content() {
+    fn read_object_artifact_rejects_tampered_content() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
-        let path = snapshot_artifact_path(
+        let artifact = write_current_object_artifact(&repo);
+        let path = object_artifact_path(
             &resolved_store_dir(repo.path()),
             &artifact.snapshot.object_id,
         );
@@ -492,49 +493,49 @@ mod tests {
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         // Tamper a field inside the v2 content hash. `DiffFile` is snake_case,
-        // unlike the camelCase `SnapshotArtifact` wrapper.
+        // unlike the camelCase `ObjectArtifact` wrapper.
         json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
 
-        let error = read_snapshot_artifact(repo.path(), &artifact.snapshot.object_id)
+        let error = read_object_artifact(repo.path(), &artifact.snapshot.object_id)
             .expect_err("tampered artifact should be rejected");
 
         assert!(error.to_string().contains("content hash"));
     }
 
     #[test]
-    fn snapshot_artifact_hash_covers_snapshot_rows() {
+    fn object_artifact_hash_covers_snapshot_rows() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
+        let artifact = write_current_object_artifact(&repo);
         let mut changed = artifact.clone();
         changed.snapshot.files.clear();
 
         assert_ne!(
-            snapshot_artifact_content_hash(&artifact).unwrap(),
-            snapshot_artifact_content_hash(&changed).unwrap()
+            object_artifact_content_hash(&artifact).unwrap(),
+            object_artifact_content_hash(&changed).unwrap()
         );
     }
 
     #[test]
-    fn snapshot_artifact_hash_is_stable_across_json_round_trip() {
+    fn object_artifact_hash_is_stable_across_json_round_trip() {
         let repo = modified_repo();
-        let artifact = write_current_snapshot_artifact(&repo);
-        let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
-        let reparsed: SnapshotArtifact =
+        let artifact = write_current_object_artifact(&repo);
+        let stored = read_object_artifact(repo.path(), &artifact.snapshot.object_id).unwrap();
+        let reparsed: ObjectArtifact =
             serde_json::from_str(&serde_json::to_string_pretty(&stored).unwrap()).unwrap();
 
         assert_eq!(
             stored.content_hash,
-            snapshot_artifact_content_hash(&stored).unwrap()
+            object_artifact_content_hash(&stored).unwrap()
         );
         assert_eq!(
             stored.content_hash,
-            snapshot_artifact_content_hash(&reparsed).unwrap()
+            object_artifact_content_hash(&reparsed).unwrap()
         );
     }
 
     #[test]
-    fn snapshot_artifact_helpers_resolve_shore_dir_from_subdirectory() {
+    fn object_artifact_helpers_resolve_shore_dir_from_subdirectory() {
         let repo = modified_repo();
         fs::create_dir_all(repo.path().join("src")).unwrap();
         let files = capture_worktree_diff_files(repo.path()).unwrap();
@@ -546,9 +547,9 @@ mod tests {
         );
 
         let artifact =
-            write_snapshot_artifact(repo.path().join("src"), &fingerprint, snapshot).unwrap();
+            write_object_artifact(repo.path().join("src"), &fingerprint, snapshot).unwrap();
         let read =
-            read_snapshot_artifact(repo.path().join("src"), &artifact.snapshot.object_id).unwrap();
+            read_object_artifact(repo.path().join("src"), &artifact.snapshot.object_id).unwrap();
 
         assert_eq!(read, artifact);
     }
@@ -558,10 +559,10 @@ mod tests {
         let repo = modified_repo();
         // The artifact lands in the resolved (shared common-dir) store, exactly
         // where capture writes it, so the read resolves it without any fallback.
-        let artifact = write_current_snapshot_artifact(&repo);
+        let artifact = write_current_object_artifact(&repo);
 
         let read =
-            read_snapshot_artifact_for_write_validation(repo.path(), &artifact.snapshot.object_id)
+            read_object_artifact_for_write_validation(repo.path(), &artifact.snapshot.object_id)
                 .unwrap();
 
         assert_eq!(read, artifact);
@@ -580,9 +581,8 @@ mod tests {
         let repo = modified_repo();
         let fingerprint = compute_revision_fingerprint(repo.path()).unwrap();
 
-        let error =
-            read_snapshot_artifact_for_write_validation(repo.path(), &fingerprint.object_id)
-                .expect_err("an artifact absent from both stores errors");
+        let error = read_object_artifact_for_write_validation(repo.path(), &fingerprint.object_id)
+            .expect_err("an artifact absent from both stores errors");
 
         assert!(
             error.to_string().contains("missing artifact for snapshot"),
@@ -596,22 +596,22 @@ mod tests {
         );
     }
 
-    /// Test convenience: write a snapshot artifact to the worktree's resolved
+    /// Test convenience: write a object artifact to the worktree's resolved
     /// write store — the shared common-dir store by default, exactly where
     /// capture lands it. Production has a single snapshot writer
-    /// (`write_snapshot_artifact_to`); capture resolves the write store once and
+    /// (`write_object_artifact_to`); capture resolves the write store once and
     /// calls it directly. Resolving the store here keeps these reads and the
     /// production read surface on the same store.
-    fn write_snapshot_artifact(
+    fn write_object_artifact(
         repo: impl AsRef<Path>,
         fingerprint: &RevisionFingerprint,
         snapshot: DiffSnapshot,
-    ) -> Result<SnapshotArtifact> {
+    ) -> Result<ObjectArtifact> {
         let store_dir = resolve_store(repo.as_ref())?.store_dir().to_path_buf();
-        write_snapshot_artifact_to(&store_dir, fingerprint, snapshot)
+        write_object_artifact_to(&store_dir, fingerprint, snapshot)
     }
 
-    fn write_current_snapshot_artifact(repo: &TestRepo) -> SnapshotArtifact {
+    fn write_current_object_artifact(repo: &TestRepo) -> ObjectArtifact {
         let files = capture_worktree_diff_files(repo.path()).unwrap();
         let fingerprint = compute_revision_fingerprint(repo.path()).unwrap();
         let snapshot = DiffSnapshot::new(
@@ -620,7 +620,7 @@ mod tests {
             files,
         );
 
-        write_snapshot_artifact(repo.path(), &fingerprint, snapshot).unwrap()
+        write_object_artifact(repo.path(), &fingerprint, snapshot).unwrap()
     }
 
     fn modified_repo() -> TestRepo {

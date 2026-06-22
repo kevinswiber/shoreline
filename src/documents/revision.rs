@@ -1,4 +1,4 @@
-// Document builders for `shore review-unit show` and `list`.
+// Document builders for `shore review revision show` and `list`.
 use std::collections::BTreeMap;
 
 use crate::documents::{
@@ -17,26 +17,26 @@ use crate::session::{
 /// Documented body for `shore.review-revision`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnitShowBody {
+pub struct RevisionShowBody {
     event_set_hash: String,
     event_count: usize,
-    revision: UnitRevisionDocument,
-    filters: UnitShowFiltersDocument,
-    summary: UnitShowSummaryDocument,
+    revision: ShowRevisionDocument,
+    filters: RevisionShowFiltersDocument,
+    summary: RevisionShowSummaryDocument,
     current_assessment: CurrentAssessmentDocument,
     observations: Vec<ObservationViewDocument>,
     input_requests: Vec<InputRequestViewDocument>,
     assessments: Vec<AssessmentViewDocument>,
     validation_checks: Vec<ValidationCheckViewDocument>,
     adapter_notes: Vec<AdapterNoteDocument>,
-    rows: Vec<UnitProjectionRowDocument>,
+    rows: Vec<RevisionProjectionRowDocument>,
     commit_range: CommitRangeDocument,
 }
 
 /// Documented body for `shore.review-revision-list`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnitListBody {
+pub struct RevisionListBody {
     event_set_hash: String,
     event_count: usize,
     revision_count: usize,
@@ -45,15 +45,15 @@ pub struct UnitListBody {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitRevisionDocument {
+struct ShowRevisionDocument {
     id: String,
-    session_id: String,
+    journal_id: String,
     revision_id: String,
     object_id: String,
     source: crate::model::RevisionSource,
     base: crate::model::ReviewEndpoint,
     target: crate::model::ReviewEndpoint,
-    snapshot_artifact_content_hash: String,
+    object_artifact_content_hash: String,
     /// The capture event id, kept only to key the readback side table; never
     /// serialized (the identity renders no `eventId` of its own).
     #[serde(skip)]
@@ -66,7 +66,7 @@ struct UnitRevisionDocument {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitShowFiltersDocument {
+struct RevisionShowFiltersDocument {
     revision_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     track_id: Option<String>,
@@ -75,7 +75,7 @@ struct UnitShowFiltersDocument {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitShowSummaryDocument {
+struct RevisionShowSummaryDocument {
     file_count: usize,
     row_count: usize,
     narrative_row_count: usize,
@@ -123,7 +123,7 @@ struct AdapterNoteTargetDocument {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitProjectionRowDocument {
+struct RevisionProjectionRowDocument {
     id: String,
     kind: &'static str,
     projection_phase: &'static str,
@@ -144,8 +144,8 @@ struct UnitProjectionRowDocument {
 }
 
 /// Events-only commit-range lifecycle block. Liveness (merged/live/orphaned) is
-/// layered by repo-holding callers, never here. The view's `reviewUnitId` and
-/// `diagnostics` are omitted: the id renders on the review-unit identity and the
+/// layered by repo-holding callers, never here. The view's `revisionId` and
+/// `diagnostics` are omitted: the id renders on the revision identity and the
 /// diagnostics merge into the document's top-level diagnostics.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,19 +182,21 @@ struct SnapshotOrderDocument {
 }
 
 /// Build the `shore.review-revision` composite document from a show result.
-pub fn unit_show_document(mut result: RevisionShowResult) -> DiagnosticDocument<UnitShowBody> {
+pub fn revision_show_document(
+    mut result: RevisionShowResult,
+) -> DiagnosticDocument<RevisionShowBody> {
     // The readback side table is keyed by event id; attach it to each member and to
     // the capture identity at the document layer. Take it out before the by-value
     // moves below.
     let readbacks = std::mem::take(&mut result.member_readbacks);
     DiagnosticDocument::new(
         "shore.review-revision",
-        UnitShowBody {
+        RevisionShowBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,
-            revision: UnitRevisionDocument::from(result.revision).with_readback(&readbacks),
-            filters: UnitShowFiltersDocument::from(result.filters),
-            summary: UnitShowSummaryDocument::from(result.summary),
+            revision: ShowRevisionDocument::from(result.revision).with_readback(&readbacks),
+            filters: RevisionShowFiltersDocument::from(result.filters),
+            summary: RevisionShowSummaryDocument::from(result.summary),
             current_assessment: CurrentAssessmentDocument::from(result.current_assessment),
             observations: result
                 .observations
@@ -224,7 +226,7 @@ pub fn unit_show_document(mut result: RevisionShowResult) -> DiagnosticDocument<
             rows: result
                 .rows
                 .into_iter()
-                .map(UnitProjectionRowDocument::from)
+                .map(RevisionProjectionRowDocument::from)
                 .collect(),
             commit_range: CommitRangeDocument::from(result.commit_range),
         },
@@ -233,10 +235,10 @@ pub fn unit_show_document(mut result: RevisionShowResult) -> DiagnosticDocument<
 }
 
 /// Build the `shore.review-revision-list` document from a list result.
-pub fn unit_list_document(result: RevisionListResult) -> DiagnosticDocument<UnitListBody> {
+pub fn revision_list_document(result: RevisionListResult) -> DiagnosticDocument<RevisionListBody> {
     DiagnosticDocument::new(
         "shore.review-revision-list",
-        UnitListBody {
+        RevisionListBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,
             revision_count: result.revision_count,
@@ -246,17 +248,17 @@ pub fn unit_list_document(result: RevisionListResult) -> DiagnosticDocument<Unit
     )
 }
 
-impl From<RevisionProjectionIdentity> for UnitRevisionDocument {
+impl From<RevisionProjectionIdentity> for ShowRevisionDocument {
     fn from(identity: RevisionProjectionIdentity) -> Self {
         Self {
             id: identity.id.as_str().to_owned(),
-            session_id: identity.session_id.as_str().to_owned(),
+            journal_id: identity.journal_id.as_str().to_owned(),
             revision_id: identity.revision_id.as_str().to_owned(),
             object_id: identity.object_id.as_str().to_owned(),
             source: identity.source,
             base: identity.base,
             target: identity.target,
-            snapshot_artifact_content_hash: identity.snapshot_artifact_content_hash,
+            object_artifact_content_hash: identity.object_artifact_content_hash,
             capture_event_id: identity.capture_event_id,
             verification_status: None,
             endorsements: Vec::new(),
@@ -264,7 +266,7 @@ impl From<RevisionProjectionIdentity> for UnitRevisionDocument {
     }
 }
 
-impl UnitRevisionDocument {
+impl ShowRevisionDocument {
     /// Attach the reader-relative readback for the capture event. The identity has
     /// no `eventId` of its own, so it keys the side table on `capture_event_id`.
     fn with_readback(mut self, table: &BTreeMap<EventId, MemberReadback>) -> Self {
@@ -276,7 +278,7 @@ impl UnitRevisionDocument {
     }
 }
 
-impl From<RevisionShowFilters> for UnitShowFiltersDocument {
+impl From<RevisionShowFilters> for RevisionShowFiltersDocument {
     fn from(filters: RevisionShowFilters) -> Self {
         Self {
             revision_id: filters.revision_id.as_str().to_owned(),
@@ -288,7 +290,7 @@ impl From<RevisionShowFilters> for UnitShowFiltersDocument {
     }
 }
 
-impl From<RevisionProjectionSummary> for UnitShowSummaryDocument {
+impl From<RevisionProjectionSummary> for RevisionShowSummaryDocument {
     fn from(summary: RevisionProjectionSummary) -> Self {
         Self {
             file_count: summary.file_count,
@@ -335,7 +337,7 @@ impl From<crate::session::event::ImportedNoteTarget> for AdapterNoteTargetDocume
     }
 }
 
-impl From<RevisionProjectionRow> for UnitProjectionRowDocument {
+impl From<RevisionProjectionRow> for RevisionProjectionRowDocument {
     fn from(row: RevisionProjectionRow) -> Self {
         Self {
             id: row.id.as_str().to_owned(),

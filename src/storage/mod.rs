@@ -506,24 +506,20 @@ mod tests {
 
         storage
             .create_file_exclusive(
-                &root.path().join("artifacts/snapshots/blob.json"),
+                &root.path().join("artifacts/objects/blob.json"),
                 b"payload",
                 Durability::Durable,
             )
             .unwrap();
 
         assert_eq!(
-            storage
-                .remove_file("artifacts/snapshots/blob.json")
-                .unwrap(),
+            storage.remove_file("artifacts/objects/blob.json").unwrap(),
             RemoveOutcome::Removed
         );
-        assert!(!root.path().join("artifacts/snapshots/blob.json").exists());
+        assert!(!root.path().join("artifacts/objects/blob.json").exists());
 
         assert_eq!(
-            storage
-                .remove_file("artifacts/snapshots/blob.json")
-                .unwrap(),
+            storage.remove_file("artifacts/objects/blob.json").unwrap(),
             RemoveOutcome::Missing
         );
     }
@@ -546,7 +542,7 @@ mod tests {
         // outside the store dir.
         let root = tempfile::tempdir().unwrap();
         let storage = LocalStorage::new(root.path());
-        let outcome = storage.remove_file("artifacts/snapshots/x.json").unwrap();
+        let outcome = storage.remove_file("artifacts/objects/x.json").unwrap();
         assert_eq!(outcome, RemoveOutcome::Missing);
     }
 

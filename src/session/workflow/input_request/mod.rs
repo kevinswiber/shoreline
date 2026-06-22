@@ -293,7 +293,7 @@ mod tests {
         let event = only_input_request_opened_event(repo.path());
 
         let expected_digest = sha256_json_prefixed(&serde_json::json!({
-            "reviewUnitId": result.revision_id.as_str(),
+            "revisionId": result.revision_id.as_str(),
             "trackId": result.track_id.as_str(),
             "target": result.target.clone(),
             "assertionMode": AssertionMode::Operative,

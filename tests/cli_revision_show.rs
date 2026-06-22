@@ -142,7 +142,7 @@ fn revision_show_include_body_hydrates_without_internal_paths() {
     assert_eq!(json["filters"]["includeBody"], true);
     assert!(stdout.contains("visible body"));
     assert!(!stdout.contains("artifacts/notes/"));
-    assert!(!stdout.contains("artifacts/snapshots/"));
+    assert!(!stdout.contains("artifacts/objects/"));
     assert!(!stdout.contains(".shore/data/events"));
     assert!(json.get("statePath").is_none());
     assert!(json.get("snapshotArtifactPath").is_none());
@@ -180,7 +180,7 @@ fn revision_show_includes_input_requests_and_omits_legacy_fields() {
     );
     assert_eq!(json["summary"]["inputRequestCount"], 1);
     assert!(!stdout.contains("artifacts/notes/"));
-    assert!(!stdout.contains("artifacts/snapshots/"));
+    assert!(!stdout.contains("artifacts/objects/"));
     assert!(!stdout.contains(".shore/data/events"));
     assert!(!stdout.contains("\"blocking\""));
     assert!(json.get("interventions").is_none());
@@ -336,7 +336,7 @@ fn unit_show_projects_range_capture_with_bound_snapshot() {
         revision_id,
     ]);
 
-    // The command succeeding proves load_bound_snapshot_artifact validated the
+    // The command succeeding proves load_bound_object_artifact validated the
     // bound snapshot against the range identity.
     assert!(
         output.status.success(),

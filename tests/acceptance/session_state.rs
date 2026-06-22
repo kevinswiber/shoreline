@@ -225,7 +225,7 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
 
     let store = common_dir_store(repo.path());
     assert!(store.join("events").is_dir());
-    assert!(store.join("artifacts/snapshots").is_dir());
+    assert!(store.join("artifacts/objects").is_dir());
     assert!(store.join("state.json").is_file());
     // Storage is registered in the repository-local exclude, never the tracked
     // worktree .gitignore.

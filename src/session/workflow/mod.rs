@@ -85,8 +85,7 @@ pub use store_migrate_common_dir::{
 };
 pub use store_status::{
     StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
-    StoreStatusRevisionSnapshot, StoreStatusSensitivity, StoreStatusSensitivityFinding,
-    store_status,
+    StoreStatusRevisionObject, StoreStatusSensitivity, StoreStatusSensitivityFinding, store_status,
 };
 pub use validation::{
     ValidationAddOptions, ValidationAddResult, ValidationCheckProjectionOptions,
