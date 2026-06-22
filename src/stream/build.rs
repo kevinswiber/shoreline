@@ -42,7 +42,7 @@ fn build_review_stream_from_review_notes_sidecar(
     let ordered = apply_file_order(snapshot.files.clone(), sidecar);
     let ordered_snapshot = DiffSnapshot::new(
         snapshot.review_id.clone(),
-        snapshot.snapshot_id.clone(),
+        snapshot.object_id.clone(),
         ordered.files,
     );
     let resolved = resolve_notes(&ordered_snapshot.files, sidecar);
@@ -102,7 +102,7 @@ impl<'a> StreamBuilder<'a> {
 
         ReviewStream {
             review_id: self.snapshot.review_id.clone(),
-            snapshot_id: self.snapshot.snapshot_id.clone(),
+            snapshot_id: self.snapshot.object_id.clone(),
             rows: self.rows,
         }
     }

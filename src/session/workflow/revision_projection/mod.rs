@@ -65,7 +65,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
             SnapshotContent::Removed { content_hash } => (
                 DiffSnapshot::new(
                     ReviewId::new(revision.session_id.as_str()),
-                    revision.snapshot_id.clone(),
+                    revision.object_id.clone(),
                     Vec::new(),
                 ),
                 Some(content_hash),
@@ -311,7 +311,7 @@ mod tests {
 
         assert_eq!(result.revision.id, capture.revision_id);
         assert_eq!(result.revision.revision_id, capture.revision_id);
-        assert_eq!(result.revision.snapshot_id, capture.object_id);
+        assert_eq!(result.revision.object_id, capture.object_id);
         assert_eq!(result.filters.revision_id, capture.revision_id);
         // Capture event plus the auto-recorded capture-time ref association.
         assert_eq!(result.event_count, 2);
@@ -1357,13 +1357,13 @@ mod tests {
         crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
-    fn tamper_snapshot_artifact_snapshot_field(repo: &Path, snapshot_id: &ObjectId) {
-        let path = snapshot_artifact_path(repo, snapshot_id);
+    fn tamper_snapshot_artifact_snapshot_field(repo: &Path, object_id: &ObjectId) {
+        let path = snapshot_artifact_path(repo, object_id);
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).expect("read snapshot artifact"))
                 .expect("parse snapshot artifact json");
 
-        assert_eq!(json["snapshot"]["object_id"], snapshot_id.as_str());
+        assert_eq!(json["snapshot"]["object_id"], object_id.as_str());
         // Perturb a field inside the v2 content hash without re-stamping it.
         // `DiffFile` is snake_case, unlike the camelCase artifact wrapper.
         json["snapshot"]["files"][0]["new_path"] = "/evil".into();
@@ -1414,8 +1414,8 @@ mod tests {
             .unwrap();
     }
 
-    fn delete_snapshot_blob(repo: &Path, snapshot_id: &ObjectId) {
-        let path = snapshot_artifact_path(repo, snapshot_id);
+    fn delete_snapshot_blob(repo: &Path, object_id: &ObjectId) {
+        let path = snapshot_artifact_path(repo, object_id);
         fs::remove_file(path).expect("delete snapshot blob");
     }
 
@@ -1458,7 +1458,7 @@ mod tests {
         );
     }
 
-    fn snapshot_artifact_path(repo: &Path, snapshot_id: &ObjectId) -> PathBuf {
+    fn snapshot_artifact_path(repo: &Path, object_id: &ObjectId) -> PathBuf {
         fs::read_dir(resolved_store_dir(repo).join("artifacts/snapshots"))
             .expect("read snapshot artifacts directory")
             .map(|entry| entry.expect("read snapshot artifact dir entry").path())
@@ -1469,7 +1469,7 @@ mod tests {
                 let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
                     return false;
                 };
-                json["snapshot"]["object_id"] == snapshot_id.as_str()
+                json["snapshot"]["object_id"] == object_id.as_str()
             })
             .expect("find snapshot artifact")
     }

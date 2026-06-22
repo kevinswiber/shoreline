@@ -185,7 +185,7 @@ pub struct RevisionProjectionIdentity {
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
     pub revision_id: RevisionId,
-    pub snapshot_id: ObjectId,
+    pub object_id: ObjectId,
     pub snapshot_artifact_content_hash: String,
     /// The capture event's id, so the document layer can key the readback side
     /// table for the review-unit identity (the capture has no `eventId` of its own).

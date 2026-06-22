@@ -19,19 +19,19 @@ const REVISION_IDENTITY_VERSION: u32 = 1;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorktreeFingerprint {
     pub revision_id: RevisionId,
-    pub snapshot_id: ObjectId,
+    pub object_id: ObjectId,
 }
 
 /// The resolved identity for one capture: the position revision id (derived
 /// from object id + git provenance), the derived engagement grouping hint, and
 /// the git provenance (source selector + endpoint pair) that the revision wraps.
-/// `snapshot_id` is the content-addressed object id used as the snapshot-artifact
+/// `object_id` is the content-addressed object id used as the snapshot-artifact
 /// storage key; the artifact subsystem retains its "snapshot" naming, only the
 /// id semantics are the content-only object.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RevisionFingerprint {
     pub revision_id: RevisionId,
-    pub snapshot_id: ObjectId,
+    pub object_id: ObjectId,
     pub engagement_id: EngagementId,
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
@@ -93,7 +93,7 @@ pub(crate) fn worktree_fingerprint_for_files(
 
     Ok(WorktreeFingerprint {
         revision_id: RevisionId::new(format!("rev:worktree:sha256:{hash}")),
-        snapshot_id: ObjectId::new(format!("obj:git:sha256:{hash}")),
+        object_id: ObjectId::new(format!("obj:git:sha256:{hash}")),
     })
 }
 
@@ -181,7 +181,7 @@ fn revision_fingerprint_from_parts(
 
     Ok(RevisionFingerprint {
         revision_id,
-        snapshot_id: object_id,
+        object_id,
         engagement_id,
         source: endpoints.source,
         base: endpoints.base,
@@ -595,7 +595,7 @@ mod tests {
         let first = compute_revision_fingerprint(repo.path()).unwrap();
         let second = compute_revision_fingerprint(repo.path()).unwrap();
 
-        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert_eq!(first.object_id, second.object_id);
         assert_eq!(first.revision_id, second.revision_id);
         assert_eq!(first.engagement_id, second.engagement_id);
     }
@@ -608,7 +608,7 @@ mod tests {
         repo.write("new.txt", "new untracked file\n");
         let second = compute_revision_fingerprint(repo.path()).unwrap();
 
-        assert_ne!(first.snapshot_id, second.snapshot_id);
+        assert_ne!(first.object_id, second.object_id);
         assert_ne!(first.revision_id, second.revision_id);
     }
 
@@ -655,7 +655,7 @@ mod tests {
             repo_a.path().canonicalize().unwrap(),
             repo_b.path().canonicalize().unwrap()
         );
-        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert_eq!(first.object_id, second.object_id);
         assert_ne!(first.revision_id, second.revision_id);
     }
 
@@ -717,7 +717,7 @@ mod tests {
             commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files)
                 .unwrap();
 
-        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert_eq!(first.object_id, second.object_id);
         assert_eq!(first.revision_id, second.revision_id);
         assert_eq!(first.engagement_id, second.engagement_id);
     }
@@ -738,9 +738,9 @@ mod tests {
             commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files)
                 .unwrap();
 
-        assert_eq!(worktree.snapshot_id, range.snapshot_id);
+        assert_eq!(worktree.object_id, range.object_id);
         assert_ne!(worktree.revision_id, range.revision_id);
-        assert!(worktree.snapshot_id.as_str().starts_with("obj:sha256:"));
+        assert!(worktree.object_id.as_str().starts_with("obj:sha256:"));
         assert!(range.revision_id.as_str().starts_with("rev:sha256:"));
     }
 
@@ -787,7 +787,7 @@ mod tests {
         // to one revision id — content + provenance are identical.
         assert_eq!(base_a.commit_oid, base_b.commit_oid);
         assert_eq!(target_a.commit_oid, target_b.commit_oid);
-        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert_eq!(first.object_id, second.object_id);
         assert_eq!(first.revision_id, second.revision_id);
     }
 

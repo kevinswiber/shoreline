@@ -39,11 +39,11 @@ pub(super) fn load_bound_snapshot_artifact(
     repo: &Path,
     revision: &RevisionProjectionIdentity,
 ) -> Result<DiffSnapshot> {
-    let artifact = read_snapshot_artifact(repo, &revision.snapshot_id)?;
-    // Bind via the namespace-independent snapshot_id + content_hash only. Identity
+    let artifact = read_snapshot_artifact(repo, &revision.object_id)?;
+    // Bind via the namespace-independent object_id + content_hash only. Identity
     // (revision_id/source/base/target) lives in the capture event/projection,
     // never the content-addressed artifact body.
-    if artifact.snapshot.snapshot_id != revision.snapshot_id {
+    if artifact.snapshot.object_id != revision.object_id {
         return Err(ShoreError::Message(format!(
             "snapshot artifact metadata mismatch for {}",
             revision.id.as_str()
@@ -94,7 +94,7 @@ mod tests {
             ..authentic.clone()
         };
         let snapshot = load_bound_snapshot_artifact(repo.path(), &other).unwrap();
-        assert_eq!(snapshot.snapshot_id, captured.object_id);
+        assert_eq!(snapshot.object_id, captured.object_id);
     }
 
     #[test]
@@ -136,7 +136,7 @@ mod tests {
             base: captured.base.clone(),
             target: captured.target.clone(),
             revision_id: captured.revision_id.clone(),
-            snapshot_id: captured.object_id.clone(),
+            object_id: captured.object_id.clone(),
             snapshot_artifact_content_hash: captured.snapshot_artifact_content_hash.clone(),
             capture_event_id: event.event_id.clone(),
         }

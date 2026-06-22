@@ -604,7 +604,7 @@ fn find_snapshot_artifact(
         // dir does not abort the scan), then validate the match through the shared
         // dual-read decode path (v1 + v2).
         let parsed: SnapshotArtifact = serde_json::from_slice(&bytes)?;
-        if parsed.snapshot.snapshot_id.as_str() == snapshot_id {
+        if parsed.snapshot.object_id.as_str() == snapshot_id {
             let artifact = decode_and_validate_snapshot_artifact(&bytes)?;
             return Ok(Some((path, artifact)));
         }

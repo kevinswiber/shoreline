@@ -743,11 +743,11 @@ mod tests {
         }
     }
 
-    fn revision_captured_event_with_ids(revision_id: &str, snapshot_id: &str) -> ShoreEvent {
+    fn revision_captured_event_with_ids(revision_id: &str, object_id: &str) -> ShoreEvent {
         // The envelope subject and the payload revision address one and the same
         // revision, as a real capture stamps both from one minted id.
         let revision_id = RevisionId::new(revision_id);
-        let snapshot_id = ObjectId::new(snapshot_id);
+        let object_id = ObjectId::new(object_id);
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{}", revision_id.as_str()),
@@ -761,7 +761,7 @@ mod tests {
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
                         id: revision_id.clone(),
-                        object_id: snapshot_id.clone(),
+                        object_id: object_id.clone(),
                         git_provenance: Some(GitProvenance {
                             source: RevisionSource::GitWorktree {
                                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,

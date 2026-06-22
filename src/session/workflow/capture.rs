@@ -193,7 +193,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     };
     let review_id = ReviewId::new("review:default");
     let journal_id = JournalId::new("journal:default");
-    let snapshot = DiffSnapshot::new(review_id, fingerprint.snapshot_id.clone(), files);
+    let snapshot = DiffSnapshot::new(review_id, fingerprint.object_id.clone(), files);
     let artifact = crate::session::snapshot_artifact::write_snapshot_artifact_to(
         &store_dir,
         &fingerprint,
@@ -238,7 +238,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
             work_object: WorkObjectProposal::Revision {
                 revision: Revision {
                     id: fingerprint.revision_id.clone(),
-                    object_id: fingerprint.snapshot_id.clone(),
+                    object_id: fingerprint.object_id.clone(),
                     git_provenance: Some(fingerprint.git_provenance()),
                 },
                 snapshot_artifact_content_hash: artifact.content_hash.clone(),
@@ -297,7 +297,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     Ok(CaptureResult {
         journal_id,
         revision_id: fingerprint.revision_id,
-        object_id: fingerprint.snapshot_id,
+        object_id: fingerprint.object_id,
         engagement_id,
         source: fingerprint.source,
         base: fingerprint.base,

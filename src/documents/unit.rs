@@ -252,7 +252,7 @@ impl From<RevisionProjectionIdentity> for UnitRevisionDocument {
             id: identity.id.as_str().to_owned(),
             session_id: identity.session_id.as_str().to_owned(),
             revision_id: identity.revision_id.as_str().to_owned(),
-            snapshot_id: identity.snapshot_id.as_str().to_owned(),
+            snapshot_id: identity.object_id.as_str().to_owned(),
             source: identity.source,
             base: identity.base,
             target: identity.target,

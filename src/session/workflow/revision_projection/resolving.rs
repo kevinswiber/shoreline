@@ -41,7 +41,7 @@ pub(super) fn selected_revision_capture(
                 base,
                 target,
                 revision_id: revision.id,
-                snapshot_id: revision.object_id,
+                object_id: revision.object_id,
                 snapshot_artifact_content_hash,
                 capture_event_id: event.event_id.clone(),
             });

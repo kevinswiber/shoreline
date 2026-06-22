@@ -143,7 +143,7 @@ impl DumpDocument {
         let snapshot = ingest_tracked_diff_with_options(repo_path, options.ingest_options())?;
         let ordered = apply_file_order(snapshot.files, &parsed.sidecar);
         let ordered_snapshot =
-            DiffSnapshot::new(snapshot.review_id, snapshot.snapshot_id, ordered.files);
+            DiffSnapshot::new(snapshot.review_id, snapshot.object_id, ordered.files);
         let resolved = resolve_notes(&ordered_snapshot.files, &parsed.sidecar);
         let mut diagnostics = parsed.diagnostics;
         extend_unique_diagnostics(&mut diagnostics, ordered.diagnostics);

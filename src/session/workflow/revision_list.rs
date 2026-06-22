@@ -576,7 +576,7 @@ mod tests {
         // one minted id; the listing reads the revision from the payload, so both
         // carry the same id here.
         let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
-        let snapshot_id = ObjectId::new(format!("obj:sha256:{suffix}"));
+        let object_id = ObjectId::new(format!("obj:sha256:{suffix}"));
         let payload = WorkObjectProposedPayload {
             engagement_id: EngagementId::new(format!(
                 "engagement:sha256:{}",
@@ -585,7 +585,7 @@ mod tests {
             work_object: WorkObjectProposal::Revision {
                 revision: Revision {
                     id: revision_id.clone(),
-                    object_id: snapshot_id.clone(),
+                    object_id: object_id.clone(),
                     git_provenance: Some(GitProvenance {
                         source: RevisionSource::GitWorktree {
                             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
@@ -766,7 +766,7 @@ mod tests {
     fn range_captured_event(suffix: &str, occurred_at: &str, commit_oid: &str) -> ShoreEvent {
         // One minted id stamps both the envelope subject and the payload revision.
         let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
-        let snapshot_id = ObjectId::new(format!("obj:sha256:{suffix}"));
+        let object_id = ObjectId::new(format!("obj:sha256:{suffix}"));
         let payload = WorkObjectProposedPayload {
             engagement_id: EngagementId::new(format!(
                 "engagement:sha256:{}",
@@ -775,7 +775,7 @@ mod tests {
             work_object: WorkObjectProposal::Revision {
                 revision: Revision {
                     id: revision_id.clone(),
-                    object_id: snapshot_id.clone(),
+                    object_id: object_id.clone(),
                     git_provenance: Some(GitProvenance {
                         source: RevisionSource::GitCommitRange {
                             mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
@@ -1058,7 +1058,7 @@ mod tests {
         // The envelope subject and the payload revision carry the same minted id, so
         // the listing keys this capture by `unit` (its associations target `unit` too).
         let revision_id = unit.clone();
-        let snapshot_id = ObjectId::new(format!("obj:{}", unit.as_str()));
+        let object_id = ObjectId::new(format!("obj:{}", unit.as_str()));
         let payload = WorkObjectProposedPayload {
             engagement_id: EngagementId::new(format!(
                 "engagement:sha256:{}",
@@ -1067,7 +1067,7 @@ mod tests {
             work_object: WorkObjectProposal::Revision {
                 revision: Revision {
                     id: revision_id.clone(),
-                    object_id: snapshot_id.clone(),
+                    object_id: object_id.clone(),
                     git_provenance: Some(GitProvenance {
                         source: RevisionSource::GitWorktree {
                             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,

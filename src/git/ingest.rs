@@ -44,7 +44,7 @@ pub fn ingest_tracked_diff_with_options(
 
     Ok(DiffSnapshot::new(
         ReviewId::new("working-tree"),
-        fingerprint.snapshot_id,
+        fingerprint.object_id,
         files,
     ))
 }

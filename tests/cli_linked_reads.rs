@@ -1227,7 +1227,7 @@ fn snapshot_artifact_reads_from_linked_store() {
 
     // The snapshot-scoped v2 artifact carries no revision_id; resolving its
     // snapshot id through the linked store is what proves the read.
-    assert_eq!(artifact.snapshot.snapshot_id, snapshot_id);
+    assert_eq!(artifact.snapshot.object_id, snapshot_id);
 }
 
 #[test]

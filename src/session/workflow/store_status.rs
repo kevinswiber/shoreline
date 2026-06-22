@@ -139,7 +139,7 @@ impl From<RevisionSnapshotInventory> for StoreStatusRevisionSnapshot {
     fn from(snapshot: RevisionSnapshotInventory) -> Self {
         Self {
             revision_ids: snapshot.revision_ids,
-            snapshot_id: snapshot.snapshot_id,
+            snapshot_id: snapshot.object_id,
             artifact_ref: snapshot.artifact_ref,
             byte_size: snapshot.byte_size,
         }

@@ -250,8 +250,8 @@ fn resolve_selector(
     index: &BTreeMap<String, BTreeSet<RevisionId>>,
 ) -> Result<ResolvedSelection> {
     match selector {
-        RemoveSelector::Snapshot(snapshot_id) => {
-            let (unit, content_hash) = capture_bound_to_snapshot(events, snapshot_id)?;
+        RemoveSelector::Snapshot(object_id) => {
+            let (unit, content_hash) = capture_bound_to_snapshot(events, object_id)?;
             let mut content_hashes = BTreeSet::new();
             content_hashes.insert(content_hash);
             let mut targeted_units = BTreeSet::new();
@@ -301,10 +301,10 @@ fn selection_for_units(
 }
 
 /// The review unit and bound snapshot content hash of the capture that owns
-/// `snapshot_id`.
+/// `object_id`.
 fn capture_bound_to_snapshot(
     events: &[ShoreEvent],
-    snapshot_id: &ObjectId,
+    object_id: &ObjectId,
 ) -> Result<(RevisionId, String)> {
     for event in events {
         if event.event_type != EventType::WorkObjectProposed {
@@ -319,13 +319,13 @@ fn capture_bound_to_snapshot(
         else {
             continue;
         };
-        if &revision.object_id == snapshot_id {
+        if &revision.object_id == object_id {
             return Ok((revision.id, snapshot_artifact_content_hash));
         }
     }
     Err(ShoreError::Message(format!(
         "unknown snapshot: {}",
-        snapshot_id.as_str()
+        object_id.as_str()
     )))
 }
 

@@ -166,14 +166,14 @@ fn same_working_tree_diff_produces_same_revision_and_snapshot_ids() {
     let second = capture_worktree_fingerprint(repo.path()).expect("second capture");
 
     assert_eq!(first.revision_id, second.revision_id);
-    assert_eq!(first.snapshot_id, second.snapshot_id);
+    assert_eq!(first.object_id, second.object_id);
     assert!(
         first
             .revision_id
             .as_str()
             .starts_with("rev:worktree:sha256:")
     );
-    assert!(first.snapshot_id.as_str().starts_with("obj:git:sha256:"));
+    assert!(first.object_id.as_str().starts_with("obj:git:sha256:"));
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn shore_state_does_not_affect_revision_fingerprint() {
     let after = capture_worktree_fingerprint(repo.path()).expect("capture after shore state");
 
     assert_eq!(before.revision_id, after.revision_id);
-    assert_eq!(before.snapshot_id, after.snapshot_id);
+    assert_eq!(before.object_id, after.object_id);
 }
 
 #[test]
@@ -198,12 +198,12 @@ fn tracked_and_untracked_content_changes_change_revision_id() {
     let after_untracked =
         capture_worktree_fingerprint(repo.path()).expect("capture after untracked");
     assert_ne!(before.revision_id, after_untracked.revision_id);
-    assert_ne!(before.snapshot_id, after_untracked.snapshot_id);
+    assert_ne!(before.object_id, after_untracked.object_id);
 
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let after_tracked = capture_worktree_fingerprint(repo.path()).expect("capture after tracked");
     assert_ne!(after_untracked.revision_id, after_tracked.revision_id);
-    assert_ne!(after_untracked.snapshot_id, after_tracked.snapshot_id);
+    assert_ne!(after_untracked.object_id, after_tracked.object_id);
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn git_ingestion_uses_content_derived_snapshot_id() {
     let fingerprint = capture_worktree_fingerprint(repo.path()).expect("capture fingerprint");
     let snapshot = ingest_tracked_diff(repo.path()).expect("ingest snapshot");
 
-    assert_eq!(snapshot.snapshot_id, fingerprint.snapshot_id);
+    assert_eq!(snapshot.object_id, fingerprint.object_id);
 }
 
 #[test]

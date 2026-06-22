@@ -22,7 +22,7 @@ fn bounded_large_changeset_exercises_full_read_only_pipeline() {
     assert!(ordered.diagnostics.is_empty(), "{:#?}", ordered.diagnostics);
     let ordered_snapshot = DiffSnapshot::new(
         snapshot.review_id.clone(),
-        snapshot.snapshot_id.clone(),
+        snapshot.object_id.clone(),
         ordered.files,
     );
     let resolved = resolve_notes(&ordered_snapshot.files, &sidecar);

@@ -815,7 +815,7 @@ mod tests {
         assert_eq!(state.validation_check_count, 0);
     }
 
-    fn revision_captured_event(revision_id: &str, snapshot_id: &str) -> ShoreEvent {
+    fn revision_captured_event(revision_id: &str, object_id: &str) -> ShoreEvent {
         // The envelope subject addresses the same revision the payload proposes,
         // mirroring how a real capture stamps both from one minted revision id.
         ShoreEvent::new(
@@ -837,7 +837,7 @@ mod tests {
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
                         id: RevisionId::new(revision_id),
-                        object_id: ObjectId::new(snapshot_id),
+                        object_id: ObjectId::new(object_id),
                         git_provenance: Some(GitProvenance {
                             source: RevisionSource::GitWorktree {
                                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,

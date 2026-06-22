@@ -52,7 +52,7 @@ fn tracked_text_diff_ingests_modified_added_and_deleted_files() {
     let snapshot = ingest_tracked_diff(repo.path()).expect("tracked diff ingests");
 
     assert_eq!(snapshot.files.len(), 3);
-    assert!(!snapshot.snapshot_id.as_str().is_empty());
+    assert!(!snapshot.object_id.as_str().is_empty());
 
     let added = file_by_path(&snapshot.files, "src/added.rs");
     assert_eq!(added.status, FileStatus::Added);
@@ -368,7 +368,7 @@ fn explicit_helper_path_is_not_reviewed_or_hashed() {
     .expect("filtered diff ingests");
 
     assert_eq!(paths(&before.files), vec!["src/lib.rs", "src/untracked.rs"]);
-    assert_eq!(before.snapshot_id, after.snapshot_id);
+    assert_eq!(before.object_id, after.object_id);
 }
 
 #[test]

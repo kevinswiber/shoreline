@@ -163,7 +163,7 @@ fn core_review_state_round_trips_with_notes_cursor_and_layout() {
 
     assert_eq!(decoded_review, review);
     assert_eq!(decoded_snapshot.review_id, review.id);
-    assert_eq!(decoded_snapshot.snapshot_id, ObjectId::new("snapshot-full"));
+    assert_eq!(decoded_snapshot.object_id, ObjectId::new("snapshot-full"));
     assert_eq!(decoded_notes[0].id, ReviewNoteId::new("note-1"));
     assert_eq!(decoded_notes[0].anchor.file_id, FileId::new("src/lib.rs"));
     assert_eq!(decoded_stream, stream);

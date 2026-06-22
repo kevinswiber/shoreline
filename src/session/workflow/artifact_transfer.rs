@@ -71,7 +71,7 @@ impl fmt::Debug for ArtifactRef {
 
 #[derive(Clone, Eq, PartialEq)]
 enum ArtifactLocator {
-    Snapshot { snapshot_id: ObjectId },
+    Snapshot { object_id: ObjectId },
     Body { relative_path: String },
 }
 
@@ -135,8 +135,8 @@ pub fn referenced_artifacts(events: &[ShoreEvent]) -> Result<Vec<ArtifactRef>> {
 /// for the worktree. Imports stay worktree-local; see [`import_artifact`].
 pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result<Vec<u8>> {
     match &artifact.locator {
-        ArtifactLocator::Snapshot { snapshot_id } => {
-            let bytes = read_snapshot_artifact_bytes(repo, snapshot_id)?;
+        ArtifactLocator::Snapshot { object_id } => {
+            let bytes = read_snapshot_artifact_bytes(repo, object_id)?;
             let stored = decode_and_validate_snapshot_artifact(&bytes)?;
             if stored.content_hash != artifact.content_hash {
                 return Err(ShoreError::Message(format!(
@@ -170,10 +170,10 @@ pub fn import_artifact(options: ImportArtifactOptions) -> Result<ImportArtifactR
     prepare_write_landing(&write_store, &storage)?;
 
     let outcome = match &options.artifact.locator {
-        ArtifactLocator::Snapshot { snapshot_id } => import_snapshot_artifact(
+        ArtifactLocator::Snapshot { object_id } => import_snapshot_artifact(
             store_dir,
             &storage,
-            snapshot_id,
+            object_id,
             &options.artifact.content_hash,
             &options.bytes,
         )?,
@@ -208,7 +208,7 @@ fn referenced_artifacts_for_event(
                     format!("snapshot:{}", revision.object_id.as_str()),
                     ArtifactRef {
                         locator: ArtifactLocator::Snapshot {
-                            snapshot_id: revision.object_id,
+                            object_id: revision.object_id,
                         },
                         content_hash: snapshot_artifact_content_hash,
                     },
@@ -320,15 +320,15 @@ fn read_body_artifact_bytes(
 fn import_snapshot_artifact(
     store_dir: &Path,
     storage: &LocalStorage,
-    snapshot_id: &ObjectId,
+    object_id: &ObjectId,
     expected_content_hash: &str,
     bytes: &[u8],
 ) -> Result<ImportArtifactOutcome> {
     let artifact = decode_and_validate_snapshot_artifact(bytes)?;
-    if artifact.snapshot.snapshot_id != *snapshot_id {
+    if artifact.snapshot.object_id != *object_id {
         return Err(ShoreError::Message(format!(
             "snapshot artifact locator mismatch for {}",
-            snapshot_id.as_str()
+            object_id.as_str()
         )));
     }
     if artifact.content_hash != expected_content_hash {
@@ -337,7 +337,7 @@ fn import_snapshot_artifact(
         )));
     }
 
-    let path = snapshot_artifact_path(store_dir, snapshot_id);
+    let path = snapshot_artifact_path(store_dir, object_id);
     match storage.create_file_exclusive(&path, bytes, Durability::Durable)? {
         CreateFileOutcome::Created => Ok(ImportArtifactOutcome::Created),
         CreateFileOutcome::AlreadyExists => {
@@ -353,7 +353,7 @@ fn import_snapshot_artifact(
             } else {
                 Err(ShoreError::Message(format!(
                     "snapshot artifact conflict for {}",
-                    snapshot_id.as_str()
+                    object_id.as_str()
                 )))
             }
         }

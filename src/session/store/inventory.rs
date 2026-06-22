@@ -36,10 +36,10 @@ pub(crate) struct ArtifactInventoryEntry {
 pub(crate) struct RevisionSnapshotInventory {
     /// The review units that captured this snapshot, sorted and deduped. Under
     /// the snapshot-scoped artifact one artifact may be shared by several units, so
-    /// identity is joined from the capture events keyed by `snapshot_id`, never
+    /// identity is joined from the capture events keyed by `object_id`, never
     /// read from the artifact body.
     pub revision_ids: Vec<String>,
-    pub snapshot_id: String,
+    pub object_id: String,
     pub artifact_ref: String,
     pub byte_size: u64,
 }
@@ -69,9 +69,9 @@ pub(crate) fn scan_store_inventory(
             .then_with(|| left.artifact_ref.cmp(&right.artifact_ref))
     });
     artifact_entries.truncate(5);
-    // One snapshot artifact is one entry now, so sort by snapshot_id alone — this
+    // One snapshot artifact is one entry now, so sort by object_id alone — this
     // avoids an empty-`revision_ids` edge in the comparator.
-    revision_snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
+    revision_snapshots.sort_by(|left, right| left.object_id.cmp(&right.object_id));
 
     let artifact_count = snapshot_count + note_count;
     let artifact_bytes = snapshot_bytes + note_bytes;
@@ -124,10 +124,10 @@ fn scan_snapshot_artifacts(
             continue;
         }
         let byte_size = contents.len() as u64;
-        let snapshot_id = artifact.snapshot.snapshot_id.as_str().to_owned();
-        let artifact_ref = format!("snapshot:{snapshot_id}");
+        let object_id = artifact.snapshot.object_id.as_str().to_owned();
+        let artifact_ref = format!("snapshot:{object_id}");
         let revision_ids = capture_owners
-            .get(&snapshot_id)
+            .get(&object_id)
             .map(|ids| ids.iter().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
         artifacts.push(ArtifactInventoryEntry {
@@ -137,7 +137,7 @@ fn scan_snapshot_artifacts(
         });
         snapshots.push(RevisionSnapshotInventory {
             revision_ids,
-            snapshot_id,
+            object_id,
             artifact_ref,
             byte_size,
         });
@@ -147,7 +147,7 @@ fn scan_snapshot_artifacts(
     Ok((count, bytes))
 }
 
-/// Join `snapshot_id → {revision_ids}` from the capture events. Identity lives
+/// Join `object_id → {revision_ids}` from the capture events. Identity lives
 /// in the event log, so this is the inventory's only source for the capturing
 /// units of a snapshot artifact. A `BTreeSet` keeps the ids sorted and deduped for
 /// deterministic output.
@@ -166,13 +166,13 @@ fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTre
         // The captured revision and its content object id ride the payload's
         // tagged work object; the snapshot artifact is joined by the object id.
         let revision = &event.payload["workObject"]["revision"];
-        let (Some(snapshot_id), Some(revision_id)) =
+        let (Some(object_id), Some(revision_id)) =
             (revision["objectId"].as_str(), revision["id"].as_str())
         else {
             continue;
         };
         owners
-            .entry(snapshot_id.to_owned())
+            .entry(object_id.to_owned())
             .or_default()
             .insert(revision_id.to_owned());
     }
@@ -322,7 +322,7 @@ mod tests {
         let entry = inventory
             .revision_snapshots
             .iter()
-            .find(|snapshot| snapshot.snapshot_id == capture.object_id.as_str())
+            .find(|snapshot| snapshot.object_id == capture.object_id.as_str())
             .expect("snapshot inventory entry");
         assert!(
             entry
@@ -421,7 +421,7 @@ mod tests {
             snapshot
                 .revision_ids
                 .contains(&capture.revision_id.as_str().to_owned())
-                && snapshot.snapshot_id == capture.object_id.as_str()
+                && snapshot.object_id == capture.object_id.as_str()
                 && snapshot.byte_size > 0
         }));
     }
