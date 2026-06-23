@@ -81,8 +81,10 @@ software work objects coordinated through an append-only event log and purpose-b
 A revision is the captured review work object (observations, assessments, and validation evidence
 attach to it); succession between revisions is a fork-tolerant supersession DAG, not a scalar lineage,
 and content identity is a separate object layer beneath the revision. Read
-`docs/substrate-language.md`, `docs/substrate-thesis-summary.md`, and
-`docs/adr/adr-0003-agent-resource-claims-advisory-first.md` before substrate-shaped refactors.
+`docs/substrate-language.md`, `docs/substrate-thesis-summary.md`,
+`docs/adr/adr-0003-agent-resource-claims-advisory-first.md`,
+`docs/adr/adr-0017-eventtarget-identity-layering-and-engagement-naming.md`, and
+`docs/adr/adr-0018-event-borne-supersession-replaces-lineage.md` before substrate-shaped refactors.
 Substrate vocabulary is internal; user-facing commands and JSON documents should stay domain-named.
 
 ## Testing

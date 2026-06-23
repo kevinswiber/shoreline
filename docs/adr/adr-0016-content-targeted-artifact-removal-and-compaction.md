@@ -249,3 +249,43 @@ redaction is out of scope here.
 - A retention policy beyond manual removal is required (auto-removal windows, quota-driven GC).
 - The dedup assumption changes — if snapshot artifacts ever become unit-scoped again (reversing #146),
   the content-vs-unit granularity must be reconsidered.
+
+## Amendment: ArtifactRemoved Files Into the Journal Carrier (`session_id` → `journal_id`) (2026-06-22)
+
+**The original decision stands; this is an envelope reconciliation only.** This ADR landed before the
+`EventTarget` identity reshape (ADR-0017) and described the `ArtifactRemoved` carrier in pre-reshape terms.
+ADR-0017 then reshaped `EventTarget` from the flat optional bag into the non-optional triple
+`EventTarget { journal_id, subject: TargetRef, track_id }` and renamed the top scope `session_id` →
+`journal_id`. This amendment records how §2's session-anchored, content-addressed removal carrier maps onto
+that reshaped envelope. **No model rule, convergence property, or `sigVersion` changes** — only the carrier's
+spelling.
+
+**The mapping.** §2's "its `EventTarget` therefore carries **only `session_id`**, and the `content_hash`
+rides in the **payload**" becomes, under the reshape: the removal event carries the envelope's `journal_id`
+and a subject-less, fieldless **`TargetRef::Journal`** carrier (`subject: TargetRef::Journal`, `track_id:
+None`), with the `content_hash` still riding in the payload. ADR-0017 introduces `TargetRef::Journal` as the
+single carrier shape for the genuinely subject-less events — the detached co-signature carrier **and** this
+`ArtifactRemoved` — each filing into its journal by the envelope's `journal_id` while its target stays
+addressed by payload content (`content_hash` here, `target_event_id`/`target_event_record_hash` for the
+co-signature carrier), never duplicated onto the envelope. So §2's note that the carrier "mirrors the
+detached co-signature carrier" is now literal: post-reshape they are the **same** `TargetRef::Journal`
+variant. §2's references to the pre-reshape constructors (`EventTarget::new(session, work_unit)`,
+`for_work_object`, `for_event_signature`) are superseded by that collapsed carrier; read `session_id` as
+`journal_id` throughout §2/§3/§6.
+
+**What does not change.** `journal_id` (formerly `session_id`) remains **first-stored-local provenance, not
+a convergent value** — like `writer`/`occurredAt` it lives in `eventRecordHash` but **not** `payloadHash`
+(§6), so two peers removing the same content from different journals still converge on the same
+`{ content_hash }` fact while keeping different first-stored envelopes. Remove-only (§5), the immutable
+event log + capture-join projection (§3), the multi-selector content set (§4), and the mirror-reality scope
+boundary (§7) all stand verbatim.
+
+**Three distinct retraction verbs (confirming cross-reference).** Removal stays the third of three distinct
+verbs, each kept distinct: **supersede** — evolve a revision (ADR-0018; the superseded revision and its
+facts remain inspectable); **withdraw** — retract a structural association edge (ADR-0014; `associated −
+withdrawn`); **remove** — delete content bytes (this ADR). They operate on different targets (a revision
+position, a structural edge, content bytes respectively) and never substitute for one another.
+
+**Status:** Accepted; lands with the substrate-reshape implementation work that reconciles this ADR to
+ADR-0017's reshaped `EventTarget`. The original ADR-0016 text above and its top-level **Status: Accepted**
+are unchanged.

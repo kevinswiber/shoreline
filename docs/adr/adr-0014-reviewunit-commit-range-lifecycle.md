@@ -296,3 +296,83 @@ verbatim (it already resolves the branch ref, skips detached HEAD, and signs). F
 tip is `fingerprint.target` (`ReviewEndpoint::GitCommit { commit_oid }`); compare to
 `git_head_oid(worktree_root)`. Lands in the same phase as the read-time scoping it serves; the read-time
 fail-open stays in place as the complementary safety net.
+
+## Amendment: Rename the Association Event Family `review_unit_*` → `revision_*` (2026-06-21)
+
+**The original decision stands; this is a vocabulary rename only.** ADR-0014's model — the symmetric
+four-event family on two axes (§1), the B1-safe writer/track-free idempotency keys (§2), withdraw-only
+terminality (§3), all-statuses-derived (§4), the git-free projection + read-time reachability enrichment
+(§5/§6), the ADR-0008 conflict diagnostics (§7), signing/convergence with **no new `sigVersion`** (§8), the
+CLI surface (§9, the `shore review association` noun), and the prior 2026-06-19 conditional-auto-record
+amendment — are **all unchanged**. Only the *names* move.
+
+**Context.** The substrate reshape renamed the review-domain work object `ReviewUnit` → `Revision`
+(`WorkObjectType::ReviewUnit`→`Revision`; `ReviewTargetRef::ReviewUnit`→`Revision`; the wire tag
+`review_unit`→`revision` — ADR-0017 §A4). This family's payload **bodies** already moved to the reshaped
+target (`ReviewTargetRef::Revision`, addressed through ADR-0017's `EventTarget.subject`), but its four
+**event-type names**, their **wire `eventType` values**, and their **idempotency-key prefixes** were missed
+and **at authoring still carried** `review_unit_*` (`src/session/event/kind.rs:36-39` /
+`src/session/event/association.rs:36,61,85,107`). **Implementation status, 2026-06-21: the substrate-reshape implementation has since
+landed the wire/EventType/idempotency rename** — current source is now the `Revision*` `EventType` /
+`revision_*` wire + idempotency prefixes (`kind.rs:13-16,36-39`), and tests assert the legacy `review_unit_*`
+types no longer decode — so this amendment **records and ratifies** that rename (the Rust payload-struct
+symbols are a still-pending lockstep cleanup; see below). It was **migration-blocking**: a one-shot migrator's `review_unit`→`revision`
+remap (the owner-run migration; ADR-0017 §A6 — the first of its three breaks) over any still-`review_unit_*` legacy event would
+otherwise produce a `revision`-keyed event the (now `revision_*`) core would reject. So the rename rides the
+**same signed-store break as the `EventTarget` reshape** (the first of §A6's three breaks), not a separate
+migration.
+
+**The rename.** The §1 house style `ReviewUnit<Thing><PastVerb>` becomes `Revision<Thing><PastVerb>`:
+
+| old variant | old wire `eventType` | → new variant | new wire `eventType` | axis |
+|---|---|---|---|---|
+| `ReviewUnitRefAssociated` | `review_unit_ref_associated` | `RevisionRefAssociated` | `revision_ref_associated` | ref / provenance |
+| `ReviewUnitRefWithdrawn` | `review_unit_ref_withdrawn` | `RevisionRefWithdrawn` | `revision_ref_withdrawn` | ref / provenance |
+| `ReviewUnitCommitAssociated` | `review_unit_commit_associated` | `RevisionCommitAssociated` | `revision_commit_associated` | commit graph |
+| `ReviewUnitCommitWithdrawn` | `review_unit_commit_withdrawn` | `RevisionCommitWithdrawn` | `revision_commit_withdrawn` | commit graph |
+
+**Idempotency-key prefixes rename in lockstep** (§2). The association key shape becomes
+`revision_<axis>_associated:<revision_id>:<source_key>` (`source_key` still `commit_oid` on the commit axis,
+`ref_name@head_oid` on the ref axis); withdrawals become `revision_<axis>_withdrawn:<association_id>`. Because
+`event_id` derives from the idempotency key alone, **this changes the derived `event_id` of every event in
+this family** — which is exactly what the one-shot owner-run migration re-keys for the whole store (ADR-0017 §A6
+/ the migrator), so it is absorbed there and is **not** a separate migration. The B1-safe key discipline
+(§2: edge distinguisher in the key; `writer`/`track` excluded; `*_association_id` as a writer-free sha256
+over `{ revision_id, edge distinguisher }`) is **unchanged** — only the literal `review_unit_`→`revision_`
+prefix moves. The payload **field** names (`ref_association_id`, `commit_association_id`,
+`ref_withdrawal_id`, `commit_withdrawal_id`) never carried `review_unit` and are **unaffected**; the Rust
+payload-struct symbols (`ReviewUnitRefAssociatedPayload` → `RevisionRefAssociatedPayload`, etc.) rename in
+lockstep with their `EventType` variants (implementation mechanics, not a wire change beyond the table).
+**Implementation status, 2026-06-21: the wire/EventType/idempotency rename has landed (`kind.rs`), but the
+Rust payload-struct symbols are a *still-pending* lockstep cleanup — live source still names them
+`ReviewUnit*Payload` (`src/session/event/association.rs:27,51,76,99`).** This is a Rust-symbol rename only
+(no wire effect) and finishes within the substrate-reshape implementation work.
+
+**Why `Revision*` and not `WorkObject*`.** The commit-range / ref association lifecycle is
+**review-domain-specific**: it associates a *review work object* to the commit graph, and the task domain has
+no commit/ref-association analog (verified — no task-domain association events exist). So this family names
+the review work object `Revision`, consistent with §A4's domain-specific naming. This is **deliberately
+distinct** from the one *cross-domain* generative move, which collapses review **and** task and therefore
+took the domain-neutral name `WorkObjectProposed` (ADR-0017 §A4): domain-specific families keep the domain
+work-object name; only the collapsed move is domain-neutral. (Abstraction-down: no task-association machinery
+is added on speculation.)
+
+**Relationship to the rest of the reshape.**
+- ADR-0017 §A4 already moved the **payload target** to `ReviewTargetRef::Revision` addressed via
+  `EventTarget.subject`; the original §1:53-54 description (`EventTarget.review_unit_id` +
+  `ReviewTargetRef::ReviewUnit{…}`) is superseded by that reshape, and this amendment completes the matching
+  **event-type / wire / key** rename so the family is fully `revision`-vocabularied end to end.
+- ADR-0018 retires the lineage family; §10's "does not touch the `review_unit_lineage_*` events" is mooted
+  (those events no longer exist after ADR-0018), but the association family itself is **orthogonal to and
+  unaffected by** lineage retirement — association (this *revision*'s work landed as commit X) remains
+  distinct from supersession (a *new* revision replaces an old one), now expressed via ADR-0018's `supersedes`.
+- Signing is unchanged: all four events continue to sign under ADR-0004's generic
+  `EventToBeSigned::from_event` with **no new `sigVersion`** (the `eventType` string is already fully generic
+  in the signing view; only its value changes, which the reshape break re-signs).
+
+**What does not change (restated for the implementer).** No new event type, payload field, projection rule,
+diagnostic, CLI verb, or `sigVersion`. The four-event count, the two axes, withdraw-only terminality, the
+derived per-OID matrix / withheld-headline-under-ambiguity, broad-default `merged`, the
+`divergent_commit_association` / `retraction_target_missing` diagnostics, and the
+`shore review association` surface all stand verbatim — read with `revision` substituted for `review_unit`
+in the four event names, their wire values, and their idempotency-key prefixes.

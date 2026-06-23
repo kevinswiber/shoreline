@@ -124,3 +124,51 @@ Reopen this ADR if raw event readability without a stored act label proves insuf
 practice, if an adapter needs source-speaker vocabulary richer than `user` / `agent`, or if the
 verified-identity replacement for the resumption-binding predicate cannot be specified before the
 federation gate ships.
+
+## Amendment: The Derived Act Is the Move Kind; Capture Is the Generative Move Any Actor Performs (2026-06-19)
+
+**The original decision stands and is reinforced.** ADR-0007 removed `writer.role` from the envelope and
+made the review **act derived from `eventType`** (never stored), and the **persona derived at projection
+time** by comparing verified actor identities (never a stored or self-asserted field). The substrate
+re-architecture (research 0013; ADR-0017 §A5) depends on exactly that posture and only **refines what the
+derived act names** and **removes one residual assumption**.
+
+**Context.** The re-architecture reframes the activity into three attributed **move kinds** — generative
+(propose/capture a revision), evaluative (observation / assessment / validation), coordinative (input
+request / response). Crucially, `capture` is the **generative move, performable by any actor**: a reviewer
+may counter-propose by capturing a revision that supersedes the author's (ADR-0018). The substrate is
+symmetric — capture already accepts an arbitrary actor and ties identity to content, not the writer
+(`src/session/workflow/capture.rs:95-103`) — so the author/reviewer asymmetry is **policy in the skills,
+not a substrate fact**.
+
+**Decision (amendment).**
+
+- **The derived act is the move kind.** ADR-0007 framed the review act as `author` (capture / note import)
+  vs `reviewer` (observation / assessment / …), derived from `eventType`. Under the re-architecture the
+  derived act is the **generative / evaluative / coordinative move kind**, still **derived from
+  `eventType`, never stored** — ADR-0007's mechanism, with a vocabulary that matches the activity model.
+- **"Capture ⇒ author" is retired as an act mapping.** Because any actor can perform the generative move,
+  `capture` no longer maps 1:1 to an "author" act. Capture is a *generative move*; whether its performer is
+  acting as the original author or as a reviewer counter-proposing is a **persona** question, not an act
+  question.
+- **Persona stays derived, exactly as ADR-0007 already prescribes (§"Persona is derived at projection
+  time").** "Is this actor the object's original proposer, or a later counter-proposer?" is computed by
+  comparing the event's verified `actorId` / effective signer against the object's prior revisions — never
+  a stored or self-asserted field. The author/reviewer distinction becomes a derived persona over the
+  supersession DAG (ADR-0018), not a writer-stamped role.
+- **No stored field returns.** This amendment introduces **no** new envelope field and **no** new signed
+  surface: the move kind is `eventType`-derived (already signed), and persona is comparison-derived. The
+  "roles are claims, not identity" rule (ADR-0007) and the resumption-binding-on-verified-identity invariant
+  are untouched and re-affirmed.
+
+**Why this is a refinement, not a re-decision.** ADR-0007's load-bearing choices — derive the act from
+`eventType`, derive persona at projection time, never key trust on a self-asserted role — are exactly what
+let the activity become symmetric and generative without re-storing a persona-shaped field. The amendment
+only updates the *derived-act vocabulary* to the three move kinds and deletes the residual "capture ⇒
+author" assumption, consistent with ADR-0017 §A5 (the author/reviewer asymmetry is policy over a symmetric
+substrate).
+
+**Revisit trigger (additional).** If a derived persona over the supersession DAG proves insufficient for a
+real read surface (e.g. a need that cannot be answered by comparing actor identities against an object's
+revisions), reopen here before adding any stored act/persona field — the bar ADR-0007 set against stored
+personas still holds.

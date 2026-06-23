@@ -74,3 +74,48 @@ directly. It should not silently introduce lock behavior as ordinary metadata.
 
 - [Substrate Language](../substrate-language.md)
 - [Substrate Thesis Summary](../substrate-thesis-summary.md)
+
+## Amendment: Advisory-First Extends to Generative Moves (2026-06-19)
+
+**The original decision stands** — agent resource claims are advisory by default, and the substrate has no
+write-side gate. This amendment **extends that scope** to a new kind of fact the substrate
+re-architecture introduces, exactly the case ADR-0003's **Revisit Trigger 4** anticipated ("a concrete
+multi-agent workflow needs scope-bounded authority that cannot be expressed through actor, target,
+assertion mode, source provenance, and projection policy").
+
+**Context.** The re-architecture (research 0013; ADR-0017) reframes the review activity as three attributed
+move kinds — **generative** (propose/capture a revision), **evaluative** (observation, assessment,
+validation), and **coordinative** (input request / response). `capture` becomes the generative move,
+performable by *any* actor, and it carries a `supersedes` pointer (ADR-0018, the supersession-replaces-lineage
+decision). A generative move is therefore a **proposal**: "actor X proposes revision R, superseding R-1."
+A proposal is the most tempting fact to escalate into "do this," and that escalation is precisely the
+workflow engine the substrate refuses.
+
+**Decision (amendment).**
+
+- A **generative move defaults to, and remains, Advisory.** It is **never promotable to Operative**. There
+  is no "this proposal is approved — implement it" path in the substrate: no projection may treat a
+  generative move as operative via a write-gate, scheduler, lease, or global current-state field.
+- `operative` remains, as in the original ADR-0003, a **named, locatable, testable, diagnostic-rich
+  projection policy** — never an intrinsic property of a move. A projection may answer "which revision is
+  the current head?" (including, under a fork, "these competing heads exist" per ADR-0018), but it never
+  *authorizes execution*.
+- **As-built flag (for the implementing plan):** `ReviewAssessmentRecorded` currently defaults *Operative*
+  (`src/session/event/mod.rs:73-78`). The generative move must default and **stay Advisory** — a different
+  default from assessments; the reshape must not let the generative move inherit the operative default.
+- The blackboard's attention/notification layer (ADR-0019) carries the **fact** of a generative move and its
+  derived attention state ("competing heads exist"), but **never an instruction and never a single-head
+  presumption**. This amendment is the write-side guarantee; ADR-0019 §D6 is the delivery-side guarantee; they
+  state the same rule from two sides.
+
+**Why this is an extension, not a re-decision.** ADR-0003 already forbids write-side force and keeps
+recorded assertions advisory; it simply predates the generative move. Without this amendment, a
+`supersedes`-carrying proposal a projection could mark operative would be one step from the scheduler/
+write-gate ADR-0003 rejects. The amendment closes that step. The recovery path for a stale or contested
+proposal is unchanged: later events — a superseding revision, a withdrawal, an input-request response, or
+human review — exactly as ADR-0003 already prescribes.
+
+**Revisit trigger (additional).** If a real multi-agent workflow genuinely needs a generative proposal to
+be treated as operative (e.g. an auto-apply gate), reopen via ADR-0003's existing executive-policy
+exception, **naming the executive behavior directly** and giving it a locatable, testable, diagnostic-rich
+home — never introducing it as ordinary advisory metadata on the move.

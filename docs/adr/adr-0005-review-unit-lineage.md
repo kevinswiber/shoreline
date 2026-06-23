@@ -1,6 +1,8 @@
 # ADR-0005: ReviewUnit Lineage
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0018](./adr-0018-event-borne-supersession-replaces-lineage.md) (Event-Borne
+Supersession Replaces the Lineage Sub-Model). The lineage event family, `headReviewUnitId`, the
+malformed-lineage-nulls-head rule, and `stale_by_newer_round` are all replaced by event-borne supersession.
 **Date:** 2026-06-04
 **See also:** [ADR-0004](./adr-0004-event-signatures.md)
 
