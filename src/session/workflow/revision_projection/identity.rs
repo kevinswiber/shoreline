@@ -13,7 +13,7 @@ use crate::session::state::ProjectionDiagnostic;
 use crate::session::workflow::ValidationCheckView;
 use crate::session::{
     ActorAttributesMap, DelegationMap, EndorsementReadback, EventVerificationPolicy,
-    EventVerificationStatus, PrincipalResolution, RevisionCommitRangeView, TrustSet,
+    EventVerificationStatus, PrincipalResolution, RemovalPolicy, RevisionCommitRangeView, TrustSet,
     principal_resolution_for_writer,
 };
 
@@ -25,6 +25,7 @@ pub struct RevisionShowOptions {
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,
+    pub(super) removal_policy: RemovalPolicy,
     pub(super) actor_attributes: Option<ActorAttributesMap>,
     pub(super) delegation_map: Option<DelegationMap>,
     pub(super) read_for_display: bool,
@@ -39,6 +40,7 @@ impl RevisionShowOptions {
             include_body: false,
             verification_policy: None,
             trust_set: TrustSet::default(),
+            removal_policy: RemovalPolicy::default(),
             actor_attributes: None,
             delegation_map: None,
             read_for_display: false,
@@ -71,6 +73,15 @@ impl RevisionShowOptions {
     /// `untrusted_key` / `unknown_endorser`.
     pub fn with_trust_set(mut self, trust_set: TrustSet) -> Self {
         self.trust_set = trust_set;
+        self
+    }
+
+    /// Supply the render-time removal policy. A non-operative removal claim — for
+    /// example an ingested, unverified one under the default `PossessionOrTrusted`
+    /// policy — renders the bytes and a claim diagnostic instead of suppressing
+    /// the snapshot. Render-only: it never gates the compact erasure sweep.
+    pub fn with_removal_policy(mut self, removal_policy: RemovalPolicy) -> Self {
+        self.removal_policy = removal_policy;
         self
     }
 

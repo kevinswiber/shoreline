@@ -5,7 +5,7 @@ use clap::Args;
 use shoreline::documents::revision_show_document;
 use shoreline::model::RevisionId;
 use shoreline::session::{
-    EventVerificationPolicy, RevisionShowOptions, enrich_liveness, show_revision,
+    EventVerificationPolicy, RemovalPolicy, RevisionShowOptions, enrich_liveness, show_revision,
 };
 
 use crate::cli::json;
@@ -84,6 +84,7 @@ fn show_options(args: &ShowArgs) -> RevisionShowOptions {
     options = options
         .with_trust_set(super::common::discover_trust_set(&args.repo))
         .with_verification_policy(EventVerificationPolicy::advisory())
+        .with_removal_policy(RemovalPolicy::default())
         .with_actor_attributes(super::common::discover_actor_attributes(&args.repo));
     options
 }

@@ -4,7 +4,7 @@ use super::identity::{RevisionProjectionIdentity, SnapshotContentState};
 use crate::error::{Result, ShoreError};
 use crate::model::{DiffSnapshot, ObjectId};
 use crate::session::object_artifact::{object_artifact_path, read_object_artifact};
-use crate::session::projection::ArtifactRemovalProjection;
+use crate::session::projection::RemovalOperativeStatus;
 use crate::session::store::resolution::resolve_read_store;
 
 /// The resolved read state of a content-addressed snapshot. The join layer
@@ -35,18 +35,26 @@ impl From<&SnapshotContent> for SnapshotContentState {
     }
 }
 
-/// Resolve the bound snapshot, splitting a recorded removal of its content hash
-/// into `SuppressedPresent` (bytes still on disk) vs `PhysicallyRemoved` (bytes
-/// swept) by an on-disk presence check. The removed-vs-missing decision lives
-/// here, at the layer that holds the event set — the storage byte readers stay
-/// event-unaware. A still-missing, *not*-removed artifact falls through to the
-/// reader's hard error (removed != not-yet-synced).
+/// Resolve the bound snapshot from a precomputed operative removal `status`
+/// (decided once in `show_revision` so the same decision drives both suppression
+/// and the claim diagnostics). An operative removal splits into `SuppressedPresent`
+/// (bytes still on disk) vs `PhysicallyRemoved` (bytes swept) by an on-disk
+/// presence check; a non-operative claim — or no claim — renders the bytes. The
+/// removed-vs-missing decision lives here, at the layer that holds the event set,
+/// so the storage byte readers stay event-unaware. A non-operative claim over
+/// absent bytes falls through to the reader's hard "import referenced artifacts"
+/// error (an untrusted/advisory removal does not suppress, so the content is
+/// treated as expected-present-but-missing, the same as not-yet-synced).
 pub(super) fn resolve_snapshot_content(
     repo: &Path,
     revision: &RevisionProjectionIdentity,
-    removal: &ArtifactRemovalProjection,
+    status: RemovalOperativeStatus,
 ) -> Result<SnapshotContent> {
-    if removal.is_removed(&revision.object_artifact_content_hash) {
+    let operative = matches!(
+        status,
+        RemovalOperativeStatus::OperativePossession | RemovalOperativeStatus::OperativeTrusted
+    );
+    if operative {
         let content_hash = revision.object_artifact_content_hash.clone();
         return Ok(if bound_blob_present(repo, &revision.object_id)? {
             SnapshotContent::SuppressedPresent { content_hash }
@@ -140,16 +148,19 @@ mod tests {
     }
 
     #[test]
-    fn removed_but_unswept_content_is_suppressed_present() {
-        // Remove the bound content (an ArtifactRemoved fact exists) but do NOT
-        // compact: the blob is still on disk. The join must report
+    fn operative_removal_with_blob_on_disk_is_suppressed_present() {
+        // An operative removal whose blob is NOT swept must report
         // SuppressedPresent, not an unconditional removed/swept state.
         let repo = committed_repo();
         let captured = capture_range(&repo);
         let identity = identity_from(&captured, repo.path());
-        let removal = removal_for(&captured.object_artifact_content_hash);
 
-        let content = resolve_snapshot_content(repo.path(), &identity, &removal).unwrap();
+        let content = resolve_snapshot_content(
+            repo.path(),
+            &identity,
+            RemovalOperativeStatus::OperativePossession,
+        )
+        .unwrap();
 
         assert!(matches!(
             content,
@@ -159,16 +170,20 @@ mod tests {
     }
 
     #[test]
-    fn removed_and_swept_content_is_physically_removed() {
-        // Remove the bound content AND sweep its blob from disk: the join must
-        // report PhysicallyRemoved.
+    fn operative_removal_with_blob_swept_is_physically_removed() {
+        // An operative removal whose blob has been swept must report
+        // PhysicallyRemoved.
         let repo = committed_repo();
         let captured = capture_range(&repo);
         let identity = identity_from(&captured, repo.path());
-        let removal = removal_for(&captured.object_artifact_content_hash);
         delete_bound_blob(repo.path(), &captured.object_id);
 
-        let content = resolve_snapshot_content(repo.path(), &identity, &removal).unwrap();
+        let content = resolve_snapshot_content(
+            repo.path(),
+            &identity,
+            RemovalOperativeStatus::OperativeTrusted,
+        )
+        .unwrap();
 
         assert!(matches!(
             content,
@@ -177,22 +192,21 @@ mod tests {
         ));
     }
 
-    /// A removal projection carrying a single `ArtifactRemoved` fact for `hash`.
-    fn removal_for(content_hash: &str) -> ArtifactRemovalProjection {
-        use crate::model::JournalId;
-        use crate::session::event::{ArtifactRemovedPayload, EventTarget, ShoreEvent, Writer};
-        let event = ShoreEvent::new(
-            EventType::ArtifactRemoved,
-            ArtifactRemovedPayload::idempotency_key(content_hash),
-            EventTarget::for_journal(JournalId::new("journal:fixture")),
-            Writer::shore_local("test"),
-            ArtifactRemovedPayload {
-                content_hash: content_hash.to_owned(),
-            },
-            "2026-06-19T00:00:00Z",
+    #[test]
+    fn non_operative_claim_renders_present() {
+        // A non-operative removal claim does not suppress: the bytes render.
+        let repo = committed_repo();
+        let captured = capture_range(&repo);
+        let identity = identity_from(&captured, repo.path());
+
+        let content = resolve_snapshot_content(
+            repo.path(),
+            &identity,
+            RemovalOperativeStatus::ClaimUnsigned,
         )
         .unwrap();
-        ArtifactRemovalProjection::from_events(&[event]).unwrap()
+
+        assert!(matches!(content, SnapshotContent::Present(_)));
     }
 
     fn delete_bound_blob(repo: &Path, object_id: &crate::model::ObjectId) {

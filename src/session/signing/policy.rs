@@ -98,6 +98,28 @@ pub enum PrincipalPolicy {
     RequireResolvablePrincipal,
 }
 
+/// Reader-side policy deciding when an `ArtifactRemoved` claim is operative for
+/// render-time suppression. A named, locatable policy (never an intrinsic event
+/// property, never a write-side gate): advisory by default for relayed claims,
+/// operative under local possession or trust. The integrity floor — a removal
+/// whose own inline signature verifies invalid — overrides every preset. The
+/// predicate is evaluated on the removal projection, which holds the reader's
+/// trust set and cosignature set; this enum only names the presets. Compact
+/// erasure uses its own fixed eligibility rule, never this render preset.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RemovalPolicy {
+    /// Never operative: every removal claim renders as a diagnostic, suppressing
+    /// nothing.
+    Advisory,
+    /// Default: not the invalid floor, then local possession OR a trusted signer
+    /// (or trusted endorsement).
+    #[default]
+    PossessionOrTrusted,
+    /// Not the invalid floor, then a trusted signer (or trusted endorsement)
+    /// only; the possession arm is dropped.
+    TrustedStrict,
+}
+
 /// The pure principal-sufficiency predicate per the ADR formula. Reads
 /// `writer_actor` only to classify scheme and key the human-committed map — no
 /// self-asserted field is ever the basis of the decision (ADR-0007), and the map
@@ -166,6 +188,11 @@ mod tests {
     #[test]
     fn default_principal_policy_is_none() {
         assert_eq!(PrincipalPolicy::default(), PrincipalPolicy::None);
+    }
+
+    #[test]
+    fn default_removal_policy_is_possession_or_trusted() {
+        assert_eq!(RemovalPolicy::default(), RemovalPolicy::PossessionOrTrusted);
     }
 
     #[test]

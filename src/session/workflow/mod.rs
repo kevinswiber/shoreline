@@ -22,7 +22,7 @@ pub(in crate::session) mod observation;
 
 pub use artifact_removal::{
     CompactOptions, CompactResult, RemoveOptions, RemoveResult, RemoveSelector, RemovedContent,
-    SweepOutcome, SweptBlob, compact_store, remove_content,
+    SkippedRemoval, SweepOutcome, SweptBlob, compact_store, remove_content,
 };
 pub use artifact_transfer::{
     ArtifactKind, ArtifactRef, ImportArtifactOptions, ImportArtifactOutcome, ImportArtifactResult,

@@ -27,12 +27,14 @@ use crate::session::event::{
     ArtifactRemovedPayload, EventTarget, EventType, ShoreEvent, WorkObjectProposal,
     WorkObjectProposedPayload,
 };
+use crate::session::projection::cosignature::CosignatureIndex;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
     ArtifactRemovalProjection, CommitGraphCondition, EventSigningOptions, EventStore,
-    EventWriteOutcome, OrphanReason, RevisionCommitRangeProjection, current_timestamp,
-    enrich_liveness, referenced_artifacts, sign_event_if_requested, writer_from_options,
+    EventWriteOutcome, OrphanReason, RemovalOperativeStatus, RemovalPolicy,
+    RevisionCommitRangeProjection, TrustSet, current_timestamp, enrich_liveness,
+    referenced_artifacts, sign_event_if_requested, writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage, RemoveOutcome};
 
@@ -389,12 +391,43 @@ fn is_orphaned(condition: &CommitGraphCondition) -> bool {
 #[derive(Clone, Debug)]
 pub struct CompactOptions {
     pub repo: PathBuf,
+    /// The reader's trust set, so the fixed erase-eligibility rule can lift a
+    /// relayed removal via a trusted signer or endorsement. The empty default
+    /// erases only locally-authored (possession) removals.
+    pub trust_set: TrustSet,
+    /// Preview only: enumerate the eligible and skipped sets and delete nothing.
+    pub dry_run: bool,
 }
 
 impl CompactOptions {
     pub fn new(repo: impl Into<PathBuf>) -> Self {
-        Self { repo: repo.into() }
+        Self {
+            repo: repo.into(),
+            trust_set: TrustSet::default(),
+            dry_run: false,
+        }
     }
+
+    pub fn with_trust_set(mut self, trust_set: TrustSet) -> Self {
+        self.trust_set = trust_set;
+        self
+    }
+
+    pub fn with_dry_run(mut self, dry_run: bool) -> Self {
+        self.dry_run = dry_run;
+        self
+    }
+}
+
+/// A removal whose blob was NOT erased because it is not erase-eligible, paired
+/// with the reason: the integrity floor (`ClaimInvalid`), or an ingested
+/// untrusted/unsigned claim without a trusted endorsement (`ClaimUntrusted` /
+/// `ClaimUnsigned`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkippedRemoval {
+    /// The normalized `sha256:<hex>` content hash that was withheld from erasure.
+    pub content_hash: String,
+    pub reason: RemovalOperativeStatus,
 }
 
 /// What the sweep did to one on-disk blob. The public, binary-crate-visible
@@ -416,10 +449,17 @@ pub struct SweptBlob {
 /// The outcome of a [`compact_store`] sweep.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactResult {
-    /// The blobs the sweep attempted to delete, in deterministic order.
+    /// The erase-eligible blobs the sweep deleted (or, under `dry_run`, would
+    /// delete), in deterministic order.
     pub swept: Vec<SweptBlob>,
-    /// Best-effort sum of the on-disk byte sizes actually reclaimed.
+    /// Best-effort sum of the on-disk byte sizes actually reclaimed. Always 0
+    /// under `dry_run`.
     pub bytes_reclaimed: u64,
+    /// True when this was a preview that deleted nothing.
+    pub dry_run: bool,
+    /// Removals that were withheld from erasure because they are not
+    /// erase-eligible, each with its reason. Never deleted.
+    pub skipped_ineligible: Vec<SkippedRemoval>,
 }
 
 /// Physically delete the content-addressed blobs whose `content_hash` was marked
@@ -433,15 +473,41 @@ pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
     let storage = LocalStorage::new(&store_dir);
 
     let events = EventStore::open(&store_dir).list_events()?;
-    let removed = ArtifactRemovalProjection::from_events(&events)?;
+    let removal = ArtifactRemovalProjection::from_events(&events)?;
+    let cosig = CosignatureIndex::build(&events)?;
 
-    // A blob is swept iff its content hash is removed. A non-removed blob is never
-    // enumerated into the sweep set, so a blob still named by a live, non-removed
-    // event is protected by construction (the safety floor over the on-disk set).
+    // Two floors protect the on-disk set. First: a non-removed blob is never
+    // enumerated into the sweep, so a blob still named by a live, non-removed
+    // event is safe by construction. Second: of the removed blobs, only the
+    // erase-eligible ones are deleted — the fixed `PossessionOrTrusted` rule,
+    // which never reads a render preset, so a laxer reader can never widen what
+    // is irreversibly erased. An ineligible removal is reported, never deleted.
     let mut swept = Vec::new();
     let mut bytes_reclaimed = 0u64;
+    let mut skipped_ineligible = Vec::new();
     for blob in on_disk_blobs(&storage, &events)? {
-        if !removed.is_removed(&blob.content_hash) {
+        if !removal.is_removed(&blob.content_hash) {
+            continue;
+        }
+        if !removal.is_erase_eligible(&blob.content_hash, &options.trust_set, &cosig)? {
+            let reason = removal.operative_status(
+                &blob.content_hash,
+                &options.trust_set,
+                RemovalPolicy::PossessionOrTrusted,
+                &cosig,
+            )?;
+            skipped_ineligible.push(SkippedRemoval {
+                content_hash: blob.content_hash,
+                reason,
+            });
+            continue;
+        }
+        if options.dry_run {
+            // Would-remove: list it, delete nothing, reclaim nothing.
+            swept.push(SweptBlob {
+                content_hash: blob.content_hash,
+                outcome: SweepOutcome::Removed,
+            });
             continue;
         }
         let byte_size = std::fs::metadata(store_dir.join(&blob.relative_path))
@@ -463,6 +529,8 @@ pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
     Ok(CompactResult {
         swept,
         bytes_reclaimed,
+        dry_run: options.dry_run,
+        skipped_ineligible,
     })
 }
 
@@ -541,14 +609,17 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::model::EngagementId;
+    use crate::crypto::{EventSignatureBytes, SignerId};
+    use crate::model::{EngagementId, JournalId};
     use crate::session::event::{
-        EventTarget, EventType, GitProvenance, Revision, ShoreEvent, WorkObjectProposal,
+        ArtifactRemovedPayload, EventSignature, EventTarget, EventType, GitProvenance,
+        IngestProvenance, IngestVia, Revision, ShoreEvent, WorkObjectProposal,
         WorkObjectProposedPayload, Writer, WriterProducer,
     };
     use crate::session::{
         ArtifactRemovalProjection, CaptureOptions, CommitRangeSpec, EventStore,
-        ObservationAddOptions, capture_review, capture_worktree_review, record_observation,
+        ObservationAddOptions, RemovalOperativeStatus, capture_review, capture_worktree_review,
+        record_observation,
     };
 
     /// The store a workflow actually lands in for `repo` — the shared common-dir
@@ -1065,5 +1136,144 @@ mod tests {
                 .any(|blob| blob.content_hash == body_hash
                     && blob.outcome == SweepOutcome::Removed)
         );
+    }
+
+    fn removal_event_for(content_hash: &str) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ArtifactRemoved,
+            ArtifactRemovedPayload::idempotency_key(content_hash),
+            EventTarget::for_journal(JournalId::new("journal:default")),
+            Writer::shore_local("test"),
+            ArtifactRemovedPayload {
+                content_hash: content_hash.to_owned(),
+            },
+            "2026-06-19T00:00:00Z",
+        )
+        .unwrap()
+    }
+
+    /// Record an `ArtifactRemoved` that arrived through a foreign-event seam
+    /// (`ingest = Some`, unsigned): a non-operative claim with no possession arm.
+    fn record_ingested_removal(repo: &TestRepo, content_hash: &str) {
+        let mut event = removal_event_for(content_hash);
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "2026-06-19T01:00:00Z".to_owned(),
+        });
+        EventStore::open(resolved_store_dir(repo.path()))
+            .record_event_once(&event)
+            .unwrap();
+    }
+
+    /// Record a locally-authored (`ingest = None`) removal whose inline signature
+    /// verifies invalid — the integrity floor, which possession can never lift.
+    fn record_invalid_possessed_removal(repo: &TestRepo, content_hash: &str) {
+        let mut event = removal_event_for(content_hash);
+        event.signer = Some(SignerId::from_ed25519_public_key([93u8; 32]));
+        event.signature = Some(EventSignature::ed25519_v1(EventSignatureBytes::from_bytes(
+            &[0u8; 64],
+        )));
+        EventStore::open(resolved_store_dir(repo.path()))
+            .record_event_once(&event)
+            .unwrap();
+    }
+
+    #[test]
+    fn compact_skips_an_ingested_unsigned_removal() {
+        let repo = TestRepo::init();
+        let capture = capture_worktree(&repo);
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 1);
+        record_ingested_removal(&repo, &capture.object_artifact_content_hash);
+
+        let result = compact_store(CompactOptions::new(repo.path())).unwrap();
+
+        // The blob survives; it is reported skipped with its claim reason.
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 1);
+        assert!(result.swept.is_empty());
+        assert!(result.skipped_ineligible.iter().any(|skipped| {
+            skipped.content_hash == capture.object_artifact_content_hash
+                && skipped.reason == RemovalOperativeStatus::ClaimUnsigned
+        }));
+    }
+
+    #[test]
+    fn compact_never_erases_invalid_floor_even_possessed() {
+        let repo = TestRepo::init();
+        let capture = capture_worktree(&repo);
+        record_invalid_possessed_removal(&repo, &capture.object_artifact_content_hash);
+
+        let result = compact_store(CompactOptions::new(repo.path())).unwrap();
+
+        assert_eq!(
+            blob_count(&repo, "artifacts/objects"),
+            1,
+            "the invalid floor is never erased, even with possession"
+        );
+        assert!(
+            result
+                .skipped_ineligible
+                .iter()
+                .any(|skipped| skipped.reason == RemovalOperativeStatus::ClaimInvalid)
+        );
+    }
+
+    #[test]
+    fn compact_dry_run_deletes_nothing() {
+        let repo = TestRepo::init();
+        let capture = capture_worktree(&repo);
+        remove_content(RemoveOptions::new(
+            repo.path(),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
+        ))
+        .unwrap();
+
+        let result = compact_store(CompactOptions::new(repo.path()).with_dry_run(true)).unwrap();
+
+        assert_eq!(
+            blob_count(&repo, "artifacts/objects"),
+            1,
+            "a dry run deletes nothing"
+        );
+        assert!(result.dry_run);
+        assert_eq!(result.bytes_reclaimed, 0);
+        // The would-remove blob is still listed.
+        assert!(result.swept.iter().any(|blob| {
+            blob.content_hash == capture.object_artifact_content_hash
+                && blob.outcome == SweepOutcome::Removed
+        }));
+    }
+
+    #[test]
+    fn compact_re_erases_recaptured_blob() {
+        let repo = TestRepo::init();
+        let capture = capture_worktree(&repo);
+        remove_content(RemoveOptions::new(
+            repo.path(),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
+        ))
+        .unwrap();
+        compact_store(CompactOptions::new(repo.path())).unwrap();
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 0);
+
+        // Re-capturing the same content re-materializes the blob while the removal
+        // fact persists in the log.
+        let recaptured = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        assert_eq!(
+            recaptured.object_artifact_content_hash,
+            capture.object_artifact_content_hash
+        );
+        assert_eq!(blob_count(&repo, "artifacts/objects"), 1);
+
+        let result = compact_store(CompactOptions::new(repo.path())).unwrap();
+
+        assert_eq!(
+            blob_count(&repo, "artifacts/objects"),
+            0,
+            "the re-captured blob is re-erased on the next compact"
+        );
+        assert!(result.swept.iter().any(|blob| {
+            blob.content_hash == capture.object_artifact_content_hash
+                && blob.outcome == SweepOutcome::Removed
+        }));
     }
 }

@@ -13,7 +13,7 @@ pub(crate) mod task;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use artifact_removal::ArtifactRemovalProjection;
+pub use artifact_removal::{ArtifactRemovalProjection, RemovalClaim, RemovalOperativeStatus};
 pub use commit_oid_grouping::CommitOidGroupingProjection;
 pub use commit_range::{
     CommitEdgeSource, CurrentCommitAssociation, CurrentRefAssociation,

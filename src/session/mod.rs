@@ -29,19 +29,20 @@ pub(crate) use projection::state;
 pub use projection::{
     ArtifactRemovalProjection, CommitEdgeSource, CommitOidGroupingProjection,
     CurrentCommitAssociation, CurrentRefAssociation, EngagementGrouping, EngagementLifecycle,
-    EngagementView, LivenessScope, LivenessToken, ProjectionDiagnostic,
-    RevisionCommitRangeProjection, RevisionCommitRangeView, RevisionsByBase, SessionState,
-    SupersessionView, WithdrawnCommitAssociation, WithdrawnRefAssociation,
-    load_durable_notes_for_repo, read_events, read_events_for_display, rebuild_state,
+    EngagementView, LivenessScope, LivenessToken, ProjectionDiagnostic, RemovalClaim,
+    RemovalOperativeStatus, RevisionCommitRangeProjection, RevisionCommitRangeView,
+    RevisionsByBase, SessionState, SupersessionView, WithdrawnCommitAssociation,
+    WithdrawnRefAssociation, load_durable_notes_for_repo, read_events, read_events_for_display,
+    rebuild_state,
 };
 pub use signing::{
     ALLOWED_SIGNERS_REL_PATH, ArtifactAvailability, BestEffortSkipSink,
     COSIGNATURE_BINDING_MISMATCH_CODE, COSIGNATURE_INVALID_CODE, COSIGNATURE_TARGET_PENDING_CODE,
     COSIGNATURE_UNTRUSTED_SIGNER_CODE, CosignatureGateDecision, CosignatureVerification,
     EnrollmentDiff, EventSigningOptions, EventVerificationPolicy, EventVerificationView,
-    IngestEventVerification, PrincipalPolicy, TrustSet, enroll_signer, event_signature_trust_set,
-    gate_cosignature_for_store, principal_sufficient, stage_enrollment, trust_set_to_value,
-    verification_view, verify_cosignature, verify_event_signature,
+    IngestEventVerification, PrincipalPolicy, RemovalPolicy, TrustSet, enroll_signer,
+    event_signature_trust_set, gate_cosignature_for_store, principal_sufficient, stage_enrollment,
+    trust_set_to_value, verification_view, verify_cosignature, verify_event_signature,
 };
 pub(crate) use signing::{sign_event_if_requested, verify_events_for_ingest};
 #[cfg(test)]
@@ -80,10 +81,10 @@ pub use workflow::{
     ReviewHistoryOptions, ReviewHistoryResult, RevisionListEntry, RevisionListOptions,
     RevisionListResult, RevisionProjectionIdentity, RevisionProjectionRow,
     RevisionProjectionSummary, RevisionShowFilters, RevisionShowOptions, RevisionShowResult,
-    SnapshotContentState, SnapshotOrder, StoreMigrateResult, StoreStatusArtifactInventory,
-    StoreStatusInventory, StoreStatusOptions, StoreStatusResult, StoreStatusRevisionObject,
-    StoreStatusSensitivity, StoreStatusSensitivityFinding, SweepOutcome, SweptBlob,
-    ValidationAddOptions, ValidationAddResult, ValidationCheckProjectionOptions,
+    SkippedRemoval, SnapshotContentState, SnapshotOrder, StoreMigrateResult,
+    StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
+    StoreStatusRevisionObject, StoreStatusSensitivity, StoreStatusSensitivityFinding, SweepOutcome,
+    SweptBlob, ValidationAddOptions, ValidationAddResult, ValidationCheckProjectionOptions,
     ValidationCheckView, ValidationListFilters, ValidationListOptions, ValidationListResult,
     WithdrawCommitOptions, WithdrawCommitResult, WithdrawRefOptions, WithdrawRefResult,
     associate_commit, associate_ref, capture_review, capture_worktree_review, compact_store,

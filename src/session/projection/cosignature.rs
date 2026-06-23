@@ -114,10 +114,12 @@ impl CosignatureSet {
     }
 
     /// True when any member classifies `endorsement-trusted` (ADR-0013): an actor vouched
-    /// for this change in its own identity. This is the stewardship/policy plane's reader —
-    /// it is **non-binding** and feeds NO binding decision (binding reads `has_valid_member`
-    /// only). Optionally narrowed by relationship/attributes downstream.
-    #[allow(dead_code)]
+    /// for this change in its own identity. For ADR-0009 resumption binding this stays
+    /// **non-binding** — that binding reads `has_valid_member` only. The one deliberate
+    /// exception is the removal-operative arm of `RemovalPolicy`: a trusted endorsement of
+    /// an `ArtifactRemoved` event is treated as operative for that removal alone (the named
+    /// ADR-0003 advisory→operative-under-named-policy election). Optionally narrowed by
+    /// relationship/attributes downstream.
     pub(crate) fn has_trusted_endorsement(&self) -> bool {
         self.members.iter().any(|member| {
             matches!(

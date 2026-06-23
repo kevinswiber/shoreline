@@ -14,7 +14,9 @@ use crate::session::observation::{
 use crate::session::projection::cosignature::{
     CosignatureIndex, endorsement_readbacks, enrich_endorser_attributes,
 };
-use crate::session::projection::{ArtifactRemovalProjection, skipped_to_diagnostics};
+use crate::session::projection::{
+    ArtifactRemovalProjection, RemovalOperativeStatus, skipped_to_diagnostics,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::{ValidationCheckProjectionOptions, project_validation_checks};
@@ -49,6 +51,17 @@ const SNAPSHOT_CONTENT_SUPPRESSED_PRESENT: &str = "snapshot_content_suppressed_p
 /// A removal is recorded for the bound snapshot content and its bytes have been
 /// swept from the store.
 const SNAPSHOT_CONTENT_PHYSICALLY_REMOVED: &str = "snapshot_content_physically_removed";
+/// The bound content carries an unsigned removal claim that is not operative.
+const REMOVAL_CLAIM_UNSIGNED: &str = "removal_claim_unsigned";
+/// The bound content carries a removal signed by an untrusted key, not operative.
+const REMOVAL_CLAIM_UNTRUSTED: &str = "removal_claim_untrusted";
+/// The bound content carries a removal whose signature verifies invalid (the
+/// integrity floor); not operative under any policy.
+const REMOVAL_CLAIM_INVALID: &str = "removal_claim_invalid";
+/// A removal targets a content hash that no event in this store references.
+const SNAPSHOT_CONTENT_REMOVED_TARGET_MISSING: &str = "snapshot_content_removed_target_missing";
+/// A capture re-binds a content hash that carries an operative removal.
+const IDENTITY_REUSED_AFTER_REMOVAL: &str = "identity_reused_after_removal";
 
 pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult> {
     let read_store = resolve_read_store(&options.repo)?;
@@ -72,7 +85,19 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     )?;
     let revision = selected_revision_capture(&events, &resolved)?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;
-    let snapshot_content = resolve_snapshot_content(&options.repo, &revision, &removal)?;
+    // Built once near the removal projection and shared downstream: the
+    // suppression decision, the claim diagnostics, and the endorsement readback
+    // block all read this one index (do not build a second).
+    let cosig_index = CosignatureIndex::build(&events)?;
+    // The bound hash's operative status is decided once here so the same decision
+    // drives both suppression and the claim diagnostics.
+    let bound_status = removal.operative_status(
+        &revision.object_artifact_content_hash,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    )?;
+    let snapshot_content = resolve_snapshot_content(&options.repo, &revision, bound_status)?;
     let snapshot_content_state = SnapshotContentState::from(&snapshot_content);
     let (snapshot, removed_snapshot_content_hash) = match snapshot_content {
         SnapshotContent::Present(snapshot) => (snapshot, None),
@@ -183,6 +208,65 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         }
     }
 
+    // The bound hash's claim diagnostic, mapped from the operative status decided
+    // once above (reused, not recomputed). A non-operative claim renders the bytes
+    // and surfaces here instead of silently suppressing.
+    let bound_hash = &revision.object_artifact_content_hash;
+    match bound_status {
+        RemovalOperativeStatus::ClaimUnsigned => diagnostics.push(ProjectionDiagnostic {
+            code: REMOVAL_CLAIM_UNSIGNED.to_owned(),
+            message: format!(
+                "removal of snapshot content {bound_hash} is unsigned and not operative; ratify it \
+                 with `shore review endorse` or extend trust"
+            ),
+        }),
+        RemovalOperativeStatus::ClaimUntrusted => diagnostics.push(ProjectionDiagnostic {
+            code: REMOVAL_CLAIM_UNTRUSTED.to_owned(),
+            message: format!(
+                "removal of snapshot content {bound_hash} is signed by an untrusted key and not \
+                 operative; ratify it or extend trust"
+            ),
+        }),
+        RemovalOperativeStatus::ClaimInvalid => diagnostics.push(ProjectionDiagnostic {
+            code: REMOVAL_CLAIM_INVALID.to_owned(),
+            message: format!(
+                "removal of snapshot content {bound_hash} has an invalid signature (integrity \
+                 floor) and is not operative; re-issue it cleanly"
+            ),
+        }),
+        RemovalOperativeStatus::NoClaim
+        | RemovalOperativeStatus::OperativePossession
+        | RemovalOperativeStatus::OperativeTrusted => {}
+    }
+
+    // Projection-scope removal diagnostics, sharing the hoisted cosig index: a
+    // removal of a never-referenced hash, and a capture re-binding an operatively
+    // removed hash.
+    for content_hash in removal.target_missing_diagnostics(&events)? {
+        diagnostics.push(ProjectionDiagnostic {
+            code: SNAPSHOT_CONTENT_REMOVED_TARGET_MISSING.to_owned(),
+            message: format!(
+                "removal targets content {content_hash}, which no event in this store references"
+            ),
+        });
+    }
+    for reuse in removal.identity_reuse_diagnostics(
+        &events,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    )? {
+        diagnostics.push(ProjectionDiagnostic {
+            code: IDENTITY_REUSED_AFTER_REMOVAL.to_owned(),
+            message: format!(
+                "revision {} re-binds removed snapshot content {} ({})",
+                reuse.revision_id.as_str(),
+                reuse.content_hash,
+                reuse.kind.as_str()
+            ),
+        });
+    }
+
     // Git-free commit-range lifecycle: fold the association events into the resolved
     // unit's view and surface its diagnostics. Liveness is layered by repo-holding
     // callers, never here.
@@ -232,7 +316,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     if options.verification_policy.is_some() {
         let by_id: HashMap<&str, &ShoreEvent> =
             events.iter().map(|e| (e.event_id.as_str(), e)).collect();
-        let cosig_index = CosignatureIndex::build(&events)?; // once per call
+        // Reuses the `cosig_index` hoisted near the removal projection above.
         let mut record = |event_id: &EventId| -> Result<()> {
             if let Some(event) = by_id.get(event_id.as_str()) {
                 let entry = member_readbacks.entry(event_id.clone()).or_default();
@@ -301,23 +385,26 @@ mod tests {
     use super::rows::RevisionProjectionRowKind;
     use super::*;
     use crate::canonical_hash::sha256_json_prefixed;
+    use crate::crypto::{EventSignatureBytes, EventSigner};
     use crate::model::{
-        DiffSnapshot, ObjectId, ReviewId, RevisionId, ValidationCheckId, ValidationStatus,
-        ValidationTarget, ValidationTrigger,
+        DiffSnapshot, EngagementId, ObjectId, ReviewId, RevisionId, ValidationCheckId,
+        ValidationStatus, ValidationTarget, ValidationTrigger,
     };
     use crate::session::event::{
-        ArtifactRemovedPayload, EventTarget, EventType, InputRequestReasonCode,
-        InputRequestResponseOutcome, ReviewAssessment, ShoreEvent, ValidationCheckRecordedPayload,
-        Writer,
+        ArtifactRemovedPayload, EventSignature, EventTarget, EventToBeSigned, EventType,
+        IngestProvenance, IngestVia, InputRequestReasonCode, InputRequestResponseOutcome,
+        ReviewAssessment, Revision, ShoreEvent, ValidationCheckRecordedPayload, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer, event_signature_pre_authentication_encoding,
     };
+    use crate::session::signing::test_support::DeterministicSigner;
     use crate::session::{
         AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CaptureResult,
         CurrentAssessmentStatus, EventStore, ImportNotesOptions, InputRequestListOptions,
         InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
         InputRequestStatusFilter, ObservationAddOptions, ObservationListOptions,
-        ObservationTargetSelector, capture_worktree_review, import_notes, list_input_requests,
-        list_observations, open_input_request, record_assessment, record_observation,
-        respond_input_request, show_assessments,
+        ObservationTargetSelector, RemovalPolicy, capture_worktree_review, import_notes,
+        list_input_requests, list_observations, open_input_request, record_assessment,
+        record_observation, respond_input_request, show_assessments,
     };
 
     #[test]
@@ -1469,9 +1556,248 @@ mod tests {
             .unwrap();
     }
 
+    /// Record an `ArtifactRemoved` that arrived through a foreign-event seam
+    /// (`ingest = Some`): it has no local-possession arm, so the default policy
+    /// reads it as a non-operative claim.
+    fn record_ingested_artifact_removed(repo: &Path, content_hash: &str) {
+        let mut event = ShoreEvent::new(
+            EventType::ArtifactRemoved,
+            ArtifactRemovedPayload::idempotency_key(content_hash),
+            EventTarget::for_journal(crate::model::JournalId::new("journal:default")),
+            Writer::shore_local("0.1.0"),
+            ArtifactRemovedPayload {
+                content_hash: content_hash.to_owned(),
+            },
+            "2026-05-10T00:00:00Z",
+        )
+        .unwrap();
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "2026-05-10T01:00:00Z".to_owned(),
+        });
+        EventStore::open(resolved_store_dir(repo))
+            .record_event_once(&event)
+            .unwrap();
+    }
+
+    /// Record an `ArtifactRemoved` carrying an inline signature, optionally
+    /// ingested and optionally tampered. `validate_event` does not verify
+    /// signatures, so the read-time reader-relative check classifies it: a valid
+    /// signature under the empty default trust reads `UntrustedKey`, a tampered
+    /// one reads `Invalid`.
+    fn record_signed_artifact_removed(repo: &Path, content_hash: &str, ingest: bool, tamper: bool) {
+        let signer = DeterministicSigner::from_seed([91u8; 32]);
+        let mut event = ShoreEvent::new(
+            EventType::ArtifactRemoved,
+            ArtifactRemovedPayload::idempotency_key(content_hash),
+            EventTarget::for_journal(crate::model::JournalId::new("journal:default")),
+            Writer::shore_local("0.1.0"),
+            ArtifactRemovedPayload {
+                content_hash: content_hash.to_owned(),
+            },
+            "2026-05-10T00:00:00Z",
+        )
+        .unwrap();
+        let tbs = EventToBeSigned::from_event(&event, signer.signer_id()).unwrap();
+        let pae = event_signature_pre_authentication_encoding(&tbs).unwrap();
+        let sig = signer.sign_event_message(&pae).unwrap();
+        event.signer = Some(signer.signer_id().clone());
+        event.signature = Some(if tamper {
+            EventSignature::ed25519_v1(EventSignatureBytes::from_bytes(&[0u8; 64]))
+        } else {
+            EventSignature::ed25519_v1(sig)
+        });
+        if ingest {
+            event.ingest = Some(IngestProvenance {
+                via: IngestVia::IngestEvents,
+                received_at: "2026-05-10T01:00:00Z".to_owned(),
+            });
+        }
+        EventStore::open(resolved_store_dir(repo))
+            .record_event_once(&event)
+            .unwrap();
+    }
+
+    /// Fabricate a second, distinct-revision capture binding the SAME content
+    /// hash as `capture` (the content/object identity-reuse case).
+    fn fabricate_distinct_sibling_capture(repo: &Path, capture: &CaptureResult) {
+        let sibling_unit = RevisionId::new(format!("{}-reuse", capture.revision_id.as_str()));
+        let sibling_object = ObjectId::new(format!("{}-reuse", capture.object_id.as_str()));
+        let event = ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", sibling_unit.as_str()),
+            EventTarget::for_revision(capture.journal_id.clone(), sibling_unit.clone(), None),
+            Writer::shore_local("0.1.0"),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new("engagement:sha256:reuse"),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: sibling_unit,
+                        object_id: sibling_object,
+                        git_provenance: None,
+                    },
+                    object_artifact_content_hash: capture.object_artifact_content_hash.clone(),
+                    supersedes: vec![],
+                },
+            },
+            "2026-05-10T00:00:00Z",
+        )
+        .unwrap();
+        EventStore::open(resolved_store_dir(repo))
+            .record_event_once(&event)
+            .unwrap();
+    }
+
     fn delete_snapshot_blob(repo: &Path, object_id: &ObjectId) {
         let path = object_artifact_path(repo, object_id);
         fs::remove_file(path).expect("delete snapshot blob");
+    }
+
+    #[test]
+    fn ingested_unsigned_removal_emits_removal_claim_unsigned() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_ingested_artifact_removed(repo.path(), &capture.object_artifact_content_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "removal_claim_unsigned")
+        );
+        // The non-operative claim renders the bytes rather than suppressing them.
+        assert!(!result.snapshot.files.is_empty());
+    }
+
+    #[test]
+    fn ingested_untrusted_removal_emits_removal_claim_untrusted() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_signed_artifact_removed(
+            repo.path(),
+            &capture.object_artifact_content_hash,
+            true,
+            false,
+        );
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "removal_claim_untrusted")
+        );
+    }
+
+    #[test]
+    fn invalid_signature_removal_emits_removal_claim_invalid() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        // Locally authored (possessed) but the inline signature is tampered: the
+        // integrity floor classifies it invalid even with possession.
+        record_signed_artifact_removed(
+            repo.path(),
+            &capture.object_artifact_content_hash,
+            false,
+            true,
+        );
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "removal_claim_invalid")
+        );
+    }
+
+    #[test]
+    fn removal_of_unreferenced_hash_emits_removed_target_missing() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        // A possessed removal over a hash no event references.
+        record_artifact_removed(repo.path(), "sha256:ghost-unreferenced");
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
+
+        assert!(result.diagnostics.iter().any(|d| {
+            d.code == "snapshot_content_removed_target_missing"
+                && d.message.contains("sha256:ghost-unreferenced")
+        }));
+    }
+
+    #[test]
+    fn second_capture_over_removed_hash_emits_identity_reused_after_removal() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        // A distinct capture re-binds the same content hash, then the hash is
+        // removed (possessed → operative).
+        fabricate_distinct_sibling_capture(repo.path(), &capture);
+        record_artifact_removed(repo.path(), &capture.object_artifact_content_hash);
+
+        let result = show_revision(
+            RevisionShowOptions::new(repo.path()).with_revision_id(capture.revision_id.clone()),
+        )
+        .unwrap();
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "identity_reused_after_removal")
+        );
+    }
+
+    #[test]
+    fn ingested_unsigned_removal_renders_present_under_default_policy() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_ingested_artifact_removed(repo.path(), &capture.object_artifact_content_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
+
+        // An ingested, unverified removal is non-operative under the default
+        // policy: the snapshot renders rather than being suppressed.
+        assert_eq!(result.snapshot_content_state, SnapshotContentState::Present);
+        assert!(!result.snapshot_is_removed());
+        assert!(!result.snapshot.files.is_empty());
+    }
+
+    #[test]
+    fn possessed_unsigned_removal_still_suppresses_under_default() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        // Locally authored (ingest = None): the zero-key local possession floor.
+        record_artifact_removed(repo.path(), &capture.object_artifact_content_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
+
+        assert_eq!(
+            result.snapshot_content_state,
+            SnapshotContentState::SuppressedPresent
+        );
+        assert!(result.snapshot_is_removed());
+    }
+
+    #[test]
+    fn possessed_removal_renders_present_under_trusted_strict() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_artifact_removed(repo.path(), &capture.object_artifact_content_hash);
+
+        let result = show_revision(
+            RevisionShowOptions::new(repo.path()).with_removal_policy(RemovalPolicy::TrustedStrict),
+        )
+        .unwrap();
+
+        // TrustedStrict drops the possession arm; the possessed unsigned removal
+        // no longer suppresses.
+        assert_eq!(result.snapshot_content_state, SnapshotContentState::Present);
+        assert!(!result.snapshot_is_removed());
     }
 
     #[test]
