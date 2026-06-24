@@ -71,8 +71,7 @@ impl LocalStorage {
         fs::read(&path).map_err(|error| io_error("read file", &path, error))
     }
 
-    #[cfg(test)]
-    pub fn read_bytes_if_exists(&self, path: &Path) -> Result<Option<Vec<u8>>> {
+    pub(crate) fn read_bytes_if_exists(&self, path: &Path) -> Result<Option<Vec<u8>>> {
         let path = self.resolve(path);
         match fs::read(&path) {
             Ok(bytes) => Ok(Some(bytes)),

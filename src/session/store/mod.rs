@@ -1,5 +1,7 @@
+mod backend;
 pub(in crate::session) mod body_artifact;
 pub(in crate::session) mod bundle;
+pub(in crate::session) mod content;
 mod event_migrate;
 mod event_store;
 pub(in crate::session) mod fingerprint;

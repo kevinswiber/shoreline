@@ -32,6 +32,7 @@ use crate::session::event::{
 use crate::session::object_artifact::decode_and_validate_object_artifact;
 use crate::session::projection::cosignature::CosignatureIndex;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
     ArtifactRemovalProjection, CommitGraphCondition, EventSigningOptions, EventStore,
@@ -478,7 +479,7 @@ pub struct CompactResult {
 pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
     let write_store = resolve_write_store(&options.repo)?;
     let store_dir = write_store.store_dir().to_path_buf();
-    let storage = LocalStorage::new(&store_dir);
+    let content = ContentArtifacts::local(&store_dir);
 
     let events = EventStore::open(&store_dir).list_events()?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;
@@ -493,7 +494,7 @@ pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
     let mut swept = Vec::new();
     let mut bytes_reclaimed = 0u64;
     let mut skipped_ineligible = Vec::new();
-    for blob in on_disk_blobs(&storage, &events)? {
+    for blob in on_disk_blobs(&content, &events)? {
         if !removal.is_removed(&blob.content_hash) {
             continue;
         }
@@ -517,22 +518,15 @@ pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
         // the byte accounting, so the delete path reads each file exactly once,
         // and the same check runs under `dry_run` so a preview is honest about
         // what it would skip.
-        let path = store_dir.join(&blob.relative_path);
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        let bytes = match content.get_if_exists(&blob.relative_path)? {
+            Some(bytes) => bytes,
+            None => {
                 // Already gone (e.g. a prior sweep): nothing to reclaim.
                 swept.push(SweptBlob {
                     content_hash: blob.content_hash,
                     outcome: SweepOutcome::Missing,
                 });
                 continue;
-            }
-            Err(error) => {
-                return Err(ShoreError::Message(format!(
-                    "read blob {}: {error}",
-                    path.display()
-                )));
             }
         };
         if !blob_content_matches_claim(&blob, &bytes) {
@@ -551,7 +545,7 @@ pub fn compact_store(options: CompactOptions) -> Result<CompactResult> {
             continue;
         }
         let byte_size = bytes.len() as u64;
-        let outcome = match storage.remove_file(&blob.relative_path)? {
+        let outcome = match content.remove(&blob.relative_path)? {
             RemoveOutcome::Removed => {
                 bytes_reclaimed += byte_size;
                 SweepOutcome::Removed
@@ -603,28 +597,22 @@ struct OnDiskBlob {
 /// file name is `sha256(snapshotId)` — *not* the content hash — so it is resolved
 /// through the `WorkObjectProposed` payloads; a note file name stem *is* the
 /// content-hash hex.
-fn on_disk_blobs(storage: &LocalStorage, events: &[ShoreEvent]) -> Result<Vec<OnDiskBlob>> {
+fn on_disk_blobs(content: &ContentArtifacts, events: &[ShoreEvent]) -> Result<Vec<OnDiskBlob>> {
     let snapshot_hash_by_stem = snapshot_content_hash_by_file_stem(events)?;
     let mut blobs = Vec::new();
 
-    for path in storage.list_dir(Path::new("artifacts/objects"))? {
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
+    for relative_path in content.list_refs("artifacts/objects")? {
+        let file_name = ref_file_name(&relative_path);
         let stem = file_name.strip_suffix(".json").unwrap_or(file_name);
         if let Some(content_hash) = snapshot_hash_by_stem.get(stem) {
             blobs.push(OnDiskBlob {
-                relative_path: format!("artifacts/objects/{file_name}"),
+                relative_path: relative_path.clone(),
                 content_hash: content_hash.clone(),
             });
         }
     }
 
-    for path in storage.list_dir(Path::new("artifacts/notes"))? {
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        let relative_path = format!("artifacts/notes/{file_name}");
+    for relative_path in content.list_refs("artifacts/notes")? {
         let content_hash = note_body_content_hash_from_path(&relative_path)?;
         blobs.push(OnDiskBlob {
             relative_path,
@@ -633,6 +621,11 @@ fn on_disk_blobs(storage: &LocalStorage, events: &[ShoreEvent]) -> Result<Vec<On
     }
 
     Ok(blobs)
+}
+
+/// The trailing file-name segment of a store-relative content ref.
+fn ref_file_name(content_ref: &str) -> &str {
+    content_ref.rsplit('/').next().unwrap_or(content_ref)
 }
 
 /// Map each captured snapshot's on-disk file stem (`sha256(snapshotId)`) to its

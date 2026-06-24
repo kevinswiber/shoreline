@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::{Result, ShoreError};
 use crate::model::{DiffSnapshot, ObjectId};
+use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::{RevisionFingerprint, ShoreStorePaths};
-use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 const OBJECT_ARTIFACT_SCHEMA: &str = "shore.object";
 const OBJECT_ARTIFACT_VERSION: u32 = 2;
@@ -52,32 +52,15 @@ pub(crate) fn write_object_artifact_to(
 
     let artifact = build_object_artifact_v2(snapshot)?;
 
-    let storage = LocalStorage::new(store_dir);
-    let path = object_artifact_path(store_dir, &artifact.snapshot.object_id);
+    // Dedup on snapshot-content match (INV-7): the locator is keyed by
+    // `object_id`, so an existing valid artifact whose `snapshot` equals ours
+    // holds the same content. Two fresh worktrees write byte-identical v2
+    // artifacts and dedup against each other — #146 is fixed. The existing
+    // artifact is returned, so the capture event binds to the hash on disk.
+    let content = ContentArtifacts::local(store_dir);
+    let content_ref = object_content_ref(&artifact.snapshot.object_id);
     let bytes = serde_json::to_vec(&artifact)?;
-
-    match storage.create_file_exclusive(&path, &bytes, Durability::Durable)? {
-        CreateFileOutcome::Created => Ok(artifact),
-        CreateFileOutcome::AlreadyExists => {
-            // Dedup on snapshot-content match (INV-7): the path is keyed by
-            // `object_id`, so an existing valid artifact whose `snapshot` equals
-            // ours holds the same content. Two fresh worktrees write byte-identical
-            // v2 artifacts and dedup against each other — #146 is fixed. We return
-            // the existing artifact, so the capture event binds to the hash on disk.
-            let existing_bytes = std::fs::read(&path).map_err(|error| {
-                missing_artifact_or_io(error, &artifact.snapshot.object_id, &path)
-            })?;
-            let existing = decode_and_validate_object_artifact(&existing_bytes)?;
-            if existing.snapshot == artifact.snapshot {
-                Ok(existing)
-            } else {
-                Err(ShoreError::Message(format!(
-                    "object artifact conflict for {}",
-                    artifact.snapshot.object_id.as_str()
-                )))
-            }
-        }
-    }
+    content.put_object(&content_ref, &bytes, artifact)
 }
 
 /// Build a v2 object-scoped artifact with its content hash filled in. The
@@ -112,8 +95,8 @@ pub(crate) fn read_object_artifact_bytes(
     object_id: &ObjectId,
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
-    let path = object_artifact_path(read_store.store_dir(), object_id);
-    std::fs::read(&path).map_err(|error| missing_artifact_or_io(error, object_id, &path))
+    ContentArtifacts::local(read_store.store_dir())
+        .read_object_bytes(&object_content_ref(object_id), object_id)
 }
 
 /// Read a object artifact for WRITE-PATH target validation. Resolves the
@@ -136,35 +119,20 @@ fn read_object_artifact_bytes_with_local_fallback(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
 ) -> Result<Vec<u8>> {
+    let content_ref = object_content_ref(object_id);
     let read_store = resolve_read_store(repo.as_ref())?;
-    let resolved_path = object_artifact_path(read_store.store_dir(), object_id);
-    match std::fs::read(&resolved_path) {
-        Ok(bytes) => Ok(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+    match ContentArtifacts::local(read_store.store_dir())
+        .read_object_bytes_if_exists(&content_ref)?
+    {
+        Some(bytes) => Ok(bytes),
+        None => {
             // Fall back to the worktree-local store: the case where the unit's
             // content-addressed artifact lives only in `.shore/data` (an
             // ephemeral or pre-migration capture) and not in the resolved store.
             let local = ShoreStorePaths::resolve(repo.as_ref())?;
-            let local_path = object_artifact_path(local.store_dir(), object_id);
-            std::fs::read(&local_path)
-                .map_err(|error| missing_artifact_or_io(error, object_id, &local_path))
+            ContentArtifacts::local(local.store_dir()).read_object_bytes(&content_ref, object_id)
         }
-        Err(error) => Err(missing_artifact_or_io(error, object_id, &resolved_path)),
     }
-}
-
-/// Shared error mapping for snapshot-artifact byte reads: a missing file yields
-/// the canonical "import referenced artifacts" message; any other I/O error is
-/// reported with its path. The read surface and the write-validation fallback
-/// differ only in whether a `NotFound` triggers the local fallback before this.
-fn missing_artifact_or_io(error: std::io::Error, object_id: &ObjectId, path: &Path) -> ShoreError {
-    if error.kind() == std::io::ErrorKind::NotFound {
-        return ShoreError::Message(format!(
-            "missing artifact for snapshot {}; import referenced artifacts before reading",
-            object_id.as_str()
-        ));
-    }
-    ShoreError::Message(format!("read file {}: {error}", path.display()))
 }
 
 /// The one decode path for stored snapshot-artifact bytes. Strict v2-only:
@@ -214,6 +182,15 @@ pub(crate) fn object_artifact_path(store_dir: &Path, object_id: &ObjectId) -> Pa
     store_dir
         .join("artifacts/objects")
         .join(format!("{}.json", artifact_file_stem(object_id.as_str())))
+}
+
+/// The store-relative locator for an object artifact (`artifacts/objects/<hash>.json`),
+/// the content-store ref the same file resolves under.
+fn object_content_ref(object_id: &ObjectId) -> String {
+    format!(
+        "artifacts/objects/{}.json",
+        artifact_file_stem(object_id.as_str())
+    )
 }
 
 fn artifact_file_stem(id: &str) -> String {

@@ -3,12 +3,14 @@ use std::path::{Path, PathBuf};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, SchemaBreakRecord, ShoreError};
 use crate::session::event::{AssertionMode, EventType, ShoreEvent};
-use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
+use crate::session::store::backend::{Journal, JournalEntry, LocalJournal};
+use crate::storage::{CreateFileOutcome, LocalStorage};
 
 #[derive(Debug)]
 pub struct EventStore {
     store_dir: PathBuf,
     storage: LocalStorage,
+    journal: Box<dyn Journal>,
 }
 
 impl EventStore {
@@ -16,6 +18,7 @@ impl EventStore {
         let store_dir = store_dir.as_ref().to_path_buf();
         Self {
             storage: LocalStorage::new(&store_dir),
+            journal: Box::new(LocalJournal::new(&store_dir)),
             store_dir,
         }
     }
@@ -38,23 +41,20 @@ impl EventStore {
         );
         let _entered = span.enter();
 
-        validate_event(
-            event,
-            Some(&self.event_path_for_idempotency_key(&event.idempotency_key)),
-        )?;
         let path = self.event_path_for_idempotency_key(&event.idempotency_key);
+        validate_event(event, Some(&path))?;
         let bytes = serde_json::to_vec(event)?;
 
         match self
-            .storage
-            .create_file_exclusive(&path, &bytes, Durability::Durable)?
+            .journal
+            .create_event_once(&event.idempotency_key, &bytes)?
         {
             CreateFileOutcome::Created => {
                 tracing::debug!(path = %path.display(), "event_store_write_created");
                 Ok(EventWriteOutcome::Created)
             }
             CreateFileOutcome::AlreadyExists => {
-                let existing = self.read_event(&path)?;
+                let existing = self.read_stored_event(&event.idempotency_key)?;
                 if existing.payload_hash == event.payload_hash {
                     if event_signature_binding_matches(&existing, event) {
                         tracing::debug!(path = %path.display(), "event_store_write_existing");
@@ -87,6 +87,51 @@ impl EventStore {
 
     pub fn read_event(&self, path: &Path) -> Result<ShoreEvent> {
         let bytes = self.storage.read_bytes(path)?;
+        Self::decode_validated_event(&bytes, Some(path))
+    }
+
+    /// Read the stored event for `idempotency_key` back through the journal, then
+    /// decode and validate its bytes. `record_event_once` classifies an
+    /// already-present entry this way, so the read-back goes through the same byte
+    /// surface as the write rather than reaching into the filesystem directly. The
+    /// decoded event must carry the key it was requested under — the keyed-read
+    /// equivalent of the file backend's filename/key check — so a blob tampered to
+    /// hold a different key's content is rejected, not classified.
+    fn read_stored_event(&self, idempotency_key: &str) -> Result<ShoreEvent> {
+        let bytes = self
+            .journal
+            .read_event_bytes(idempotency_key)?
+            .ok_or_else(|| {
+                ShoreError::Message(format!(
+                    "stored event for idempotency key {idempotency_key} disappeared during write"
+                ))
+            })?;
+        let event = Self::decode_validated_event(&bytes, None)?;
+        if event.idempotency_key != idempotency_key {
+            return Err(filename_idempotency_mismatch(idempotency_key));
+        }
+        Ok(event)
+    }
+
+    /// Decode and validate one listed journal entry. The byte read surface carries
+    /// no path, so the filename/key check `read_event` performs becomes a digest
+    /// check here: the decoded event's key must hash to the entry's content-address
+    /// digest, rejecting a blob that drifted from its content-addressed home.
+    fn decode_validated_entry(entry: &JournalEntry) -> Result<ShoreEvent> {
+        let event = Self::decode_validated_event(&entry.bytes, None)?;
+        if event_filename_stem(&event.idempotency_key) != entry.key_digest {
+            return Err(filename_idempotency_mismatch(&event.idempotency_key));
+        }
+        Ok(event)
+    }
+
+    /// Decode stored event bytes, rejecting the two recognized schema breaks (a
+    /// retired event type, a retired envelope field) with typed errors before
+    /// validating the decoded event. `path`, when given, also checks the file name
+    /// matches the idempotency key. The byte read surface passes `None` and pairs
+    /// this with a digest/key check at the call site instead, since the bytes carry
+    /// no path of their own.
+    fn decode_validated_event(bytes: &[u8], path: Option<&Path>) -> Result<ShoreEvent> {
         #[derive(serde::Deserialize)]
         struct EventProbe<'a> {
             #[serde(rename = "eventType", borrow)]
@@ -107,7 +152,7 @@ impl EventStore {
             role: Option<serde::de::IgnoredAny>,
             tool: Option<serde::de::IgnoredAny>,
         }
-        let probe: EventProbe<'_> = serde_json::from_slice(&bytes)?;
+        let probe: EventProbe<'_> = serde_json::from_slice(bytes)?;
         if let Some(record) = schema_break_for(probe.event_type) {
             return Err(ShoreError::UnsupportedEventType(record));
         }
@@ -121,15 +166,16 @@ impl EventStore {
                 schema_break_for("writer.tool").expect("writer.tool has a break record"),
             ));
         }
-        let event: ShoreEvent = serde_json::from_slice(&bytes)?;
-        validate_event(&event, Some(path))?;
+        let event: ShoreEvent = serde_json::from_slice(bytes)?;
+        validate_event(&event, path)?;
         Ok(event)
     }
 
     pub fn list_events(&self) -> Result<Vec<ShoreEvent>> {
-        self.list_event_file_names()?
-            .into_iter()
-            .map(|name| self.read_event(&self.events_dir().join(name)))
+        self.journal
+            .list_event_entries()?
+            .iter()
+            .map(Self::decode_validated_entry)
             .collect()
     }
 
@@ -140,8 +186,8 @@ impl EventStore {
     pub fn list_events_lenient(&self) -> Result<(Vec<ShoreEvent>, Vec<SkippedEvent>)> {
         let mut events = Vec::new();
         let mut skipped = Vec::new();
-        for name in self.list_event_file_names()? {
-            match self.read_event(&self.events_dir().join(name)) {
+        for entry in self.journal.list_event_entries()? {
+            match Self::decode_validated_entry(&entry) {
                 Ok(event) => events.push(event),
                 Err(ShoreError::UnsupportedEventType(record)) => skipped.push(SkippedEvent {
                     code: "unsupported_event_type",
@@ -175,9 +221,7 @@ impl EventStore {
     }
 
     pub(crate) fn event_exists(&self, idempotency_key: &str) -> Result<bool> {
-        Ok(self
-            .event_path_for_idempotency_key(idempotency_key)
-            .exists())
+        self.journal.event_exists(idempotency_key)
     }
 }
 
@@ -238,21 +282,27 @@ fn validate_event(event: &ShoreEvent, path: Option<&Path>) -> Result<()> {
     {
         let expected_stem = event_filename_stem(&event.idempotency_key);
         if stem != expected_stem {
-            return Err(ShoreError::Message(format!(
-                "event filename does not match idempotencyKey for {}",
-                event.idempotency_key
-            )));
+            return Err(filename_idempotency_mismatch(&event.idempotency_key));
         }
     }
 
     Ok(())
 }
 
-fn event_filename_stem(idempotency_key: &str) -> String {
+/// The stored event's content-address home disagrees with its idempotency key —
+/// a relocated, renamed, or tampered blob. Shared by the path check, the keyed
+/// read-back, and the listing decode so all three speak with one voice.
+fn filename_idempotency_mismatch(idempotency_key: &str) -> ShoreError {
+    ShoreError::Message(format!(
+        "event filename does not match idempotencyKey for {idempotency_key}"
+    ))
+}
+
+pub(in crate::session::store) fn event_filename_stem(idempotency_key: &str) -> String {
     sha256_bytes_hex(idempotency_key.as_bytes())
 }
 
-fn is_event_file(path: &Path) -> bool {
+pub(in crate::session::store) fn is_event_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.len() == 69 && name.ends_with(".json"))
@@ -294,6 +344,7 @@ mod tests {
         ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
         ReviewNoteImportedPayload, ShoreEvent, Writer,
     };
+    use crate::session::state::SessionState;
 
     #[test]
     fn schema_break_for_covers_every_retired_identifier() {
@@ -793,6 +844,119 @@ mod tests {
         write_raw_event(&events_dir, "d", br#"{"eventType":"review_initialized"}"#);
 
         assert!(store.list_events_lenient().is_err());
+    }
+
+    #[test]
+    fn payload_hash_is_stable_across_a_journal_round_trip() {
+        // Events may re-serialize in any byte layout as long as the payload Value
+        // round-trips losslessly (canonical key-sort erases byte order at hash
+        // time). Record an event whose payload carries the hazardous shapes —
+        // large/negative integers, non-ASCII text, deliberately unsorted keys —
+        // read it back through the listing surface, and assert payloadHash is
+        // byte-stable and re-derives identically.
+        let (_root, store) = temp_event_store();
+        let mut event = review_initialized_event();
+        event.payload = serde_json::json!({
+            "zeta": 1,
+            "alpha": -9_007_199_254_740_993_i64,
+            "huge": 9_007_199_254_740_993_i64,
+            "text": "café ☕ 日本語 — déjà vu",
+            "nested": { "b": 2, "a": 1 },
+        });
+        event.payload_hash = sha256_json_prefixed(&event.payload).unwrap();
+        let original_hash = event.payload_hash.clone();
+
+        store.record_event_once(&event).unwrap();
+        let read_back = store.list_events().unwrap();
+
+        assert_eq!(read_back.len(), 1);
+        assert_eq!(read_back[0].payload_hash, original_hash);
+        assert_eq!(
+            sha256_json_prefixed(&read_back[0].payload).unwrap(),
+            original_hash,
+            "the payload digest re-derives identically after a storage round trip"
+        );
+    }
+
+    #[test]
+    fn listing_order_is_hash_sorted_and_renders_a_stable_projection() {
+        // The listing order is load-bearing: a first-seen-wins reducer folds
+        // events in slice order. The byte listing must come back in the same
+        // hash-sorted order as the file names, and the projection rendered from it
+        // must be byte-identical to one rendered from a direct file-name read.
+        let (_root, store) = temp_event_store();
+        // Insertion order deliberately differs from the hash-sorted file order.
+        for session in ["session:c", "session:a", "session:b", "session:d"] {
+            store
+                .record_event_once(&review_initialized_event_for(session))
+                .unwrap();
+        }
+
+        let by_listing = store.list_events().unwrap();
+        let listed_file_names: Vec<String> = by_listing
+            .iter()
+            .map(|event| format!("{}.json", event_filename_stem(&event.idempotency_key)))
+            .collect();
+        assert_eq!(
+            listed_file_names,
+            store.list_event_file_names().unwrap(),
+            "the byte listing is in the same hash-sorted order as the file names"
+        );
+
+        let by_file_name: Vec<ShoreEvent> = store
+            .list_event_file_names()
+            .unwrap()
+            .into_iter()
+            .map(|name| store.read_event(&store.events_dir().join(name)).unwrap())
+            .collect();
+        let from_listing =
+            serde_json::to_vec(&SessionState::from_events(&by_listing).unwrap()).unwrap();
+        let from_file_name =
+            serde_json::to_vec(&SessionState::from_events(&by_file_name).unwrap()).unwrap();
+        assert_eq!(from_listing, from_file_name);
+    }
+
+    #[test]
+    fn list_events_rejects_a_file_whose_name_does_not_match_its_content() {
+        // An otherwise-valid event written under the wrong file name (its stem does
+        // not hash from its idempotency key) must be rejected by the listing, the
+        // same way a direct read_event rejects it. Replay never silently accepts a
+        // relocated or tampered blob.
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        std::fs::create_dir_all(store.events_dir()).unwrap();
+        let wrong_path = store.events_dir().join(format!("{}.json", "0".repeat(64)));
+        std::fs::write(&wrong_path, serde_json::to_vec(&event).unwrap()).unwrap();
+
+        let error = store
+            .list_events()
+            .expect_err("a misnamed event file is rejected on replay");
+        assert!(error.to_string().contains("idempotencyKey"));
+    }
+
+    #[test]
+    fn list_events_lenient_hard_errors_on_a_misnamed_event_file() {
+        // A misnamed-but-otherwise-valid file is corruption, not a retired schema:
+        // the lenient read must propagate it, not skip it.
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        std::fs::create_dir_all(store.events_dir()).unwrap();
+        let wrong_path = store.events_dir().join(format!("{}.json", "1".repeat(64)));
+        std::fs::write(&wrong_path, serde_json::to_vec(&event).unwrap()).unwrap();
+
+        assert!(store.list_events_lenient().is_err());
+    }
+
+    fn review_initialized_event_for(session: &str) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ReviewInitialized,
+            format!("review_initialized:{session}:work:default"),
+            EventTarget::for_journal(JournalId::new(session)),
+            Writer::shore_local("0.1.0"),
+            ReviewInitializedPayload {},
+            "2026-05-10T00:00:00Z",
+        )
+        .expect("event builds")
     }
 
     /// Write a raw event file under `events_dir` with a 69-char `<64-hex>.json`
