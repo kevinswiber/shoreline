@@ -33,6 +33,21 @@
   --info: #8ab4f8;           /* hunk header */
   --teal: #4fd0c0;           /* response outcome */
 
+  /* Event-type palette — one hue per durable event type, the color-code the
+     timeline rails, type-filter toggles, and type labels are scanned by. Single
+     source of truth (moved out of app.js); each kept perceptually distinct so a
+     dense timeline stays readable by color. Theme-agnostic for now (same in
+     light + dark), so a later light-mode AA pass can override the warm/light
+     hues without touching the component code. */
+  --evt-init: #7f8c9b;       /* review_initialized (neutral) */
+  --evt-capture: #5aa9e6;    /* work_object_proposed */
+  --evt-observation: #6dd28a;/* review_observation_recorded */
+  --evt-assessment: #b388ff; /* review_assessment_recorded */
+  --evt-request: #f0b75a;    /* input_request_opened */
+  --evt-response: #4fd0c0;   /* input_request_responded */
+  --evt-note: #9aa7b5;       /* review_note_imported (neutral) */
+  --evt-validation: #e88fb0; /* validation_check_recorded */
+
   /* Diff surfaces */
   --diff-add-bg: rgba(70, 170, 110, 0.14);
   --diff-add-fg: #9ae6b4;
@@ -52,11 +67,14 @@
   --r-xl: 10px;
   --r-pill: 999px;
 
-  /* Type scale (4 steps) */
+  /* Type scale — four body steps plus one heading step. --fs-lg gives primary
+     headings (detail-pane title, modal titles) a size anchor instead of resting
+     on weight/color alone, without disturbing the dense terminal register. */
   --fs-xs: 11px;
   --fs-sm: 12px;
   --fs-md: 13px;
   --fs-base: 14px;
+  --fs-lg: 19px;
 
   /* Vertical rhythm — comfortable defaults; .compact tightens them */
   --row-pad: 8px 14px;

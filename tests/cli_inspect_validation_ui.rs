@@ -38,10 +38,16 @@ fn slice_between<'a>(haystack: &'a str, start: &str, end: &str) -> &'a str {
 
 #[test]
 fn served_app_js_registers_validation_timeline_type() {
-    let app_js = spawn_and_get_app_js();
+    // One spawn, two assets: the type registration lives in app.js, but its hue
+    // is single-sourced in tokens.css, so the contract spans both.
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let app_js = inspector.get_text("/app.js");
 
     // TYPES registration: the event id with a human label and a distinct,
-    // non-fallback color (gray #9aa7b5 is the unknown-type fallback).
+    // non-fallback color. The hue is single-sourced as an --evt-* token
+    // (var(--evt-note) is the unknown-type fallback), so the TYPES block carries
+    // the token reference and tokens.css pins the value.
     let types_block = slice_between(&app_js, "const TYPES = [", "const TYPE_MAP");
     assert!(
         types_block.contains(r#"id: "validation_check_recorded""#),
@@ -52,8 +58,13 @@ fn served_app_js_registers_validation_timeline_type() {
         "validation type needs a human label"
     );
     assert!(
-        types_block.contains("#e88fb0"),
-        "validation type needs a distinct non-fallback color"
+        types_block.contains("var(--evt-validation)"),
+        "validation type needs a distinct, non-fallback color token"
+    );
+    let tokens_css = inspector.get_text("/tokens.css");
+    assert!(
+        tokens_css.contains("--evt-validation: #e88fb0"),
+        "tokens.css must pin the distinct validation hue"
     );
 
     // The timeline title path reads the history summary's checkName.

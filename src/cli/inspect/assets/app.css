@@ -128,7 +128,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
 
 .detail { overflow-y: auto; padding: 14px 16px; }
 .detail .empty { color: var(--fg-dim); }
-.detail h2 { font-size: var(--fs-base); margin: 0 0 4px; }
+.detail h2 { font-size: var(--fs-lg); margin: 0 0 4px; }
 .detail .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 10px; font-size: var(--fs-sm); margin-bottom: 12px; }
 .detail .kv dt { color: var(--fg-dim); font-family: var(--mono); }
 .detail .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
@@ -280,7 +280,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
   margin: 8px 6px 4px;
 }
 .diff-body { flex: 1; min-width: 0; overflow: auto; padding: 12px 14px; }
-.modal-head h2 { margin: 0; font-size: var(--fs-base); }
+.modal-head h2 { margin: 0; font-size: var(--fs-lg); }
 
 /* Command palette: a top-anchored search overlay. */
 #cmd-palette { align-items: flex-start; }

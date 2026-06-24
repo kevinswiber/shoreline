@@ -1,15 +1,18 @@
 "use strict";
 
-// Known durable event types, with display labels and timeline colors.
+// Known durable event types, with display labels and timeline colors. The colors
+// resolve to the --evt-* tokens (single source of truth in tokens.css), used as
+// CSS var() references in the inline dot/rail/label styles so the palette themes
+// from one place instead of hard-coded hex here.
 const TYPES = [
-  { id: "review_initialized", label: "init", color: "#7f8c9b" },
-  { id: "work_object_proposed", label: "capture", color: "#5aa9e6" },
-  { id: "review_observation_recorded", label: "observation", color: "#6dd28a" },
-  { id: "review_assessment_recorded", label: "assessment", color: "#b388ff" },
-  { id: "input_request_opened", label: "request", color: "#f0b75a" },
-  { id: "input_request_responded", label: "response", color: "#4fd0c0" },
-  { id: "review_note_imported", label: "note", color: "#9aa7b5" },
-  { id: "validation_check_recorded", label: "validation", color: "#e88fb0" },
+  { id: "review_initialized", label: "init", color: "var(--evt-init)" },
+  { id: "work_object_proposed", label: "capture", color: "var(--evt-capture)" },
+  { id: "review_observation_recorded", label: "observation", color: "var(--evt-observation)" },
+  { id: "review_assessment_recorded", label: "assessment", color: "var(--evt-assessment)" },
+  { id: "input_request_opened", label: "request", color: "var(--evt-request)" },
+  { id: "input_request_responded", label: "response", color: "var(--evt-response)" },
+  { id: "review_note_imported", label: "note", color: "var(--evt-note)" },
+  { id: "validation_check_recorded", label: "validation", color: "var(--evt-validation)" },
 ];
 const TYPE_MAP = Object.fromEntries(TYPES.map((t) => [t.id, t]));
 
@@ -77,7 +80,7 @@ function toggleDensity() {
 applyDensity(localStorage.getItem(DENSITY_KEY) || "comfortable");
 
 function typeColor(id) {
-  return (TYPE_MAP[id] || {}).color || "#9aa7b5";
+  return (TYPE_MAP[id] || {}).color || "var(--evt-note)";
 }
 function typeLabel(id) {
   return (TYPE_MAP[id] || {}).label || id;
