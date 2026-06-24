@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>shore inspector</title>
+    <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
@@ -20,6 +22,9 @@
         <span id="stat-threads" class="stat" title="supersession threads">— threads</span>
         <span id="stat-hash" class="stat mono" title="eventSetHash (freshness)">—</span>
         <span id="refresh" class="stat" title="auto-refresh status">idle</span>
+        <span id="advisory-mode" class="stat advisory-mode" title="the inspector reports recorded state; it never gates a write, and verification is reader-relative">read-only · advisory</span>
+        <button id="theme-toggle" class="ghost" aria-label="Toggle color theme" title="Toggle light/dark theme">theme</button>
+        <button id="density-toggle" class="ghost" aria-label="Toggle density" title="Toggle comfortable/compact density">density</button>
       </div>
     </header>
 

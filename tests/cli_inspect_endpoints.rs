@@ -43,6 +43,16 @@ fn entries_of_type<'a>(history: &'a Value, event_type: &str) -> Vec<&'a Value> {
         .collect()
 }
 
+/// Spawn the inspector against a throwaway repo for served-asset contract checks.
+/// The static asset routes never read the store, so a bare repo keeps the
+/// served-copy assertions cheap. The returned [`GitRepo`] must be held for the
+/// lifetime of the [`Inspector`].
+fn served_asset_inspector() -> (GitRepo, Inspector) {
+    let repo = GitRepo::new();
+    let inspector = Inspector::spawn(repo.path());
+    (repo, inspector)
+}
+
 /// Smoke: the shared harness spawns the real `shore inspect --port 0` server and
 /// serves a well-formed history payload for a minimal store.
 #[test]
@@ -316,4 +326,188 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
         .expect("an endorsement readback in the inspector history");
     assert_eq!(endorsement["classification"], "endorsement-trusted");
     assert_eq!(endorsement["endorser"], "actor:git-email:kevin@swiber.dev");
+}
+
+#[test]
+fn tokens_css_is_served_as_the_single_token_source() {
+    let (_repo, inspector) = served_asset_inspector();
+
+    // The fourth served asset is reachable and carries the semantic status
+    // aliases, the radii scale, and the sans stack — the single token source.
+    let (status, body) = inspector.raw_get("/tokens.css");
+    assert!(
+        status.contains("200 OK"),
+        "tokens.css is served, got {status}"
+    );
+    assert!(
+        body.contains("--success"),
+        "tokens.css holds the semantic status aliases"
+    );
+    assert!(
+        body.contains("--r-md"),
+        "tokens.css carries the radii scale"
+    );
+    assert!(body.contains("--sans"), "tokens.css carries the sans stack");
+
+    // index.html links tokens.css before app.css so the cascade resolves vars first.
+    let index = inspector.get_text("/");
+    let tokens_at = index.find("/tokens.css").expect("index links /tokens.css");
+    let app_at = index.find("/app.css").expect("index links /app.css");
+    assert!(
+        tokens_at < app_at,
+        "tokens.css must be linked before app.css"
+    );
+}
+
+#[test]
+fn app_css_no_longer_declares_the_root_token_block() {
+    let (_repo, inspector) = served_asset_inspector();
+    let app_css = inspector.get_text("/app.css");
+    // The single :root lives in tokens.css now; app.css is component rules only.
+    // Match the bare selector so `:root{` (no space) cannot slip past the guard.
+    assert!(
+        !app_css.contains(":root"),
+        "app.css must not declare any :root token block (single-sourced in tokens.css)"
+    );
+}
+
+// The theme flip, the OS-preference default, and the localStorage round-trip are
+// runtime client behavior; with no JS execution harness in the served envelope they
+// cannot be unit-tested. These assert the served-copy contracts that the wiring is
+// present — stable, user-visible strings and attributes — over the HTTP harness.
+#[test]
+fn tokens_css_carries_a_light_theme_override_block() {
+    let (_repo, inspector) = served_asset_inspector();
+    let tokens = inspector.get_text("/tokens.css");
+    // The light theme is a semantic-alias override, not a second :root.
+    assert!(
+        tokens.contains("[data-theme=\"light\"]"),
+        "tokens.css carries the light-theme alias override block"
+    );
+    // color-scheme is declared so native controls/scrollbars match the theme.
+    assert!(
+        tokens.contains("color-scheme"),
+        "tokens.css declares color-scheme"
+    );
+}
+
+#[test]
+fn app_js_wires_a_persisted_theme_toggle() {
+    let (_repo, inspector) = served_asset_inspector();
+    let app_js = inspector.get_text("/app.js");
+    // The toggle persists the choice across reloads.
+    assert!(
+        app_js.contains("localStorage"),
+        "the theme toggle persists [data-theme] in localStorage"
+    );
+    // It honors the OS preference as the default when nothing is stored.
+    assert!(
+        app_js.contains("prefers-color-scheme"),
+        "the default theme honors prefers-color-scheme"
+    );
+    // The toggle writes the data-theme attribute on the document element.
+    assert!(
+        app_js.contains("data-theme"),
+        "the toggle sets [data-theme] on <html>"
+    );
+}
+
+#[test]
+fn topbar_exposes_an_accessible_theme_toggle() {
+    let (_repo, inspector) = served_asset_inspector();
+    let index = inspector.get_text("/");
+    // A stable, user-visible accessible name for the control (assert the aria
+    // label, a durable contract — not the button's id).
+    assert!(
+        index.contains("aria-label=\"Toggle color theme\""),
+        "the topbar carries an accessible theme toggle"
+    );
+}
+
+// The rendered glyphs/shapes and the density flip are runtime CSS/DOM behavior;
+// these assert the served-copy CSS contracts that the redundancy layer and the
+// tokens are present, over the HTTP harness.
+#[test]
+fn status_palette_has_a_non_color_redundancy_layer() {
+    let (_repo, inspector) = served_asset_inspector();
+    let app_css = inspector.get_text("/app.css");
+    // Color is not the only channel: each status carries a glyph via ::before content.
+    assert!(
+        app_css.contains("::before") && app_css.contains("content:"),
+        "status classes carry a per-state glyph so meaning never rides on hue alone"
+    );
+    // Head vs superseded differs in border style, not only hue.
+    assert!(
+        app_css.contains("dashed"),
+        "superseded revisions read as dashed, a shape cue beyond color"
+    );
+    // ID-heavy mono columns get tabular figures + slashed zero.
+    assert!(
+        app_css.contains("tabular-nums") && app_css.contains("slashed-zero"),
+        "mono/id columns disambiguate 0/O and align digits"
+    );
+}
+
+#[test]
+fn tokens_css_carries_the_type_scale() {
+    let (_repo, inspector) = served_asset_inspector();
+    let tokens = inspector.get_text("/tokens.css");
+    for step in ["--fs-xs", "--fs-sm", "--fs-md", "--fs-base"] {
+        assert!(
+            tokens.contains(step),
+            "tokens.css carries the {step} type-scale step"
+        );
+    }
+}
+
+#[test]
+fn topbar_exposes_a_density_toggle() {
+    let (_repo, inspector) = served_asset_inspector();
+    let index = inspector.get_text("/");
+    assert!(
+        index.contains("aria-label=\"Toggle density\""),
+        "the topbar carries an accessible comfortable/compact density toggle"
+    );
+    let app_js = inspector.get_text("/app.js");
+    assert!(
+        app_js.contains("compact") && app_js.contains("localStorage"),
+        "density is a persisted root class"
+    );
+}
+
+// The persistent placement is rendered DOM; this asserts the served-copy contracts
+// that the visible advisory framing exists in the served assets (top-bar text + the
+// two section captions + the load-bearing strings), strengthening the existing
+// readback contract that those strings appear at all.
+#[test]
+fn advisory_framing_is_persistently_visible_not_tooltip_only() {
+    let (_repo, inspector) = served_asset_inspector();
+    let index = inspector.get_text("/");
+    let app_js = inspector.get_text("/app.js");
+
+    // The persistent top-bar affordance states the read-only/advisory mode in
+    // visible text (not a tooltip).
+    assert!(
+        index.contains("read-only · advisory"),
+        "the topbar carries a persistent read-only · advisory affordance"
+    );
+
+    // The load-bearing strings still appear in the served assets AND now as
+    // visible framing, not only in title= attributes.
+    let served = format!("{index}{app_js}");
+    assert!(
+        served.contains("never gates a write") && served.contains("reader-relative"),
+        "the advisory framing strings remain in the served assets"
+    );
+
+    // Section captions: the assessment region and the verification region carry
+    // visible advisory / reader-scope captions.
+    assert!(
+        app_js.contains("advisory — a recorded judgement, not a merge gate"),
+        "the Current-assessment region carries a visible advisory caption"
+    );
+    assert!(
+        app_js.contains("reader-relative — computed against your enrolled keys"),
+        "the verification/endorsement region carries a visible reader-scope caption"
+    );
 }

@@ -7,16 +7,18 @@ the tokenized status palette consumed by the inspector's `../assets/app.css`.
 
 | Path | Role |
 | --- | --- |
-| `styles.css` | Canonical tokenized stylesheet — the source of truth for the palette. |
+| `../assets/tokens.css` | The single source of truth for the palette (the only `:root`). |
+| `styles.css` | Component rules only — references the tokens via `var(--…)`. |
 | `_bodies/*.body.html` | Per-card markup fragments (the authored content of each card). |
-| `_bodies/bake.sh` | Bakes self-contained preview cards from a fragment + `styles.css`. |
-| `foundations/foundations.html` | Hand-authored Foundations card (carries its own swatch JS). |
 | `<group>/<card>.html` | **Generated, git-ignored.** Run the baker to produce them. |
+| `_bodies/bake.sh` | Bakes self-contained preview cards from a fragment + the tokens + `styles.css`. |
 
 Each baked card is self-contained: the baker prepends the
-`<!-- @dsCard group="…" -->` marker the gallery indexes on, inlines `styles.css`,
-then appends the body fragment. Cards are grouped as **Foundations, Navigation,
-Inputs, Data, Feedback**.
+`<!-- @dsCard group="…" -->` marker the gallery indexes on, inlines
+`../assets/tokens.css` then `styles.css`, then appends the body fragment. Cards
+are grouped as **Foundations, Navigation, Inputs, Data, Feedback**. The
+Foundations card (`_bodies/foundations.body.html`) carries its own swatch JS and
+reads the inlined token values via `getComputedStyle`.
 
 ## Workflow
 
@@ -28,5 +30,7 @@ Inputs, Data, Feedback**.
 3. Sync to claude.ai/design via the DesignSync tool / `/design-sync` skill
    (project `shore-inspector-ds`): `list_files` → `finalize_plan` → `write_files`.
 
-The tokens in `styles.css` mirror the `:root` palette declared in
-`../assets/app.css`; keep the two in step when adding or renaming a token.
+The palette is single-sourced in `../assets/tokens.css` (the served frontend's
+only `:root`); `bake.sh` inlines that same file into every card, so the gallery
+and the live inspector never drift. Add or rename a token in `tokens.css` and
+re-bake.

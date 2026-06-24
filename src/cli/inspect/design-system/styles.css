@@ -1,49 +1,11 @@
 /*
  * shore-inspector-ds — canonical design-system stylesheet.
  *
- * Tokenized projection of the inspector's app.css: scattered status-color and
- * radius literals are promoted to named custom properties so a single palette
- * drives every component. The component rules below mirror the live inspector
- * 1:1; the only change is that literals are replaced by var() references.
+ * Component rules only. The design tokens live in the inspector's
+ * assets/tokens.css, which bake.sh inlines ahead of this file so the gallery and
+ * the live inspector resolve one shared palette. The component rules below mirror
+ * the live inspector 1:1, referencing every token via var().
  */
-
-:root {
-  /* Surfaces & text */
-  --bg: #0f1419;
-  --bg-elev: #171d26;
-  --bg-row: #1b222d;
-  --bg-row-sel: #243044;
-  --border: #2a323e;
-  --fg: #d7dde5;
-  --fg-dim: #8a95a3;
-  --accent: #5aa9e6;
-
-  /* Semantic status — one source of truth for every state tint */
-  --success: #6dd28a;        /* head · passed · accepted · added */
-  --success-deep: #3a7a52;   /* observation accent */
-  --warning: #f0b75a;        /* superseded · open · needs-clarification · errored */
-  --warning-soft: #f0c674;   /* diagnostics text */
-  --warning-strong: #ffd27a; /* diagnostics code */
-  --danger: #f3a0a0;         /* failed · needs-changes · stale · error */
-  --assess: #b388ff;         /* assessment */
-  --validation: #e88fb0;     /* validation kind */
-  --info: #8ab4f8;           /* hunk header */
-  --teal: #4fd0c0;           /* response outcome */
-
-  /* Diff surfaces */
-  --diff-add-bg: rgba(70, 170, 110, 0.14);
-  --diff-add-fg: #9ae6b4;
-  --diff-del-bg: rgba(200, 90, 90, 0.14);
-  --diff-del-fg: #f3b0b0;
-  --hunk-bg: #141b27;
-
-  /* Radii */
-  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 10px; --r-pill: 999px;
-
-  /* Type */
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-}
 
 * { box-sizing: border-box; }
 

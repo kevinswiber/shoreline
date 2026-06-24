@@ -1,0 +1,115 @@
+/*
+ * shore inspector — design tokens (the single source of truth).
+ *
+ * Every design token lives here: surface/text colors, the semantic status
+ * palette, diff surfaces, the radii scale, and the type stacks. app.css and the
+ * design-system gallery carry component rules only and reference these via
+ * var(--…); this file is the only :root across the served frontend.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0f1419;
+  --bg-elev: #171d26;
+  --bg-row: #1b222d;
+  --bg-row-sel: #243044;
+  --border: #3a444f;   /* perception-grade boundary, raised from #2a323e */
+  --fg: #d7dde5;
+  --fg-dim: #9aa5b3;   /* clears AA on the selected-row surface, raised from #8a95a3 */
+  --accent: #5aa9e6;
+
+  /* Semantic status — one source of truth for every state tint. The diagnostics
+     container background stays a literal in app.css (its text aliases are not
+     re-pointed for light); only the repeated status palette is tokenized here. */
+  --success: #6dd28a;        /* head · passed · accepted · added */
+  --success-deep: #3a7a52;   /* observation accent */
+  --warning: #f0b75a;        /* superseded · open · needs-clarification · errored */
+  --warning-soft: #f0c674;   /* diagnostics text */
+  --warning-strong: #ffd27a; /* diagnostics code */
+  --danger: #f3a0a0;         /* failed · needs-changes · stale · error */
+  --assess: #b388ff;         /* assessment */
+  --validation: #e88fb0;     /* validation kind */
+  --info: #8ab4f8;           /* hunk header */
+  --teal: #4fd0c0;           /* response outcome */
+
+  /* Diff surfaces */
+  --diff-add-bg: rgba(70, 170, 110, 0.14);
+  --diff-add-fg: #9ae6b4;
+  --diff-del-bg: rgba(200, 90, 90, 0.14);
+  --diff-del-fg: #f3b0b0;
+  --hunk-bg: #141b27;
+
+  /* Error bar surface — themed so the bar inverts with the page (its --danger
+     text would otherwise sit on a dark literal and fail AA under the light theme). */
+  --error-bg: #3a1416;
+  --error-border: #5a2226;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-pill: 999px;
+
+  /* Type scale (4 steps) */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+
+  /* Vertical rhythm — comfortable defaults; .compact tightens them */
+  --row-pad: 8px 14px;
+  --line: 1.45;
+
+  /* Type stacks */
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/*
+ * Compact density — a reader-local root class (persisted in localStorage, not URL
+ * state) that tightens the rhythm tokens the component rules already consume; no
+ * per-component rewrite.
+ */
+.compact {
+  --row-pad: 4px 12px;
+  --line: 1.3;
+}
+
+/*
+ * Light theme — a semantic-alias override. Components never change; only the
+ * alias→value mapping flips. Status hues are darkened so chip text (which sits on
+ * --bg-row) clears WCAG AA on a light surface; the values below were contrast-checked
+ * against the white/elev/row surfaces they actually render on. The radii, type, and
+ * --mono/--sans stacks are theme-agnostic and inherit from :root.
+ */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --bg-elev: #f6f8fa;
+  --bg-row: #f0f2f5;
+  --bg-row-sel: #dbe7ff;
+  --border: #d0d7de;
+  --fg: #1f2328;
+  --fg-dim: #59636e;
+  --accent: #0969da;
+
+  --success: #1a7f37;
+  --warning: #8a5d00;     /* darkened from #9a6700 so chip text clears AA on --bg-row */
+  --danger: #cf222e;
+  --assess: #7a44d4;      /* darkened from #8250df for an AA margin on --bg-row */
+  --validation: #b32d80;  /* darkened from #bf3989 for an AA margin on --bg-row */
+  --teal: #0f6f66;        /* darkened from #137f74 so chip text clears AA on --bg-row */
+  --info: #0969da;        /* aliases to accent on light; paired with a light --hunk-bg */
+
+  /* Diff foregrounds darken to read on the pale add/del rows; the translucent
+     --diff-*-bg values are theme-neutral and keep their :root definitions. */
+  --diff-add-fg: #147029;
+  --diff-del-fg: #b42318;
+  --hunk-bg: #eef1f6;     /* light hunk strip so the dark-blue --info text reads */
+
+  --error-bg: #ffebe9;
+  --error-border: #ffc9c9;
+}

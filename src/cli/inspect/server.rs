@@ -16,6 +16,7 @@ use std::time::Duration;
 use super::api;
 
 const INDEX_HTML: &str = include_str!("assets/index.html");
+const TOKENS_CSS: &str = include_str!("assets/tokens.css");
 const APP_CSS: &str = include_str!("assets/app.css");
 const APP_JS: &str = include_str!("assets/app.js");
 
@@ -140,6 +141,7 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
 
     match path {
         "/" | "/index.html" => Response::asset("text/html; charset=utf-8", INDEX_HTML),
+        "/tokens.css" => Response::asset("text/css; charset=utf-8", TOKENS_CSS),
         "/app.css" => Response::asset("text/css; charset=utf-8", APP_CSS),
         "/app.js" => Response::asset("application/javascript; charset=utf-8", APP_JS),
         "/api/history" => api_response(api::history_json(repo)),
@@ -357,6 +359,10 @@ mod tests {
 
     #[test]
     fn static_assets_carry_expected_content_types() {
+        assert_eq!(
+            route_for("GET", "/tokens.css").content_type,
+            "text/css; charset=utf-8"
+        );
         assert_eq!(
             route_for("GET", "/app.css").content_type,
             "text/css; charset=utf-8"

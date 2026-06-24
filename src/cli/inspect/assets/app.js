@@ -32,6 +32,39 @@ const state = {
 
 const $ = (sel) => document.querySelector(sel);
 
+// Local display preferences (theme/density). These are reader-local choices,
+// persisted in localStorage and never encoded in the URL/hash — they are not
+// shareable view state. Applied as the script runs (before first paint) so the
+// chosen theme is in place immediately.
+const THEME_KEY = "shore-inspect-theme";
+function preferredTheme() {
+  const stored = localStorage.getItem(THEME_KEY);
+  if (stored === "light" || stored === "dark") return stored;
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+}
+function toggleTheme() {
+  const next =
+    document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+applyTheme(preferredTheme());
+
+const DENSITY_KEY = "shore-inspect-density";
+function applyDensity(mode) {
+  document.documentElement.classList.toggle("compact", mode === "compact");
+}
+function toggleDensity() {
+  const next =
+    document.documentElement.classList.contains("compact") ? "comfortable" : "compact";
+  localStorage.setItem(DENSITY_KEY, next);
+  applyDensity(next);
+}
+applyDensity(localStorage.getItem(DENSITY_KEY) || "comfortable");
+
 function typeColor(id) {
   return (TYPE_MAP[id] || {}).color || "#9aa7b5";
 }
@@ -660,9 +693,11 @@ function renderDetail() {
   const btnLabel = focusId ? `show this ${focusNoun} in the diff` : "view snapshot diff";
   const verifyChip = verificationChip(e.verificationStatus);
   const endorse = endorsementsBlock(e.endorsements);
+  // Persistent, visible reader-scope cue at the head of the readback region (the
+  // quietest tier), so the reader-relative framing is never tooltip-only.
   const readback =
     verifyChip || endorse
-      ? `<div class="readback">${verifyChip ? `<div class="readback-row">${verifyChip}</div>` : ""}${endorse}</div>`
+      ? `<div class="readback"><p class="reader-scope-note">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="readback-row">${verifyChip}</div>` : ""}${endorse}</div>`
       : "";
   el.innerHTML = `
     <h2>${linkify(entryTitle(e))}</h2>
@@ -1184,7 +1219,7 @@ function renderUnitPage(d) {
     <dt>snapshot</dt><dd>${linkify(ru.objectId)}</dd>
   </dl></section>`);
 
-  sections.push(`<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}</section>`);
+  sections.push(`<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="advisory-note">advisory — a recorded judgement, not a merge gate</p></section>`);
 
   sections.push(`<section><h2>Summary</h2><div class="up-stats">
     ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}${stat("adapter notes", s.adapterNoteCount)}
@@ -1253,6 +1288,8 @@ function wireControls() {
     renderTypeToggles();
     renderTimeline();
   });
+  $("#theme-toggle").addEventListener("click", toggleTheme);
+  $("#density-toggle").addEventListener("click", toggleDensity);
   $("#unit-back").addEventListener("click", () => switchView("units"));
   $("#order-toggle").addEventListener("click", () => {
     state.order = state.order === "desc" ? "asc" : "desc";

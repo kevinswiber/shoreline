@@ -3,6 +3,7 @@
 # Re-run after editing styles.css or any *.body.html fragment.
 set -euo pipefail
 DS="$(cd "$(dirname "$0")/.." && pwd)"
+TOKENS="$DS/../assets/tokens.css"
 STYLES="$DS/styles.css"
 
 bake() {
@@ -12,6 +13,7 @@ bake() {
     printf '<!-- @dsCard group="%s" -->\n' "$group"
     printf '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8" />\n'
     printf '    <title>%s</title>\n    <style>\n' "$title"
+    cat "$TOKENS"
     cat "$STYLES"
     printf '    </style>\n  </head>\n  <body>\n'
     cat "$DS/_bodies/$body"
@@ -20,6 +22,7 @@ bake() {
   echo "baked $out"
 }
 
+bake foundations.body.html         foundations/foundations.html Foundations "Foundations — tokens"
 bake navigation-topbar.body.html   navigation/topbar.html      Navigation "Navigation — top bar, tabs, stats"
 bake inputs-controls.body.html     inputs/controls.html        Inputs     "Inputs — toolbar, buttons, toggles"
 bake data-timeline.body.html       data/timeline.html          Data       "Data — timeline & detail pane"
