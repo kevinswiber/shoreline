@@ -137,6 +137,7 @@ mod tests {
             trigger: crate::model::ValidationTrigger::Manual,
             source_fingerprint: Some("rev:sha256:fingerprint"),
             summary_content_hash: Some("sha256:summary"),
+            summary_content_type: None,
             started_at: Some("2026-05-10T00:00:00Z"),
             completed_at: Some("2026-05-10T00:01:00Z"),
             log_artifact_content_hashes: &["sha256:bbbb".to_owned(), "sha256:aaaa".to_owned()],

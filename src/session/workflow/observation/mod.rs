@@ -841,6 +841,7 @@ mod tests {
             target: ReviewTargetRef::Revision { revision_id },
             title: "sort".to_owned(),
             body: None,
+            body_content_type: Default::default(),
             tags: vec![],
             confidence: None,
             status: ObservationStatus::Active,

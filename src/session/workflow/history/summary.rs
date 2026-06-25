@@ -7,7 +7,7 @@ use crate::model::{
     ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::event::{
-    AssertionMode, EventType, ImportedNoteTarget, InputRequestReasonCode,
+    AssertionMode, BodyContentType, EventType, ImportedNoteTarget, InputRequestReasonCode,
     InputRequestResponseOutcome, ReviewAssessment, SidecarSource, Writer,
 };
 use crate::session::{EndorsementReadback, EventVerificationStatus, PrincipalView};
@@ -64,6 +64,8 @@ pub enum ReviewHistorySummary {
         title: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         body: Option<String>,
+        #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+        body_content_type: BodyContentType,
         #[serde(skip_serializing_if = "Option::is_none")]
         body_byte_size: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,6 +86,8 @@ pub enum ReviewHistorySummary {
         title: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         body: Option<String>,
+        #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+        body_content_type: BodyContentType,
         #[serde(skip_serializing_if = "Option::is_none")]
         body_byte_size: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,6 +99,8 @@ pub enum ReviewHistorySummary {
         outcome: InputRequestResponseOutcome,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+        #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+        reason_content_type: BodyContentType,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason_byte_size: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,6 +112,8 @@ pub enum ReviewHistorySummary {
         assessment: ReviewAssessment,
         #[serde(skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
+        #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+        summary_content_type: BodyContentType,
         #[serde(skip_serializing_if = "Option::is_none")]
         summary_byte_size: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,6 +164,8 @@ pub enum ReviewHistorySummary {
         source_fingerprint: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
+        #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+        summary_content_type: BodyContentType,
         #[serde(skip_serializing_if = "Option::is_none")]
         summary_content_hash: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]

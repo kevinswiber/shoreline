@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
-use super::payload::EventPayload;
+use super::payload::{BodyContentType, EventPayload};
 use crate::model::{
     AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, RevisionId, TrackId,
 };
@@ -23,6 +23,8 @@ pub struct ReviewAssessmentRecordedPayload {
     pub assessment: ReviewAssessment,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "BodyContentType::is_text_plain")]
+    pub summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_artifact_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +101,7 @@ mod tests {
             },
             assessment: ReviewAssessment::Accepted,
             summary: Some("ship it".to_owned()),
+            summary_content_type: Default::default(),
             summary_artifact_path: None,
             summary_byte_size: None,
             summary_content_hash: Some("sha256:00".to_owned()),
@@ -132,6 +135,7 @@ mod tests {
             },
             assessment: ReviewAssessment::NeedsClarification,
             summary: None,
+            summary_content_type: Default::default(),
             summary_artifact_path: None,
             summary_byte_size: None,
             summary_content_hash: None,

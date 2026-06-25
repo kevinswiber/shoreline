@@ -10,7 +10,9 @@
 
 mod support;
 
+use support::git_repo::GitRepo;
 use support::inspect::{Inspector, representative_store, urlencode};
+use support::shore;
 
 /// Spawn the inspector against a representative store and return the served
 /// `/app.js` bytes.
@@ -152,6 +154,68 @@ fn served_app_js_reads_the_server_revision_classification() {
 }
 
 #[test]
+fn served_app_js_renders_markdown_bodies() {
+    let app_js = served_app_js();
+
+    assert!(
+        app_js.contains("function renderMarkdown"),
+        "the inspector asset includes the Markdown renderer"
+    );
+    assert!(
+        app_js.contains("text/markdown") && app_js.contains("bodyContentType"),
+        "the inspector routes bodyContentType into Markdown rendering"
+    );
+    assert!(
+        app_js.contains("safeMarkdownHref"),
+        "Markdown links must pass through the safe href filter"
+    );
+}
+
+#[test]
+fn inspector_serves_markdown_body_content_type() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let repo_arg = repo.path().to_str().unwrap();
+    let capture = run_shore_json(&["review", "capture", "--repo", repo_arg]);
+    let revision_id = capture["revision"]["id"].as_str().unwrap();
+
+    run_shore(&[
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "agent:codex",
+        "--title",
+        "Markdown observation",
+        "--body",
+        "## Finding\n\n- render **markdown**",
+        "--body-content-type",
+        "text/markdown",
+    ]);
+
+    let inspector = Inspector::spawn(repo.path());
+    let history = inspector.get_json("/api/history");
+    let summary = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["eventType"] == "review_observation_recorded")
+        .and_then(|entry| entry["summary"].as_object())
+        .expect("history contains the markdown observation summary");
+    assert_eq!(summary["bodyContentType"], "text/markdown");
+    assert_eq!(summary["body"], "## Finding\n\n- render **markdown**");
+
+    let revision = inspector.get_json(&format!("/api/revision?id={}", urlencode(revision_id)));
+    let observation = &revision["observations"][0];
+    assert_eq!(observation["bodyContentType"], "text/markdown");
+    assert_eq!(observation["body"], "## Finding\n\n- render **markdown**");
+}
+
+#[test]
 fn served_documents_carry_no_revision_wire_key() {
     // The output documents are renamed to the revision vocabulary: no camelCase
     // or snake review-unit wire key survives on any served contract. (Hyphenated
@@ -184,6 +248,26 @@ fn served_documents_carry_no_revision_wire_key() {
         unit["revision"]["id"].is_string(),
         "the unit document object key is `revision`"
     );
+}
+
+fn run_shore(args: &[&str]) {
+    let output = shore(args);
+    assert!(
+        output.status.success(),
+        "shore {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn run_shore_json(args: &[&str]) -> serde_json::Value {
+    let output = shore(args);
+    assert!(
+        output.status.success(),
+        "shore {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("parse shore {args:?} JSON: {error}"))
 }
 
 #[test]

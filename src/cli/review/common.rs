@@ -11,7 +11,7 @@ use shoreline::keys::{
 use shoreline::model::{ActorId, Side};
 use shoreline::session::{
     ActorAttributesMap, AssessmentAddOptions, AssociateCommitOptions, AssociateRefOptions,
-    BestEffortSkipSink, CaptureOptions, DelegationMap, InputRequestOpenOptions,
+    BestEffortSkipSink, BodyContentType, CaptureOptions, DelegationMap, InputRequestOpenOptions,
     InputRequestRespondOptions, ObservationAddOptions, RemoveOptions, TrustSet,
     ValidationAddOptions, WithdrawCommitOptions, WithdrawRefOptions, is_agent_actor_id,
     resolve_writer_actor_id,
@@ -654,6 +654,14 @@ pub(super) enum SideArg {
     New,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(super) enum ContentTypeArg {
+    #[value(name = "text/plain")]
+    TextPlain,
+    #[value(name = "text/markdown")]
+    TextMarkdown,
+}
+
 pub(crate) fn read_body_input(
     inline: Option<&str>,
     file: Option<&Path>,
@@ -678,6 +686,15 @@ impl From<SideArg> for Side {
         match value {
             SideArg::Old => Side::Old,
             SideArg::New => Side::New,
+        }
+    }
+}
+
+impl From<ContentTypeArg> for BodyContentType {
+    fn from(value: ContentTypeArg) -> Self {
+        match value {
+            ContentTypeArg::TextPlain => Self::TextPlain,
+            ContentTypeArg::TextMarkdown => Self::TextMarkdown,
         }
     }
 }

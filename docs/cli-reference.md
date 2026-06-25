@@ -413,7 +413,7 @@ unresolved signer is a hard error rather than an unsigned write. Only shipped su
 
 ```bash
 shore review observation add --track <track-id> --title <title> \
-  [--revision <revision-id>] [target options]
+  [--revision <revision-id>] [target options] [--body-content-type text/plain|text/markdown]
 shore review observation list [--revision <revision-id>] [--track <track-id>] \
   [--file <path>] [--tag <tag>] [--include-body] [--pretty|--compact]
 ```
@@ -429,6 +429,8 @@ Observations are append-only review notes for a captured revision.
 - With `--file <path> --start-line <n> [--end-line <n>]`, it targets a range on `--side <old|new>`
   where the default side is `new`.
 - Bodies may come from `--body`, `--body-file`, or `--body-stdin`.
+- `--body-content-type` defaults to `text/plain`; use `text/markdown` when the body should render
+  as Markdown in the inspector.
 - Large bodies are stored as Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `--supersedes <observation-id>` records a correction by appending a new observation that names the
@@ -443,12 +445,14 @@ default. `observation list` also accepts `--pretty` and `--compact`.
 
 ```bash
 shore review input-request open --track <track-id> --title <title> --reason <reason> \
-  [--revision <revision-id>] [--mode operative|advisory]
+  [--revision <revision-id>] [--mode operative|advisory] \
+  [--body-content-type text/plain|text/markdown]
 shore review input-request list [--revision <revision-id>] [--track <track-id>] \
   [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
   [--include-body] [--pretty|--compact]
 shore review input-request fetch <input-request-id> [--include-body]
-shore review input-request respond <input-request-id> --outcome <outcome> [reason options]
+shore review input-request respond <input-request-id> --outcome <outcome> [reason options] \
+  [--reason-content-type text/plain|text/markdown]
 ```
 
 Input requests are durable pause or decision requests for a captured revision.
@@ -461,6 +465,8 @@ Input requests are durable pause or decision requests for a captured revision.
 - Targets mirror observations: review-wide by default, captured file, captured range, or an
   existing native observation through `--observation <observation-id>`.
 - Request bodies may come from `--body`, `--body-file`, or `--body-stdin`.
+- `--body-content-type` defaults to `text/plain`; use `text/markdown` when the request body should
+  render as Markdown in the inspector.
 - Large request bodies reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `input-request list` is the V1 polling read surface and defaults to open requests. It may filter
@@ -468,6 +474,7 @@ Input requests are durable pause or decision requests for a captured revision.
 - `input-request fetch <id> --include-body` returns one request and hydrates the body when
   requested.
 - `input-request respond <id>` appends an `input_request_responded` event.
+- Response reasons may use `--reason-content-type text/markdown`; the default is `text/plain`.
 - Response outcomes are `approved`, `rejected`, `dismissed`, `superseded`, and `abandoned`.
 
 Output documents are compact `shore.review-input-request-open`,
@@ -482,7 +489,7 @@ notification transport, or cancellation/escalation event.
 
 ```bash
 shore review assessment add --track <track-id> --assessment <assessment> \
-  [--revision <revision-id>] [target options]
+  [--revision <revision-id>] [target options] [--summary-content-type text/plain|text/markdown]
 shore review assessment show [--revision <revision-id>] [--all] [--track <track-id>] \
   [--include-summary] [--pretty|--compact]
 ```
@@ -497,6 +504,8 @@ Assessments record review calls for a captured revision.
 - Targets mirror the revision ledger: review-wide by default, captured file, captured range,
   native observation, native input request, or another assessment.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
+- `--summary-content-type` defaults to `text/plain`; use `text/markdown` when the summary should
+  render as Markdown in the inspector.
 - Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `--replaces <assessment-id>` is the only V1 relationship that removes an older assessment from
@@ -517,7 +526,7 @@ observations when needed.
 
 ```bash
 shore review validation add --track <track-id> --check-name <name> --status <status> \
-  [--revision <revision-id>] [validation options]
+  [--revision <revision-id>] [validation options] [--summary-content-type text/plain|text/markdown]
 shore review validation list [--revision <revision-id>] \
   [--track <track-id>] [--status <status>] [--include-body] [--pretty | --compact]
 ```
@@ -535,6 +544,8 @@ replace a review assessment.
   repeatable `--log-content-hash` record evidence metadata without exposing artifact paths.
 - `--trigger` defaults to `manual`; accepted values are `manual`, `push`, and `pull-request`.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
+- `--summary-content-type` defaults to `text/plain`; use `text/markdown` when the summary should
+  render as Markdown in the inspector.
 - Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `validation list` replays durable events for the revision and may filter by revision, track,
@@ -590,7 +601,8 @@ shore review history [--repo <path>] [--revision <id>] [--track <track-id>] \
   `revision-ref-withdrawn`.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies, input request response reasons, assessment summaries, validation summaries, and
-  imported-note bodies.
+  imported-note bodies. Native Markdown/plain content-type fields are included for those body-like
+  event fields when they are not plain text.
 - Duplicate semantic events remain visible as separate entries while shared duplicate diagnostics
   are included in the document.
 
@@ -681,6 +693,8 @@ shore review show [--repo <path>] [--revision <id>] [--track <track-id>] \
   event-set freshness metadata, or captured snapshot completeness.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies and response reasons, assessment summaries, validation summaries, and imported-note bodies.
+  Native Markdown/plain content-type fields are included for those body-like event fields when they
+  are not plain text.
 - Each narrative member (observations, input requests and their responses, assessments, validation
   checks) and the `revision` identity (the capture event) carry the same reader-relative
   `verificationStatus` and `endorsements` (with `endorserAttributes`) readback documented under

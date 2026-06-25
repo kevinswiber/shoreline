@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
-use super::payload::EventPayload;
+use super::payload::{BodyContentType, EventPayload};
 use crate::model::{
     RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
@@ -22,6 +22,8 @@ pub struct ValidationCheckRecordedPayload {
     pub source_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "BodyContentType::is_text_plain")]
+    pub summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_artifact_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,6 +80,7 @@ mod tests {
             trigger: ValidationTrigger::Manual,
             source_fingerprint: None,
             summary: None,
+            summary_content_type: Default::default(),
             summary_artifact_path: None,
             summary_byte_size: None,
             summary_content_hash: None,

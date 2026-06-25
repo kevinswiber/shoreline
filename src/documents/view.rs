@@ -5,7 +5,8 @@ use crate::model::{
     EventId, ReviewTargetRef, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::event::{
-    AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment, Writer,
+    AssertionMode, BodyContentType, InputRequestReasonCode, InputRequestResponseOutcome,
+    ReviewAssessment, Writer,
 };
 use crate::session::{
     AssessmentView, CurrentAssessmentStatus, DelegationMap, EndorsementReadback,
@@ -48,6 +49,8 @@ pub struct ObservationViewDocument {
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+    body_content_type: BodyContentType,
     tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     confidence: Option<String>,
@@ -78,6 +81,8 @@ pub struct InputRequestViewDocument {
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+    body_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
     status: &'static str,
@@ -101,6 +106,8 @@ pub struct InputRequestResponseViewDocument {
     outcome: InputRequestResponseOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+    reason_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason_content_hash: Option<String>,
     created_at: String,
@@ -146,6 +153,8 @@ pub struct AssessmentViewDocument {
     assessment: ReviewAssessment,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+    summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_content_hash: Option<String>,
     status: &'static str,
@@ -184,6 +193,8 @@ pub struct ValidationCheckViewDocument {
     source_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+    summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_content_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -210,6 +221,7 @@ impl From<ObservationView> for ObservationViewDocument {
             target: view.target,
             title: view.title,
             body: view.body,
+            body_content_type: view.body_content_type,
             tags: view.tags,
             confidence: view.confidence,
             status: view.status,
@@ -239,6 +251,7 @@ impl From<InputRequestView> for InputRequestViewDocument {
             reason_code: view.reason_code,
             title: view.title,
             body: view.body,
+            body_content_type: view.body_content_type,
             body_content_hash: view.body_content_hash,
             status: view.status.as_str(),
             responses: view
@@ -271,6 +284,7 @@ impl From<crate::session::InputRequestResponseView> for InputRequestResponseView
             event_id: view.event_id.as_str().to_owned(),
             outcome: view.outcome,
             reason: view.reason,
+            reason_content_type: view.reason_content_type,
             reason_content_hash: view.reason_content_hash,
             created_at: view.created_at,
             writer: view.writer,
@@ -322,6 +336,7 @@ impl From<AssessmentView> for AssessmentViewDocument {
             target: view.target,
             assessment: view.assessment,
             summary: view.summary,
+            summary_content_type: view.summary_content_type,
             summary_content_hash: view.summary_content_hash,
             status: view.status.as_str(),
             replaces: view
@@ -362,6 +377,7 @@ impl From<ValidationCheckView> for ValidationCheckViewDocument {
             trigger: view.trigger,
             source_fingerprint: view.source_fingerprint,
             summary: view.summary,
+            summary_content_type: view.summary_content_type,
             summary_content_hash: view.summary_content_hash,
             started_at: view.started_at,
             completed_at: view.completed_at,

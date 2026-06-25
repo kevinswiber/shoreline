@@ -6,7 +6,9 @@ use super::target::ResolvedRevision;
 use crate::error::{Result, ShoreError};
 use crate::model::{EventId, ObservationId, ReviewTargetRef, TrackId};
 use crate::session::body_artifact::load_body_artifact;
-use crate::session::event::{EventType, ReviewObservationRecordedPayload, ShoreEvent, Writer};
+use crate::session::event::{
+    BodyContentType, EventType, ReviewObservationRecordedPayload, ShoreEvent, Writer,
+};
 use crate::session::store::backend::StoreBackend;
 
 struct ObservationEventRecord<'a> {
@@ -33,6 +35,7 @@ pub struct ObservationView {
     pub target: ReviewTargetRef,
     pub title: String,
     pub body: Option<String>,
+    pub body_content_type: BodyContentType,
     pub tags: Vec<String>,
     pub confidence: Option<String>,
     pub status: ObservationStatus,
@@ -131,6 +134,7 @@ pub(crate) fn project_observations(
             target: record.payload.target,
             title: record.payload.title,
             body,
+            body_content_type: record.payload.body_content_type,
             tags: record.payload.tags,
             confidence: record.payload.confidence,
             status: ObservationStatus::Active,

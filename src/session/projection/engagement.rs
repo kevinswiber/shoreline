@@ -272,6 +272,7 @@ mod tests {
                 target,
                 assessment: ReviewAssessment::Accepted,
                 summary: None,
+                summary_content_type: Default::default(),
                 summary_artifact_path: None,
                 summary_byte_size: None,
                 summary_content_hash: None,

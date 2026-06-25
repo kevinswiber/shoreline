@@ -14,7 +14,9 @@ use crate::error::{Result, ShoreError};
 use crate::model::{
     ActorId, EventId, ObservationId, ReviewTargetRef, RevisionId, TargetRef, TrackId,
 };
-use crate::session::event::{EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent};
+use crate::session::event::{
+    BodyContentType, EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
@@ -34,6 +36,7 @@ pub struct ObservationAddOptions {
     track: Option<String>,
     title: Option<String>,
     body: Option<String>,
+    body_content_type: BodyContentType,
     target: ObservationTargetSelector,
     tags: Vec<String>,
     confidence: Option<String>,
@@ -51,6 +54,7 @@ impl ObservationAddOptions {
             track: None,
             title: None,
             body: None,
+            body_content_type: BodyContentType::TextPlain,
             target: ObservationTargetSelector::revision(),
             tags: Vec::new(),
             confidence: None,
@@ -87,6 +91,11 @@ impl ObservationAddOptions {
 
     pub fn with_body(mut self, body: impl Into<String>) -> Self {
         self.body = Some(body.into());
+        self
+    }
+
+    pub fn with_body_content_type(mut self, content_type: BodyContentType) -> Self {
+        self.body_content_type = content_type;
         self
     }
 
@@ -174,6 +183,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
         track: options.track,
         title,
         body: options.body,
+        body_content_type: options.body_content_type,
         tags: options.tags,
         confidence: options.confidence,
         supersedes_observation_ids: options.supersedes_observation_ids,
@@ -191,6 +201,7 @@ struct ObservationWriteInput {
     track: Option<String>,
     title: String,
     body: Option<String>,
+    body_content_type: BodyContentType,
     tags: Vec<String>,
     confidence: Option<String>,
     supersedes_observation_ids: Vec<ObservationId>,
@@ -217,6 +228,11 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
         .body
         .as_ref()
         .map(|body| format!("sha256:{}", sha256_bytes_hex(body.as_bytes())));
+    let body_content_type = if body_content_hash.is_some() {
+        input.body_content_type
+    } else {
+        BodyContentType::TextPlain
+    };
     let tags = input.tags.clone();
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(input.body.as_deref())?;
@@ -226,6 +242,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
         target: &input.target,
         title: &input.title,
         body_content_hash: body_content_hash.as_deref(),
+        body_content_type: body_content_type.identity_tag(),
         tags: &input.tags,
         confidence: input.confidence.as_deref(),
         supersedes_observation_ids: &input.supersedes_observation_ids,
@@ -263,6 +280,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
             target: input.target.clone(),
             title: input.title,
             body,
+            body_content_type,
             body_artifact_path,
             body_byte_size,
             body_content_hash: body_content_hash.clone(),
@@ -313,6 +331,7 @@ struct ObservationIdMaterial<'a> {
     target: &'a ReviewTargetRef,
     title: &'a str,
     body_content_hash: Option<&'a str>,
+    body_content_type: Option<&'a str>,
     tags: &'a [String],
     confidence: Option<&'a str>,
     supersedes_observation_ids: &'a [ObservationId],
@@ -328,7 +347,7 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
         .map(|observation_id| observation_id.as_str())
         .collect::<Vec<_>>();
     supersedes.sort();
-    let digest = sha256_json_prefixed(&json!({
+    let mut value = json!({
         "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
@@ -338,6 +357,10 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
         "confidence": material.confidence,
         "supersedesObservationIds": supersedes,
         "writerActorId": material.writer_actor_id,
-    }))?;
+    });
+    if let Some(body_content_type) = material.body_content_type {
+        value["bodyContentType"] = json!(body_content_type);
+    }
+    let digest = sha256_json_prefixed(&value)?;
     Ok(ObservationId::new(format!("obs:{digest}")))
 }

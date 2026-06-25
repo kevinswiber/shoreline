@@ -68,6 +68,57 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
 }
 
 #[test]
+fn observation_markdown_body_content_type_round_trips() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "Markdown observation",
+        "--body",
+        "## Finding\n\n- keep **this** visible",
+        "--body-content-type",
+        "text/markdown",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let add = parse_json(&output.stdout);
+    assert!(
+        add["bodyContentHash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"),
+        "markdown bodies still carry a body content hash"
+    );
+
+    let list = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--include-body",
+        ])
+        .stdout,
+    );
+    let observation = &list["observations"][0];
+    assert_eq!(observation["bodyContentType"], "text/markdown");
+    assert_eq!(observation["body"], "## Finding\n\n- keep **this** visible");
+}
+
+#[test]
 fn observation_add_records_range_observation() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);

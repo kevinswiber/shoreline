@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
-use super::payload::EventPayload;
+use super::payload::{BodyContentType, EventPayload};
 use crate::error::{Result, ShoreError};
 use crate::model::{
     InputRequestId, InputRequestResponseId, ReviewTargetRef, RevisionId, TrackId, WorkObjectId,
@@ -40,6 +40,8 @@ pub struct InputRequestOpenedPayload {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "BodyContentType::is_text_plain")]
+    pub body_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_artifact_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,6 +120,8 @@ pub struct InputRequestRespondedPayload {
     pub outcome: InputRequestResponseOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "BodyContentType::is_text_plain")]
+    pub reason_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason_artifact_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,6 +269,7 @@ mod tests {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
+            reason_content_type: Default::default(),
             reason_artifact_path: None,
             reason_byte_size: None,
             reason_content_hash: None,
@@ -285,6 +290,7 @@ mod tests {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
+            reason_content_type: Default::default(),
             reason_artifact_path: None,
             reason_byte_size: None,
             reason_content_hash: None,
@@ -309,6 +315,7 @@ mod tests {
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
+            body_content_type: Default::default(),
             body_artifact_path: None,
             body_byte_size: Some(22),
             body_content_hash: Some("sha256:body".to_owned()),
@@ -377,6 +384,7 @@ mod tests {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
             outcome: InputRequestResponseOutcome::Approved,
             reason: Some("Approved locally".to_owned()),
+            reason_content_type: Default::default(),
             reason_artifact_path: None,
             reason_byte_size: Some(16),
             reason_content_hash: Some("sha256:reason".to_owned()),
@@ -436,6 +444,7 @@ mod tests {
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "t".to_owned(),
             body: None,
+            body_content_type: Default::default(),
             body_artifact_path: None,
             body_byte_size: None,
             body_content_hash: None,

@@ -151,8 +151,7 @@ const SUPERSEDABLE_FACT_TYPES = new Set(["review_observation_recorded", "review_
 // Navigable kinds carry data attributes that the delegated click handler
 // resolves; hashes/commits render as truncated text with the full value on
 // hover.
-function linkify(text) {
-  const escaped = escapeHtml(String(text ?? ""));
+function linkifyEscaped(escaped) {
   return escaped.replace(REF_RE, (token) => {
     const info = refInfo(token);
     if (!info) return token;
@@ -162,6 +161,125 @@ function linkify(text) {
     }
     return `<span class="ref ref-${info.kind}" role="link" tabindex="0" data-ref-kind="${info.kind}" data-ref-id="${escapeHtml(token)}" title="${escapeHtml(token)}">${display}</span>`;
   });
+}
+
+function linkify(text) {
+  return linkifyEscaped(escapeHtml(String(text ?? "")));
+}
+
+function isMarkdownContentType(contentType) {
+  return contentType === "text/markdown";
+}
+
+function renderBodyContent(text, contentType) {
+  if (!text) return "";
+  const cls = isMarkdownContentType(contentType) ? " anno-body markdown-body" : "anno-body";
+  return `<div class="${cls}">${renderContentHtml(text, contentType)}</div>`;
+}
+
+function renderContentHtml(text, contentType) {
+  return isMarkdownContentType(contentType) ? renderMarkdown(text) : linkify(text);
+}
+
+function renderMarkdown(text) {
+  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  let paragraph = [];
+  let listKind = null;
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    out.push(`<p>${renderMarkdownInline(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listKind) return;
+    out.push(`<${listKind}>${listItems.map((item) => `<li>${renderMarkdownInline(item)}</li>`).join("")}</${listKind}>`);
+    listKind = null;
+    listItems = [];
+  };
+  const flushBlocks = () => {
+    flushParagraph();
+    flushList();
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = line.match(/^\s*```/);
+    if (fence) {
+      flushBlocks();
+      const code = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) {
+        code.push(lines[i]);
+        i++;
+      }
+      out.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+    if (!line.trim()) {
+      flushBlocks();
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushBlocks();
+      const level = heading[1].length;
+      out.push(`<h${level}>${renderMarkdownInline(heading[2].trim())}</h${level}>`);
+      continue;
+    }
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    if (unordered) {
+      flushParagraph();
+      if (listKind && listKind !== "ul") flushList();
+      listKind = "ul";
+      listItems.push(unordered[1]);
+      continue;
+    }
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      if (listKind && listKind !== "ol") flushList();
+      listKind = "ol";
+      listItems.push(ordered[1]);
+      continue;
+    }
+    if (listKind) flushList();
+    paragraph.push(line.trim());
+  }
+  flushBlocks();
+  return out.join("");
+}
+
+function renderMarkdownInline(text) {
+  const placeholders = [];
+  const stash = (html) => {
+    const token = `\u0000MD${placeholders.length}\u0000`;
+    placeholders.push([token, html]);
+    return token;
+  };
+  let html = escapeHtml(String(text ?? ""));
+  html = html.replace(/`([^`]+)`/g, (_, code) => stash(`<code>${code}</code>`));
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
+    const safe = safeMarkdownHref(href);
+    const labelHtml = renderMarkdownInline(label);
+    return safe ? stash(`<a href="${safe}" target="_blank" rel="noreferrer">${labelHtml}</a>`) : labelHtml;
+  });
+  html = html
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  html = linkifyEscaped(html);
+  for (const [token, replacement] of placeholders) {
+    html = html.split(token).join(replacement);
+  }
+  return html;
+}
+
+function safeMarkdownHref(href) {
+  const raw = String(href ?? "").trim();
+  if (/^(https?:|mailto:)/i.test(raw) || raw.startsWith("#")) return escapeHtml(raw);
+  return "";
 }
 
 // A reference chip resolves to a navigation through the router (set the
@@ -802,6 +920,7 @@ function renderDetail() {
     focusId = s.inputRequestId;
     focusNoun = "input request";
   }
+  const bodyBlock = eventBodyBlock(e);
   const btnLabel = focusId ? `show this ${focusNoun} in the diff` : "view snapshot diff";
   const verifyChip = verificationChip(e.verificationStatus);
   const endorse = endorsementsBlock(e.endorsements);
@@ -816,11 +935,20 @@ function renderDetail() {
     <dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(String(v))}</dd>`).join("")}</dl>
     ${readback}
     ${snapshotId ? `<button class="ghost diff-btn" id="detail-diff-btn">${escapeHtml(btnLabel)}</button>` : ""}
+    ${bodyBlock}
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
     const btn = el.querySelector("#detail-diff-btn");
     if (btn) btn.addEventListener("click", () => openDiff(snapshotId, focusId));
   }
+}
+
+function eventBodyBlock(e) {
+  const s = e.summary || {};
+  if (s.body) return renderBodyContent(s.body, s.bodyContentType);
+  if (s.summary) return renderBodyContent(s.summary, s.summaryContentType);
+  if (s.reason) return renderBodyContent(s.reason, s.reasonContentType);
+  return "";
 }
 
 function snapshotIdForRevision(revisionId) {
@@ -841,6 +969,7 @@ function annotationsForUnit(revisionId) {
         id: s.observationId || e.eventId,
         title: s.title || "(observation)",
         body: s.body || "",
+        bodyContentType: s.bodyContentType,
         track: e.trackId || "",
         tags: Array.isArray(s.tags) ? s.tags : [],
         target: s.target || {},
@@ -852,6 +981,7 @@ function annotationsForUnit(revisionId) {
         id: s.inputRequestId || e.eventId,
         title: s.title || "(input request)",
         body: s.body || "",
+        bodyContentType: s.bodyContentType,
         track: e.trackId || "",
         tags: meta ? [meta] : [],
         target: s.target || {},
@@ -862,6 +992,7 @@ function annotationsForUnit(revisionId) {
         id: s.assessmentId || e.eventId,
         title: `assessment: ${s.assessment || "?"}`,
         body: s.summary || "",
+        bodyContentType: s.summaryContentType,
         track: e.trackId || "",
         tags: [],
         target: s.target || {},
@@ -1079,7 +1210,7 @@ function jumpChange(dir) {
 
 function renderAnnotation(a, showLocation) {
   const tags = (a.tags || []).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
-  const body = a.body ? `<div class="anno-body">${linkify(a.body)}</div>` : "";
+  const body = renderBodyContent(a.body, a.bodyContentType);
   const t = a.target || {};
   const loc =
     showLocation && t.filePath
@@ -1612,7 +1743,10 @@ function currentAssessmentSummary(d) {
   const ca = d.currentAssessment || {};
   if (ca.status === "resolved" && ca.assessmentId) {
     const a = (d.assessments || []).find((x) => x.id === ca.assessmentId);
-    if (a && a.summary) return `<div class="verdict-summary">${linkify(a.summary)}</div>`;
+    if (a && a.summary) {
+      const cls = isMarkdownContentType(a.summaryContentType) ? "verdict-summary markdown-body" : "verdict-summary";
+      return `<div class="${cls}">${renderContentHtml(a.summary, a.summaryContentType)}</div>`;
+    }
   }
   if (ca.status === "ambiguous") {
     return `<div class="verdict-summary">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
@@ -1644,7 +1778,7 @@ function targetLabel(t) {
 
 function factCard(kind, opts) {
   const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
-  const body = opts.body ? `<div class="anno-body">${linkify(opts.body)}</div>` : "";
+  const body = renderBodyContent(opts.body, opts.bodyContentType);
   return `<div class="anno anno-${kind}">
     <div class="anno-head">
       <span class="anno-kind anno-kind-${kind}">${kind}</span>
@@ -1672,6 +1806,7 @@ function renderObservationCard(o) {
     target: targetLabel(o.target),
     tags: o.tags,
     body: o.body,
+    bodyContentType: o.bodyContentType,
     createdAt: o.createdAt,
     verify: verificationChip(o.verificationStatus),
     endorsements: endorsementsBlock(o.endorsements),
@@ -1683,7 +1818,7 @@ function renderInputRequestCard(ir) {
   const responses = (ir.responses || [])
     .map(
       (r) =>
-        `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? `: ${linkify(r.reason)}` : ""} ${verificationChip(r.verificationStatus)}${endorsementsBlock(r.endorsements)}</div>`,
+        `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus)}${endorsementsBlock(r.endorsements)}</div>`,
     )
     .join("");
   return factCard("input-request", {
@@ -1693,6 +1828,7 @@ function renderInputRequestCard(ir) {
     target: targetLabel(ir.target),
     tags: [ir.mode, ir.reasonCode],
     body: ir.body,
+    bodyContentType: ir.bodyContentType,
     createdAt: ir.createdAt,
     verify: verificationChip(ir.verificationStatus),
     endorsements: endorsementsBlock(ir.endorsements),
@@ -1711,6 +1847,7 @@ function renderAssessmentCard(a) {
     status: a.status,
     target: targetLabel(a.target),
     body: a.summary,
+    bodyContentType: a.summaryContentType,
     createdAt: a.createdAt,
     verify: verificationChip(a.verificationStatus),
     endorsements: endorsementsBlock(a.endorsements),
@@ -1732,6 +1869,7 @@ function renderValidationCheckCard(v) {
     target: targetLabel(v.target),
     tags: [v.trigger, v.exitCode != null ? `exit ${v.exitCode}` : null],
     body: v.summary || "",
+    bodyContentType: v.summaryContentType,
     createdAt: v.completedAt || v.createdAt,
     verify: verificationChip(v.verificationStatus),
     endorsements: endorsementsBlock(v.endorsements),

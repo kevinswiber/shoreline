@@ -14,7 +14,9 @@ use crate::model::{
     ActorId, EventId, ReviewTargetRef, RevisionId, TargetRef, TrackId, ValidationCheckId,
     ValidationStatus, ValidationTarget, ValidationTrigger,
 };
-use crate::session::event::{EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload};
+use crate::session::event::{
+    BodyContentType, EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
@@ -38,6 +40,7 @@ pub struct ValidationAddOptions {
     trigger: ValidationTrigger,
     source_fingerprint: Option<String>,
     summary: Option<String>,
+    summary_content_type: BodyContentType,
     started_at: Option<String>,
     completed_at: Option<String>,
     log_artifact_content_hashes: Vec<String>,
@@ -59,6 +62,7 @@ impl ValidationAddOptions {
             trigger: ValidationTrigger::Manual,
             source_fingerprint: None,
             summary: None,
+            summary_content_type: BodyContentType::TextPlain,
             started_at: None,
             completed_at: None,
             log_artifact_content_hashes: Vec::new(),
@@ -114,6 +118,11 @@ impl ValidationAddOptions {
 
     pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
         self.summary = Some(summary.into());
+        self
+    }
+
+    pub fn with_summary_content_type(mut self, content_type: BodyContentType) -> Self {
+        self.summary_content_type = content_type;
         self
     }
 
@@ -199,6 +208,7 @@ pub fn record_validation_check(options: ValidationAddOptions) -> Result<Validati
         trigger: options.trigger,
         source_fingerprint: options.source_fingerprint,
         summary: options.summary,
+        summary_content_type: options.summary_content_type,
         started_at: options.started_at,
         completed_at: options.completed_at,
         log_artifact_content_hashes: options.log_artifact_content_hashes,
@@ -220,6 +230,7 @@ struct ValidationWriteInput {
     trigger: ValidationTrigger,
     source_fingerprint: Option<String>,
     summary: Option<String>,
+    summary_content_type: BodyContentType,
     started_at: Option<String>,
     completed_at: Option<String>,
     log_artifact_content_hashes: Vec<String>,
@@ -246,6 +257,11 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
         .summary
         .as_ref()
         .map(|summary| format!("sha256:{}", sha256_bytes_hex(summary.as_bytes())));
+    let summary_content_type = if summary_content_hash.is_some() {
+        input.summary_content_type
+    } else {
+        BodyContentType::TextPlain
+    };
     let (summary, summary_artifact_path, summary_artifact_bytes, summary_byte_size) =
         staged_body(input.summary.as_deref())?;
     let mut log_artifact_content_hashes = input.log_artifact_content_hashes;
@@ -265,6 +281,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
         trigger: input.trigger,
         source_fingerprint: input.source_fingerprint.as_deref(),
         summary_content_hash: summary_content_hash.as_deref(),
+        summary_content_type: summary_content_type.identity_tag(),
         started_at: input.started_at.as_deref(),
         completed_at: input.completed_at.as_deref(),
         log_artifact_content_hashes: &log_artifact_content_hashes,
@@ -315,6 +332,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
             trigger: input.trigger,
             source_fingerprint: input.source_fingerprint,
             summary,
+            summary_content_type,
             summary_artifact_path,
             summary_byte_size,
             summary_content_hash: summary_content_hash.clone(),
@@ -370,6 +388,7 @@ pub(super) struct ValidationCheckIdMaterial<'a> {
     pub trigger: ValidationTrigger,
     pub source_fingerprint: Option<&'a str>,
     pub summary_content_hash: Option<&'a str>,
+    pub summary_content_type: Option<&'a str>,
     pub started_at: Option<&'a str>,
     pub completed_at: Option<&'a str>,
     pub log_artifact_content_hashes: &'a [String],
@@ -382,7 +401,7 @@ pub(super) fn build_validation_check_id(
     let mut log_hashes = material.log_artifact_content_hashes.to_vec();
     log_hashes.sort();
     log_hashes.dedup();
-    let digest = sha256_json_prefixed(&json!({
+    let mut value = json!({
         "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
@@ -397,7 +416,11 @@ pub(super) fn build_validation_check_id(
         "completedAt": material.completed_at,
         "logArtifactContentHashes": log_hashes,
         "writerActorId": material.writer_actor_id,
-    }))?;
+    });
+    if let Some(summary_content_type) = material.summary_content_type {
+        value["summaryContentType"] = json!(summary_content_type);
+    }
+    let digest = sha256_json_prefixed(&value)?;
     Ok(ValidationCheckId::new(format!("validation:{digest}")))
 }
 

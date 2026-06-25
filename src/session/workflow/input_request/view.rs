@@ -4,7 +4,7 @@ use crate::error::{Result, ShoreError};
 use crate::model::{EventId, InputRequestId, InputRequestResponseId, ReviewTargetRef, TrackId};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
-    AssertionMode, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
+    AssertionMode, BodyContentType, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, Writer,
     decode_input_request_opened_payload,
 };
@@ -32,6 +32,7 @@ pub struct InputRequestView {
     pub reason_code: InputRequestReasonCode,
     pub title: String,
     pub body: Option<String>,
+    pub body_content_type: BodyContentType,
     pub body_content_hash: Option<String>,
     pub status: InputRequestStatus,
     pub responses: Vec<InputRequestResponseView>,
@@ -45,6 +46,7 @@ pub struct InputRequestResponseView {
     pub event_id: EventId,
     pub outcome: InputRequestResponseOutcome,
     pub reason: Option<String>,
+    pub reason_content_type: BodyContentType,
     pub reason_content_hash: Option<String>,
     pub created_at: String,
     pub writer: Writer,
@@ -232,6 +234,7 @@ pub(super) fn collect_input_request_projection_records<'a>(
                 event_id: event.event_id.clone(),
                 outcome: payload.outcome,
                 reason: payload.reason,
+                reason_content_type: payload.reason_content_type,
                 reason_content_hash: payload.reason_content_hash,
                 created_at: event.occurred_at.clone(),
                 writer: event.writer.clone(),
@@ -278,6 +281,7 @@ pub(super) fn input_request_view_from_event(
         reason_code: payload.reason_code,
         title: payload.title,
         body,
+        body_content_type: payload.body_content_type,
         body_content_hash: payload.body_content_hash,
         status,
         responses,

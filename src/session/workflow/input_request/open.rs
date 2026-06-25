@@ -11,8 +11,8 @@ use crate::model::{
     ActorId, EventId, InputRequestId, ReviewTargetRef, RevisionId, TargetRef, TrackId,
 };
 use crate::session::event::{
-    AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
-    ShoreEvent,
+    AssertionMode, BodyContentType, EventTarget, EventType, InputRequestOpenedPayload,
+    InputRequestReasonCode, ShoreEvent,
 };
 use crate::session::observation::{
     CurrentRevisionContext, RevisionScope, RevisionSelection, required_title, resolve_revision,
@@ -36,6 +36,7 @@ pub struct InputRequestOpenOptions {
     track: Option<String>,
     title: Option<String>,
     body: Option<String>,
+    body_content_type: BodyContentType,
     target: InputRequestTargetSelector,
     assertion_mode: AssertionMode,
     reason_code: Option<InputRequestReasonCode>,
@@ -52,6 +53,7 @@ impl InputRequestOpenOptions {
             track: None,
             title: None,
             body: None,
+            body_content_type: BodyContentType::TextPlain,
             target: InputRequestTargetSelector::revision(),
             assertion_mode: AssertionMode::Operative,
             reason_code: None,
@@ -87,6 +89,11 @@ impl InputRequestOpenOptions {
 
     pub fn with_body(mut self, body: impl Into<String>) -> Self {
         self.body = Some(body.into());
+        self
+    }
+
+    pub fn with_body_content_type(mut self, content_type: BodyContentType) -> Self {
+        self.body_content_type = content_type;
         self
     }
 
@@ -187,6 +194,11 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         .body
         .as_ref()
         .map(|body| format!("sha256:{}", sha256_bytes_hex(body.as_bytes())));
+    let body_content_type = if body_content_hash.is_some() {
+        options.body_content_type
+    } else {
+        BodyContentType::TextPlain
+    };
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(options.body.as_deref())?;
     let input_request_id = build_input_request_id(InputRequestIdMaterial {
@@ -197,6 +209,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         reason_code,
         title: &title,
         body_content_hash: body_content_hash.as_deref(),
+        body_content_type: body_content_type.identity_tag(),
         writer_actor_id: writer.actor_id.as_str(),
     })?;
     let source_key = options
@@ -231,6 +244,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
             reason_code,
             title,
             body,
+            body_content_type,
             body_artifact_path,
             body_byte_size,
             body_content_hash: body_content_hash.clone(),
@@ -284,11 +298,12 @@ struct InputRequestIdMaterial<'a> {
     reason_code: InputRequestReasonCode,
     title: &'a str,
     body_content_hash: Option<&'a str>,
+    body_content_type: Option<&'a str>,
     writer_actor_id: &'a str,
 }
 
 fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputRequestId> {
-    let digest = sha256_json_prefixed(&json!({
+    let mut value = json!({
         "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
@@ -297,6 +312,10 @@ fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputR
         "title": material.title,
         "bodyContentHash": material.body_content_hash,
         "writerActorId": material.writer_actor_id,
-    }))?;
+    });
+    if let Some(body_content_type) = material.body_content_type {
+        value["bodyContentType"] = json!(body_content_type);
+    }
+    let digest = sha256_json_prefixed(&value)?;
     Ok(InputRequestId::new(format!("input-request:{digest}")))
 }

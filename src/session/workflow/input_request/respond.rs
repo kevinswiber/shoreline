@@ -11,8 +11,8 @@ use crate::model::{
     ActorId, EventId, InputRequestId, InputRequestResponseId, ReviewTargetRef, TargetRef,
 };
 use crate::session::event::{
-    EventTarget, EventType, InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent,
-    decode_input_request_opened_payload,
+    BodyContentType, EventTarget, EventType, InputRequestRespondedPayload,
+    InputRequestResponseOutcome, ShoreEvent, decode_input_request_opened_payload,
 };
 use crate::session::observation::staged_body;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -32,6 +32,7 @@ pub struct InputRequestRespondOptions {
     input_request_id: InputRequestId,
     outcome: Option<InputRequestResponseOutcome>,
     reason: Option<String>,
+    reason_content_type: BodyContentType,
     idempotency_key: Option<String>,
     actor_id: Option<ActorId>,
     signing: EventSigningOptions,
@@ -44,6 +45,7 @@ impl InputRequestRespondOptions {
             input_request_id,
             outcome: None,
             reason: None,
+            reason_content_type: BodyContentType::TextPlain,
             idempotency_key: None,
             actor_id: None,
             signing: EventSigningOptions::default(),
@@ -67,6 +69,11 @@ impl InputRequestRespondOptions {
 
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
+        self
+    }
+
+    pub fn with_reason_content_type(mut self, content_type: BodyContentType) -> Self {
+        self.reason_content_type = content_type;
         self
     }
 
@@ -154,6 +161,11 @@ pub fn respond_input_request(
         .reason
         .as_ref()
         .map(|reason| format!("sha256:{}", sha256_bytes_hex(reason.as_bytes())));
+    let reason_content_type = if reason_content_hash.is_some() {
+        options.reason_content_type
+    } else {
+        BodyContentType::TextPlain
+    };
     let (reason, reason_artifact_path, reason_artifact_bytes, reason_byte_size) =
         staged_body(options.reason.as_deref())?;
     let input_request_response_id =
@@ -161,6 +173,7 @@ pub fn respond_input_request(
             input_request_id: &request_payload.input_request_id,
             outcome,
             reason_content_hash: reason_content_hash.as_deref(),
+            reason_content_type: reason_content_type.identity_tag(),
             writer_actor_id: writer.actor_id.as_str(),
         })?;
     let source_key = options
@@ -204,6 +217,7 @@ pub fn respond_input_request(
             input_request_id: request_payload.input_request_id.clone(),
             outcome,
             reason,
+            reason_content_type,
             reason_artifact_path,
             reason_byte_size,
             reason_content_hash: reason_content_hash.clone(),
@@ -281,18 +295,23 @@ struct InputRequestResponseIdMaterial<'a> {
     input_request_id: &'a InputRequestId,
     outcome: InputRequestResponseOutcome,
     reason_content_hash: Option<&'a str>,
+    reason_content_type: Option<&'a str>,
     writer_actor_id: &'a str,
 }
 
 fn build_input_request_response_id(
     material: InputRequestResponseIdMaterial<'_>,
 ) -> Result<InputRequestResponseId> {
-    let digest = sha256_json_prefixed(&json!({
+    let mut value = json!({
         "inputRequestId": material.input_request_id.as_str(),
         "outcome": material.outcome,
         "reasonContentHash": material.reason_content_hash,
         "writerActorId": material.writer_actor_id,
-    }))?;
+    });
+    if let Some(reason_content_type) = material.reason_content_type {
+        value["reasonContentType"] = json!(reason_content_type);
+    }
+    let digest = sha256_json_prefixed(&value)?;
     Ok(InputRequestResponseId::new(format!(
         "input-request-response:{digest}"
     )))

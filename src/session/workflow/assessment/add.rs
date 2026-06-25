@@ -13,7 +13,7 @@ use crate::model::{
     TargetRef, TrackId,
 };
 use crate::session::event::{
-    EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
+    BodyContentType, EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
     ReviewObservationRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
 };
 use crate::session::observation::{
@@ -39,6 +39,7 @@ pub struct AssessmentAddOptions {
     track: Option<String>,
     assessment: Option<ReviewAssessment>,
     summary: Option<String>,
+    summary_content_type: BodyContentType,
     target: AssessmentTargetSelector,
     replaces_assessment_ids: Vec<AssessmentId>,
     related_observation_ids: Vec<ObservationId>,
@@ -56,6 +57,7 @@ impl AssessmentAddOptions {
             track: None,
             assessment: None,
             summary: None,
+            summary_content_type: BodyContentType::TextPlain,
             target: AssessmentTargetSelector::revision(),
             replaces_assessment_ids: Vec::new(),
             related_observation_ids: Vec::new(),
@@ -92,6 +94,11 @@ impl AssessmentAddOptions {
 
     pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
         self.summary = Some(summary.into());
+        self
+    }
+
+    pub fn with_summary_content_type(mut self, content_type: BodyContentType) -> Self {
+        self.summary_content_type = content_type;
         self
     }
 
@@ -210,6 +217,11 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         .summary
         .as_ref()
         .map(|summary| format!("sha256:{}", sha256_bytes_hex(summary.as_bytes())));
+    let summary_content_type = if summary_content_hash.is_some() {
+        options.summary_content_type
+    } else {
+        BodyContentType::TextPlain
+    };
     let (summary, summary_artifact_path, summary_artifact_bytes, summary_byte_size) =
         staged_body(options.summary.as_deref())?;
     let replaces_assessment_ids = sorted_unique(options.replaces_assessment_ids);
@@ -221,6 +233,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         target: &target,
         assessment,
         summary_content_hash: summary_content_hash.as_deref(),
+        summary_content_type: summary_content_type.identity_tag(),
         replaces_assessment_ids: &replaces_assessment_ids,
         related_observation_ids: &related_observation_ids,
         related_input_request_ids: &related_input_request_ids,
@@ -260,6 +273,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
             target: target.clone(),
             assessment,
             summary,
+            summary_content_type,
             summary_artifact_path,
             summary_byte_size,
             summary_content_hash: summary_content_hash.clone(),
@@ -407,6 +421,7 @@ struct AssessmentIdMaterial<'a> {
     target: &'a ReviewTargetRef,
     assessment: ReviewAssessment,
     summary_content_hash: Option<&'a str>,
+    summary_content_type: Option<&'a str>,
     replaces_assessment_ids: &'a [AssessmentId],
     related_observation_ids: &'a [ObservationId],
     related_input_request_ids: &'a [InputRequestId],
@@ -433,7 +448,7 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
         .collect::<Vec<_>>();
     related_input_requests.sort();
 
-    let digest = sha256_json_prefixed(&json!({
+    let mut value = json!({
         "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
@@ -443,7 +458,11 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
         "relatedObservationIds": related_observations,
         "relatedInputRequestIds": related_input_requests,
         "writerActorId": material.writer_actor_id,
-    }))?;
+    });
+    if let Some(summary_content_type) = material.summary_content_type {
+        value["summaryContentType"] = json!(summary_content_type);
+    }
+    let digest = sha256_json_prefixed(&value)?;
     Ok(AssessmentId::new(format!("assess:{digest}")))
 }
 
@@ -468,6 +487,7 @@ mod tests {
             target: &target,
             assessment: ReviewAssessment::Accepted,
             summary_content_hash: Some("sha256:summary"),
+            summary_content_type: None,
             replaces_assessment_ids: &[],
             related_observation_ids: &[],
             related_input_request_ids: &[],

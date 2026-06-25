@@ -1158,6 +1158,7 @@ mod tests {
                 trigger: ValidationTrigger::Manual,
                 source_fingerprint: None,
                 summary: Some("tests passed".to_owned()),
+                summary_content_type: Default::default(),
                 summary_artifact_path: None,
                 summary_byte_size: Some(12),
                 summary_content_hash: Some("sha256:summary".to_owned()),

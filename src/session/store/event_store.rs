@@ -1112,6 +1112,7 @@ mod tests {
                 target: target_ref,
                 assessment: ReviewAssessment::Accepted,
                 summary: Some("Ship it".to_owned()),
+                summary_content_type: Default::default(),
                 summary_artifact_path: None,
                 summary_byte_size: Some(7),
                 summary_content_hash: Some("sha256:summary".to_owned()),

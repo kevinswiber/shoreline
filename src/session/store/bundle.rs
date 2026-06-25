@@ -1264,6 +1264,7 @@ mod tests {
                 trigger: ValidationTrigger::Manual,
                 source_fingerprint: None,
                 summary: None,
+                summary_content_type: Default::default(),
                 summary_artifact_path: Some(summary_artifact_path.to_owned()),
                 summary_byte_size: Some(summary_byte_size),
                 summary_content_hash: Some(summary_content_hash.to_owned()),

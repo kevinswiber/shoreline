@@ -6,7 +6,8 @@ use crate::model::{
 };
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
-    EventType, ReviewAssessment, ReviewAssessmentRecordedPayload, ShoreEvent, Writer,
+    BodyContentType, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload, ShoreEvent,
+    Writer,
 };
 use crate::session::observation::ResolvedRevision;
 use crate::session::store::backend::StoreBackend;
@@ -71,6 +72,7 @@ pub struct AssessmentView {
     pub target: ReviewTargetRef,
     pub assessment: ReviewAssessment,
     pub summary: Option<String>,
+    pub summary_content_type: BodyContentType,
     pub summary_content_hash: Option<String>,
     pub status: AssessmentRecordStatus,
     pub replaces: Vec<AssessmentId>,
@@ -211,6 +213,7 @@ fn assessment_view_from_event(
         target: payload.target,
         assessment: payload.assessment,
         summary,
+        summary_content_type: payload.summary_content_type,
         summary_content_hash: payload.summary_content_hash,
         status,
         replaces,

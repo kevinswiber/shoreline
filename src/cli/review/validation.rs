@@ -9,7 +9,7 @@ use shoreline::session::{
 };
 
 use crate::cli::json;
-use crate::cli::review::common::read_body_input;
+use crate::cli::review::common::{ContentTypeArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct ValidationArgs {
@@ -60,6 +60,9 @@ struct ValidationAddArgs {
 
     #[arg(long, group = "validation_summary")]
     summary_stdin: bool,
+
+    #[arg(long, value_enum, default_value = "text/plain")]
+    summary_content_type: ContentTypeArg,
 
     #[arg(long)]
     started_at: Option<String>,
@@ -197,6 +200,7 @@ fn validation_add_options(
     if let Some(summary) = summary {
         options = options.with_summary(summary);
     }
+    options = options.with_summary_content_type(args.summary_content_type.into());
     if let Some(started_at) = args.started_at {
         options = options.with_started_at(started_at);
     }

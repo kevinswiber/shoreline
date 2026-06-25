@@ -363,6 +363,7 @@ mod tests {
             trigger: ValidationTrigger::Manual,
             source_fingerprint: Some("rev:sha256:head".to_owned()),
             summary: Some("tests passed".to_owned()),
+            summary_content_type: Default::default(),
             summary_content_hash: Some("sha256:summary".to_owned()),
             started_at: Some("2026-05-10T00:00:00Z".to_owned()),
             completed_at: Some("2026-05-10T00:01:00Z".to_owned()),

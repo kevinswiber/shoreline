@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
-use super::payload::EventPayload;
+use super::payload::{BodyContentType, EventPayload};
 use crate::model::{ObservationId, ReviewTargetRef, RevisionId, TrackId};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -12,6 +12,8 @@ pub struct ReviewObservationRecordedPayload {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "BodyContentType::is_text_plain")]
+    pub body_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_artifact_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -17,7 +17,7 @@ use shoreline::session::{
 };
 
 use crate::cli::json;
-use crate::cli::review::common::{SideArg, read_body_input};
+use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct InputRequestArgs {
@@ -61,6 +61,9 @@ struct InputRequestOpenArgs {
 
     #[arg(long, group = "input_request_body")]
     body_stdin: bool,
+
+    #[arg(long, value_enum, default_value = "text/plain")]
+    body_content_type: ContentTypeArg,
 
     #[arg(long)]
     file: Option<String>,
@@ -153,6 +156,9 @@ struct InputRequestRespondArgs {
 
     #[arg(long, group = "input_request_reason")]
     reason_stdin: bool,
+
+    #[arg(long, value_enum, default_value = "text/plain")]
+    reason_content_type: ContentTypeArg,
 
     #[arg(long)]
     idempotency_key: Option<String>,
@@ -310,6 +316,7 @@ fn input_request_open_options(
     if let Some(body) = body {
         options = options.with_body(body);
     }
+    options = options.with_body_content_type(args.body_content_type.into());
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }
@@ -359,6 +366,7 @@ fn input_request_respond_options(
     if let Some(reason) = reason {
         options = options.with_reason(reason);
     }
+    options = options.with_reason_content_type(args.reason_content_type.into());
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
     }

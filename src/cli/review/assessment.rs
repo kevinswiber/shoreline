@@ -11,7 +11,7 @@ use shoreline::session::{
 };
 
 use crate::cli::json;
-use crate::cli::review::common::{SideArg, read_body_input};
+use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct AssessmentArgs {
@@ -54,6 +54,9 @@ pub(super) struct AssessmentAddArgs {
     /// Read the assessment summary from stdin.
     #[arg(long, group = "assessment_summary")]
     summary_stdin: bool,
+
+    #[arg(long, value_enum, default_value = "text/plain")]
+    summary_content_type: ContentTypeArg,
 
     /// Captured file path to assess.
     #[arg(long)]
@@ -225,6 +228,7 @@ pub(super) fn assessment_add_options(
     if let Some(summary) = summary {
         options = options.with_summary(summary);
     }
+    options = options.with_summary_content_type(args.summary_content_type.into());
     for assessment_id in args.replaces {
         options = options.replacing(AssessmentId::new(assessment_id));
     }

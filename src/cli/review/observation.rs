@@ -10,7 +10,7 @@ use shoreline::session::{
 };
 
 use crate::cli::json;
-use crate::cli::review::common::{SideArg, read_body_input};
+use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct ObservationArgs {
@@ -46,6 +46,9 @@ struct ObservationAddArgs {
 
     #[arg(long, group = "observation_body")]
     body_stdin: bool,
+
+    #[arg(long, value_enum, default_value = "text/plain")]
+    body_content_type: ContentTypeArg,
 
     #[arg(long)]
     file: Option<String>,
@@ -180,6 +183,7 @@ fn observation_add_options(
     if let Some(body) = body {
         options = options.with_body(body);
     }
+    options = options.with_body_content_type(args.body_content_type.into());
     for tag in args.tags {
         options = options.with_tag(tag);
     }

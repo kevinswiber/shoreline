@@ -7,7 +7,8 @@ mod store;
 mod workflow;
 
 pub use event::{
-    IngestProvenance, IngestVia, event_signature_pre_authentication_encoding, event_to_be_signed,
+    BodyContentType, IngestProvenance, IngestVia, event_signature_pre_authentication_encoding,
+    event_to_be_signed,
 };
 pub use identity::{
     ACTOR_ATTRIBUTES_LOCAL_REL_PATH, ACTOR_ATTRIBUTES_REL_PATH, ActorAttributes,

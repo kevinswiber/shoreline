@@ -8,7 +8,9 @@ use crate::model::{
     ValidationTrigger,
 };
 use crate::session::body_artifact::load_body_artifact;
-use crate::session::event::{EventType, ShoreEvent, ValidationCheckRecordedPayload, Writer};
+use crate::session::event::{
+    BodyContentType, EventType, ShoreEvent, ValidationCheckRecordedPayload, Writer,
+};
 use crate::session::store::backend::StoreBackend;
 
 struct ValidationEventRecord<'a> {
@@ -44,6 +46,8 @@ pub struct ValidationCheckView {
     pub source_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentType::is_text_plain")]
+    pub summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_content_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,6 +136,7 @@ pub fn project_validation_checks(
             trigger: record.payload.trigger,
             source_fingerprint: record.payload.source_fingerprint,
             summary,
+            summary_content_type: record.payload.summary_content_type,
             summary_content_hash: record.payload.summary_content_hash,
             started_at: record.payload.started_at,
             completed_at: record.payload.completed_at,
@@ -361,6 +366,7 @@ mod tests {
                 trigger: ValidationTrigger::Manual,
                 source_fingerprint: None,
                 summary: None,
+                summary_content_type: Default::default(),
                 summary_artifact_path: None,
                 summary_byte_size: None,
                 summary_content_hash: None,
@@ -393,6 +399,7 @@ mod tests {
                 trigger: ValidationTrigger::Manual,
                 source_fingerprint: None,
                 summary: None,
+                summary_content_type: Default::default(),
                 summary_artifact_path: Some(artifact_path.to_owned()),
                 summary_byte_size: Some(16),
                 summary_content_hash: Some("sha256:artifact-summary".to_owned()),
