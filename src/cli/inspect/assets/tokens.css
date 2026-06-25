@@ -122,6 +122,18 @@
   --teal: #0f6f66;        /* darkened from #137f74 so chip text clears AA on --bg-row */
   --info: #0969da;        /* aliases to accent on light; paired with a light --hunk-bg */
 
+  /* Event-type labels in light theme. The :root --evt-* hues are dark-tuned and
+     fall under WCAG AA as label text on these pale surfaces, so each colored
+     event type aliases its AA-tuned status twin — keeping one color per concept
+     across the timeline and the annotation-kind labels, AA-safe on --bg/--bg-row.
+     The neutral init/note types keep their :root grays. */
+  --evt-capture: var(--accent);
+  --evt-observation: var(--success);
+  --evt-assessment: var(--assess);
+  --evt-request: var(--warning);
+  --evt-response: var(--teal);
+  --evt-validation: var(--validation);
+
   /* Diff foregrounds darken to read on the pale add/del rows; the translucent
      --diff-*-bg values are theme-neutral and keep their :root definitions. */
   --diff-add-fg: #147029;

@@ -76,6 +76,32 @@ fn served_app_js_registers_validation_timeline_type() {
 }
 
 #[test]
+fn served_tokens_css_light_theme_aliases_event_labels_to_status() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let tokens_css = inspector.get_text("/tokens.css");
+
+    // The :root --evt-* hues are dark-tuned and fall under WCAG AA as label text
+    // on the pale light surfaces, so the light theme aliases each colored event
+    // type to its AA-tuned status twin — keeping one color per concept across the
+    // timeline and the annotation-kind labels.
+    let light = slice_between(&tokens_css, "[data-theme=\"light\"]", "}");
+    for alias in [
+        "--evt-capture: var(--accent)",
+        "--evt-observation: var(--success)",
+        "--evt-assessment: var(--assess)",
+        "--evt-request: var(--warning)",
+        "--evt-response: var(--teal)",
+        "--evt-validation: var(--validation)",
+    ] {
+        assert!(
+            light.contains(alias),
+            "light theme must alias the event label to its status twin: {alias}"
+        );
+    }
+}
+
+#[test]
 fn served_app_js_includes_validation_in_supersedable_facts() {
     let app_js = spawn_and_get_app_js();
 
