@@ -9,3 +9,8 @@
 /data/review-facts.html
 /data/diff.html
 /feedback/diagnostics.html
+
+# Generated copy of ../assets/tokens.css (the single source), placed here by
+# bake.sh so the synced project carries a bindable token file. Regenerate; do
+# not edit or commit.
+/tokens.css

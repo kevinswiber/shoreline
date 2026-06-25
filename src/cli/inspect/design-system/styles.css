@@ -5,7 +5,14 @@
  * assets/tokens.css, which bake.sh inlines ahead of this file so the gallery and
  * the live inspector resolve one shared palette. The component rules below mirror
  * the live inspector 1:1, referencing every token via var().
+ *
+ * The @import makes the token layer resolvable when this stylesheet is read
+ * standalone — e.g. a design-system consumer binding the synced project, where
+ * bake.sh's per-card inlining does not apply. In a baked card the @import lands
+ * after the already-inlined tokens, so it is ignored there and the cards stay
+ * self-contained.
  */
+@import url("tokens.css");
 
 * { box-sizing: border-box; }
 
