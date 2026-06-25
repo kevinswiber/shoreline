@@ -78,11 +78,13 @@
 
   /* Vertical rhythm — comfortable defaults; .compact tightens them */
   --row-pad: 8px 14px;
-  --line: 1.45;
+  --line: 1.45; /* @kind other */
 
-  /* Type stacks */
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Type stacks. The @kind tags classify these for design-system tooling that
+     reads tokens.css standalone (unitless line-height and font stacks can't be
+     inferred from value alone); inert everywhere else. */
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; /* @kind font */
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif; /* @kind font */
 }
 
 /*
