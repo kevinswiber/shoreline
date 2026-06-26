@@ -302,8 +302,9 @@ make the input request `ambiguous` rather than picking a timestamp winner.
 
 An assessment is the current review call for a revision, a file, a range,
 or a specific native observation/input request/assessment in the same
-revision. V1 values: `accepted`, `accepted-with-follow-up`, `needs-changes`,
-and `needs-clarification`.
+revision. CLI input and human-facing display use `accepted`,
+`accepted-with-follow-up`, `needs-changes`, and `needs-clarification`; command
+JSON output uses the matching `snake_case` values.
 
 ```bash
 shore review assessment add \

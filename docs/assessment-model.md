@@ -4,12 +4,15 @@ Shoreline records reviewer decisions as `review_assessment_recorded` events. An 
 current review call for a captured revision, file, range, observation, input request, or earlier
 assessment.
 
-The assessment values are deliberately narrow:
+The assessment values are deliberately narrow. Durable event JSON and command JSON use `snake_case`:
 
 - `accepted`
 - `accepted_with_follow_up`
 - `needs_changes`
 - `needs_clarification`
+
+CLI input and human-facing display use the matching `kebab-case` spelling: `accepted`,
+`accepted-with-follow-up`, `needs-changes`, and `needs-clarification`.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are not assessment
 values. They are recorded as review observations with `state-change:*` tags so they stay available

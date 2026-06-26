@@ -15,6 +15,21 @@ pub enum ReviewAssessment {
     NeedsClarification,
 }
 
+impl ReviewAssessment {
+    /// Human-facing label for CLI prose and UI display.
+    ///
+    /// The durable event JSON stays snake_case via serde; display surfaces use the
+    /// kebab-case spelling that is easier to type and scan.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::AcceptedWithFollowUp => "accepted-with-follow-up",
+            Self::NeedsChanges => "needs-changes",
+            Self::NeedsClarification => "needs-clarification",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewAssessmentRecordedPayload {
@@ -89,6 +104,21 @@ mod tests {
                 serde_json::to_string(&variant).unwrap(),
                 format!("\"{wire}\"")
             );
+        }
+    }
+
+    #[test]
+    fn review_assessment_display_labels_are_kebab_case() {
+        for (variant, label) in [
+            (ReviewAssessment::Accepted, "accepted"),
+            (
+                ReviewAssessment::AcceptedWithFollowUp,
+                "accepted-with-follow-up",
+            ),
+            (ReviewAssessment::NeedsChanges, "needs-changes"),
+            (ReviewAssessment::NeedsClarification, "needs-clarification"),
+        ] {
+            assert_eq!(variant.display_label(), label);
         }
     }
 

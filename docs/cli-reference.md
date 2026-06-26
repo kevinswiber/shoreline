@@ -499,8 +499,9 @@ Assessments record review calls for a captured revision.
 - `assessment add` requires `--track` and `--assessment`.
 - `--revision` pins the assessment to one captured revision. Without either, the command defaults to the single captured revision and errors if
   multiple captured revisions exist.
-- V1 assessment values are `accepted`, `accepted-with-follow-up`, `needs-changes`, and
-  `needs-clarification`.
+- CLI input uses `kebab-case` assessment values: `accepted`, `accepted-with-follow-up`,
+  `needs-changes`, and `needs-clarification`. Command JSON output uses the matching `snake_case`
+  values: `accepted`, `accepted_with_follow_up`, `needs_changes`, and `needs_clarification`.
 - Targets mirror the revision ledger: review-wide by default, captured file, captured range,
   native observation, native input request, or another assessment.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.

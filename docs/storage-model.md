@@ -256,8 +256,10 @@ Native assessments follow the same revision ledger model:
 - bounded `state.json` summarizes assessment state with `assessmentCount`, but it does not embed
   assessment history, summaries, relationship graphs, or current-assessment candidates
 
-Assessment values are closed in V1: `accepted`, `accepted_with_follow_up`, `needs_changes`, and
-`needs_clarification`.
+Assessment values are closed in V1. Stored event JSON and command JSON use `snake_case`: `accepted`,
+`accepted_with_follow_up`, `needs_changes`, and `needs_clarification`. CLI input and human-facing
+display use the matching `kebab-case` spelling: `accepted`, `accepted-with-follow-up`,
+`needs-changes`, and `needs-clarification`.
 
 Assessment replacement is explicit. `replacesAssessmentIds` is the only V1 relationship that
 removes an older assessment from the current set. Related observation and input-request references

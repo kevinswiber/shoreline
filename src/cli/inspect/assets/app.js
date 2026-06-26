@@ -424,6 +424,12 @@ const ENDORSEMENT_LABELS = {
   unknown_endorser: "unknown endorser",
   ambiguous_endorser: "ambiguous endorser",
 };
+const ASSESSMENT_LABELS = {
+  accepted: "accepted",
+  accepted_with_follow_up: "accepted-with-follow-up",
+  needs_changes: "needs-changes",
+  needs_clarification: "needs-clarification",
+};
 
 // Strip the actor namespace for display, matching principalLabel's posture.
 function endorserDisplay(actorId) {
@@ -455,10 +461,14 @@ function endorsementsBlock(endorsements) {
   </div>`;
 }
 
+function assessmentDisplayLabel(value) {
+  return ASSESSMENT_LABELS[value] || value || "";
+}
+
 function entryTitle(e) {
   const s = e.summary || {};
   if (s.title) return s.title;
-  if (s.assessment) return s.assessment;
+  if (s.assessment) return assessmentDisplayLabel(s.assessment);
   if (s.outcome) return s.outcome;
   if (s.reasonCode) return s.reasonCode;
   if (e.eventType === "work_object_proposed") {
@@ -1154,10 +1164,11 @@ function annotationsForUnit(revisionId) {
         target: s.target || {},
       });
     } else if (e.eventType === "review_assessment_recorded") {
+      const assessmentLabel = assessmentDisplayLabel(s.assessment);
       out.push({
         kind: "assessment",
         id: s.assessmentId || e.eventId,
-        title: `assessment: ${s.assessment || "?"}`,
+        title: `assessment: ${assessmentLabel || "?"}`,
         body: s.summary || "",
         bodyContentType: s.summaryContentType,
         track: e.trackId || "",
@@ -1900,7 +1911,7 @@ function verdictBadge(ca) {
   let value;
   let cls;
   if (status === "resolved") {
-    value = ca.assessment;
+    value = assessmentDisplayLabel(ca.assessment);
     cls = `verdict-${ca.assessment}`;
   } else if (status === "ambiguous") {
     value = `ambiguous (${(ca.candidates || []).length} candidates)`;
@@ -2016,7 +2027,7 @@ function renderAssessmentCard(a) {
   if ((a.relatedInputRequests || []).length) rel.push(`re ${a.relatedInputRequests.map(linkify).join(", ")}`);
   return factCard("assessment", {
     track: a.trackId,
-    title: a.assessment,
+    title: assessmentDisplayLabel(a.assessment),
     status: a.status,
     target: targetLabel(a.target),
     body: a.summary,
