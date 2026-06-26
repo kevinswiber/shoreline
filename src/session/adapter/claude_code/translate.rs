@@ -1,10 +1,10 @@
 // Translate a parsed Claude Code session into a deterministic
-// `AdapterIntent` stream that Phase 4 will pick up and map onto
-// `ShoreEvent`s. The translator is intentionally a translator — not an
+// `AdapterIntent` stream that downstream write code maps onto `ShoreEvent`s.
+// The translator is intentionally a translator — not an
 // interpreter. Transcript-native checkpoint boundaries only; hook outputs
 // surface as observation-on-checkpoint with shared `source_ref`; no
 // similarity-based lineage; no payload-level lifting of `assertion_mode`
-// or `source_ref` (envelope-only per Phase 2 / Codex Q1).
+// or `source_ref` because those stay on event envelopes.
 
 use super::parse::{AssistantMessage, ParsedMessage, ParsedSession, ToolUse, UserMessage};
 use crate::canonical_hash::sha256_bytes_hex;
@@ -162,7 +162,7 @@ pub enum AdapterIntent {
     },
     /// Reserved variant. The Claude Code session adapter never emits this:
     /// fabricating input-request structure from a transcript would cross from
-    /// translator into interpreter (Tripwire 4). Future work may surface
+    /// translator into interpreter. Future work may surface
     /// input-request intents from a different write-side signal.
     InputRequestRequested,
 }
@@ -178,11 +178,11 @@ fn first_user_prompt_text(parsed: &ParsedSession) -> String {
     String::new()
 }
 
-/// Q1 boundary: assistant turns produce a checkpoint when they either mutate
-/// state (file edit, side-effecting tool call) **or** carry verification
-/// output (hook tail) on a paired tool_result. Hook output on a read-only
-/// turn still counts — it is a structural signal that something verified the
-/// turn, not a prose interpretation.
+/// Assistant turns produce a checkpoint when they either mutate state (file
+/// edit, side-effecting tool call) **or** carry verification output (hook tail)
+/// on a paired tool_result. Hook output on a read-only turn still counts — it
+/// is a structural signal that something verified the turn, not a prose
+/// interpretation.
 fn assistant_turn_produces_boundary(msg: &AssistantMessage) -> bool {
     assistant_turn_is_state_mutating(msg) || assistant_turn_has_verification_output(msg)
 }
@@ -207,15 +207,15 @@ fn tool_use_is_state_mutating(tool: &ToolUse) -> bool {
     }
 }
 
-/// Phase 3 classifier: shell operators (`>`, `|`, `;`, `&&`, `||`) make a
-/// Bash command state-mutating; otherwise the first word of the command must
+/// Bash mutation classifier: shell operators (`>`, `|`, `;`, `&&`, `||`) make
+/// a Bash command state-mutating; otherwise the first word of the command must
 /// appear in a deliberately short read-only allowlist or the command is
 /// classified as mutating. The bias is false-negative on read-only: ambiguous
 /// commands count as state-mutating so the translator does not silently drop
 /// a checkpoint. `find` is **not** on the allowlist — `find -delete`,
-/// `find -exec`, and similar argv forms are mutating. Phase 4/5 may tighten
-/// this rule when projection-time evidence accumulates. Do not infer effect
-/// from `tool_result` content — that crosses into interpretation.
+/// `find -exec`, and similar argv forms are mutating. Future tuning may
+/// tighten this rule when projection-time evidence accumulates. Do not infer
+/// effect from `tool_result` content — that crosses into interpretation.
 fn bash_input_has_side_effect(input: &serde_json::Value) -> bool {
     let command = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
     if command.contains('>')
@@ -508,7 +508,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .expect("verification output is a Q1 boundary even on a read-only tool");
+            .expect("verification output creates a checkpoint even on a read-only tool");
 
         let observation = intents.iter().find_map(|i| match i {
             AdapterIntent::ObservationRecorded {
@@ -590,7 +590,7 @@ mod tests {
             .any(|i| matches!(i, AdapterIntent::InputRequestRequested));
         assert!(
             !any_input_request,
-            "adapter never fabricates input-request structure from a transcript (Tripwire 4)"
+            "adapter never fabricates input-request structure from a transcript"
         );
     }
 
@@ -604,7 +604,7 @@ mod tests {
             if let AdapterIntent::TaskAttemptCaptured { predecessor, .. } = intent {
                 assert!(
                     predecessor.is_none(),
-                    "adapter never sets predecessor by similarity (Q4 / Tripwire 5)"
+                    "adapter never sets predecessor by similarity"
                 );
             }
         }

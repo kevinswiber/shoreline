@@ -93,9 +93,8 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
     })
 }
 
-/// Known top-level `type` values recognized as benign metadata. Updates here
-/// are deliberate: Phase 2 no-migration-shim discipline applies — new line
-/// types fail strict mode until added.
+/// Known top-level `type` values recognized as benign metadata. This list is
+/// intentionally closed: new line types fail strict mode until added.
 const KNOWN_METADATA_TYPES: &[&str] = &[
     "agent-name",
     "agent-setting",
