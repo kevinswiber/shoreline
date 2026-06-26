@@ -3,10 +3,9 @@ name: windows ci measure
 # Dispatch-only measurement harness for the Windows test leg.
 # This workflow NEVER runs on push or pull_request — it only exists so the wall-time
 # levers can be measured on the real runner image and reverted. Each instrument is
-# behind its own boolean input and is meant to be dispatched ONE AT A TIME: enabling
-# several inputs in a single run lets an earlier step's posture/PATH change affect a
-# later instrument (the git spawn counter prepends to PATH; the Defender step changes
-# the runner's security posture).
+# behind its own boolean input and is meant to be dispatched ONE AT A TIME: the
+# Defender step changes the runner's security posture for the rest of the job, so
+# enabling it alongside another instrument would skew that instrument's wall.
 on:
   workflow_dispatch:
     inputs:
@@ -14,8 +13,8 @@ on:
         description: "Run the sys:user split (bash time)"
         type: boolean
         default: true
-      git_shim:
-        description: "Run the pass-through git spawn counter"
+      git_latency:
+        description: "Run the git per-spawn latency loop (native CreateProcess)"
         type: boolean
         default: false
       defender_toggle:
@@ -75,53 +74,25 @@ jobs:
         run: |
           time just test-ci
 
-      # --- git spawn count ------------------------------------------------------
-      # Kept LAST: the counter prepends a shim dir to PATH, so running it after the
-      # other instruments keeps it from contaminating their measurements.
-      # Resolve the real git BEFORE prepending the shim dir, or the shim recurses
-      # into itself. The log lives under RUNNER_TEMP so it never dirties the
-      # worktree (which the suite captures).
-      - name: (measure) install git spawn counter
-        if: ${{ inputs.git_shim }}
+      # --- git per-spawn latency ------------------------------------------------
+      # The git spawn COUNT is OS-independent (taken from the local measurement), so
+      # only the Windows per-spawn LATENCY is measured here. A PATH shim cannot count
+      # native spawns on Windows anyway — Rust's Command::new("git") resolves git.exe
+      # via CreateProcess, which appends only `.exe` and never finds a `.cmd`/extension-
+      # less shim — so this times git the way the product spawns it: a native
+      # CreateProcess of git.exe in a tight loop. Multiply this against the local count
+      # to size the git-spawn share of wall (the deferred gix question).
+      - name: (measure) git per-spawn latency
+        if: ${{ inputs.git_latency }}
         shell: pwsh
         run: |
-          $real = (Get-Command git).Source
-          echo "GIT_SHIM_REAL=$real" >> $env:GITHUB_ENV
-          echo "GIT_SHIM_LOG=$env:RUNNER_TEMP\git-spawns.log" >> $env:GITHUB_ENV
-          echo "$env:GITHUB_WORKSPACE\.github\measure\git-shim" >> $env:GITHUB_PATH
-      - name: (measure) run suite under the counter
-        if: ${{ inputs.git_shim }}
-        shell: bash
-        run: |
-          # The shim is pass-through (it counts each spawn then execs real git), so
-          # fixtures and production real-git must still succeed. Capture the status
-          # instead of swallowing it: a broken/non-pass-through shim MUST surface,
-          # not pass green. The summary step runs `if: always()` so the spawn log is
-          # produced even if a test trips, and re-raises the failure.
-          set +e
-          just test-ci
-          echo "TEST_CI_STATUS=$?" >> "$GITHUB_ENV"
-      - name: (measure) summarize git spawns
-        if: ${{ always() && inputs.git_shim }}
-        shell: bash
-        run: |
-          echo "total git spawns: $(wc -l < "$GIT_SHIM_LOG")"
-          echo "by subcommand:"; awk '{print $1}' "$GIT_SHIM_LOG" | sort | uniq -c | sort -rn
-          if [ "${TEST_CI_STATUS:-1}" != "0" ]; then
-            echo "::error::test-ci failed under the spawn counter (status ${TEST_CI_STATUS:-unset}); fixtures/production real-git must succeed — fix the shim before trusting counts"
-            exit "${TEST_CI_STATUS:-1}"
-          fi
-      - name: (measure) bare git per-spawn latency
-        if: ${{ inputs.git_shim }}
-        shell: bash
-        run: |
-          # Per-spawn cost measured WITHOUT the shim (its wrapper inflates durations).
-          # Use the resolved real git so PATH order does not route back into the shim.
-          real="${GIT_SHIM_REAL:-git}"
-          start=$(date +%s%N)
-          for _ in $(seq 1 200); do "$real" rev-parse HEAD >/dev/null; done
-          end=$(date +%s%N)
-          echo "200x bare git rev-parse HEAD: $(( (end - start) / 1000000 )) ms total (per-spawn ~ total/200)"
+          $git = (Get-Command git).Source
+          $n = 200
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          for ($i = 0; $i -lt $n; $i++) { & $git rev-parse HEAD | Out-Null }
+          $sw.Stop()
+          $total = $sw.Elapsed.TotalMilliseconds
+          "$n x git rev-parse HEAD: $([math]::Round($total)) ms total (per-spawn ~ $([math]::Round($total / $n, 2)) ms)"
 
   probe:
     name: shard probe ${{ matrix.shard }}/3
