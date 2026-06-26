@@ -135,6 +135,47 @@ fn diff_modal_has_a_sticky_file_navigator() {
 }
 
 #[test]
+fn diff_modal_has_dialog_semantics_and_an_initial_focus_target() {
+    let store = representative_store();
+    let html = Inspector::spawn(store.repo.path()).get_text("/");
+    assert!(
+        html.contains("id=\"diff-modal\"")
+            && html.contains("role=\"dialog\"")
+            && html.contains("aria-modal=\"true\""),
+        "diff overlay should expose dialog semantics matching modal behavior"
+    );
+    assert!(
+        html.contains("aria-labelledby=\"diff-title\""),
+        "diff dialog should be labelled by its visible title"
+    );
+    assert!(
+        html.contains("id=\"diff-close\"") && html.contains("aria-label=\"close diff\""),
+        "diff close button should be the reachable initial focus target"
+    );
+}
+
+#[test]
+fn diff_close_replaces_history_and_focus_is_singular() {
+    let js = served_app_js();
+    assert!(
+        js.contains("function closeDiff()"),
+        "diff close has a single route-owned close path"
+    );
+    assert!(
+        js.contains("navigate({ diff: null, focus: null }, { replace: true })"),
+        "in-app diff close replaces the current route so Back does not reopen the closed diff"
+    );
+    assert!(
+        js.contains("const focusId = state.focus;"),
+        "diff focus applies the singular route focus id directly"
+    );
+    assert!(
+        !js.contains("state.focus && state.focus[0]") && !js.contains("focusId ? [focusId] : null"),
+        "diff focus should no longer be represented as a one-element array"
+    );
+}
+
+#[test]
 fn diff_renderer_builds_navigator_entries_and_an_unanchored_panel() {
     let js = served_app_js();
     // File navigator: one clickable entry per file, carrying a fact-count badge;

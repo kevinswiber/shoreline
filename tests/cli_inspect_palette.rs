@@ -96,3 +96,20 @@ fn served_app_js_prioritizes_actions_and_contextual_revision_labels() {
         "revision commands should use target/overview context, not only short ids"
     );
 }
+
+#[test]
+fn served_app_js_opens_palette_through_the_shared_overlay_manager() {
+    let (_html, js) = served();
+    assert!(
+        js.contains("openOverlay(\"palette\", \"#cmd-input\")"),
+        "palette should use the shared overlay manager and focus its input"
+    );
+    assert!(
+        js.contains("closeKeyHelp({ restoreFocus: false })"),
+        "opening the palette should close or suspend keyboard help"
+    );
+    assert!(
+        js.contains("if (state.diff) closeDiff();"),
+        "opening the palette should prevent a stacked diff overlay"
+    );
+}

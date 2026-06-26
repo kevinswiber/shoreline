@@ -61,3 +61,26 @@ fn served_assets_carry_a_keyboard_cheat_sheet() {
         "the cheat sheet carries a visible title"
     );
 }
+
+#[test]
+fn served_app_js_uses_one_overlay_focus_manager() {
+    let js = served_app_js();
+    assert!(
+        js.contains("function openOverlay(")
+            && js.contains("function closeOverlay(")
+            && js.contains("function trapOverlayFocus("),
+        "diff, palette, and help should share one overlay/focus manager"
+    );
+    assert!(
+        js.contains("if (trapOverlayFocus(ev)) return;"),
+        "the keyboard layer should trap Tab inside the active overlay"
+    );
+    assert!(
+        js.contains("openOverlay(\"help\", \"#key-help-close\")"),
+        "keyboard help opens through the shared manager with an initial focus target"
+    );
+    assert!(
+        js.contains("closeActiveOverlay({ restoreFocus: false })"),
+        "opening one overlay should close or suspend another overlay first"
+    );
+}

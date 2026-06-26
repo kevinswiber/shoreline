@@ -85,3 +85,63 @@ fn app_js_falls_back_up_the_hierarchy_with_a_visible_diagnostic() {
         "the fallback resolver surfaces a visible `fell back to …` diagnostic"
     );
 }
+
+#[test]
+fn copy_current_view_link_uses_the_resolved_canonical_route() {
+    let js = served_app_js();
+    assert!(
+        js.contains("function copyCurrentViewLink()"),
+        "copy-link has a single helper for the canonical resolved route"
+    );
+    assert!(
+        js.contains("location.origin + location.pathname + serializeState()"),
+        "copy-link copies the resolved serialized state, not the raw incoming URL"
+    );
+    assert!(
+        !js.contains("copyText(location.href)"),
+        "copy-link must not recopy a broken raw fallback URL"
+    );
+}
+
+#[test]
+fn unsupported_asof_and_journal_routes_show_live_state_readback() {
+    let js = served_app_js();
+    assert!(
+        js.contains("unsupportedAsOf") && js.contains("unsupportedJournal"),
+        "reserved freshness params are parsed into route metadata before canonicalization"
+    );
+    assert!(
+        js.contains("showing live state"),
+        "unsupported pinned-link routes get visible live-state readback copy"
+    );
+    assert!(
+        js.contains("as-of links are not supported by this server")
+            || js.contains("journal links are not supported by this server"),
+        "the diagnostic explains unsupported pinned route params instead of silently accepting them"
+    );
+    assert!(
+        !js.contains("params.push(\"asof=\"") && !js.contains("params.push(\"journal=\""),
+        "the router does not emit pinned/as-of route tokens without server support"
+    );
+}
+
+#[test]
+fn diff_focus_route_is_singular() {
+    let js = served_app_js();
+    assert!(
+        js.contains("?diff=<objectId> ?focus=<factId>"),
+        "route grammar documents one focus target, not a set"
+    );
+    assert!(
+        js.contains("focus: p.focus ? p.focus : null"),
+        "parseHash stores a single focus id"
+    );
+    assert!(
+        js.contains("params.push(\"focus=\" + encodeURIComponent(state.focus))"),
+        "serializeState emits one focus value"
+    );
+    assert!(
+        !js.contains("p.focus.split(\" \")") && !js.contains("state.focus.join(\" \")"),
+        "focus parsing/serialization should not preserve a set-shaped route"
+    );
+}

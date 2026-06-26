@@ -253,6 +253,12 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
   border-bottom: 1px solid var(--border);
   background: var(--bg-elev);
 }
+.modal button:focus-visible,
+.modal [tabindex]:focus-visible,
+.modal input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 /* Two-column diff: an always-visible file/fact navigator beside the scrolling
    body, each with its own overflow so the navigator survives the body scroll. */
 .diff-layout { display: flex; flex: 1 1 auto; min-height: 0; }
@@ -311,6 +317,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
   font-size: var(--fs-base);
   outline: none;
 }
+.cmd-input:focus-visible { box-shadow: inset 0 -2px 0 var(--accent); }
 .cmd-results { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; }
 .cmd-group { padding: 6px 16px 2px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); font-family: var(--mono); }
 .cmd-item { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 16px; cursor: pointer; }

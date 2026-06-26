@@ -37,7 +37,7 @@ const state = {
   filterObject: "",
   order: "desc", // "desc" = newest first (default), "asc" = chronological
   // The route-preserving diff overlay: the object id being shown, plus the
-  // set-valued in-diff fact highlight.
+  // single in-diff fact highlight.
   diff: null,
   focus: null,
   lastHash: null,
@@ -274,6 +274,88 @@ function renderMarkdownInline(text) {
     html = html.split(token).join(replacement);
   }
   return html;
+}
+
+const OVERLAY_SELECTORS = {
+  diff: "#diff-modal",
+  palette: "#cmd-palette",
+  help: "#key-help",
+};
+let activeOverlay = null;
+
+function overlayNode(name) {
+  return $(OVERLAY_SELECTORS[name]);
+}
+
+function overlayFocusable(node) {
+  if (!node) return [];
+  return Array.from(
+    node.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => el.getClientRects().length > 0 || el === document.activeElement);
+}
+
+function openOverlay(name, initialSelector) {
+  const node = overlayNode(name);
+  if (!node) return;
+  if (activeOverlay && activeOverlay.name !== name) closeActiveOverlay({ restoreFocus: false });
+  const priorFocus = activeOverlay?.name === name ? activeOverlay.priorFocus : document.activeElement;
+  activeOverlay = { name, node, priorFocus };
+  node.classList.remove("hidden");
+  const target = initialSelector ? node.querySelector(initialSelector) : overlayFocusable(node)[0];
+  if (target && target.focus) target.focus();
+}
+
+function closeActiveOverlay(opts = {}) {
+  if (!activeOverlay) return;
+  const current = activeOverlay;
+  current.node.classList.add("hidden");
+  activeOverlay = null;
+  if (
+    opts.restoreFocus !== false
+    && current.priorFocus
+    && document.contains(current.priorFocus)
+    && current.priorFocus.focus
+  ) {
+    current.priorFocus.focus();
+  }
+}
+
+function closeOverlay(name, opts = {}) {
+  const node = overlayNode(name);
+  if (activeOverlay?.name === name) {
+    closeActiveOverlay(opts);
+  } else if (node) {
+    node.classList.add("hidden");
+  }
+}
+
+function trapOverlayFocus(ev) {
+  if (ev.key !== "Tab" || !activeOverlay) return false;
+  const focusable = overlayFocusable(activeOverlay.node);
+  if (!focusable.length) {
+    ev.preventDefault();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!activeOverlay.node.contains(document.activeElement)) {
+    ev.preventDefault();
+    first.focus();
+    return true;
+  }
+  if (ev.shiftKey && document.activeElement === first) {
+    ev.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!ev.shiftKey && document.activeElement === last) {
+    ev.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
 }
 
 function safeMarkdownHref(href) {
@@ -1184,12 +1266,12 @@ function annotationsForUnit(revisionId) {
 // fragment param (`diff=`/`focus=`); the modal body is reconciled from state on
 // the render that follows, so a deep link or Back/Forward reopens it identically.
 function openDiff(objectId, focusId = null) {
-  navigate({ diff: objectId, focus: focusId ? [focusId] : null });
+  navigate({ diff: objectId, focus: focusId || null });
 }
 
 function closeDiff() {
   if (!state.diff && $("#diff-modal").classList.contains("hidden")) return;
-  navigate({ diff: null, focus: null });
+  navigate({ diff: null, focus: null }, { replace: true });
 }
 
 // The revision that captured an object, via the units list (its snapshot id is
@@ -1216,17 +1298,19 @@ let diffChangeCursor = -1;
 // Reconcile the diff modal DOM with `state.diff`/`state.focus`. Part of the
 // render path: it both opens (user action, deep link, Back/Forward) and closes.
 function renderDiffOverlay() {
-  const modal = $("#diff-modal");
   if (!state.diff) {
-    modal.classList.add("hidden");
+    closeOverlay("diff");
     shownDiffObject = null;
     diffCtx = null;
     return;
   }
   if (state.diff === shownDiffObject) {
+    if (activeOverlay?.name !== "diff") openOverlay("diff", "#diff-close");
     applyDiffFocus();
     return;
   }
+  if (cmdOpen) closePalette({ restoreFocus: false });
+  closeKeyHelp({ restoreFocus: false });
   shownDiffObject = state.diff;
   const objectId = state.diff;
   const revisionId = revisionIdForObject(objectId);
@@ -1236,7 +1320,7 @@ function renderDiffOverlay() {
     : shortId(objectId);
   $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
   $("#diff-nav").innerHTML = "";
-  modal.classList.remove("hidden");
+  openOverlay("diff", "#diff-close");
   // The object endpoint is object-scoped (no revision id on the wire); the
   // revision id is recovered from the units list for annotation lookup.
   fetchJSON("/api/object?id=" + encodeURIComponent(objectId))
@@ -1255,7 +1339,7 @@ function renderDiffOverlay() {
 }
 
 function applyDiffFocus() {
-  const focusId = state.focus && state.focus[0];
+  const focusId = state.focus;
   if (focusId) scrollToAnno(focusId);
 }
 
@@ -2152,9 +2236,9 @@ function escapeHtml(s) {
 //   ?lens=<lens>                  the master lens behind an entity-primary path
 //   ?track= ?object=             cross-lens scope (survive a lens switch)
 //   ?order= ?types= ?q=           per-lens timeline controls
-//   ?diff=<objectId> ?focus=<set> the route-preserving diff overlay
+//   ?diff=<objectId> ?focus=<factId> the route-preserving diff overlay
 //   ?v=1                          grammar version (reserved)
-//   ?journal= ?asof=             reserved: parsed and ignored, never an error
+//   ?journal= ?asof=             reserved: reported as unsupported live-state input
 // ---------------------------------------------------------------------------
 const LENSES = ["timeline", "list", "threads"];
 const DEFAULT_LENS = "timeline";
@@ -2200,7 +2284,9 @@ function parseHash(hash) {
     enabledTypes:
       p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes()),
     diff: p.diff || null,
-    focus: p.focus ? p.focus.split(" ").filter(Boolean) : null,
+    focus: p.focus ? p.focus : null,
+    unsupportedAsOf: p.asof != null ? p.asof || true : null,
+    unsupportedJournal: p.journal != null ? p.journal || true : null,
   };
 
   const segs = path.split("/").filter(Boolean); // "/timeline" -> ["timeline"]
@@ -2247,7 +2333,7 @@ function serializeState() {
   }
   if (state.filterText) params.push("q=" + encodeURIComponent(state.filterText));
   if (state.diff) params.push("diff=" + encodeURIComponent(state.diff));
-  if (state.focus && state.focus.length) params.push("focus=" + encodeURIComponent(state.focus.join(" ")));
+  if (state.focus) params.push("focus=" + encodeURIComponent(state.focus));
   return params.length ? path + "?" + params.join("&") : path;
 }
 
@@ -2276,8 +2362,11 @@ function applyHash() {
 // (revision → its thread → the lens → timeline) with a visible diagnostic when a
 // deep link names an absent entity — never a 404, never a blank view.
 function resolve(patch) {
+  const freshnessDiagnostic = liveStateDiagnostic(patch);
   if (patch.unknownPath != null) {
-    showRouteDiagnostic("fell back to the timeline — unknown route " + patch.unknownPath);
+    showRouteDiagnostic(
+      routeDiagnostic("fell back to the timeline — unknown route " + patch.unknownPath, freshnessDiagnostic),
+    );
     patch.lens = DEFAULT_LENS;
     patch.selected = { kind: null, id: null };
     delete patch.unknownPath;
@@ -2287,7 +2376,10 @@ function resolve(patch) {
   if (sel.kind === "revision" && sel.id && !revisionExists(sel.id)) {
     if (revisionInAnyThread(sel.id)) {
       showRouteDiagnostic(
-        "fell back to the threads lens — revision " + shortRef(sel.id) + " is not directly selectable",
+        routeDiagnostic(
+          "fell back to the threads lens — revision " + shortRef(sel.id) + " is not directly selectable",
+          freshnessDiagnostic,
+        ),
       );
       patch.lens = "threads";
     } else {
@@ -2295,7 +2387,10 @@ function resolve(patch) {
       // diagnostic so the message matches the lens actually shown.
       const lens = patch.lens || DEFAULT_LENS;
       showRouteDiagnostic(
-        "fell back to the " + lens + " lens — revision " + shortRef(sel.id) + " is not in this store",
+        routeDiagnostic(
+          "fell back to the " + lens + " lens — revision " + shortRef(sel.id) + " is not in this store",
+          freshnessDiagnostic,
+        ),
       );
       patch.lens = lens;
     }
@@ -2304,13 +2399,33 @@ function resolve(patch) {
   }
   if (sel.kind === "event" && sel.id && !eventExists(sel.id)) {
     showRouteDiagnostic(
-      "fell back to the " + (patch.lens || DEFAULT_LENS) + " lens — event " + shortRef(sel.id) + " is not in this store",
+      routeDiagnostic(
+        "fell back to the " + (patch.lens || DEFAULT_LENS) + " lens — event " + shortRef(sel.id) + " is not in this store",
+        freshnessDiagnostic,
+      ),
     );
     patch.selected = { kind: null, id: null };
     return patch;
   }
+  if (freshnessDiagnostic) {
+    showRouteDiagnostic(freshnessDiagnostic);
+    return patch;
+  }
   clearRouteDiagnostic();
   return patch;
+}
+
+function liveStateDiagnostic(patch) {
+  const unsupported = [];
+  if (patch.unsupportedAsOf != null) unsupported.push("as-of links are not supported by this server");
+  if (patch.unsupportedJournal != null) unsupported.push("journal links are not supported by this server");
+  delete patch.unsupportedAsOf;
+  delete patch.unsupportedJournal;
+  return unsupported.length ? "showing live state — " + unsupported.join("; ") : "";
+}
+
+function routeDiagnostic(primary, secondary) {
+  return secondary ? primary + " — " + secondary : primary;
 }
 
 function revisionExists(id) {
@@ -2405,7 +2520,19 @@ function focusSearch() {
 
 function toggleKeyHelp() {
   const help = $("#key-help");
-  if (help) help.classList.toggle("hidden");
+  if (!help) return;
+  if (!help.classList.contains("hidden")) closeKeyHelp();
+  else openKeyHelp();
+}
+
+function openKeyHelp() {
+  if (cmdOpen) closePalette({ restoreFocus: false });
+  if (state.diff) closeDiff();
+  openOverlay("help", "#key-help-close");
+}
+
+function closeKeyHelp(opts = {}) {
+  closeOverlay("help", opts);
 }
 
 // Layered Escape: close the diff, then the cheat sheet, then blur a field, then
@@ -2417,12 +2544,12 @@ function handleEscape() {
     return;
   }
   if (state.diff) {
-    navigate({ diff: null, focus: null });
+    closeDiff();
     return;
   }
   const help = $("#key-help");
   if (help && !help.classList.contains("hidden")) {
-    help.classList.add("hidden");
+    closeKeyHelp();
     return;
   }
   const active = document.activeElement;
@@ -2445,6 +2572,7 @@ function setChord(key) {
 }
 
 function onKey(ev) {
+  if (trapOverlayFocus(ev)) return;
   // A focused reference chip activates on Enter/Space (it carries role=link +
   // tabindex=0 but had no key handler), resolving the reference like a click.
   const chip = ev.target.closest && ev.target.closest("[data-ref-kind]");
@@ -2547,17 +2675,20 @@ let cmdOpen = false;
 let cmdItems = [];
 let cmdFiltered = [];
 let cmdActive = 0;
-let cmdPriorFocus = null;
 
 function copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+}
+
+function copyCurrentViewLink() {
+  copyText(location.origin + location.pathname + serializeState());
 }
 
 // The candidate commands, built over the loaded state. (When a search index
 // exists, jumps query it instead of re-deriving — the source is a single fn.)
 function buildCommands() {
   const cmds = [];
-  cmds.push({ kind: "Actions", label: "Copy current view link", hint: "share", run: () => copyText(location.href) });
+  cmds.push({ kind: "Actions", label: "Copy current view link", hint: "share", run: copyCurrentViewLink });
   cmds.push({
     kind: "Actions",
     label: "Clear filters",
@@ -2677,21 +2808,19 @@ function togglePalette() {
 }
 
 function openPalette() {
+  if (state.diff) closeDiff();
+  closeKeyHelp({ restoreFocus: false });
   cmdOpen = true;
-  cmdPriorFocus = document.activeElement;
   cmdItems = buildCommands();
   const input = $("#cmd-input");
   input.value = "";
   filterPalette("");
-  $("#cmd-palette").classList.remove("hidden");
-  input.focus();
+  openOverlay("palette", "#cmd-input");
 }
 
-function closePalette() {
+function closePalette(opts = {}) {
   cmdOpen = false;
-  $("#cmd-palette").classList.add("hidden");
-  if (cmdPriorFocus && cmdPriorFocus.focus) cmdPriorFocus.focus();
-  cmdPriorFocus = null;
+  closeOverlay("palette", opts);
 }
 
 function filterPalette(query) {
@@ -2805,9 +2934,9 @@ function wireControls() {
     const factBtn = ev.target.closest(".diff-nav-fact[data-anno]");
     if (factBtn) scrollToAnno(factBtn.dataset.anno);
   });
-  $("#key-help-close").addEventListener("click", () => $("#key-help").classList.add("hidden"));
+  $("#key-help-close").addEventListener("click", () => closeKeyHelp());
   $("#key-help").addEventListener("click", (ev) => {
-    if (ev.target === $("#key-help")) $("#key-help").classList.add("hidden");
+    if (ev.target === $("#key-help")) closeKeyHelp();
   });
   $("#cmd-input").addEventListener("input", (ev) => filterPalette(ev.target.value));
   $("#cmd-input").addEventListener("keydown", (ev) => {
