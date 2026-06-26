@@ -19,8 +19,8 @@ use shoreline::session::{
     CurrentAssessmentStatus, EventVerificationPolicy, InputRequestStatus, LivenessEnrichment,
     ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions, RevisionListEntry,
     RevisionListOptions, RevisionShowOptions, RevisionShowResult, SessionState, SupersessionView,
-    enrich_liveness, list_revisions, read_events_for_display, read_object_artifact, review_history,
-    show_revision,
+    enrich_liveness, list_revisions, read_bound_object_artifact, read_events_for_display,
+    read_object_artifact, review_history, show_revision,
 };
 
 #[derive(Serialize)]
@@ -804,7 +804,8 @@ fn revision_edge_map(
         .collect()
 }
 
-/// The captured diff snapshot for one Revision, by snapshot id.
+/// The captured diff snapshot for one Revision, by snapshot id and optional bound
+/// object artifact content hash.
 ///
 /// Reads the immutable object artifact through the validated read path
 /// (`read_object_artifact` recomputes and checks the content hash), so the
@@ -817,17 +818,30 @@ fn revision_edge_map(
 /// records that `contentHash` covers the stored bytes (including the redacted
 /// field) — consumers re-validate by fetching the artifact, not by hashing
 /// this wire JSON.
-pub(super) fn object_json(repo: &Path, snapshot_id: &str) -> Result<String, String> {
+pub(super) fn object_json(
+    repo: &Path,
+    snapshot_id: &str,
+    content_hash: Option<&str>,
+) -> Result<String, String> {
     if snapshot_id.is_empty() {
         return Err("missing snapshot id".to_owned());
     }
-    let artifact =
-        read_object_artifact(repo, &ObjectId::new(snapshot_id.to_owned())).map_err(|error| {
-            // Keep the full error (which may include the internal artifact path)
-            // in the server trace, but return a path-free message to the client.
-            tracing::debug!(error = %error, snapshot = snapshot_id, "inspect_snapshot_read_failed");
-            format!("snapshot not found or unreadable: {snapshot_id}")
-        })?;
+    let object_id = ObjectId::new(snapshot_id.to_owned());
+    let artifact = match content_hash {
+        Some(content_hash) => read_bound_object_artifact(repo, &object_id, content_hash),
+        None => read_object_artifact(repo, &object_id),
+    }
+    .map_err(|error| {
+        // Keep the full error (which may include the internal artifact path)
+        // in the server trace, but return a path-free message to the client.
+        tracing::debug!(
+            error = %error,
+            snapshot = snapshot_id,
+            content_hash,
+            "inspect_snapshot_read_failed"
+        );
+        format!("snapshot not found or unreadable: {snapshot_id}")
+    })?;
     let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
     if let Some(object) = wire.as_object_mut() {
         // Object-scoped wire: identity/endpoints live on /api/revision (from the
@@ -1067,7 +1081,7 @@ mod tests {
         }
     }
 
-    fn captured_repo() -> (tempfile::TempDir, String) {
+    fn captured_repo() -> (tempfile::TempDir, String, String) {
         let root = tempfile::tempdir().expect("create temp repo");
         let path = root.path();
         git(path, &["init"]);
@@ -1082,7 +1096,11 @@ mod tests {
             shoreline::session::CaptureOptions::new(path),
         )
         .expect("capture worktree review");
-        (root, result.object_id.as_str().to_owned())
+        (
+            root,
+            result.object_id.as_str().to_owned(),
+            result.object_artifact_content_hash,
+        )
     }
 
     fn git(cwd: &Path, args: &[&str]) {
@@ -1129,10 +1147,10 @@ mod tests {
 
     #[test]
     fn object_json_serves_snapshot_scoped_wire() {
-        let (repo, snapshot_id) = captured_repo();
+        let (repo, snapshot_id, _) = captured_repo();
 
         let wire: serde_json::Value =
-            serde_json::from_str(&object_json(repo.path(), &snapshot_id).unwrap()).unwrap();
+            serde_json::from_str(&object_json(repo.path(), &snapshot_id, None).unwrap()).unwrap();
 
         // Object-scoped wire: content hash + frozen diff only. Identity and
         // endpoints live on /api/revision (from the projection), never here — so the
@@ -1148,8 +1166,82 @@ mod tests {
     }
 
     #[test]
+    fn object_json_can_read_rebased_recapture_by_bound_hash() {
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::create_dir_all(path.join("src")).unwrap();
+        let base = (1..=12)
+            .map(|line| format!("preamble {line}\n"))
+            .chain(["pub fn value() -> u32 { 1 }\n".to_owned()])
+            .chain((1..=6).map(|line| format!("trailer {line}\n")))
+            .collect::<String>();
+        std::fs::write(path.join("src/lib.rs"), &base).unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+
+        let reviewed = base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
+        std::fs::write(path.join("src/lib.rs"), reviewed).unwrap();
+        let first = shoreline::session::capture_worktree_review(
+            shoreline::session::CaptureOptions::new(path),
+        )
+        .expect("capture first revision");
+
+        git(path, &["checkout", "--", "src/lib.rs"]);
+        let rebased_base = format!("inserted upstream line\n{base}");
+        std::fs::write(path.join("src/lib.rs"), &rebased_base).unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "upstream insert"]);
+        let rebased_reviewed =
+            rebased_base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
+        std::fs::write(path.join("src/lib.rs"), rebased_reviewed).unwrap();
+        let second = shoreline::session::capture_worktree_review(
+            shoreline::session::CaptureOptions::new(path)
+                .with_supersedes(vec![first.revision_id.clone()]),
+        )
+        .expect("capture rebased successor");
+
+        assert_eq!(first.object_id, second.object_id);
+        assert_ne!(
+            first.object_artifact_content_hash,
+            second.object_artifact_content_hash
+        );
+
+        let first_wire: serde_json::Value = serde_json::from_str(
+            &object_json(
+                path,
+                first.object_id.as_str(),
+                Some(&first.object_artifact_content_hash),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let second_wire: serde_json::Value = serde_json::from_str(
+            &object_json(
+                path,
+                second.object_id.as_str(),
+                Some(&second.object_artifact_content_hash),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            first_wire["contentHash"],
+            first.object_artifact_content_hash.as_str()
+        );
+        assert_eq!(
+            second_wire["contentHash"],
+            second.object_artifact_content_hash.as_str()
+        );
+    }
+
+    #[test]
     fn object_json_rejects_tampered_artifact_before_wire_shaping() {
-        let (repo, snapshot_id) = captured_repo();
+        let (repo, snapshot_id, _) = captured_repo();
         let artifact_path = stored_object_artifact_path(repo.path());
         let mut json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&artifact_path).unwrap()).unwrap();
@@ -1158,7 +1250,7 @@ mod tests {
         json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         std::fs::write(&artifact_path, serde_json::to_vec(&json).unwrap()).unwrap();
 
-        let error = object_json(repo.path(), &snapshot_id)
+        let error = object_json(repo.path(), &snapshot_id, None)
             .expect_err("tampered artifact is rejected before wire shaping");
 
         assert!(error.contains("snapshot not found or unreadable"));

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::canonical_hash::sha256_json_prefixed;
+use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{DiffSnapshot, ObjectId};
 use crate::session::store::backend::StoreBackend;
@@ -53,13 +53,12 @@ pub(crate) fn write_object_artifact_to(
 
     let artifact = build_object_artifact_v2(snapshot)?;
 
-    // Dedup on snapshot-content match (INV-7): the locator is keyed by
-    // `object_id`, so an existing valid artifact whose `snapshot` equals ours
-    // holds the same content. Two fresh worktrees write byte-identical v2
-    // artifacts and dedup against each other — #146 is fixed. The existing
-    // artifact is returned, so the capture event binds to the hash on disk.
+    // Dedup on the artifact's canonical content hash. The object id is a stable
+    // review-content identity, while the artifact body keeps the concrete captured
+    // rows and can legitimately change after a rebase (line numbers/blob OIDs)
+    // without changing the object id. The capture event binds to this content hash.
     let content = ContentArtifacts::from_backend(backend);
-    let content_ref = object_content_ref(&artifact.snapshot.object_id);
+    let content_ref = object_content_ref_for_hash(&artifact.content_hash);
     let bytes = serde_json::to_vec(&artifact)?;
     content.put_object(&content_ref, &bytes, artifact)
 }
@@ -91,13 +90,63 @@ pub fn read_object_artifact(
     decode_and_validate_object_artifact(&bytes)
 }
 
+pub fn read_bound_object_artifact(
+    repo: impl AsRef<Path>,
+    object_id: &ObjectId,
+    content_hash: &str,
+) -> Result<ObjectArtifact> {
+    let bytes = read_bound_object_artifact_bytes(repo, object_id, content_hash)?;
+    let artifact = decode_and_validate_object_artifact(&bytes)?;
+    validate_bound_object_artifact(&artifact, object_id, content_hash)?;
+    Ok(artifact)
+}
+
 pub(crate) fn read_object_artifact_bytes(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
-    ContentArtifacts::from_backend(read_store.backend())
-        .read_object_bytes(&object_content_ref(object_id), object_id)
+    let content = ContentArtifacts::from_backend(read_store.backend());
+    let legacy_ref = object_content_ref(object_id);
+    if let Some(bytes) = content.read_object_bytes_if_exists(&legacy_ref)? {
+        return Ok(bytes);
+    }
+    for content_ref in content.list_refs("artifacts/objects")? {
+        let Some(bytes) = content.read_object_bytes_if_exists(&content_ref)? else {
+            continue;
+        };
+        if object_artifact_bytes_match_object_id(&bytes, object_id)? {
+            return Ok(bytes);
+        }
+    }
+    Err(missing_object_artifact(object_id))
+}
+
+pub(crate) fn read_bound_object_artifact_bytes(
+    repo: impl AsRef<Path>,
+    object_id: &ObjectId,
+    content_hash: &str,
+) -> Result<Vec<u8>> {
+    let content_ref = object_content_ref_for_hash(content_hash);
+    let read_store = resolve_read_store(repo.as_ref())?;
+    let content = ContentArtifacts::from_backend(read_store.backend());
+    match content.read_object_bytes_if_exists(&content_ref)? {
+        Some(bytes) => {
+            let artifact = decode_and_validate_object_artifact(&bytes)?;
+            validate_bound_object_artifact(&artifact, object_id, content_hash)?;
+            Ok(bytes)
+        }
+        None => {
+            // Compatibility with stores written before object artifacts were keyed
+            // by content hash. The old path was object-id keyed; it is valid only
+            // if the stored blob still matches the event-bound content hash.
+            let legacy_ref = object_content_ref(object_id);
+            let bytes = content.read_object_bytes(&legacy_ref, object_id)?;
+            let artifact = decode_and_validate_object_artifact(&bytes)?;
+            validate_bound_object_artifact(&artifact, object_id, content_hash)?;
+            Ok(bytes)
+        }
+    }
 }
 
 /// Read a object artifact for WRITE-PATH target validation. Resolves the
@@ -108,34 +157,41 @@ pub(crate) fn read_object_artifact_bytes(
 /// choice is invisible to the caller. This closes a split-brain where a unit's
 /// events validate (write-path unit validation reads the resolved store) but its
 /// file target could not resolve its artifact from a different store.
-pub(crate) fn read_object_artifact_for_write_validation(
+pub(crate) fn read_bound_object_artifact_for_write_validation(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
+    content_hash: &str,
 ) -> Result<ObjectArtifact> {
-    let bytes = read_object_artifact_bytes_with_local_fallback(repo, object_id)?;
-    decode_and_validate_object_artifact(&bytes)
+    let bytes =
+        read_bound_object_artifact_bytes_with_local_fallback(repo, object_id, content_hash)?;
+    let artifact = decode_and_validate_object_artifact(&bytes)?;
+    validate_bound_object_artifact(&artifact, object_id, content_hash)?;
+    Ok(artifact)
 }
 
-fn read_object_artifact_bytes_with_local_fallback(
+fn read_bound_object_artifact_bytes_with_local_fallback(
     repo: impl AsRef<Path>,
     object_id: &ObjectId,
+    content_hash: &str,
 ) -> Result<Vec<u8>> {
-    let content_ref = object_content_ref(object_id);
+    let content_ref = object_content_ref_for_hash(content_hash);
     let read_store = resolve_read_store(repo.as_ref())?;
-    match ContentArtifacts::from_backend(read_store.backend())
-        .read_object_bytes_if_exists(&content_ref)?
-    {
-        Some(bytes) => Ok(bytes),
-        None => {
-            // Fall back to the worktree-local store: the case where the unit's
-            // content-addressed artifact lives only in `.shore/data` (an
-            // ephemeral or pre-migration capture) and not in the resolved store.
-            // This is a raw path-keyed read of a store never selected through
-            // `resolve_store`, so it has no backend handle and stays `local`.
-            let local = ShoreStorePaths::resolve(repo.as_ref())?;
-            ContentArtifacts::local(local.store_dir()).read_object_bytes(&content_ref, object_id)
-        }
+    let resolved = ContentArtifacts::from_backend(read_store.backend());
+    if let Some(bytes) = resolved.read_object_bytes_if_exists(&content_ref)? {
+        return Ok(bytes);
     }
+
+    let local = ShoreStorePaths::resolve(repo.as_ref())?;
+    let local = ContentArtifacts::local(local.store_dir());
+    if let Some(bytes) = local.read_object_bytes_if_exists(&content_ref)? {
+        return Ok(bytes);
+    }
+
+    let legacy_ref = object_content_ref(object_id);
+    if let Some(bytes) = resolved.read_object_bytes_if_exists(&legacy_ref)? {
+        return Ok(bytes);
+    }
+    local.read_object_bytes(&legacy_ref, object_id)
 }
 
 /// The one decode path for stored snapshot-artifact bytes. Strict v2-only:
@@ -187,6 +243,12 @@ pub(crate) fn object_artifact_path(store_dir: &Path, object_id: &ObjectId) -> Pa
         .join(format!("{}.json", artifact_file_stem(object_id.as_str())))
 }
 
+pub(crate) fn object_artifact_path_for_hash(store_dir: &Path, content_hash: &str) -> PathBuf {
+    store_dir
+        .join("artifacts/objects")
+        .join(format!("{}.json", content_hash_file_stem(content_hash)))
+}
+
 /// The store-relative locator for an object artifact (`artifacts/objects/<hash>.json`),
 /// the content-store ref the same file resolves under.
 pub(in crate::session::store) fn object_content_ref(object_id: &ObjectId) -> String {
@@ -196,10 +258,60 @@ pub(in crate::session::store) fn object_content_ref(object_id: &ObjectId) -> Str
     )
 }
 
+pub(in crate::session::store) fn object_content_ref_for_hash(content_hash: &str) -> String {
+    format!(
+        "artifacts/objects/{}.json",
+        content_hash_file_stem(content_hash)
+    )
+}
+
 fn artifact_file_stem(id: &str) -> String {
     // Snapshot IDs include a colon-bearing prefix; hashing keeps artifact
     // filenames portable while the artifact body preserves the readable ID.
-    crate::canonical_hash::sha256_bytes_hex(id.as_bytes())
+    sha256_bytes_hex(id.as_bytes())
+}
+
+fn content_hash_file_stem(content_hash: &str) -> String {
+    content_hash
+        .strip_prefix("sha256:")
+        .filter(|stem| stem.len() == 64 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .unwrap_or_else(|| sha256_bytes_hex(content_hash.as_bytes()))
+}
+
+fn validate_bound_object_artifact(
+    artifact: &ObjectArtifact,
+    object_id: &ObjectId,
+    content_hash: &str,
+) -> Result<()> {
+    if artifact.snapshot.object_id != *object_id {
+        return Err(ShoreError::Message(format!(
+            "object artifact locator mismatch for {}",
+            object_id.as_str()
+        )));
+    }
+    if artifact.content_hash != content_hash {
+        return Err(ShoreError::Message(format!(
+            "object artifact content hash mismatch for {content_hash}"
+        )));
+    }
+    Ok(())
+}
+
+fn missing_object_artifact(object_id: &ObjectId) -> ShoreError {
+    ShoreError::Message(format!(
+        "missing artifact for snapshot {}; import referenced artifacts before reading",
+        object_id.as_str()
+    ))
+}
+
+fn object_artifact_bytes_match_object_id(bytes: &[u8], object_id: &ObjectId) -> Result<bool> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)?;
+    Ok(value
+        .get("snapshot")
+        .and_then(|snapshot| snapshot.get("object_id"))
+        .and_then(|value| value.as_str())
+        == Some(object_id.as_str()))
 }
 
 #[cfg(test)]
@@ -247,7 +359,7 @@ mod tests {
 
             // The artifact reads back through the same backend's content store and
             // decode-validates.
-            let content_ref = object_content_ref(&artifact.snapshot.object_id);
+            let content_ref = object_content_ref_for_hash(&artifact.content_hash);
             let read = ContentArtifacts::from_backend(&backend)
                 .read_object_bytes(&content_ref, &artifact.snapshot.object_id)
                 .unwrap();
@@ -340,14 +452,14 @@ mod tests {
             b.object_artifact_content_hash
         );
 
-        let bytes_a = fs::read(object_artifact_path(
+        let bytes_a = fs::read(object_artifact_path_for_hash(
             &resolved_store_dir(repo_a.path()),
-            &a.object_id,
+            &a.object_artifact_content_hash,
         ))
         .unwrap();
-        let bytes_b = fs::read(object_artifact_path(
+        let bytes_b = fs::read(object_artifact_path_for_hash(
             &resolved_store_dir(repo_b.path()),
-            &b.object_id,
+            &b.object_artifact_content_hash,
         ))
         .unwrap();
         assert_eq!(
@@ -364,10 +476,8 @@ mod tests {
         // loud rejection, not a silently-accepted legacy shape.
         let repo = modified_repo();
         let artifact = write_current_object_artifact(&repo);
-        let path = object_artifact_path(
-            &resolved_store_dir(repo.path()),
-            &artifact.snapshot.object_id,
-        );
+        let path =
+            object_artifact_path_for_hash(&resolved_store_dir(repo.path()), &artifact.content_hash);
         let v1_bytes = rewrite_as_v1(&fs::read(&path).unwrap());
 
         let error = decode_and_validate_object_artifact(&v1_bytes)
@@ -382,10 +492,8 @@ mod tests {
     fn v2_snapshot_body_decodes_cleanly() {
         let repo = modified_repo();
         let artifact = write_current_object_artifact(&repo);
-        let path = object_artifact_path(
-            &resolved_store_dir(repo.path()),
-            &artifact.snapshot.object_id,
-        );
+        let path =
+            object_artifact_path_for_hash(&resolved_store_dir(repo.path()), &artifact.content_hash);
         let v2_bytes = fs::read(&path).unwrap();
 
         let decoded = decode_and_validate_object_artifact(&v2_bytes).unwrap();
@@ -397,10 +505,8 @@ mod tests {
     fn decode_rejects_a_tampered_v2_artifact() {
         let repo = modified_repo();
         let artifact = write_current_object_artifact(&repo);
-        let path = object_artifact_path(
-            &resolved_store_dir(repo.path()),
-            &artifact.snapshot.object_id,
-        );
+        let path =
+            object_artifact_path_for_hash(&resolved_store_dir(repo.path()), &artifact.content_hash);
         let mut value: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         // Mutate a body field without re-stamping the hash.
@@ -432,7 +538,7 @@ mod tests {
 
         let first = write_object_artifact_to(&backend, &fingerprint, snapshot.clone()).unwrap();
         assert_eq!(first.version, 2);
-        let path = object_artifact_path(&store_dir, &fingerprint.object_id);
+        let path = object_artifact_path_for_hash(&store_dir, &first.content_hash);
         let on_disk = fs::read(&path).unwrap();
 
         let deduped = write_object_artifact_to(&backend, &fingerprint, snapshot).unwrap();
@@ -510,10 +616,8 @@ mod tests {
     fn read_object_artifact_rejects_tampered_content() {
         let repo = modified_repo();
         let artifact = write_current_object_artifact(&repo);
-        let path = object_artifact_path(
-            &resolved_store_dir(repo.path()),
-            &artifact.snapshot.object_id,
-        );
+        let path =
+            object_artifact_path_for_hash(&resolved_store_dir(repo.path()), &artifact.content_hash);
 
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -586,9 +690,12 @@ mod tests {
         // where capture writes it, so the read resolves it without any fallback.
         let artifact = write_current_object_artifact(&repo);
 
-        let read =
-            read_object_artifact_for_write_validation(repo.path(), &artifact.snapshot.object_id)
-                .unwrap();
+        let read = read_bound_object_artifact_for_write_validation(
+            repo.path(),
+            &artifact.snapshot.object_id,
+            &artifact.content_hash,
+        )
+        .unwrap();
 
         assert_eq!(read, artifact);
     }
@@ -606,8 +713,13 @@ mod tests {
         let repo = modified_repo();
         let fingerprint = compute_revision_fingerprint(repo.path()).unwrap();
 
-        let error = read_object_artifact_for_write_validation(repo.path(), &fingerprint.object_id)
-            .expect_err("an artifact absent from both stores errors");
+        let missing_hash = format!("sha256:{}", "0".repeat(64));
+        let error = read_bound_object_artifact_for_write_validation(
+            repo.path(),
+            &fingerprint.object_id,
+            &missing_hash,
+        )
+        .expect_err("an artifact absent from both stores errors");
 
         assert!(
             error.to_string().contains("missing artifact for snapshot"),

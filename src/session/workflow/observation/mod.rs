@@ -732,6 +732,7 @@ mod tests {
             journal_id: capture.journal_id.clone(),
             revision_id: capture.revision_id.clone(),
             object_id: capture.object_id.clone(),
+            object_artifact_content_hash: capture.object_artifact_content_hash.clone(),
         }
     }
 

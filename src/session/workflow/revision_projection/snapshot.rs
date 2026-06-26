@@ -3,7 +3,9 @@ use std::path::Path;
 use super::identity::{RevisionProjectionIdentity, SnapshotContentState};
 use crate::error::{Result, ShoreError};
 use crate::model::{DiffSnapshot, ObjectId};
-use crate::session::object_artifact::{object_artifact_path, read_object_artifact};
+use crate::session::object_artifact::{
+    object_artifact_path, object_artifact_path_for_hash, read_bound_object_artifact,
+};
 use crate::session::projection::RemovalOperativeStatus;
 use crate::session::store::resolution::resolve_read_store;
 
@@ -56,11 +58,17 @@ pub(super) fn resolve_snapshot_content(
     );
     if operative {
         let content_hash = revision.object_artifact_content_hash.clone();
-        return Ok(if bound_blob_present(repo, &revision.object_id)? {
-            SnapshotContent::SuppressedPresent { content_hash }
-        } else {
-            SnapshotContent::PhysicallyRemoved { content_hash }
-        });
+        return Ok(
+            if bound_blob_present(
+                repo,
+                &revision.object_id,
+                &revision.object_artifact_content_hash,
+            )? {
+                SnapshotContent::SuppressedPresent { content_hash }
+            } else {
+                SnapshotContent::PhysicallyRemoved { content_hash }
+            },
+        );
     }
     Ok(SnapshotContent::Present(load_bound_object_artifact(
         repo, revision,
@@ -70,16 +78,23 @@ pub(super) fn resolve_snapshot_content(
 /// Cheap read-path presence check: does the bound object artifact file exist? A
 /// stat, never a decode — the removed-vs-swept split must not pay a full read of
 /// every still-present blob.
-fn bound_blob_present(repo: &Path, object_id: &ObjectId) -> Result<bool> {
+fn bound_blob_present(repo: &Path, object_id: &ObjectId, content_hash: &str) -> Result<bool> {
     let store_dir = resolve_read_store(repo)?.store_dir().to_path_buf();
-    Ok(object_artifact_path(&store_dir, object_id).exists())
+    Ok(
+        object_artifact_path_for_hash(&store_dir, content_hash).exists()
+            || object_artifact_path(&store_dir, object_id).exists(),
+    )
 }
 
 pub(super) fn load_bound_object_artifact(
     repo: &Path,
     revision: &RevisionProjectionIdentity,
 ) -> Result<DiffSnapshot> {
-    let artifact = read_object_artifact(repo, &revision.object_id)?;
+    let artifact = read_bound_object_artifact(
+        repo,
+        &revision.object_id,
+        &revision.object_artifact_content_hash,
+    )?;
     // Bind via the namespace-independent object_id + content_hash only. Identity
     // (revision_id/source/base/target) lives in the capture event/projection,
     // never the content-addressed artifact body.
@@ -176,7 +191,7 @@ mod tests {
         let repo = committed_repo();
         let captured = capture_range(&repo);
         let identity = identity_from(&captured, repo.path());
-        delete_bound_blob(repo.path(), &captured.object_id);
+        delete_bound_blob(repo.path(), &captured.object_artifact_content_hash);
 
         let content = resolve_snapshot_content(
             repo.path(),
@@ -209,9 +224,12 @@ mod tests {
         assert!(matches!(content, SnapshotContent::Present(_)));
     }
 
-    fn delete_bound_blob(repo: &Path, object_id: &crate::model::ObjectId) {
+    fn delete_bound_blob(repo: &Path, content_hash: &str) {
         let store_dir = resolved_store_dir(repo);
-        let path = crate::session::object_artifact::object_artifact_path(&store_dir, object_id);
+        let path = crate::session::object_artifact::object_artifact_path_for_hash(
+            &store_dir,
+            content_hash,
+        );
         fs::remove_file(path).expect("delete bound object artifact blob");
     }
 

@@ -7,7 +7,7 @@ use crate::session::event::{
     EventType, Revision, RevisionRefAssociatedPayload, ShoreEvent, WorkObjectProposal,
     WorkObjectProposedPayload,
 };
-use crate::session::object_artifact::read_object_artifact_for_write_validation;
+use crate::session::object_artifact::read_bound_object_artifact_for_write_validation;
 use crate::session::projection::commit_range::revision_of;
 use crate::session::projection::supersession::SupersessionView;
 use crate::session::store::fingerprint::normalized_worktree_root;
@@ -17,6 +17,7 @@ pub(crate) struct ResolvedRevision {
     pub journal_id: JournalId,
     pub revision_id: RevisionId,
     pub object_id: ObjectId,
+    pub object_artifact_content_hash: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -148,13 +149,15 @@ pub(crate) fn resolve_revision(
         .iter()
         .filter(|event| event.event_type == EventType::WorkObjectProposed)
     {
-        let Some(revision) = revision_from_capture_event(event)? else {
+        let Some((revision, object_artifact_content_hash)) = revision_from_capture_event(event)?
+        else {
             continue;
         };
         let resolved = ResolvedRevision {
             journal_id: event.target.journal_id.clone(),
             revision_id: revision.id.clone(),
             object_id: revision.object_id.clone(),
+            object_artifact_content_hash,
         };
         if matches!(selection, RevisionSelection::Exact(requested) if requested == &resolved.revision_id)
         {
@@ -251,10 +254,14 @@ fn capture_matches_current_worktree(
 
 /// Decode the captured revision from a generative move, or `None` if the move is
 /// not a review-domain revision proposal.
-fn revision_from_capture_event(event: &ShoreEvent) -> Result<Option<Revision>> {
+fn revision_from_capture_event(event: &ShoreEvent) -> Result<Option<(Revision, String)>> {
     let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
     Ok(match payload.work_object {
-        WorkObjectProposal::Revision { revision, .. } => Some(revision),
+        WorkObjectProposal::Revision {
+            revision,
+            object_artifact_content_hash,
+            ..
+        } => Some((revision, object_artifact_content_hash)),
         WorkObjectProposal::TaskAttempt { .. } => None,
     })
 }
@@ -297,7 +304,7 @@ pub(crate) fn revision_ids_in_worktree(
         .iter()
         .filter(|event| event.event_type == EventType::WorkObjectProposed)
     {
-        let Some(revision) = revision_from_capture_event(event)? else {
+        let Some((revision, _)) = revision_from_capture_event(event)? else {
             continue;
         };
         if capture_has_worktree_identity_match(events, &revision, context)? {
@@ -362,7 +369,11 @@ pub(crate) fn resolve_observation_target(
         });
     };
 
-    let artifact = read_object_artifact_for_write_validation(repo, &resolved.object_id)?;
+    let artifact = read_bound_object_artifact_for_write_validation(
+        repo,
+        &resolved.object_id,
+        &resolved.object_artifact_content_hash,
+    )?;
     if !artifact.snapshot.files.iter().any(|file| {
         file.new_path.as_deref() == Some(file_path) || file.old_path.as_deref() == Some(file_path)
     }) {

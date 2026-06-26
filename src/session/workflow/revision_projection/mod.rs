@@ -672,7 +672,14 @@ mod tests {
     fn show_revision_rejects_event_artifact_binding_mismatch() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        rewrite_capture_event_object_artifact_hash(repo.path(), &capture.revision_id, "sha256:bad");
+        let bad_hash = format!("sha256:{}", "0".repeat(64));
+        rewrite_capture_event_object_artifact_hash(repo.path(), &capture.revision_id, &bad_hash);
+        let original_path = object_artifact_path(repo.path(), &capture.object_id);
+        let bad_path = crate::session::object_artifact::object_artifact_path_for_hash(
+            &resolved_store_dir(repo.path()),
+            &bad_hash,
+        );
+        fs::copy(original_path, bad_path).expect("stage mismatched object artifact");
 
         let error = show_revision(RevisionShowOptions::new(repo.path()))
             .expect_err("event/artifact mismatch should fail");
@@ -1630,7 +1637,6 @@ mod tests {
     /// hash as `capture` (the content/object identity-reuse case).
     fn fabricate_distinct_sibling_capture(repo: &Path, capture: &CaptureResult) {
         let sibling_unit = RevisionId::new(format!("{}-reuse", capture.revision_id.as_str()));
-        let sibling_object = ObjectId::new(format!("{}-reuse", capture.object_id.as_str()));
         let event = ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{}", sibling_unit.as_str()),
@@ -1641,7 +1647,7 @@ mod tests {
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
                         id: sibling_unit,
-                        object_id: sibling_object,
+                        object_id: capture.object_id.clone(),
                         git_provenance: None,
                     },
                     object_artifact_content_hash: capture.object_artifact_content_hash.clone(),

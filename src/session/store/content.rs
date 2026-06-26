@@ -13,7 +13,7 @@ use std::path::Path;
 use super::backend::{ContentStore, LocalContentStore, StoreBackend};
 use super::body_artifact::{parse_note_body_artifact, validate_note_body_artifact_bytes};
 use super::object_artifact::{
-    ObjectArtifact, decode_and_validate_object_artifact, object_content_ref,
+    ObjectArtifact, decode_and_validate_object_artifact, object_content_ref_for_hash,
 };
 use crate::error::{Result, ShoreError};
 use crate::model::ObjectId;
@@ -116,7 +116,7 @@ impl ContentArtifacts {
                 "object artifact content hash mismatch for {expected_content_hash}"
             )));
         }
-        let content_ref = object_content_ref(object_id);
+        let content_ref = object_content_ref_for_hash(expected_content_hash);
         match self.store.put_once(&content_ref, bytes)? {
             CreateOutcome::Created => Ok(CreateOutcome::Created),
             CreateOutcome::AlreadyExists => {

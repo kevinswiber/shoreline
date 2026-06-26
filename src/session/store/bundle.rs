@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -104,14 +104,15 @@ pub(crate) fn build_export_manifest(store_dir: impl AsRef<Path>) -> Result<Expor
             ShoreError::Message(format!("failed to read event for export manifest: {error}"))
         })?;
         let event = event_store.read_event(&path)?;
-        let artifact_refs = event_artifact_refs(&event);
         let event_id = event.event_id.as_str().to_owned();
         let event_envelope_hash = sha256_json_prefixed(&serde_json::to_value(&event)?)?;
-
-        for requirement in artifact_refs
+        let event_requirements = event_artifact_requirements(&event, &event_id)?;
+        let artifact_refs = event_requirements
             .iter()
-            .map(|artifact_ref| ArtifactRequirement::from_ref(artifact_ref, &event_id))
-        {
+            .map(|requirement| requirement.artifact_ref.clone())
+            .collect::<Vec<_>>();
+
+        for requirement in event_requirements {
             artifact_requirements
                 .entry(requirement.artifact_ref.clone())
                 .and_modify(|existing| existing.required_by_event_ids.push(event_id.clone()))
@@ -257,9 +258,9 @@ fn read_source_object_artifact(
     source_store_dir: &Path,
     artifact: &ExportArtifact,
 ) -> Result<SourceArtifact> {
-    // The ref is the content-addressed object id itself (no kind prefix).
-    let object_id = artifact.artifact_ref.as_str();
-    let Some((path, parsed)) = find_object_artifact(source_store_dir, object_id)? else {
+    let Some((path, parsed)) =
+        find_object_artifact(source_store_dir, None, &artifact.content_hash)?
+    else {
         return Err(ShoreError::Message(format!(
             "missing object artifact {}",
             artifact.artifact_ref
@@ -273,7 +274,7 @@ fn read_source_object_artifact(
     }
 
     Ok(SourceArtifact {
-        relative_path: object_relative_path(object_id),
+        relative_path: object_relative_path(&artifact.content_hash),
         bytes: std::fs::read(&path).map_err(|error| {
             ShoreError::Message(format!("failed to read source object artifact: {error}"))
         })?,
@@ -395,31 +396,24 @@ struct ArtifactRequirement {
     required_by_event_ids: Vec<String>,
 }
 
-impl ArtifactRequirement {
-    fn from_ref(artifact_ref: &str, event_id: &str) -> Self {
-        if let Some(content_hash) = artifact_ref.strip_prefix("note-body:") {
-            return Self {
-                artifact_ref: artifact_ref.to_owned(),
-                kind: ExportArtifactKind::NoteBody,
-                locator: ArtifactLocator::NoteBody {
-                    relative_path: note_body_relative_path(artifact_ref),
-                },
-                content_hash: Some(content_hash.to_owned()),
-                required_by_event_ids: vec![event_id.to_owned()],
-            };
+fn insert_artifact_requirement(
+    refs: &mut BTreeMap<String, ArtifactRequirement>,
+    requirement: ArtifactRequirement,
+) -> Result<()> {
+    if let Some(existing) = refs.get(&requirement.artifact_ref) {
+        if existing.kind == requirement.kind
+            && existing.locator == requirement.locator
+            && existing.content_hash == requirement.content_hash
+        {
+            return Ok(());
         }
-
-        // An object artifact's ref is the content-addressed object id itself.
-        Self {
-            artifact_ref: artifact_ref.to_owned(),
-            kind: ExportArtifactKind::Object,
-            locator: ArtifactLocator::Object {
-                object_id: artifact_ref.to_owned(),
-            },
-            content_hash: None,
-            required_by_event_ids: vec![event_id.to_owned()],
-        }
+        return Err(ShoreError::Message(format!(
+            "conflicting artifact reference for {}",
+            requirement.artifact_ref
+        )));
     }
+    refs.insert(requirement.artifact_ref.clone(), requirement);
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -458,28 +452,53 @@ fn is_event_file(path: &Path) -> bool {
         .is_some_and(|name| name.len() == 69 && name.ends_with(".json"))
 }
 
-fn event_artifact_refs(event: &ShoreEvent) -> Vec<String> {
-    let mut refs = BTreeSet::new();
-    // A generative move binds its content object through the proposed work
-    // object: the object id lives on the revision the proposal wraps. The ref is
-    // the content-addressed object id itself (no kind prefix).
+fn event_artifact_requirements(
+    event: &ShoreEvent,
+    event_id: &str,
+) -> Result<Vec<ArtifactRequirement>> {
+    let mut refs = BTreeMap::new();
     if event.event_type == EventType::WorkObjectProposed
-        && let Some(object_id) = event
-            .payload
-            .get("workObject")
-            .and_then(|work_object| work_object.get("revision"))
-            .and_then(|revision| revision.get("objectId"))
-            .and_then(|value| value.as_str())
+        && let Some(work_object) = event.payload.get("workObject")
+        && let Some(revision) = work_object.get("revision")
+        && let (Some(object_id), Some(content_hash)) = (
+            revision.get("objectId").and_then(|value| value.as_str()),
+            work_object
+                .get("objectArtifactContentHash")
+                .and_then(|value| value.as_str()),
+        )
     {
-        refs.insert(object_id.to_owned());
+        insert_artifact_requirement(
+            &mut refs,
+            ArtifactRequirement {
+                artifact_ref: format!("object:{content_hash}"),
+                kind: ExportArtifactKind::Object,
+                locator: ArtifactLocator::Object {
+                    object_id: object_id.to_owned(),
+                },
+                content_hash: Some(content_hash.to_owned()),
+                required_by_event_ids: vec![event_id.to_owned()],
+            },
+        )?;
     }
 
     for path in note_body_artifact_paths_for_event(event.event_type, &event.payload) {
         if let Some(stem) = note_body_hash_from_path(path) {
-            refs.insert(format!("note-body:sha256:{stem}"));
+            let artifact_ref = format!("note-body:sha256:{stem}");
+            insert_artifact_requirement(
+                &mut refs,
+                ArtifactRequirement {
+                    artifact_ref: artifact_ref.clone(),
+                    kind: ExportArtifactKind::NoteBody,
+                    locator: ArtifactLocator::NoteBody {
+                        relative_path: note_body_relative_path(&artifact_ref),
+                    },
+                    content_hash: Some(format!("sha256:{stem}")),
+                    required_by_event_ids: vec![event_id.to_owned()],
+                },
+            )?;
         }
     }
-    refs.into_iter().collect()
+    Ok(refs.into_values().collect())
 }
 
 fn note_body_artifact_paths_for_event(
@@ -541,7 +560,12 @@ fn read_object_export_artifact(
     object_id: &str,
     requirement: &ArtifactRequirement,
 ) -> Result<Option<ExportArtifact>> {
-    let Some((path, artifact)) = find_object_artifact(store_dir, object_id)? else {
+    let content_hash = requirement
+        .content_hash
+        .as_deref()
+        .ok_or_else(|| ShoreError::Message("object artifact missing content hash".to_owned()))?;
+    let Some((path, artifact)) = find_object_artifact(store_dir, Some(object_id), content_hash)?
+    else {
         return Ok(None);
     };
     let byte_size = file_size(&path)?;
@@ -557,17 +581,31 @@ fn read_object_export_artifact(
     }))
 }
 
-fn object_relative_path(object_id: &str) -> PathBuf {
+fn object_relative_path(content_hash: &str) -> PathBuf {
     PathBuf::from("artifacts")
         .join("objects")
-        .join(format!("{}.json", sha256_bytes_hex(object_id.as_bytes())))
+        .join(format!("{}.json", content_hash_file_stem(content_hash)))
 }
 
 fn find_object_artifact(
     store_dir: &Path,
-    object_id: &str,
+    object_id: Option<&str>,
+    content_hash: &str,
 ) -> Result<Option<(PathBuf, ObjectArtifact)>> {
     let artifact_dir = store_dir.join("artifacts/objects");
+    let direct_path = store_dir.join(object_relative_path(content_hash));
+    if direct_path.exists() {
+        let bytes = std::fs::read(&direct_path).map_err(|error| {
+            ShoreError::Message(format!("failed to read object artifact: {error}"))
+        })?;
+        let artifact = decode_and_validate_object_artifact(&bytes)?;
+        if artifact.content_hash == content_hash
+            && object_id.is_none_or(|object_id| artifact.snapshot.object_id.as_str() == object_id)
+        {
+            return Ok(Some((direct_path, artifact)));
+        }
+    }
+
     let entries = match std::fs::read_dir(&artifact_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -591,17 +629,24 @@ fn find_object_artifact(
         let bytes = std::fs::read(&path).map_err(|error| {
             ShoreError::Message(format!("failed to read object artifact: {error}"))
         })?;
-        // Cheap object-id match first (so an unrelated corrupt artifact in the
-        // dir does not abort the scan), then validate the match through the shared
-        // decode path.
         let parsed: ObjectArtifact = serde_json::from_slice(&bytes)?;
-        if parsed.snapshot.object_id.as_str() == object_id {
+        if parsed.content_hash == content_hash
+            && object_id.is_none_or(|object_id| parsed.snapshot.object_id.as_str() == object_id)
+        {
             let artifact = decode_and_validate_object_artifact(&bytes)?;
             return Ok(Some((path, artifact)));
         }
     }
 
     Ok(None)
+}
+
+fn content_hash_file_stem(content_hash: &str) -> String {
+    content_hash
+        .strip_prefix("sha256:")
+        .filter(|stem| stem.len() == 64 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .unwrap_or_else(|| sha256_bytes_hex(content_hash.as_bytes()))
 }
 
 fn read_note_body_export_artifact(
@@ -736,7 +781,7 @@ mod tests {
         assert!(event.event_file_hash.starts_with("sha256:"));
         assert_ne!(event.event_envelope_hash, event.event_file_hash);
 
-        let object_ref = capture.object_id.as_str().to_owned();
+        let object_ref = format!("object:{}", capture.object_artifact_content_hash);
         assert_eq!(event.artifact_refs, vec![object_ref.clone()]);
         let artifact = manifest
             .artifacts
@@ -856,7 +901,8 @@ mod tests {
             }
         });
 
-        assert_eq!(event_artifact_refs(&event), Vec::<String>::new());
+        let refs = event_artifact_requirements(&event, event.event_id.as_str()).unwrap();
+        assert_eq!(refs, Vec::<ArtifactRequirement>::new());
     }
 
     #[test]
@@ -868,10 +914,12 @@ mod tests {
             "bodyArtifactPath": path,
         });
 
-        assert_eq!(
-            event_artifact_refs(&event),
-            vec![format!("note-body:sha256:{}", "2".repeat(64))]
-        );
+        let refs = event_artifact_requirements(&event, event.event_id.as_str())
+            .unwrap()
+            .into_iter()
+            .map(|requirement| requirement.artifact_ref)
+            .collect::<Vec<_>>();
+        assert_eq!(refs, vec![format!("note-body:sha256:{}", "2".repeat(64))]);
     }
 
     #[test]
@@ -890,7 +938,7 @@ mod tests {
             manifest.events.iter().any(|event| event
                 .artifact_refs
                 .iter()
-                .any(|artifact_ref| artifact_ref.starts_with("obj:"))),
+                .any(|artifact_ref| artifact_ref.starts_with("object:sha256:"))),
             "the capture event references the object artifact"
         );
     }

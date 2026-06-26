@@ -365,6 +365,61 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
 }
 
 #[test]
+fn rebased_recapture_with_stable_object_id_writes_distinct_artifact() {
+    let repo = GitRepo::new();
+    let base = (1..=12)
+        .map(|line| format!("preamble {line}\n"))
+        .chain(["pub fn value() -> u32 { 1 }\n".to_owned()])
+        .chain((1..=6).map(|line| format!("trailer {line}\n")))
+        .collect::<String>();
+    repo.write("src/lib.rs", &base);
+    repo.commit_all("base");
+
+    let reviewed = base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
+    repo.write("src/lib.rs", reviewed);
+    let first =
+        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
+    let first_object = first["revision"]["objectId"].as_str().unwrap().to_owned();
+    let first_artifact_hash = first["revision"]["objectArtifactContentHash"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    repo.git(["checkout", "--", "src/lib.rs"]);
+    let rebased_base = format!("inserted upstream line\n{base}");
+    repo.write("src/lib.rs", &rebased_base);
+    repo.commit_all("upstream insert");
+    let rebased_reviewed =
+        rebased_base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
+    repo.write("src/lib.rs", rebased_reviewed);
+
+    let recapture = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--supersedes",
+        &first_id,
+    ]);
+
+    assert!(
+        recapture.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&recapture.stderr)
+    );
+    let second = parse_json(&recapture.stdout);
+    assert_eq!(second["revision"]["objectId"], first_object);
+    assert_ne!(second["revision"]["id"], first["revision"]["id"]);
+    assert_ne!(
+        second["revision"]["objectArtifactContentHash"]
+            .as_str()
+            .unwrap(),
+        first_artifact_hash
+    );
+}
+
+#[test]
 fn capture_with_base_twice_reports_existing_event() {
     let repo = committed_repo();
 

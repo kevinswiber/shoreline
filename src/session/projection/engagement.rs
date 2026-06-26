@@ -117,6 +117,7 @@ impl EngagementGrouping {
 
 struct RevisionCapture {
     object_id: ObjectId,
+    object_artifact_content_hash: String,
     journal_id: JournalId,
     engagement_hint: EngagementId,
 }
@@ -131,11 +132,17 @@ fn revision_captures(events: &[ShoreEvent]) -> Result<BTreeMap<RevisionId, Revis
         .filter(|event| event.event_type == EventType::WorkObjectProposed)
     {
         let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
-        if let WorkObjectProposal::Revision { revision, .. } = payload.work_object {
+        if let WorkObjectProposal::Revision {
+            revision,
+            object_artifact_content_hash,
+            ..
+        } = payload.work_object
+        {
             captures.insert(
                 revision.id.clone(),
                 RevisionCapture {
                     object_id: revision.object_id,
+                    object_artifact_content_hash,
                     journal_id: event.target.journal_id.clone(),
                     engagement_hint: payload.engagement_id,
                 },
@@ -167,6 +174,7 @@ fn engagement_lifecycle(
         journal_id: capture.journal_id.clone(),
         revision_id: head.clone(),
         object_id: capture.object_id.clone(),
+        object_artifact_content_hash: capture.object_artifact_content_hash.clone(),
     };
     let (current, _) = project_assessments(AssessmentProjectionOptions {
         // A status-only projection: `include_summary: false` means no summary

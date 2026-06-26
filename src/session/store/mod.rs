@@ -18,7 +18,7 @@ pub(crate) use event_store::{EventStore, EventWriteOutcome, SkippedEvent};
 pub use fingerprint::compute_revision_fingerprint;
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
 pub use fingerprint::{RevisionFingerprint, capture_worktree_fingerprint};
-pub use object_artifact::{ObjectArtifact, read_object_artifact};
+pub use object_artifact::{ObjectArtifact, read_bound_object_artifact, read_object_artifact};
 // `StoreMode` and the thin repo-level entry points re-export from `session::mod`
 // for the binary crate. The underlying read/write helpers stay crate-internal:
 // the resolver reaches them by submodule path and the CLI only ever names the

@@ -36,8 +36,8 @@ pub(crate) struct ArtifactInventoryEntry {
 pub(crate) struct RevisionObjectInventory {
     /// The revisions that captured this object, sorted and deduped. Under the
     /// object-scoped artifact one artifact may be shared by several revisions, so
-    /// identity is joined from the capture events keyed by `object_id`, never
-    /// read from the artifact body.
+    /// identity is joined from each capture event's `object_id` plus bound object
+    /// artifact hash.
     pub revision_ids: Vec<String>,
     pub object_id: String,
     pub artifact_ref: String,
@@ -106,7 +106,7 @@ fn scan_events(events_dir: &Path) -> Result<(usize, u64)> {
 
 fn scan_object_artifacts(
     objects_dir: &Path,
-    capture_owners: &BTreeMap<String, BTreeSet<String>>,
+    capture_owners: &BTreeMap<(String, String), BTreeSet<String>>,
     artifacts: &mut Vec<ArtifactInventoryEntry>,
     objects: &mut Vec<RevisionObjectInventory>,
 ) -> Result<(usize, u64)> {
@@ -125,11 +125,9 @@ fn scan_object_artifacts(
         }
         let byte_size = contents.len() as u64;
         let object_id = artifact.snapshot.object_id.as_str().to_owned();
-        // The ref is the content-addressed object id itself (`obj:sha256:…`); it
-        // carries no extra kind prefix, so it never reads as `object:obj:…`.
-        let artifact_ref = object_id.clone();
+        let artifact_ref = format!("object:{}", artifact.content_hash);
         let revision_ids = capture_owners
-            .get(&object_id)
+            .get(&(object_id.clone(), artifact.content_hash.clone()))
             .map(|ids| ids.iter().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
         artifacts.push(ArtifactInventoryEntry {
@@ -149,12 +147,14 @@ fn scan_object_artifacts(
     Ok((count, bytes))
 }
 
-/// Join `object_id → {revision_ids}` from the capture events. Identity lives
-/// in the event log, so this is the inventory's only source for the capturing
-/// units of a object artifact. A `BTreeSet` keeps the ids sorted and deduped for
-/// deterministic output.
-fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTreeSet<String>>> {
-    let mut owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+/// Join `(object_id, object_artifact_content_hash) → {revision_ids}` from the
+/// capture events. Identity lives in the event log, so this is the inventory's
+/// only source for the revisions that bind a particular object artifact. A
+/// `BTreeSet` keeps the ids sorted and deduped for deterministic output.
+fn capture_owners_by_snapshot(
+    events_dir: &Path,
+) -> Result<BTreeMap<(String, String), BTreeSet<String>>> {
+    let mut owners: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     for path in list_files(events_dir)? {
         if !is_event_file(&path) {
             continue;
@@ -165,16 +165,18 @@ fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTre
         if event.event_type != EventType::WorkObjectProposed {
             continue;
         }
-        // The captured revision and its content object id ride the payload's
-        // tagged work object; the object artifact is joined by the object id.
+        // The captured revision and content binding ride the payload's tagged work
+        // object; the object artifact is joined by object id plus artifact hash.
         let revision = &event.payload["workObject"]["revision"];
-        let (Some(object_id), Some(revision_id)) =
-            (revision["objectId"].as_str(), revision["id"].as_str())
-        else {
+        let (Some(object_id), Some(content_hash), Some(revision_id)) = (
+            revision["objectId"].as_str(),
+            event.payload["workObject"]["objectArtifactContentHash"].as_str(),
+            revision["id"].as_str(),
+        ) else {
             continue;
         };
         owners
-            .entry(object_id.to_owned())
+            .entry((object_id.to_owned(), content_hash.to_owned()))
             .or_default()
             .insert(revision_id.to_owned());
     }

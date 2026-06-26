@@ -526,16 +526,16 @@ The marker discriminates from its landing forward.
 
 Artifact filenames follow two deliberate rules, paired to what the file represents:
 
-- **Identifier-hashed artifacts** use a hash of a stable opaque identifier as the filename stem.
-  Object artifacts live at `artifacts/objects/<sha256(objectId)>.json`. The readable ID stays
-  inside the artifact body; the hash exists only so the filename is fixed-width, filesystem-safe,
-  and free of the characters that appear in semantic IDs (such as the `:` separators in
-  `obj:sha256:…`). This is the same rule events use, applied to a different identifier.
-  Object artifacts also carry their own canonical `contentHash` field that the read path
-  recomputes and compares, so tamper or transcription errors are caught at load time. The body
-  inlines every captured row but no worktree identity, so the `contentHash` covers the full row
-  inventory only. See [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md) for the content
-  decoupling that separates the object's content hash from the revision's identity (#146).
+- **Object artifacts** use the artifact's canonical `contentHash` as the filename stem:
+  `artifacts/objects/<sha256(object-artifact-body)>.json`. The readable `objectId` stays inside the
+  artifact body, and each `work_object_proposed` event binds the two values together with
+  `objectId` plus `objectArtifactContentHash`. This lets a rebased recapture keep the same stable
+  content object while storing a different concrete artifact envelope when line geometry or blob OIDs
+  change. The read path recomputes and compares `contentHash`, so tamper or transcription errors are
+  caught at load time. The body inlines every captured row but no worktree identity, so the
+  `contentHash` covers the full row inventory only. See [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md)
+  for the content decoupling that separates the object's content hash from the revision's identity
+  (#146).
 - **Content-addressed artifacts** use a hash of the artifact body as the filename stem. Note-body
   artifacts live at `artifacts/notes/<sha256(body)>.json`. Hashing the body gives deterministic
   addressing and deduplication across observations, input requests, and assessments that share
@@ -653,8 +653,8 @@ See [ADR-0001](./adr/adr-0001-note-body-materialization.md) for the decision rat
 
 ## Large Object Artifact Policy
 
-Shoreline stores captured revision diffs inline in identifier-hashed object artifacts under
-`artifacts/objects/<sha256(objectId)>.json`. The artifact body is one JSON object per snapshot
+Shoreline stores captured revision diffs inline in content-hash-keyed object artifacts under
+`artifacts/objects/<objectArtifactContentHash>.json`. The artifact body is one JSON object per snapshot
 and carries every captured file, every metadata row, every hunk, and every diff row. There is no
 elision threshold, no generated-file detection, and no metadata-only marker for "too-large" or
 "elided" files.

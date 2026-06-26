@@ -592,21 +592,29 @@ struct OnDiskBlob {
 }
 
 /// Enumerate every content-addressed blob under `artifacts/objects` and
-/// `artifacts/notes`, mapping each on-disk file to its `content_hash`. A snapshot
-/// file name is `sha256(snapshotId)` — *not* the content hash — so it is resolved
-/// through the `WorkObjectProposed` payloads; a note file name stem *is* the
-/// content-hash hex.
+/// `artifacts/notes`, mapping each on-disk file to its `content_hash`. New object
+/// artifact filenames are the content-hash hex; legacy object-id-keyed filenames
+/// are still resolved through the `WorkObjectProposed` payloads.
 fn on_disk_blobs(content: &ContentArtifacts, events: &[ShoreEvent]) -> Result<Vec<OnDiskBlob>> {
-    let snapshot_hash_by_stem = snapshot_content_hash_by_file_stem(events)?;
+    let object_hashes = object_content_hashes(events)?;
+    let legacy_snapshot_hash_by_stem = snapshot_content_hash_by_file_stem(events)?;
     let mut blobs = Vec::new();
 
     for relative_path in content.list_refs("artifacts/objects")? {
         let file_name = ref_file_name(&relative_path);
         let stem = file_name.strip_suffix(".json").unwrap_or(file_name);
-        if let Some(content_hash) = snapshot_hash_by_stem.get(stem) {
+        let stem_hash = normalized_sha256_stem(stem);
+        let content_hash = match stem_hash {
+            Some(stem_hash) if object_hashes.contains(&stem_hash) => Some(stem_hash),
+            _ => legacy_snapshot_hash_by_stem
+                .get(stem)
+                .cloned()
+                .or_else(|| normalized_sha256_stem(stem)),
+        };
+        if let Some(content_hash) = content_hash {
             blobs.push(OnDiskBlob {
                 relative_path: relative_path.clone(),
-                content_hash: content_hash.clone(),
+                content_hash,
             });
         }
     }
@@ -627,8 +635,33 @@ fn ref_file_name(content_ref: &str) -> &str {
     content_ref.rsplit('/').next().unwrap_or(content_ref)
 }
 
-/// Map each captured snapshot's on-disk file stem (`sha256(snapshotId)`) to its
-/// artifact content hash, the join that lets the sweep recognize a snapshot blob.
+fn normalized_sha256_stem(stem: &str) -> Option<String> {
+    (stem.len() == 64 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| format!("sha256:{stem}"))
+}
+
+fn object_content_hashes(events: &[ShoreEvent]) -> Result<std::collections::BTreeSet<String>> {
+    let mut hashes = std::collections::BTreeSet::new();
+    for event in events {
+        if event.event_type != EventType::WorkObjectProposed {
+            continue;
+        }
+        let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        let WorkObjectProposal::Revision {
+            object_artifact_content_hash,
+            ..
+        } = payload.work_object
+        else {
+            continue;
+        };
+        hashes.insert(object_artifact_content_hash);
+    }
+    Ok(hashes)
+}
+
+/// Map each legacy captured snapshot's on-disk file stem (`sha256(objectId)`) to
+/// its artifact content hash, the join that lets the sweep recognize old object
+/// blobs that predate content-hash filenames.
 fn snapshot_content_hash_by_file_stem(events: &[ShoreEvent]) -> Result<BTreeMap<String, String>> {
     let mut by_stem = BTreeMap::new();
     for event in events {

@@ -12,7 +12,7 @@ use crate::session::event::{
     WorkObjectProposedPayload, decode_input_request_opened_payload,
 };
 use crate::session::object_artifact::{
-    decode_and_validate_object_artifact, read_object_artifact_bytes,
+    decode_and_validate_object_artifact, read_bound_object_artifact_bytes,
 };
 use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
@@ -135,7 +135,7 @@ pub fn referenced_artifacts(events: &[ShoreEvent]) -> Result<Vec<ArtifactRef>> {
 pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result<Vec<u8>> {
     match &artifact.locator {
         ArtifactLocator::Object { object_id } => {
-            let bytes = read_object_artifact_bytes(repo, object_id)?;
+            let bytes = read_bound_object_artifact_bytes(repo, object_id, &artifact.content_hash)?;
             let stored = decode_and_validate_object_artifact(&bytes)?;
             if stored.content_hash != artifact.content_hash {
                 return Err(ShoreError::Message(format!(
@@ -202,8 +202,7 @@ fn referenced_artifacts_for_event(
                     ..
                 } => insert_artifact_ref(
                     refs,
-                    // The ref is the content-addressed object id itself (no prefix).
-                    revision.object_id.as_str().to_owned(),
+                    format!("object:{object_artifact_content_hash}"),
                     ArtifactRef {
                         locator: ArtifactLocator::Object {
                             object_id: revision.object_id,

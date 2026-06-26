@@ -149,7 +149,10 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
         "/api/objects" => api_response(api::objects_json(repo)),
         "/api/freshness" => api_response(api::freshness_json(repo)),
         "/api/object" => match query_param(query, "id") {
-            Some(id) if !id.is_empty() => api_response(api::object_json(repo, &id)),
+            Some(id) if !id.is_empty() => {
+                let content_hash = query_param(query, "contentHash");
+                api_response(api::object_json(repo, &id, content_hash.as_deref()))
+            }
             _ => Response::json_error("400 Bad Request", "missing ?id=<objectId>"),
         },
         "/api/revision" => match query_param(query, "id") {

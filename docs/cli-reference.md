@@ -259,9 +259,10 @@ store, not a user-level multi-repository store or remote sync service.
 - `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
   optional `untrackedBytes`, `largestArtifacts`, and `revisionObjects`. Artifact entries use
   opaque artifact refs rather than filesystem paths. Each `revisionObjects` entry carries a
-  `revisionIds` **list** (sourced from the `work_object_proposed` events keyed by `objectId`),
-  because one content-only object artifact may be referenced by several revisions under the
-  shared-store model (#146).
+  `revisionIds` **list** (sourced from the `work_object_proposed` events keyed by `objectId` plus
+  `objectArtifactContentHash`), because one object artifact may be referenced by several revisions
+  under the shared-store model (#146), while a rebased recapture can store another artifact for the
+  same stable object id.
 - `sensitivity` reports `policyOutcome` plus redacted findings. Finding references use
   `file:sha256:*` refs, and command output does not print secret values or source file paths.
 

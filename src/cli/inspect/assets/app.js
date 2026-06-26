@@ -36,9 +36,10 @@ const state = {
   filterTrack: "",
   filterObject: "",
   order: "desc", // "desc" = newest first (default), "asc" = chronological
-  // The route-preserving diff overlay: the object id being shown, plus the
-  // single in-diff fact highlight.
+  // The route-preserving diff overlay: the object id being shown, optional
+  // event-bound artifact hash, plus the single in-diff fact highlight.
   diff: null,
+  diffHash: null,
   focus: null,
   lastHash: null,
   lastDiagnosticCount: null,
@@ -373,7 +374,7 @@ function resolveRef(kind, id) {
     // composite — its identity is unified onto RevisionId.
     case "rev":
     case "review-unit":
-      navigate({ selected: { kind: "revision", id }, diff: null, focus: null });
+      navigate({ selected: { kind: "revision", id }, diff: null, diffHash: null, focus: null });
       break;
     case "track":
       navigateToTrack(id);
@@ -412,7 +413,7 @@ function navigateToUnit(id) {
 }
 
 function navigateToTrack(id) {
-  navigate({ lens: "timeline", filterTrack: id, diff: null, focus: null });
+  navigate({ lens: "timeline", filterTrack: id, diff: null, diffHash: null, focus: null });
 }
 
 function revealBy(predicate) {
@@ -439,6 +440,7 @@ function revealEvent(eventId) {
     filterObject: "",
     enabledTypes: types,
     diff: null,
+    diffHash: null,
     focus: null,
   });
 }
@@ -775,8 +777,12 @@ function revisionIsHead(revisionId) {
 // The content object id captured for a revision, via the units list (its
 // snapshot id is the content-addressed object).
 function objectIdForRevision(revisionId) {
-  const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
+  const unit = unitForRevision(revisionId);
   return unit ? unit.objectId : "";
+}
+
+function objectArtifactHashForRevision(revisionId) {
+  return unitForRevision(revisionId)?.objectArtifactContentHash || "";
 }
 
 function eventMatchesObject(e, objectId) {
@@ -1218,7 +1224,11 @@ function renderDetail() {
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
     const btn = el.querySelector("#detail-diff-btn");
-    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, focusId));
+    if (btn) {
+      btn.addEventListener("click", () =>
+        openDiff(snapshotId, focusId, objectArtifactHashForRevision(revisionId)),
+      );
+    }
   }
 }
 
@@ -1288,25 +1298,37 @@ function annotationsForUnit(revisionId) {
 // DIFF_LENS_ROUTE_SEAM: this modal remains quick readback over `diff=` route
 // state. A full-page diff lens route/data contract is deferred until it can be
 // designed as its own route and payload seam rather than inferred here.
-function openDiff(objectId, focusId = null) {
-  navigate({ diff: objectId, focus: focusId || null });
+function openDiff(objectId, focusId = null, contentHash = null) {
+  navigate({ diff: objectId, diffHash: contentHash || null, focus: focusId || null });
+}
+
+function openRevisionDiff(revisionId, focusId = null) {
+  const objectId = objectIdForRevision(revisionId);
+  if (objectId) openDiff(objectId, focusId, objectArtifactHashForRevision(revisionId));
 }
 
 function closeDiff() {
   if (!state.diff && $("#diff-modal").classList.contains("hidden")) return;
-  navigate({ diff: null, focus: null }, { replace: true });
+  navigate({ diff: null, diffHash: null, focus: null }, { replace: true });
 }
 
-// The revision that captured an object, via the units list (its snapshot id is
-// the content-addressed object).
-function revisionIdForObject(objectId) {
-  const unit = (state.units?.entries || []).find((u) => u.objectId === objectId);
+// The revision that captured an object artifact, via the units list. The content
+// hash disambiguates rebased recaptures with the same stable object id.
+function revisionIdForObject(objectId, contentHash = null) {
+  const entries = state.units?.entries || [];
+  const unit =
+    entries.find(
+      (u) =>
+        u.objectId === objectId &&
+        (!contentHash || u.objectArtifactContentHash === contentHash),
+    ) || entries.find((u) => u.objectId === objectId);
   return unit ? unit.revisionId : null;
 }
 
-// The object id currently painted in the modal, so a re-render with an unchanged
-// overlay does not re-fetch.
+// The object artifact currently painted in the modal, so a re-render with an
+// unchanged overlay does not re-fetch.
 let shownDiffObject = null;
+let shownDiffHash = null;
 
 // Module-local render context for the open diff: the files + anchored facts the
 // delegated #diff-body / #diff-nav listeners read to lazily fill a collapsed
@@ -1325,10 +1347,11 @@ function renderDiffOverlay() {
   if (!state.diff) {
     closeOverlay("diff");
     shownDiffObject = null;
+    shownDiffHash = null;
     diffCtx = null;
     return;
   }
-  if (state.diff === shownDiffObject) {
+  if (state.diff === shownDiffObject && state.diffHash === shownDiffHash) {
     if (activeOverlay?.name !== "diff") openOverlay("diff", "#diff-close");
     applyDiffFocus();
     return;
@@ -1336,8 +1359,10 @@ function renderDiffOverlay() {
   if (cmdOpen) closePalette({ restoreFocus: false });
   closeKeyHelp({ restoreFocus: false });
   shownDiffObject = state.diff;
+  shownDiffHash = state.diffHash;
   const objectId = state.diff;
-  const revisionId = revisionIdForObject(objectId);
+  const contentHash = state.diffHash;
+  const revisionId = revisionIdForObject(objectId, contentHash);
   const label = revisionId ? shortId(revisionId) : "";
   $("#diff-title").textContent = label
     ? `${label} · snapshot ${shortId(objectId)}`
@@ -1347,17 +1372,19 @@ function renderDiffOverlay() {
   openOverlay("diff", "#diff-close");
   // The object endpoint is object-scoped (no revision id on the wire); the
   // revision id is recovered from the units list for annotation lookup.
-  fetchJSON("/api/object?id=" + encodeURIComponent(objectId))
+  let objectUrl = "/api/object?id=" + encodeURIComponent(objectId);
+  if (contentHash) objectUrl += "&contentHash=" + encodeURIComponent(contentHash);
+  fetchJSON(objectUrl)
     .then((artifact) => {
       // A later overlay change may have superseded this fetch.
-      if (state.diff !== objectId) return;
+      if (state.diff !== objectId || state.diffHash !== contentHash) return;
       const annotations = annotationsForUnit(revisionId);
       $("#diff-body").innerHTML = renderDiff(artifact, annotations);
       $("#diff-nav").innerHTML = renderDiffNav();
       applyDiffFocus();
     })
     .catch((err) => {
-      if (state.diff !== objectId) return;
+      if (state.diff !== objectId || state.diffHash !== contentHash) return;
       $("#diff-body").innerHTML = `<p class="empty">error: ${escapeHtml(err.message)}</p>`;
     });
 }
@@ -1885,7 +1912,7 @@ function renderUnits() {
     diffBtn.textContent = "view snapshot diff";
     diffBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      openDiff(u.objectId);
+      openDiff(u.objectId, null, u.objectArtifactContentHash);
     });
     actions.appendChild(diffBtn);
     card.appendChild(actions);
@@ -2001,7 +2028,7 @@ function renderThreadSvg(laid) {
 function wireDagInteractions(card) {
   const nav = (node) => {
     const id = node.getAttribute("data-revision-id");
-    if (id) navigate({ selected: { kind: "revision", id }, diff: null, focus: null });
+    if (id) navigate({ selected: { kind: "revision", id }, diff: null, diffHash: null, focus: null });
   };
   card.querySelectorAll(".dag-node").forEach((node) => {
     node.addEventListener("click", () => nav(node));
@@ -2364,7 +2391,11 @@ function renderUnitPage(d) {
   $("#detail").innerHTML = `<div class="unit-page"><p class="unit-page-title">${escapeHtml(title)}</p>${sections.join("")}</div>`;
 
   const diffBtn = $("#up-diff-btn");
-  if (diffBtn && ru.objectId) diffBtn.addEventListener("click", () => openDiff(ru.objectId));
+  if (diffBtn && ru.objectId) {
+    diffBtn.addEventListener("click", () =>
+      openDiff(ru.objectId, null, ru.objectArtifactContentHash),
+    );
+  }
   const tlBtn = $("#up-timeline-btn");
   if (tlBtn) tlBtn.addEventListener("click", () => navigateToUnit(ru.id));
 }
@@ -2389,7 +2420,8 @@ function escapeHtml(s) {
 //   ?lens=<lens>                  the master lens behind an entity-primary path
 //   ?track= ?object=             cross-lens scope (survive a lens switch)
 //   ?order= ?types= ?q=           per-lens timeline controls
-//   ?diff=<objectId> ?focus=<factId> the route-preserving diff overlay
+//   ?diff=<objectId> ?focus=<factId> ?diffHash=<objectArtifactContentHash>
+//                                  the route-preserving diff overlay
 //   ?v=1                          grammar version (reserved)
 //   ?journal= ?asof=             reserved: reported as unsupported live-state input
 // ---------------------------------------------------------------------------
@@ -2437,6 +2469,7 @@ function parseHash(hash) {
     enabledTypes:
       p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes()),
     diff: p.diff || null,
+    diffHash: p.diffHash || null,
     focus: p.focus ? p.focus : null,
     unsupportedAsOf: p.asof != null ? p.asof || true : null,
     unsupportedJournal: p.journal != null ? p.journal || true : null,
@@ -2486,6 +2519,7 @@ function serializeState() {
   }
   if (state.filterText) params.push("q=" + encodeURIComponent(state.filterText));
   if (state.diff) params.push("diff=" + encodeURIComponent(state.diff));
+  if (state.diff && state.diffHash) params.push("diffHash=" + encodeURIComponent(state.diffHash));
   if (state.focus) params.push("focus=" + encodeURIComponent(state.focus));
   return params.length ? path + "?" + params.join("&") : path;
 }
@@ -2496,6 +2530,7 @@ function navigate(patch, opts) {
   opts = opts || {};
   Object.assign(state, patch);
   if (!state.selected) state.selected = { kind: null, id: null };
+  if (!state.diff) state.diffHash = null;
   const hash = serializeState();
   routerLastHash = hash;
   history[opts.replace ? "replaceState" : "pushState"]({}, "", hash);
@@ -2656,12 +2691,10 @@ function stepSelection(delta) {
 function activateSelection() {
   const sel = state.selected;
   if (sel.kind === "revision") {
-    const obj = objectIdForRevision(sel.id);
-    if (obj) openDiff(obj);
+    openRevisionDiff(sel.id);
   } else if (sel.kind === "event") {
     const rev = entryRevisionId((state.history?.entries || []).find((e) => e.eventId === sel.id) || {});
-    const obj = rev ? snapshotIdForRevision(rev) : null;
-    if (obj) openDiff(obj);
+    if (rev) openRevisionDiff(rev);
   }
 }
 
@@ -2885,7 +2918,13 @@ function buildCommands() {
       kind: "Revisions",
       label: revisionCommandLabel(u),
       hint: revisionCommandHint(u),
-      run: () => navigate({ selected: { kind: "revision", id: u.revisionId }, diff: null, focus: null }),
+      run: () =>
+        navigate({
+          selected: { kind: "revision", id: u.revisionId },
+          diff: null,
+          diffHash: null,
+          focus: null,
+        }),
     });
   }
   for (const o of [...new Set((state.units?.entries || []).map((u) => u.objectId).filter(Boolean))]) {
@@ -2899,7 +2938,13 @@ function buildCommands() {
       kind: "Events",
       label: entryTitle(e),
       hint: typeLabel(e.eventType),
-      run: () => navigate({ selected: { kind: "event", id: e.eventId }, diff: null, focus: null }),
+      run: () =>
+        navigate({
+          selected: { kind: "event", id: e.eventId },
+          diff: null,
+          diffHash: null,
+          focus: null,
+        }),
     });
   }
   return assignCommandOptionIds(cmds);
@@ -2922,7 +2967,13 @@ function currentSelectionCommand() {
       kind: "Current",
       label: "Open current selection",
       hint: unit ? revisionCommandLabel(unit) : shortRef(state.selected.id),
-      run: () => navigate({ selected: { kind: "revision", id: state.selected.id }, diff: null, focus: null }),
+      run: () =>
+        navigate({
+          selected: { kind: "revision", id: state.selected.id },
+          diff: null,
+          diffHash: null,
+          focus: null,
+        }),
     };
   }
   if (state.selected.kind === "event") {
@@ -2931,7 +2982,13 @@ function currentSelectionCommand() {
       kind: "Current",
       label: "Open current selection",
       hint: event ? entryTitle(event) : shortRef(state.selected.id),
-      run: () => navigate({ selected: { kind: "event", id: state.selected.id }, diff: null, focus: null }),
+      run: () =>
+        navigate({
+          selected: { kind: "event", id: state.selected.id },
+          diff: null,
+          diffHash: null,
+          focus: null,
+        }),
     };
   }
   return null;
