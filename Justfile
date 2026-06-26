@@ -29,6 +29,12 @@ release *args:
 lint: fmt-check
     cargo +stable clippy --workspace --all-targets --all-features -- -D warnings
 
+# Type-check all targets without the full clippy/fmt gate. Used by CI's non-Linux
+# legs to keep the cfg(windows)/cfg(not(unix))/feature-gated arms compiled while
+# paying the workspace+test compile only once. Linux runs the full `lint` gate.
+check-types:
+    cargo +stable check --workspace --all-targets --all-features
+
 # Run clippy with auto-fix.
 fix *args: fmt
     cargo +stable clippy --fix --workspace --all-targets --all-features --allow-dirty --allow-staged -- -D warnings {{ args }}

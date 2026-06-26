@@ -44,6 +44,14 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - uses: Swatinem/rust-cache@v2
       - name: just lint
+        if: runner.os == 'Linux'
         run: just lint
+      - name: just check-types
+        if: runner.os != 'Linux'
+        run: just check-types
+      - name: configure Windows test debuginfo
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "CARGO_PROFILE_TEST_SPLIT_DEBUGINFO=packed" >> "$GITHUB_ENV"
       - name: just test-ci
         run: just test-ci
