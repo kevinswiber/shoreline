@@ -170,6 +170,67 @@ fn api_units_lists_captured_unit_with_counts_and_target_display() {
 }
 
 #[test]
+fn api_units_include_additive_overview_summary() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let units = inspector.get_json("/api/revisions");
+    let revision = inspector.get_json(&format!(
+        "/api/revision?id={}",
+        urlencode(&store.revision_id)
+    ));
+
+    let entry = &units["entries"][0];
+    assert_eq!(entry["revisionId"], store.revision_id.as_str());
+    assert_eq!(entry["objectId"], store.snapshot_id.as_str());
+    assert!(entry["target"].is_object());
+    assert!(entry["base"].is_object());
+    assert!(entry["targetDisplay"].is_object());
+
+    let overview = &entry["overview"];
+    assert_eq!(overview["currentAssessment"]["status"], "resolved");
+    assert_eq!(overview["currentAssessment"]["assessment"], "accepted");
+
+    let attention = &overview["attention"];
+    assert_eq!(attention["unassessed"], false);
+    assert_eq!(attention["acceptedWithFollowUp"], false);
+    assert_eq!(attention["openInputRequestCount"], 1);
+    assert_eq!(attention["failedValidationCount"], 1);
+    assert_eq!(attention["erroredValidationCount"], 0);
+    assert_eq!(attention["staleFactCount"], 0);
+
+    let counts = &overview["counts"];
+    assert_eq!(counts["files"], revision["summary"]["fileCount"]);
+    assert_eq!(counts["rows"], revision["summary"]["rowCount"]);
+    assert_eq!(
+        counts["observations"],
+        revision["summary"]["observationCount"]
+    );
+    assert_eq!(
+        counts["inputRequests"],
+        revision["summary"]["inputRequestCount"]
+    );
+    assert_eq!(
+        counts["assessments"],
+        revision["summary"]["assessmentCount"]
+    );
+    assert_eq!(
+        counts["validationChecks"],
+        revision["summary"]["validationCheckCount"]
+    );
+    assert_eq!(
+        counts["adapterNotes"],
+        revision["summary"]["adapterNoteCount"]
+    );
+
+    let latest_activity = &overview["latestActivity"];
+    if !latest_activity.is_null() {
+        assert!(latest_activity["kind"].is_string());
+        assert!(latest_activity["title"].is_string());
+        assert!(latest_activity["at"].is_string());
+    }
+}
+
+#[test]
 fn api_snapshot_returns_snapshot_scoped_artifact() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());

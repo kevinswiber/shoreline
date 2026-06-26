@@ -57,3 +57,42 @@ fn served_app_js_wires_cmd_k_and_routes_through_the_router() {
         "a command copies the current view link"
     );
 }
+
+#[test]
+fn served_app_js_prioritizes_actions_and_contextual_revision_labels() {
+    let (_html, js) = served();
+    let build = js
+        .split("function buildCommands()")
+        .nth(1)
+        .and_then(|tail| tail.split("function togglePalette").next())
+        .expect("buildCommands block exists");
+
+    let first_action = build
+        .find("Copy current view link")
+        .expect("copy current view link action exists");
+    let bulk_revisions = build
+        .find("for (const u of sortedRevisionEntriesForCommands")
+        .expect("bulk revision command loop exists");
+    assert!(
+        first_action < bulk_revisions,
+        "common actions should be registered before bulk revision entries"
+    );
+    assert!(
+        build.contains("currentSelectionCommand()"),
+        "palette should add a current-selection command when one exists"
+    );
+
+    let helpers = js
+        .split("function currentSelectionCommand()")
+        .nth(1)
+        .and_then(|tail| tail.split("function togglePalette").next())
+        .expect("palette command helper block exists");
+    assert!(
+        helpers.contains("Open current selection")
+            && helpers.contains("revisionCommandLabel")
+            && helpers.contains("revisionCommandHint")
+            && helpers.contains("targetDisplay")
+            && helpers.contains("overview"),
+        "revision commands should use target/overview context, not only short ids"
+    );
+}

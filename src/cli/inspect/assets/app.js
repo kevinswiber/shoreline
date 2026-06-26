@@ -703,6 +703,173 @@ function supersessionBadge(revisionId) {
   return "";
 }
 
+function unitForRevision(revisionId) {
+  return (state.units?.entries || []).find((u) => u.revisionId === revisionId) || null;
+}
+
+function overviewForRevision(revisionId) {
+  return unitForRevision(revisionId)?.overview || null;
+}
+
+function assessmentLabel(value) {
+  if (!value) return "";
+  return String(value).replaceAll("_", " ");
+}
+
+function assessmentCue(overview) {
+  const currentAssessment = overview?.currentAssessment || {};
+  const status = currentAssessment.status || "unassessed";
+  const assessment = currentAssessment.assessment || "";
+  const label =
+    assessment ||
+    (status === "ambiguous" ? "ambiguous current assessment" : status === "resolved" ? "resolved" : "unassessed");
+  const cls = assessment || status;
+  return `<span class="overview-assessment"><span>current assessment</span><span class="fact-status ${escapeHtml(cls)}">${escapeHtml(assessmentLabel(label))}</span></span>`;
+}
+
+function plural(n, singular, pluralLabel = singular + "s") {
+  return `${n} ${n === 1 ? singular : pluralLabel}`;
+}
+
+function attentionTokens(overview) {
+  const attention = overview?.attention || {};
+  const tokens = [];
+  if (attention.openInputRequestCount) {
+    tokens.push({
+      token: "open-request",
+      query: "attention:open-request",
+      label: plural(attention.openInputRequestCount, "open request"),
+    });
+  }
+  if (attention.unassessed) {
+    tokens.push({ token: "unassessed", query: "attention:unassessed", label: "unassessed" });
+  }
+  const validationCount = (attention.failedValidationCount || 0) + (attention.erroredValidationCount || 0);
+  if (validationCount) {
+    tokens.push({
+      token: "validation-context",
+      query: "attention:validation-context",
+      label: plural(validationCount, "validation context", "validation contexts"),
+    });
+  }
+  if (attention.acceptedWithFollowUp) {
+    tokens.push({ token: "follow-up", query: "attention:follow-up", label: "follow-up" });
+  }
+  return tokens;
+}
+
+function attentionCues(overview) {
+  const tokens = attentionTokens(overview);
+  if (!tokens.length) return `<span class="overview-muted">no attention cues</span>`;
+  return tokens
+    .map(
+      (cue) =>
+        `<button class="overview-cue" type="button" data-attention-query="${escapeHtml(cue.query)}" title="filter ${escapeHtml(cue.query)}">${escapeHtml(cue.label)}</button>`,
+    )
+    .join("");
+}
+
+function overviewStats(overview) {
+  const counts = overview?.counts || {};
+  const facts =
+    (counts.observations || 0) +
+    (counts.inputRequests || 0) +
+    (counts.assessments || 0) +
+    (counts.validationChecks || 0) +
+    (counts.adapterNotes || 0);
+  const stat = (label, value) => `<span class="overview-stat"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`;
+  return `<div class="overview-stats">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
+}
+
+function latestActivityLine(overview) {
+  const latest = overview?.latestActivity;
+  if (!latest) return "";
+  const title = latest.title || latest.kind || "activity";
+  return `<div class="overview-latest"><span>latest</span><b>${escapeHtml(title)}</b><span>${escapeHtml(fmtDateTime(latest.at))}</span></div>`;
+}
+
+function revisionSearchIndex(u) {
+  const overview = u.overview || {};
+  const currentAssessment = overview.currentAssessment || {};
+  const latest = overview.latestActivity || {};
+  const target = u.targetDisplay || {};
+  const head = target.head || {};
+  const cues = attentionTokens(overview);
+  const text = [
+    u.revisionId,
+    u.objectId,
+    target.label,
+    head.label,
+    currentAssessment.status,
+    currentAssessment.assessment,
+    latest.kind,
+    latest.title,
+    ...cues.map((cue) => cue.label),
+    "review cues",
+    "attention",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return {
+    text,
+    type: "revision",
+    revision: u.revisionId,
+    object: u.objectId,
+    status: currentAssessment.assessment || currentAssessment.status || "",
+    attention: cues.map((cue) => cue.token).join(" "),
+  };
+}
+
+function matchesRevisionFilters(u) {
+  if (state.filterObject && u.objectId !== state.filterObject) return false;
+  return matchesQuery(revisionSearchIndex(u), currentClauses());
+}
+
+function threadMatchesRevisionFilters(thread) {
+  const revisions = thread.revisions || [];
+  if (!state.filterText && !state.filterObject) return true;
+  return revisions.map(unitForRevision).filter(Boolean).some(matchesRevisionFilters);
+}
+
+function filteredThreadRevisionIds(thread) {
+  const revisions = thread.revisions || [];
+  if (!state.filterText && !state.filterObject) return revisions;
+  return revisions.filter((revisionId) => {
+    const unit = unitForRevision(revisionId);
+    return unit ? matchesRevisionFilters(unit) : false;
+  });
+}
+
+function wireOverviewCueFilters(root) {
+  root.querySelectorAll("[data-attention-query]").forEach((button) => {
+    button.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const query = button.getAttribute("data-attention-query");
+      if (query) navigate({ filterText: query });
+    });
+  });
+}
+
+function renderRevisionOverview(u, overview = u.overview) {
+  return `<div class="overview-summary">
+    <div class="overview-main">${assessmentCue(overview)}${overviewStats(overview)}</div>
+    <div class="overview-cues" aria-label="review cues"><span class="overview-label">review cues</span>${attentionCues(overview)}</div>
+    ${latestActivityLine(overview)}
+  </div>`;
+}
+
+function renderThreadRevisionOverview(revisionId) {
+  const unit = unitForRevision(revisionId);
+  const overview = overviewForRevision(revisionId);
+  if (!unit || !overview) return "";
+  return `<div class="thread-overview">
+    <div><b>${targetDisplayLabel(unit.targetDisplay)}</b> <span>${escapeHtml(shortId(revisionId))}</span></div>
+    ${assessmentCue(overview)}
+    <div class="overview-cues" aria-label="review cues"><span class="overview-label">review cues</span>${attentionCues(overview)}</div>
+  </div>`;
+}
+
 // The selected event id, when the single selection is an event (else null).
 function selectedEventId() {
   return state.selected && state.selected.kind === "event" ? state.selected.id : null;
@@ -715,9 +882,9 @@ function selectedEventId() {
 // the human-relevant fields plus a small structured projection), so the filter
 // never re-serializes the whole event per keystroke. The query box parses a
 // small grammar: bare terms (free-text AND), field:value equality over
-// type/track/revision/object/status, `-` negation, and "quoted phrases".
+// type/track/revision/object/status/attention, `-` negation, and "quoted phrases".
 // ---------------------------------------------------------------------------
-const QUERY_FIELDS = ["type", "track", "revision", "object", "status"];
+const QUERY_FIELDS = ["type", "track", "revision", "object", "status", "attention"];
 
 // The lowercased haystack of an entry's human-relevant fields (not the whole
 // serialized object).
@@ -1435,14 +1602,15 @@ function renderDiffFileBody(f, anchored) {
 
 function renderUnits() {
   const el = $("#units");
-  const entries = state.units?.entries || [];
+  const entries = (state.units?.entries || []).filter(matchesRevisionFilters);
   if (!entries.length) {
-    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">No captured revisions in this store.</p>`;
+    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">${state.filterText || state.filterObject ? "No revisions match the current filters." : "No captured revisions in this store."}</p>`;
     return;
   }
   el.innerHTML = "";
   for (const u of entries) {
     const base = u.base || {};
+    const overview = u.overview || overviewForRevision(u.revisionId);
     const card = document.createElement("div");
     card.className = "unit-card";
     card.dataset.revisionId = u.revisionId;
@@ -1462,6 +1630,7 @@ function renderUnits() {
     card.innerHTML = `
       <h3>${escapeHtml(shortId(u.revisionId))}</h3>
       ${badge ? `<div class="supersession-badges">${badge}</div>` : ""}
+      ${renderRevisionOverview(u, overview)}
       <div class="kv">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>`;
     card.title = u.revisionId + "\nclick to open the revision page";
     card.addEventListener("click", (ev) => {
@@ -1479,6 +1648,7 @@ function renderUnits() {
     });
     actions.appendChild(diffBtn);
     card.appendChild(actions);
+    wireOverviewCueFilters(card);
     el.appendChild(card);
   }
 }
@@ -1489,9 +1659,9 @@ function renderUnits() {
 // as multiple heads (competing) rather than a single linear stack.
 function renderRevisions() {
   const el = $("#revisions");
-  const threads = objectThreads();
+  const threads = objectThreads().filter(threadMatchesRevisionFilters);
   if (!threads.length) {
-    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">No captured revisions in this store.</p>`;
+    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">${state.filterText || state.filterObject ? "No revision threads match the current filters." : "No captured revisions in this store."}</p>`;
     return;
   }
   el.innerHTML = "";
@@ -1517,15 +1687,18 @@ function renderThreadCard(thread) {
   const competingBadge = thread.competing
     ? `<div class="thread-competing"><span class="fact-status competing">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>`
     : "";
+  const overviewBlocks = heads.map(renderThreadRevisionOverview).filter(Boolean).join("");
   card.innerHTML = `
     <h3>${escapeHtml(threadLabel(thread))}</h3>
     ${competingBadge}
+    ${overviewBlocks ? `<div class="thread-overviews">${overviewBlocks}</div>` : ""}
     <div class="kv">
       <span>revisions</span><b>${escapeHtml(String(revisions.length))}</b>
       <span>heads</span><b>${escapeHtml(String(heads.length))}</b>
       <span>superseded</span><b>${escapeHtml(String(superseded.length))}</b>
     </div>
     ${renderThreadSvg(thread.laidOut)}`;
+  wireOverviewCueFilters(card);
   wireDagInteractions(card);
   return card;
 }
@@ -2173,11 +2346,15 @@ function isTypingTarget(el) {
 // reads state, returns { kind, id } in the lens's display order.
 function lensEntryIds() {
   if (state.lens === "list") {
-    return (state.units?.entries || []).map((u) => ({ kind: "revision", id: u.revisionId }));
+    return (state.units?.entries || [])
+      .filter(matchesRevisionFilters)
+      .map((u) => ({ kind: "revision", id: u.revisionId }));
   }
   if (state.lens === "threads") {
     const ids = [];
-    for (const t of objectThreads()) for (const r of t.revisions || []) ids.push({ kind: "revision", id: r });
+    for (const t of objectThreads().filter(threadMatchesRevisionFilters)) {
+      for (const r of filteredThreadRevisionIds(t)) ids.push({ kind: "revision", id: r });
+    }
     return ids;
   }
   let entries = (state.history?.entries || []).filter(matchesFilters);
@@ -2369,11 +2546,43 @@ function copyText(text) {
 // exists, jumps query it instead of re-deriving — the source is a single fn.)
 function buildCommands() {
   const cmds = [];
-  for (const u of state.units?.entries || []) {
+  cmds.push({ kind: "Actions", label: "Copy current view link", hint: "share", run: () => copyText(location.href) });
+  cmds.push({
+    kind: "Actions",
+    label: "Clear filters",
+    hint: "filters",
+    run: () =>
+      navigate(
+        { filterText: "", filterTrack: "", filterObject: "", enabledTypes: new Set(presentTypes()) },
+        { replace: true },
+      ),
+  });
+  cmds.push({ kind: "Actions", label: "Switch to timeline lens", hint: "lens", run: () => navigate({ lens: "timeline" }) });
+  cmds.push({ kind: "Actions", label: "Switch to list lens", hint: "lens", run: () => navigate({ lens: "list" }) });
+  cmds.push({ kind: "Actions", label: "Switch to threads lens", hint: "lens", run: () => navigate({ lens: "threads" }) });
+  cmds.push({
+    kind: "Actions",
+    label: "Toggle timeline order",
+    hint: "order",
+    run: () => navigate({ order: state.order === "desc" ? "asc" : "desc" }, { replace: true }),
+  });
+  cmds.push({
+    kind: "Actions",
+    label: "Copy selected id",
+    hint: "clipboard",
+    run: () => {
+      if (state.selected.id) copyText(state.selected.id);
+    },
+  });
+
+  const current = currentSelectionCommand();
+  if (current) cmds.push(current);
+
+  for (const u of sortedRevisionEntriesForCommands()) {
     cmds.push({
       kind: "Revisions",
-      label: shortRef(u.revisionId),
-      hint: shortId(u.objectId),
+      label: revisionCommandLabel(u),
+      hint: revisionCommandHint(u),
       run: () => navigate({ selected: { kind: "revision", id: u.revisionId }, diff: null, focus: null }),
     });
   }
@@ -2391,35 +2600,64 @@ function buildCommands() {
       run: () => navigate({ selected: { kind: "event", id: e.eventId }, diff: null, focus: null }),
     });
   }
-  cmds.push({ kind: "Actions", label: "Switch to timeline lens", hint: "lens", run: () => navigate({ lens: "timeline" }) });
-  cmds.push({ kind: "Actions", label: "Switch to list lens", hint: "lens", run: () => navigate({ lens: "list" }) });
-  cmds.push({ kind: "Actions", label: "Switch to threads lens", hint: "lens", run: () => navigate({ lens: "threads" }) });
-  cmds.push({
-    kind: "Actions",
-    label: "Toggle timeline order",
-    hint: "order",
-    run: () => navigate({ order: state.order === "desc" ? "asc" : "desc" }, { replace: true }),
-  });
-  cmds.push({
-    kind: "Actions",
-    label: "Clear filters",
-    hint: "filters",
-    run: () =>
-      navigate(
-        { filterText: "", filterTrack: "", filterObject: "", enabledTypes: new Set(presentTypes()) },
-        { replace: true },
-      ),
-  });
-  cmds.push({ kind: "Actions", label: "Copy current view link", hint: "share", run: () => copyText(location.href) });
-  cmds.push({
-    kind: "Actions",
-    label: "Copy selected id",
-    hint: "clipboard",
-    run: () => {
-      if (state.selected.id) copyText(state.selected.id);
-    },
-  });
   return cmds;
+}
+
+function selectedRevisionId() {
+  if (state.selected.kind === "revision") return state.selected.id;
+  if (state.selected.kind === "event") {
+    const event = (state.history?.entries || []).find((e) => e.eventId === state.selected.id);
+    return event ? entryRevisionId(event) : "";
+  }
+  return "";
+}
+
+function currentSelectionCommand() {
+  if (!state.selected.id) return null;
+  if (state.selected.kind === "revision") {
+    const unit = unitForRevision(state.selected.id);
+    return {
+      kind: "Current",
+      label: "Open current selection",
+      hint: unit ? revisionCommandLabel(unit) : shortRef(state.selected.id),
+      run: () => navigate({ selected: { kind: "revision", id: state.selected.id }, diff: null, focus: null }),
+    };
+  }
+  if (state.selected.kind === "event") {
+    const event = (state.history?.entries || []).find((e) => e.eventId === state.selected.id);
+    return {
+      kind: "Current",
+      label: "Open current selection",
+      hint: event ? entryTitle(event) : shortRef(state.selected.id),
+      run: () => navigate({ selected: { kind: "event", id: state.selected.id }, diff: null, focus: null }),
+    };
+  }
+  return null;
+}
+
+function sortedRevisionEntriesForCommands() {
+  const selectedRevision = selectedRevisionId();
+  return [...(state.units?.entries || [])].sort((left, right) => {
+    if (left.revisionId === selectedRevision) return -1;
+    if (right.revisionId === selectedRevision) return 1;
+    return String(right.capturedAt || "").localeCompare(String(left.capturedAt || "")) || String(right.revisionId).localeCompare(String(left.revisionId));
+  });
+}
+
+function revisionCommandLabel(u) {
+  const targetDisplay = u.targetDisplay || {};
+  const overview = u.overview || {};
+  const current = overview.currentAssessment || {};
+  const target = targetDisplay.label || shortId(u.revisionId);
+  const assessment = current.assessment ? assessmentLabel(current.assessment) : current.status || "unassessed";
+  return `${target} · ${assessment} · ${shortId(u.revisionId)}`;
+}
+
+function revisionCommandHint(u) {
+  const overview = u.overview || {};
+  const cues = attentionTokens(overview).map((cue) => cue.label);
+  const latest = overview.latestActivity?.title;
+  return [cues.join(", ") || "review context", latest, shortId(u.objectId)].filter(Boolean).join(" · ");
 }
 
 function togglePalette() {
@@ -2488,9 +2726,7 @@ function runPaletteActive() {
 
 function wireControls() {
   document.querySelectorAll(".lens-tab").forEach((tab) =>
-    tab.addEventListener("click", () =>
-      navigate({ lens: LENSES.includes(tab.dataset.lens) ? tab.dataset.lens : DEFAULT_LENS, selected: { kind: null, id: null } }),
-    ),
+    tab.addEventListener("click", () => navigate({ lens: LENSES.includes(tab.dataset.lens) ? tab.dataset.lens : DEFAULT_LENS })),
   );
   $("#filter-text").addEventListener("input", (ev) => {
     navigate({ filterText: ev.target.value }, { replace: true });

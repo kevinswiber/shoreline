@@ -66,6 +66,45 @@ fn served_app_js_dispatches_lens_and_selection_through_the_router() {
 }
 
 #[test]
+fn lens_tab_clicks_preserve_the_current_selection() {
+    let js = served_app_js();
+    let wire_controls = js
+        .split("function wireControls()")
+        .nth(1)
+        .and_then(|tail| tail.split("function init()").next())
+        .expect("wireControls block exists");
+
+    assert!(
+        wire_controls.contains("navigate({ lens: LENSES.includes(tab.dataset.lens)"),
+        "lens tabs should navigate through the router"
+    );
+    assert!(
+        !wire_controls.contains("selected: { kind: null, id: null }"),
+        "mouse lens switches should preserve state.selected"
+    );
+}
+
+#[test]
+fn keyboard_revision_navigation_uses_the_filtered_revision_set() {
+    let js = served_app_js();
+    let lens_entries = js
+        .split("function lensEntryIds()")
+        .nth(1)
+        .and_then(|tail| tail.split("function stepSelection").next())
+        .expect("lensEntryIds block exists");
+
+    assert!(
+        lens_entries.contains(".filter(matchesRevisionFilters)"),
+        "list cursor stepping should use the same filtered revisions that renderUnits shows"
+    );
+    assert!(
+        lens_entries.contains(".filter(threadMatchesRevisionFilters)")
+            && lens_entries.contains("filteredThreadRevisionIds(t)"),
+        "thread cursor stepping should use the same filtered threads and revisions that renderRevisions shows"
+    );
+}
+
+#[test]
 fn served_assets_preserve_the_advisory_framing_and_competing_peers() {
     let store = representative_store();
     let insp = Inspector::spawn(store.repo.path());

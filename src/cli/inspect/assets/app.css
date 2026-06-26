@@ -159,6 +159,22 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
 .unit-card .kv b { color: var(--fg); font-weight: 500; }
 .thread-card h3 { word-break: break-all; }
 .supersession-badges { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 8px; }
+.overview-summary { display: grid; gap: 6px; margin: 8px 0 10px; }
+.overview-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.overview-assessment { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); font-size: var(--fs-sm); }
+.overview-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.overview-stat { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); background: var(--bg-row); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 7px; }
+.overview-stat b { color: var(--fg); font-weight: 600; }
+.overview-cues { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.overview-label, .overview-muted, .overview-latest { color: var(--fg-dim); font-size: var(--fs-xs); }
+.overview-cue { font: var(--fs-xs)/var(--line) var(--mono); color: var(--fg-dim); background: var(--bg-row); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 1px 6px; cursor: pointer; }
+.overview-cue:hover, .overview-cue:focus-visible { color: var(--fg); border-color: var(--accent); }
+.overview-latest { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.overview-latest b { color: var(--fg); font-weight: 500; }
+.thread-overviews { display: grid; gap: 6px; margin: 0 0 10px; }
+.thread-overview { display: grid; gap: 4px; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-row); }
+.thread-overview > div:first-child { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: var(--fs-sm); }
+.thread-overview > div:first-child span { color: var(--fg-dim); font-family: var(--mono); }
 /* The competing-heads callout on a forked thread: surface every head, never a
    null head. */
 .thread-competing { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }
@@ -472,12 +488,15 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
 .fact-status { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: var(--r-sm); background: var(--bg-row); color: var(--fg-dim); }
 .fact-status.superseded, .fact-status.replaced { color: var(--warning); }
 .fact-status.responded, .fact-status.current { color: var(--success); }
+.fact-status.accepted, .fact-status.accepted_with_follow_up { color: var(--success); }
 .fact-status.open { color: var(--warning); }
 .fact-status.stale { color: var(--danger); }
 .fact-status.passed { color: var(--success); }
 .fact-status.failed { color: var(--danger); }
 .fact-status.errored { color: var(--warning); }
 .fact-status.skipped { color: var(--fg-dim); }
+.fact-status.needs_changes, .fact-status.needs_clarification { color: var(--warning); }
+.fact-status.unassessed, .fact-status.ambiguous { color: var(--fg-dim); }
 .validation-note { font-size: var(--fs-xs); color: var(--fg-dim); margin: 4px 0 0; }
 /* Persistent advisory framing — the quietest tier (dim caption / dim chrome), never
    a banner or a second headline; the verdict stays a card. */

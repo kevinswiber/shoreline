@@ -154,6 +154,98 @@ fn served_app_js_reads_the_server_revision_classification() {
 }
 
 #[test]
+fn served_app_js_renders_revision_overview_cues_from_api_payload() {
+    let app_js = served_app_js();
+
+    for helper in [
+        "function overviewForRevision",
+        "function assessmentCue",
+        "function attentionCues",
+        "function revisionSearchIndex",
+    ] {
+        assert!(
+            app_js.contains(helper),
+            "overview card rendering should define `{helper}`"
+        );
+    }
+
+    let overview_helpers = slice_between(
+        &app_js,
+        "function overviewForRevision",
+        "function renderUnits",
+    );
+    for token in [
+        "currentAssessment",
+        "acceptedWithFollowUp",
+        "openInputRequestCount",
+        "failedValidationCount",
+        "erroredValidationCount",
+        "review cues",
+        "attention",
+    ] {
+        assert!(
+            overview_helpers.contains(token),
+            "overview helpers should read overview token `{token}`"
+        );
+    }
+    let render_units = slice_between(&app_js, "function renderUnits", "function renderRevisions");
+    assert!(
+        render_units.contains("u.overview") && render_units.contains("renderRevisionOverview"),
+        "renderUnits should pass each entry overview into the card renderer"
+    );
+
+    let render_thread = slice_between(
+        &app_js,
+        "function renderThreadCard",
+        "function renderThreadSvg",
+    );
+    assert!(
+        render_thread.contains("renderThreadRevisionOverview"),
+        "thread cards should surface overview cues for their revisions"
+    );
+}
+
+#[test]
+fn served_app_js_serializes_attention_filters_through_query_text() {
+    let app_js = served_app_js();
+
+    assert!(
+        app_js.contains("\"attention\""),
+        "attention filtering should be part of the structured q= query grammar"
+    );
+    for token in [
+        "attention:open-request",
+        "attention:unassessed",
+        "attention:validation-context",
+        "attention:follow-up",
+    ] {
+        assert!(
+            app_js.contains(token),
+            "attention filter token `{token}` should be serialized through q="
+        );
+    }
+}
+
+#[test]
+fn revision_overview_card_copy_stays_advisory_not_gate_like() {
+    let app_js = served_app_js();
+    let overview_helpers = slice_between(
+        &app_js,
+        "function overviewForRevision",
+        "function renderUnits",
+    );
+    let render_units = slice_between(&app_js, "function renderUnits", "function renderRevisions");
+    let overview_surface = [overview_helpers, render_units].join("\n");
+
+    for forbidden in ["blocking", "merge status", "required"] {
+        assert!(
+            !overview_surface.contains(forbidden),
+            "overview cards must not use unqualified gate-like word `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn served_app_js_renders_markdown_bodies() {
     let app_js = served_app_js();
 

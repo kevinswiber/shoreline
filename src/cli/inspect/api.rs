@@ -13,12 +13,14 @@ use mmdflux::graph::{Direction, Edge, Graph, Node};
 use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
 use serde::Serialize;
 use shoreline::documents::revision_show_document;
-use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId};
+use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, ValidationStatus};
+use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
-    EventVerificationPolicy, LivenessEnrichment, ProjectionDiagnostic, ReviewHistoryEntry,
-    ReviewHistoryOptions, RevisionListEntry, RevisionListOptions, RevisionShowOptions,
-    SessionState, SupersessionView, enrich_liveness, list_revisions, read_events_for_display,
-    read_object_artifact, review_history, show_revision,
+    CurrentAssessmentStatus, EventVerificationPolicy, InputRequestStatus, LivenessEnrichment,
+    ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions, RevisionListEntry,
+    RevisionListOptions, RevisionShowOptions, RevisionShowResult, SessionState, SupersessionView,
+    enrich_liveness, list_revisions, read_events_for_display, read_object_artifact, review_history,
+    show_revision,
 };
 
 #[derive(Serialize)]
@@ -148,6 +150,54 @@ struct RevisionEntryDocument {
     #[serde(flatten)]
     entry: RevisionListEntry,
     target_display: TargetDisplay,
+    overview: RevisionOverviewDocument,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionOverviewDocument {
+    current_assessment: RevisionOverviewAssessmentDocument,
+    attention: RevisionAttentionDocument,
+    counts: RevisionOverviewCounts,
+    latest_activity: Option<RevisionLatestActivityDocument>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionOverviewAssessmentDocument {
+    status: &'static str,
+    assessment: Option<ReviewAssessment>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionAttentionDocument {
+    unassessed: bool,
+    accepted_with_follow_up: bool,
+    open_input_request_count: usize,
+    failed_validation_count: usize,
+    errored_validation_count: usize,
+    stale_fact_count: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionOverviewCounts {
+    files: usize,
+    rows: usize,
+    observations: usize,
+    input_requests: usize,
+    assessments: usize,
+    validation_checks: usize,
+    adapter_notes: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionLatestActivityDocument {
+    kind: &'static str,
+    title: String,
+    at: String,
 }
 
 #[derive(Serialize)]
@@ -279,19 +329,216 @@ fn splice_target_display(
     Ok(())
 }
 
-/// Wrap each list entry with its derived, path-private `targetDisplay`, leaving
-/// every existing field on the entry untouched.
-fn to_unit_entry_documents(entries: Vec<RevisionListEntry>) -> Vec<RevisionEntryDocument> {
+/// Wrap each list entry with derived, additive display fields, leaving every
+/// existing field on the entry untouched.
+fn to_unit_entry_documents(
+    entries: Vec<RevisionListEntry>,
+    mut overviews: BTreeMap<String, RevisionOverviewDocument>,
+) -> Result<Vec<RevisionEntryDocument>, String> {
     entries
         .into_iter()
         .map(|entry| {
             let target_display = derive_target_display(&entry.target, &entry.base);
-            RevisionEntryDocument {
+            let revision_id = entry.revision_id.as_str().to_owned();
+            let overview = overviews
+                .remove(&revision_id)
+                .ok_or_else(|| format!("missing overview for revision: {revision_id}"))?;
+            Ok(RevisionEntryDocument {
                 entry,
                 target_display,
-            }
+                overview,
+            })
         })
         .collect()
+}
+
+/// Server-side overview seam for `/api/revisions`. This currently reuses the
+/// per-revision projection path and can be replaced by a cached projection
+/// without changing the client-facing JSON contract (#255).
+fn revision_overviews(
+    repo: &Path,
+    entries: &[RevisionListEntry],
+) -> Result<BTreeMap<String, RevisionOverviewDocument>, String> {
+    let mut overviews = BTreeMap::new();
+
+    for entry in entries {
+        let revision_id = entry.revision_id.as_str().to_owned();
+        let mut show_options = RevisionShowOptions::new(repo)
+            .with_revision_id(entry.revision_id.clone())
+            .with_exact(true)
+            .with_read_for_display(true)
+            .with_verification_policy(EventVerificationPolicy::advisory())
+            .with_trust_set(crate::cli::review::common::discover_trust_set(repo))
+            .with_actor_attributes(crate::cli::review::common::discover_actor_attributes(repo));
+        if let Some(map) = crate::cli::review::common::discover_delegation_map(repo) {
+            show_options = show_options.with_delegation_map(map);
+        }
+
+        let result = show_revision(show_options).map_err(|error| {
+            tracing::debug!(error = %error, revision = revision_id, "inspect_unit_overview_failed");
+            format!("revision overview not available: {revision_id}")
+        })?;
+        overviews.insert(
+            revision_id,
+            revision_overview_document(&result, &entry.captured_at),
+        );
+    }
+
+    Ok(overviews)
+}
+
+fn revision_overview_document(
+    result: &RevisionShowResult,
+    captured_at: &str,
+) -> RevisionOverviewDocument {
+    let summary = &result.summary;
+    RevisionOverviewDocument {
+        current_assessment: overview_current_assessment(&result.current_assessment.status),
+        attention: RevisionAttentionDocument {
+            unassessed: result.current_assessment.status == CurrentAssessmentStatus::Unassessed,
+            accepted_with_follow_up: current_assessment_includes_follow_up(
+                &result.current_assessment.status,
+            ),
+            open_input_request_count: result
+                .input_requests
+                .iter()
+                .filter(|request| request.status == InputRequestStatus::Open)
+                .count(),
+            failed_validation_count: result
+                .validation_checks
+                .iter()
+                .filter(|check| check.status == ValidationStatus::Failed)
+                .count(),
+            errored_validation_count: result
+                .validation_checks
+                .iter()
+                .filter(|check| check.status == ValidationStatus::Errored)
+                .count(),
+            stale_fact_count: 0,
+        },
+        counts: RevisionOverviewCounts {
+            files: summary.file_count,
+            rows: summary.row_count,
+            observations: summary.observation_count,
+            input_requests: summary.input_request_count,
+            assessments: summary.assessment_count,
+            validation_checks: summary.validation_check_count,
+            adapter_notes: summary.adapter_note_count,
+        },
+        latest_activity: latest_revision_activity(result, captured_at),
+    }
+}
+
+fn overview_current_assessment(
+    status: &CurrentAssessmentStatus,
+) -> RevisionOverviewAssessmentDocument {
+    RevisionOverviewAssessmentDocument {
+        status: status.as_str(),
+        assessment: match status {
+            CurrentAssessmentStatus::Resolved(assessment) => Some(*assessment),
+            CurrentAssessmentStatus::Unassessed | CurrentAssessmentStatus::Ambiguous(_) => None,
+        },
+    }
+}
+
+fn current_assessment_includes_follow_up(status: &CurrentAssessmentStatus) -> bool {
+    match status {
+        CurrentAssessmentStatus::Resolved(ReviewAssessment::AcceptedWithFollowUp) => true,
+        CurrentAssessmentStatus::Ambiguous(assessments) => {
+            assessments.contains(&ReviewAssessment::AcceptedWithFollowUp)
+        }
+        CurrentAssessmentStatus::Unassessed | CurrentAssessmentStatus::Resolved(_) => false,
+    }
+}
+
+fn latest_revision_activity(
+    result: &RevisionShowResult,
+    captured_at: &str,
+) -> Option<RevisionLatestActivityDocument> {
+    let mut latest = Some(RevisionLatestActivityDocument {
+        kind: "revision",
+        title: "Revision captured".to_owned(),
+        at: captured_at.to_owned(),
+    });
+
+    for observation in &result.observations {
+        set_latest_activity(
+            &mut latest,
+            "observation",
+            observation.title.clone(),
+            observation.created_at.clone(),
+        );
+    }
+    for request in &result.input_requests {
+        set_latest_activity(
+            &mut latest,
+            "input_request",
+            request.title.clone(),
+            request.created_at.clone(),
+        );
+        for response in &request.responses {
+            set_latest_activity(
+                &mut latest,
+                "input_request",
+                "Input request response".to_owned(),
+                response.created_at.clone(),
+            );
+        }
+    }
+    for assessment in &result.assessments {
+        let title = assessment
+            .summary
+            .clone()
+            .unwrap_or_else(|| format!("Assessment: {}", assessment_label(assessment.assessment)));
+        set_latest_activity(
+            &mut latest,
+            "assessment",
+            title,
+            assessment.created_at.clone(),
+        );
+    }
+    for check in &result.validation_checks {
+        let at = check
+            .completed_at
+            .clone()
+            .unwrap_or_else(|| check.created_at.clone());
+        set_latest_activity(&mut latest, "validation", check.check_name.clone(), at);
+    }
+    for note in &result.adapter_notes {
+        if let Some(created_at) = &note.created_at {
+            set_latest_activity(
+                &mut latest,
+                "adapter_note",
+                note.title.clone(),
+                created_at.clone(),
+            );
+        }
+    }
+
+    latest
+}
+
+fn set_latest_activity(
+    latest: &mut Option<RevisionLatestActivityDocument>,
+    kind: &'static str,
+    title: String,
+    at: String,
+) {
+    if latest
+        .as_ref()
+        .is_none_or(|current| at.as_str() > current.at.as_str())
+    {
+        *latest = Some(RevisionLatestActivityDocument { kind, title, at });
+    }
+}
+
+fn assessment_label(assessment: ReviewAssessment) -> &'static str {
+    match assessment {
+        ReviewAssessment::Accepted => "accepted",
+        ReviewAssessment::AcceptedWithFollowUp => "accepted with follow-up",
+        ReviewAssessment::NeedsChanges => "needs changes",
+        ReviewAssessment::NeedsClarification => "needs clarification",
+    }
 }
 
 /// Full chronological event timeline with hydrated bodies.
@@ -322,12 +569,13 @@ pub(super) fn history_json(repo: &Path) -> Result<String, String> {
 pub(super) fn revisions_json(repo: &Path) -> Result<String, String> {
     let result = list_revisions(RevisionListOptions::new(repo).with_read_for_display(true))
         .map_err(|error| error.to_string())?;
+    let overviews = revision_overviews(repo, &result.entries)?;
     let payload = RevisionsPayload {
         schema: "shore.inspect-revisions",
         event_set_hash: result.event_set_hash,
         event_count: result.event_count,
         revision_count: result.revision_count,
-        entries: to_unit_entry_documents(result.entries),
+        entries: to_unit_entry_documents(result.entries, overviews)?,
         diagnostics: result.diagnostics,
     };
     serde_json::to_string(&payload).map_err(|error| error.to_string())
@@ -1023,14 +1271,42 @@ mod tests {
         }
     }
 
+    fn overview() -> RevisionOverviewDocument {
+        RevisionOverviewDocument {
+            current_assessment: RevisionOverviewAssessmentDocument {
+                status: "resolved",
+                assessment: Some(ReviewAssessment::Accepted),
+            },
+            attention: RevisionAttentionDocument {
+                unassessed: false,
+                accepted_with_follow_up: false,
+                open_input_request_count: 0,
+                failed_validation_count: 0,
+                errored_validation_count: 0,
+                stale_fact_count: 0,
+            },
+            counts: RevisionOverviewCounts {
+                files: 1,
+                rows: 1,
+                observations: 0,
+                input_requests: 0,
+                assessments: 1,
+                validation_checks: 0,
+                adapter_notes: 0,
+            },
+            latest_activity: None,
+        }
+    }
+
     #[test]
     fn units_document_splices_target_display_additively() {
         let entries = vec![entry(
             "/Users/x/worktrees/boardwalk/plan-0006",
             "545b0eb81463aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )];
+        let overviews = BTreeMap::from([("rev:sha256:abc".to_owned(), overview())]);
 
-        let docs = to_unit_entry_documents(entries);
+        let docs = to_unit_entry_documents(entries, overviews).unwrap();
         let json = serde_json::to_value(&docs[0]).unwrap();
 
         // The derived, path-private targetDisplay is spliced in...
