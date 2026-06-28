@@ -26,7 +26,7 @@ The short path is:
 ```bash
 cd path/to/git-worktree
 shore review capture
-shore review unit show --pretty
+shore review show --pretty
 ```
 
 Then record what you learn:
@@ -39,7 +39,7 @@ shore review assessment add --track human:local --assessment needs-clarification
   --summary "Small change, but one decision is still open."
 ```
 
-Or browse the whole store visually — event timeline, per-ReviewUnit pages, and annotated diffs — in
+Or browse the whole store visually — event timeline, per-revision pages, and annotated diffs — in
 a local web UI:
 
 ```bash
@@ -59,11 +59,17 @@ The current executable surfaces are:
 - `shore dump`
 - `shore inspect`
 - `shore review capture`
+- `shore review revisions` / `shore review show`
 - `shore review observation add/list`
 - `shore review input-request open/list/fetch/respond`
 - `shore review assessment add/show`
+- `shore review validation add/list`
+- `shore review association` (associate/withdraw a commit or ref)
+- `shore review endorse`
 - `shore review history`
-- `shore review unit list/show`
+- `shore identity enroll/attest`
+- `shore keys init/list/show/enroll/use-ssh`
+- `shore store status/mode/migrate/remove/gc/compact`
 - `shore notes apply`
 
 See [docs/cli-reference.md](docs/cli-reference.md) for command options, output documents, schema
@@ -84,7 +90,7 @@ For users:
 - [Getting started](docs/getting-started.md) - first local review from a scratch Git repository.
 - [CLI reference](docs/cli-reference.md) - commands, options, output JSON, and V1 boundaries.
 - [Review workflow](docs/review-workflow.md) - when to use capture, observations, input requests,
-  assessments, history, and unit show.
+  assessments, history, and revision show.
 - [Agent authoring handoffs](docs/agent-authoring.md) - how a coding agent captures a durable
   handoff record before declaring implementation work done.
 - [Agent skills](skills/README.md) - install the portable Shoreline author-handoff skill.
@@ -116,7 +122,7 @@ command stays `shore` because command names should remain short and practical.
 
 The current focus is a headless, durable review model first:
 
-- Git working-tree or commit-range (`--base`) capture into a ReviewUnit
+- Git working-tree or commit-range (`--base`) capture into a revision
 - append-only local events under `.shore/data/events/`
 - immutable snapshot and note-body artifacts under `.shore/data/artifacts/`
 - rebuildable projections and command-output JSON
@@ -137,7 +143,6 @@ Shoreline should not start as:
 
 - a general Git porcelain
 - a complete review platform
-- a web review UI
 - a summarizer detached from code
 - a daemon, notification system, or multi-session broker
 - a terminal framework experiment
