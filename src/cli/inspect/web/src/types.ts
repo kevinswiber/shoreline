@@ -159,6 +159,11 @@ export interface EntrySummary {
   assessmentId?: string;
   inputRequestId?: string;
   validationCheckId?: string;
+  // The content type and request mode the annotation gatherer reads when it
+  // folds a fact into the review-annotation list.
+  bodyContentType?: string;
+  summaryContentType?: string;
+  mode?: string;
 }
 
 /** The actor (and producer) that wrote a history entry. */
@@ -186,6 +191,9 @@ export interface HistoryEntry {
   subject?: EntrySubject;
   principal?: EntryPrincipal;
   summary?: EntrySummary;
+  // Computed once per load (not a wire field): the search record the state-bound
+  // timeline filter matches against, so a keystroke never re-serializes the event.
+  __search?: SearchIndex;
 }
 
 /** A revision's current-assessment rollup. */

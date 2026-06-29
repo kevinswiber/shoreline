@@ -28,6 +28,9 @@ export interface Revision {
   objectId?: string;
   overview?: Overview;
   targetDisplay?: TargetDisplay;
+  // The content hash of the captured object artifact, used to disambiguate a
+  // rebased recapture that shares a stable object id.
+  objectArtifactContentHash?: string;
 }
 
 /** A single attention cue: its token, the query that filters to it, and a label. */
