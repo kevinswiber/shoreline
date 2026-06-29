@@ -63,6 +63,23 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Node (app.js verify)
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: src/cli/inspect/web/.nvmrc
+          cache: npm
+          cache-dependency-path: src/cli/inspect/web/package-lock.json
+
+      - name: Verify committed app.js matches a fresh build
+        working-directory: src/cli/inspect/web
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build -- --outfile="$RUNNER_TEMP/app.js"
+          cmp "$RUNNER_TEMP/app.js" ../assets/app.js \
+            || { echo "::error::Release blocked — committed assets/app.js is stale vs a fresh build (run 'just web-build' and commit)."; exit 1; }
+
       - name: Publish crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
