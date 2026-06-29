@@ -11,6 +11,7 @@ import {
   type CurrentAssessment,
   ENDORSEMENT_LABELS,
   type Endorsement,
+  type EntryBase,
   type EntrySummary,
   type HistoryEntry,
   type LatestActivity,
@@ -31,6 +32,9 @@ export interface Revision {
   // The content hash of the captured object artifact, used to disambiguate a
   // rebased recapture that shares a stable object id.
   objectArtifactContentHash?: string;
+  // The captured base commit and the capture timestamp, shown in a revision card.
+  base?: EntryBase;
+  capturedAt?: string;
 }
 
 /** A single attention cue: its token, the query that filters to it, and a label. */

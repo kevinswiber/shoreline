@@ -38,6 +38,15 @@ const registry = new Map<string, OverlayRegistration>();
 let activeOverlay: ActiveOverlay | null = null;
 
 /**
+ * The name of the currently-open overlay, or null when none is active. A
+ * read-only query a content module uses to avoid re-opening (and re-stealing
+ * focus into) the overlay it already owns during an unrelated repaint.
+ */
+export function activeName(): string | null {
+  return activeOverlay?.name ?? null;
+}
+
+/**
  * Register (or re-register) an overlay's node and teardown callback under `name`.
  * The manager invokes `onClose` when the overlay is torn down — directly via
  * {@link closeActive}/{@link close}, or when another overlay opens over it.

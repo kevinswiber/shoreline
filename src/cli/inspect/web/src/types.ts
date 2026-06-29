@@ -119,6 +119,9 @@ export const SUPERSEDABLE_FACT_TYPES: ReadonlySet<string> = new Set([
 /** The captured base commit a revision was taken against. */
 export interface EntryBase {
   commitOid?: string;
+  // The base kind (e.g. `git_commit`), shown beside the short commit in a
+  // revision card's base cell.
+  kind?: string;
 }
 
 /** A file/line target a review fact addresses, when it has one. */
@@ -191,6 +194,10 @@ export interface HistoryEntry {
   subject?: EntrySubject;
   principal?: EntryPrincipal;
   summary?: EntrySummary;
+  // The timeline reads the occurrence timestamp (rendered as a short time) and the
+  // advisory signature-status chip off each entry.
+  occurredAt?: string;
+  verificationStatus?: string;
   // Computed once per load (not a wire field): the search record the state-bound
   // timeline filter matches against, so a keystroke never re-serializes the event.
   __search?: SearchIndex;

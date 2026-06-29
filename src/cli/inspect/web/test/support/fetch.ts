@@ -45,6 +45,21 @@ export function resetFreshnessResponse(): void {
   freshness = DEFAULT_FRESHNESS;
 }
 
+// The single-resource `/api/object` artifact defaults to the committed fixture; a
+// diff-controller test overrides it to drive a synthetic snapshot (e.g. a
+// many-file accordion the single-file fixture cannot exercise).
+let objectResponse: unknown = objectJson;
+
+/** Override the `/api/object` response the mock returns (synthetic-snapshot tests). */
+export function setObjectResponse(payload: unknown): void {
+  objectResponse = payload;
+}
+
+/** Restore the default `/api/object` response (the committed object fixture). */
+export function resetObjectResponse(): void {
+  objectResponse = objectJson;
+}
+
 /** The request target as a string, accepting the full `fetch` input union. */
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -67,7 +82,7 @@ const mockFetch: typeof fetch = (input) => {
       }),
     );
   }
-  const data = FIXTURES[pathname];
+  const data = pathname === "/api/object" ? objectResponse : FIXTURES[pathname];
   if (data === undefined) {
     return Promise.resolve(
       new Response(`no fixture for ${pathname}`, { status: 404 }),
