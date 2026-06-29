@@ -4,6 +4,10 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // Node types for the Node-side test toolchain (e.g. reading app.css from disk in
+    // the class-vs-CSS drift test). The browser `src` uses the DOM `lib` above; the
+    // adaptive `ReturnType<typeof setTimeout>` keeps timer types correct under both.
+    "types": ["node"],
     "strict": true,
     "allowJs": true,
     "checkJs": true,

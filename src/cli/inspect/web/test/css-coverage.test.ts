@@ -1,0 +1,72 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { expect, test } from "vitest";
+import { ALL_EMITTABLE_CLASSES } from "../src/classNames";
+
+// The served stylesheet, resolved from the web package root (vitest's working
+// directory is `src/cli/inspect/web`, where this suite always runs). This reads
+// the committed source CSS, not the bundle.
+const APP_CSS_PATH = resolve(process.cwd(), "../assets/app.css");
+
+// Classes the inspector can emit that have no `app.css` rule and fall back to
+// their base class, each with a one-line reason. Whether any is a real styling
+// gap is being evaluated in kevinswiber/shoreline#296; this list keeps the drift
+// test green while that decision is owned there. An emitted class with no rule
+// and no entry here fails the test — that is the JS-vs-CSS drift catch.
+const REF_BASE_STYLED =
+  "uses base `.ref` styling; only commit/hash are colored — see #296";
+const CSS_LESS_ALLOWLIST: Record<string, string> = {
+  "anno-validation":
+    "validation fact-card container; the other 3 anno kinds have a container rule, this inherits base `.anno` (odd-one-out, likely a real gap) — see #296",
+  "s-modified":
+    "modified diff-file status chip; the other 4 statuses have colored rules, this inherits base `.dstatus` (odd-one-out, likely a real gap) — see #296",
+  resolved:
+    "`fact-status resolved` cue; inherits base `.fact-status` (likely intentional) — see #296",
+  "ref-review-unit": REF_BASE_STYLED,
+  "ref-input-request-response": REF_BASE_STYLED,
+  "ref-input-request": REF_BASE_STYLED,
+  "ref-obs": REF_BASE_STYLED,
+  "ref-assess": REF_BASE_STYLED,
+  "ref-snap": REF_BASE_STYLED,
+  "ref-rev": REF_BASE_STYLED,
+  "ref-evt": REF_BASE_STYLED,
+  "ref-note": REF_BASE_STYLED,
+  "ref-validation": REF_BASE_STYLED,
+  "ref-track": REF_BASE_STYLED,
+};
+
+// Every `.class` token in the stylesheet, INCLUDING those inside compound /
+// descendant / pseudo selectors (`.dag-node.head rect`, `.fact-status.passed`,
+// `.cmd-item:hover`), so a class counts as present if it appears in any selector.
+function cssClassSelectors(css: string): Set<string> {
+  return new Set(
+    [...css.matchAll(/\.([a-z][a-z0-9_-]*)/g)].map((match) => match[1]),
+  );
+}
+
+test("every emittable class has an app.css selector (or is an allowlisted CSS-less class)", () => {
+  const css = readFileSync(APP_CSS_PATH, "utf8");
+  const selectors = cssClassSelectors(css);
+  const missing = ALL_EMITTABLE_CLASSES.filter(
+    (cls) => !selectors.has(cls),
+  ).filter((cls) => !(cls in CSS_LESS_ALLOWLIST));
+  expect(missing).toEqual([]);
+});
+
+test("the CSS-less allowlist stays honest (every entry is still emittable and still rule-less)", () => {
+  const css = readFileSync(APP_CSS_PATH, "utf8");
+  const selectors = cssClassSelectors(css);
+  const emittable = new Set(ALL_EMITTABLE_CLASSES);
+  // An allowlist entry the JS can no longer emit, or one that now HAS an app.css
+  // rule (e.g. a #296 gap was closed), is dead weight — surface it for removal.
+  const emittableButCovered = Object.keys(CSS_LESS_ALLOWLIST).filter((cls) =>
+    selectors.has(cls),
+  );
+  const notEmittable = Object.keys(CSS_LESS_ALLOWLIST).filter(
+    (cls) => !emittable.has(cls),
+  );
+  expect({ emittableButCovered, notEmittable }).toEqual({
+    emittableButCovered: [],
+    notEmittable: [],
+  });
+});
