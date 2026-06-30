@@ -9,7 +9,7 @@
       "supersedes": []
     }
   },
-  "schema": "shore.inspect-objects",
+  "schema": "shore.inspect-threads",
   "supersededBy": {},
   "supersedes": {},
   "threadCount": 1,

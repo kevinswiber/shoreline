@@ -153,17 +153,18 @@ when the store changes or a freshness diagnostic appears or clears.
 The inspector is a read-only, single-store, localhost developer tool. It reads through the same
 validated projections as `shore review history` and `shore review show` rather than parsing raw
 storage, and it serves over a synchronous, dependency-free HTTP server with no async runtime. The
-small JSON API the page consumes (`/api/history`, `/api/revisions`, `/api/revision`, `/api/objects`,
-`/api/object`, `/api/freshness`) is an internal surface for the bundled page, not a stable contract.
+small JSON API the page consumes (`/api/history`, `/api/revisions`, `/api/revisions/{id}`,
+`/api/threads`, `/api/snapshots/{id}`, `/api/freshness`) is an internal surface for the bundled page,
+not a stable contract.
 
 Every worktree of a clone resolves the shared common-dir store (`.git/shore`), so the inspector
-renders snapshots captured in sibling worktrees as well as the current one. The `/api/object`
+renders snapshots captured in sibling worktrees as well as the current one. The `/api/snapshots/{id}`
 payload is **content-only**: it carries the immutable diff content and its `contentHash` only — no
 `revisionId`, `source`, `base`, or `target`. The captured worktree path is therefore simply absent
-from the object wire (there is nothing to redact). Endpoint/target display lives on `/api/revision`
-and `/api/revisions`, derived from the revision projection (a path-private `targetDisplay` block),
-not from the object artifact. `shore review revisions` JSON still carries `target.worktreeRoot`,
-unchanged.
+from the snapshot wire (there is nothing to redact). Endpoint/target display lives on
+`/api/revisions/{id}` and `/api/revisions`, derived from the revision projection (a path-private
+`targetDisplay` block), not from the snapshot artifact. `shore review revisions` JSON still carries
+`target.worktreeRoot`, unchanged.
 
 ## `shore review capture`
 

@@ -48,7 +48,7 @@ struct RevisionsPayload {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ObjectsPayload {
+struct ThreadsPayload {
     schema: &'static str,
     event_set_hash: String,
     event_count: usize,
@@ -592,7 +592,7 @@ pub(super) fn revisions_json(repo: &Path) -> Result<String, String> {
 /// The supersession-DAG threads (the connected components of the supersession
 /// graph, labeled domain-side), each with its competing heads and superseded
 /// revisions. Fork-tolerant: never a null head, never a "malformed" error.
-pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
+pub(super) fn threads_json(repo: &Path) -> Result<String, String> {
     let (events, display_diagnostics) =
         read_events_for_display(repo).map_err(|error| error.to_string())?;
     let state = SessionState::from_events(&events).map_err(|error| error.to_string())?;
@@ -630,8 +630,8 @@ pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
 
     let mut diagnostics = view.diagnostics;
     diagnostics.extend(display_diagnostics);
-    let payload = ObjectsPayload {
-        schema: "shore.inspect-objects",
+    let payload = ThreadsPayload {
+        schema: "shore.inspect-threads",
         event_set_hash: state.event_set_hash.unwrap_or_default(),
         event_count: state.event_count,
         thread_count: threads.len(),
@@ -826,7 +826,7 @@ fn revision_edge_map(
 /// records that `contentHash` covers the stored bytes (including the redacted
 /// field) — consumers re-validate by fetching the artifact, not by hashing
 /// this wire JSON.
-pub(super) fn object_json(
+pub(super) fn snapshot_json(
     repo: &Path,
     snapshot_id: &str,
     content_hash: Option<&str>,
@@ -852,8 +852,8 @@ pub(super) fn object_json(
     })?;
     let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
     if let Some(object) = wire.as_object_mut() {
-        // Object-scoped wire: identity/endpoints live on /api/revision (from the
-        // projection), never on the shared object artifact. The v2 body already
+        // Object-scoped wire: identity/endpoints live on /api/revisions/{id} (from
+        // the projection), never on the shared object artifact. The v2 body already
         // omits these; the removals also keep a dual-read v1 artifact path-private
         // here, so the endpoint is forward- and backward-compatible.
         for key in ["revisionId", "source", "base", "target"] {
@@ -1150,15 +1150,25 @@ mod tests {
     }
 
     #[test]
-    fn object_json_serves_snapshot_scoped_wire() {
+    fn threads_json_advertises_domain_named_schema() {
+        let (repo, _, _) = captured_repo();
+        // The threads payload advertises its domain-named schema tag, not the
+        // substrate "objects" term.
+        let payload: serde_json::Value =
+            serde_json::from_str(&threads_json(repo.path()).unwrap()).unwrap();
+        assert_eq!(payload["schema"], "shore.inspect-threads");
+    }
+
+    #[test]
+    fn snapshot_json_serves_snapshot_scoped_wire() {
         let (repo, snapshot_id, _) = captured_repo();
 
         let wire: serde_json::Value =
-            serde_json::from_str(&object_json(repo.path(), &snapshot_id, None).unwrap()).unwrap();
+            serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id, None).unwrap()).unwrap();
 
         // Object-scoped wire: content hash + frozen diff only. Identity and
-        // endpoints live on /api/revision (from the projection), never here — so the
-        // worktree root is simply absent (nothing to redact).
+        // endpoints live on /api/revisions/{id} (from the projection), never here — so
+        // the worktree root is simply absent (nothing to redact).
         assert!(wire["contentHash"].is_string());
         assert!(wire.get("revisionId").is_none());
         assert!(wire.get("source").is_none());
@@ -1170,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn object_json_can_read_rebased_recapture_by_bound_hash() {
+    fn snapshot_json_can_read_rebased_recapture_by_bound_hash() {
         let root = tempfile::tempdir().expect("create temp repo");
         let path = root.path();
         git(path, &["init"]);
@@ -1215,7 +1225,7 @@ mod tests {
         );
 
         let first_wire: serde_json::Value = serde_json::from_str(
-            &object_json(
+            &snapshot_json(
                 path,
                 first.object_id.as_str(),
                 Some(&first.object_artifact_content_hash),
@@ -1224,7 +1234,7 @@ mod tests {
         )
         .unwrap();
         let second_wire: serde_json::Value = serde_json::from_str(
-            &object_json(
+            &snapshot_json(
                 path,
                 second.object_id.as_str(),
                 Some(&second.object_artifact_content_hash),
@@ -1244,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn object_json_rejects_tampered_artifact_before_wire_shaping() {
+    fn snapshot_json_rejects_tampered_artifact_before_wire_shaping() {
         let (repo, snapshot_id, _) = captured_repo();
         let artifact_path = stored_object_artifact_path(repo.path());
         let mut json: serde_json::Value =
@@ -1254,7 +1264,7 @@ mod tests {
         json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         std::fs::write(&artifact_path, serde_json::to_vec(&json).unwrap()).unwrap();
 
-        let error = object_json(repo.path(), &snapshot_id, None)
+        let error = snapshot_json(repo.path(), &snapshot_id, None)
             .expect_err("tampered artifact is rejected before wire shaping");
 
         assert!(error.contains("snapshot not found or unreadable"));

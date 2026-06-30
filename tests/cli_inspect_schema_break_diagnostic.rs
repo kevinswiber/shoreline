@@ -12,7 +12,7 @@ use support::git_repo::GitRepo;
 use support::inspect::{Inspector, capture, urlencode};
 
 /// A repo with one captured Revision plus a raw retired-type event file dropped
-/// into the resolved store, returning the captured Revision id for `/api/revision`.
+/// into the resolved store, returning the captured Revision id for `/api/revisions/{id}`.
 fn store_with_retired_event() -> (GitRepo, String) {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
@@ -46,7 +46,7 @@ fn inspector_endpoints_return_200_with_schema_break_diagnostic() {
     let inspector = Inspector::spawn(repo.path());
 
     // `get_json` asserts a 200; a retired event that previously 500'd now renders.
-    for path in ["/api/history", "/api/revisions", "/api/objects"] {
+    for path in ["/api/history", "/api/revisions", "/api/threads"] {
         let body = inspector.get_json(path);
         assert!(
             has_schema_break_diagnostic(&body),
@@ -54,10 +54,10 @@ fn inspector_endpoints_return_200_with_schema_break_diagnostic() {
         );
     }
 
-    let revision = inspector.get_json(&format!("/api/revision?id={}", urlencode(&revision_id)));
+    let revision = inspector.get_json(&format!("/api/revisions/{}", urlencode(&revision_id)));
     assert!(
         has_schema_break_diagnostic(&revision),
-        "/api/revision missing the schema break diagnostic: {revision}"
+        "/api/revisions/<id> missing the schema break diagnostic: {revision}"
     );
 
     // The cheap marker is the event-FILE count, so it counts the retired event's

@@ -6,7 +6,7 @@
 //! exercise the genuine production JSON end to end: they spawn the real
 //! `shore inspect --port 0` server (which prints its bound URL and supports an
 //! ephemeral port) and issue raw HTTP/1.1 GETs against `/api/revisions` and
-//! `/api/revision`. That locks the additive on-the-wire contract — a derived
+//! `/api/revisions/{id}`. That locks the additive on-the-wire contract — a derived
 //! worktree/head label spliced in without disturbing any existing field.
 
 mod support;
@@ -66,7 +66,7 @@ fn api_units_derives_label_for_symbolic_branch_worktree() {
 }
 
 /// Test A (continued): the same derived block also appears on the single-unit
-/// `/api/revision` document for a locally-readable unit, alongside the verbatim
+/// `/api/revisions/{id}` document for a locally-readable unit, alongside the verbatim
 /// target. Linked drill-in is covered separately by
 /// `linked_inspector_drill_in_survives_deleted_source_worktree`.
 #[test]
@@ -75,7 +75,7 @@ fn api_unit_splices_target_display_for_locally_readable_unit() {
     let inspector = Inspector::spawn(&fixture.worktree);
 
     let unit = inspector.get_json(&format!(
-        "/api/revision?id={}",
+        "/api/revisions/{}",
         urlencode(&fixture.revision_id)
     ));
     let revision = &unit["revision"];
@@ -224,8 +224,8 @@ fn api_objects_threads_a_supersession_chain() {
 
     let inspector = Inspector::spawn(repo.path());
 
-    let objects = inspector.get_json("/api/objects");
-    assert_eq!(objects["schema"], "shore.inspect-objects");
+    let objects = inspector.get_json("/api/threads");
+    assert_eq!(objects["schema"], "shore.inspect-threads");
     assert!(objects["eventCount"].as_u64().unwrap() > 0);
     assert_eq!(objects["threadCount"], 1);
     assert_eq!(objects["diagnostics"].as_array().unwrap().len(), 0);
@@ -286,7 +286,7 @@ fn api_objects_surfaces_competing_heads_for_a_fork() {
     assert_ne!(branch_a, branch_b, "the two successors must be distinct");
 
     let inspector = Inspector::spawn(repo.path());
-    let objects = inspector.get_json("/api/objects");
+    let objects = inspector.get_json("/api/threads");
 
     assert_eq!(objects["threadCount"], 1);
     let thread = &objects["threads"][0];
@@ -338,7 +338,7 @@ fn api_objects_carries_per_revision_classification() {
     let branch_b = capture_supersession_round(repo.path(), Some(&root));
 
     let inspector = Inspector::spawn(repo.path());
-    let objects = inspector.get_json("/api/objects");
+    let objects = inspector.get_json("/api/threads");
     let cls = &objects["revisionClassification"];
 
     assert_eq!(cls[&root]["state"], "superseded");
@@ -355,7 +355,7 @@ fn api_objects_carries_per_revision_classification() {
     assert_eq!(cls[&branch_a]["supersedes"][0], root.as_str());
 
     // Additive: every existing field is byte-unchanged.
-    assert_eq!(objects["schema"], "shore.inspect-objects");
+    assert_eq!(objects["schema"], "shore.inspect-threads");
     assert_eq!(objects["threads"][0]["competing"], true);
 }
 
@@ -399,7 +399,7 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     assert_eq!(units["entries"][0]["revisionId"], unit_id.as_str());
     assert_eq!(units["entries"][0]["targetDisplay"]["label"], "gone");
 
-    let unit = inspector.get_json(&format!("/api/revision?id={}", urlencode(&unit_id)));
+    let unit = inspector.get_json(&format!("/api/revisions/{}", urlencode(&unit_id)));
     assert_eq!(unit["revision"]["id"], unit_id.as_str());
     assert_eq!(unit["summary"]["observationCount"], 1);
     assert_eq!(unit["summary"]["inputRequestCount"], 1);
@@ -408,8 +408,8 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     assert!(unit["currentAssessment"]["status"].is_string());
 
     // The snapshot wire is object-scoped: content hash + diff only, no
-    // target/targetDisplay (those are on /api/revision(s), asserted above).
-    let snapshot = inspector.get_json(&format!("/api/object?id={}", urlencode(&snapshot_id)));
+    // target/targetDisplay (those are on /api/revisions(/{id}), asserted above).
+    let snapshot = inspector.get_json(&format!("/api/snapshots/{}", urlencode(&snapshot_id)));
     assert!(
         snapshot["contentHash"]
             .as_str()
@@ -428,7 +428,7 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     // count), equal to the full read's count but without folding or hashing.
     assert_eq!(freshness["eventCount"], history["eventCount"]);
 
-    let objects = inspector.get_json("/api/objects");
+    let objects = inspector.get_json("/api/threads");
     assert_eq!(objects["threadCount"], 1);
     let thread = &objects["threads"][0];
     assert_eq!(thread["competing"], false);
@@ -451,7 +451,7 @@ fn linked_inspector_unit_error_message_stays_path_free_for_unknown_unit() {
     add_worktree(main.path(), &reader, "reader");
 
     let inspector = Inspector::spawn(&reader);
-    let (status, body) = inspector.get_error("/api/revision?id=review-unit%3Asha256%3Amissing");
+    let (status, body) = inspector.get_error("/api/revisions/review-unit%3Asha256%3Amissing");
 
     assert!(!status.contains("200"), "status: {status}");
     assert_eq!(

@@ -174,10 +174,7 @@ fn api_units_include_additive_overview_summary() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
     let units = inspector.get_json("/api/revisions");
-    let revision = inspector.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let revision = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
 
     let entry = &units["entries"][0];
     assert_eq!(entry["revisionId"], store.revision_id.as_str());
@@ -234,10 +231,10 @@ fn api_units_include_additive_overview_summary() {
 fn api_snapshot_returns_snapshot_scoped_artifact() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let snapshot = inspector.get_json(&format!("/api/object?id={}", urlencode(&store.snapshot_id)));
+    let snapshot = inspector.get_json(&format!("/api/snapshots/{}", urlencode(&store.snapshot_id)));
 
     // Object-scoped wire (#146): content hash + frozen diff only — no
-    // identity/endpoint fields. Identity/target display live on /api/revision(s).
+    // identity/endpoint fields. Identity/target display live on /api/revisions(/{id}).
     assert!(
         snapshot["contentHash"]
             .as_str()
@@ -288,8 +285,8 @@ fn error_routes_over_real_socket() {
     assert!(status.contains("404"), "status: {status}");
     assert_eq!(body["error"], "no such route");
 
-    // Missing required ?id= → 400 JSON.
-    let (status, body) = inspector.get_error("/api/object");
+    // Missing required path member → 400 JSON.
+    let (status, body) = inspector.get_error("/api/snapshots/");
     assert!(status.contains("400"), "status: {status}");
     assert!(body["error"].as_str().unwrap().contains("id"));
 
@@ -310,7 +307,7 @@ fn payloads_never_expose_raw_repository_paths_on_path_private_surfaces() {
 
     // The snapshot wire is object-scoped — it carries no endpoint/target at all,
     // so there is no worktree path to leak (the redaction logic is gone).
-    let snapshot = inspector.get_json(&format!("/api/object?id={}", urlencode(&store.snapshot_id)));
+    let snapshot = inspector.get_json(&format!("/api/snapshots/{}", urlencode(&store.snapshot_id)));
     assert!(snapshot.get("target").is_none());
     assert!(
         !snapshot.to_string().contains(&repo_path),

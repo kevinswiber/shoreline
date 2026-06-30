@@ -146,22 +146,53 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
         "/app.js" => Response::asset("application/javascript; charset=utf-8", APP_JS),
         "/api/history" => api_response(api::history_json(repo)),
         "/api/revisions" => api_response(api::revisions_json(repo)),
-        "/api/objects" => api_response(api::objects_json(repo)),
+        "/api/threads" => api_response(api::threads_json(repo)),
         "/api/freshness" => api_response(api::freshness_json(repo)),
-        "/api/object" => match query_param(query, "id") {
-            Some(id) if !id.is_empty() => {
-                let content_hash = query_param(query, "contentHash");
-                api_response(api::object_json(repo, &id, content_hash.as_deref()))
-            }
-            _ => Response::json_error("400 Bad Request", "missing ?id=<objectId>"),
-        },
-        "/api/revision" => match query_param(query, "id") {
-            Some(id) if !id.is_empty() => api_response(api::revision_json(repo, &id)),
-            _ => Response::json_error("400 Bad Request", "missing ?id=<revisionId>"),
-        },
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
-        _ => Response::json_error("404 Not Found", "no such route"),
+        _ => route_member(repo, path, query),
     }
+}
+
+/// Path-member routes: `/api/revisions/{id}` and `/api/snapshots/{id}`. An empty
+/// member (a trailing slash with no id) is a `400`; anything else unmatched is a
+/// `404`. The id segment arrives percent-encoded (the client encodes it with
+/// `encodeURIComponent`) and is decoded here.
+fn route_member(repo: &Path, path: &str, query: Option<&str>) -> Response {
+    if let Some(raw) = path_member(path, "/api/revisions/") {
+        return match decode_member(raw) {
+            Some(id) => api_response(api::revision_json(repo, &id)),
+            None => Response::json_error("400 Bad Request", "missing revision id"),
+        };
+    }
+    if let Some(raw) = path_member(path, "/api/snapshots/") {
+        return match decode_member(raw) {
+            Some(id) => {
+                let content_hash = query_param(query, "contentHash");
+                api_response(api::snapshot_json(repo, &id, content_hash.as_deref()))
+            }
+            None => Response::json_error("400 Bad Request", "missing snapshot id"),
+        };
+    }
+    Response::json_error("404 Not Found", "no such route")
+}
+
+/// The single path segment after `prefix` (e.g. `/api/revisions/`), still
+/// percent-encoded. `None` when `path` is not under `prefix` or the remainder
+/// spans more than one segment (a literal `/`).
+fn path_member<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
+    let rest = path.strip_prefix(prefix)?;
+    if rest.contains('/') {
+        return None;
+    }
+    Some(rest)
+}
+
+/// Percent-decode a captured path member into the id, or `None` when it is empty.
+fn decode_member(raw: &str) -> Option<String> {
+    if raw.is_empty() {
+        return None;
+    }
+    Some(percent_decode(raw))
 }
 
 fn split_target(target: &str) -> (&str, Option<&str>) {
@@ -314,37 +345,100 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_without_id_is_bad_request() {
-        assert_eq!(route_for("GET", "/api/object").status, "400 Bad Request");
+    fn path_member_extracts_single_segment() {
+        assert_eq!(
+            path_member("/api/revisions/abc", "/api/revisions/"),
+            Some("abc")
+        );
+        assert_eq!(
+            path_member("/api/snapshots/x%3Ay", "/api/snapshots/"),
+            Some("x%3Ay")
+        );
+        // A deeper path is not a single member.
+        assert_eq!(path_member("/api/revisions/a/b", "/api/revisions/"), None);
+        // No trailing slash: the collection, not a member.
+        assert_eq!(path_member("/api/revisions", "/api/revisions/"), None);
+        // Trailing slash, empty member.
+        assert_eq!(path_member("/api/revisions/", "/api/revisions/"), Some(""));
     }
 
     #[test]
-    fn unit_without_id_is_bad_request() {
-        assert_eq!(route_for("GET", "/api/revision").status, "400 Bad Request");
+    fn decode_member_percent_decodes_nonempty() {
+        assert_eq!(
+            decode_member("snap%3Agit%3Asha256%3Aabc").as_deref(),
+            Some("snap:git:sha256:abc")
+        );
+        assert_eq!(decode_member(""), None);
     }
 
     #[test]
-    fn retired_lineage_routes_are_not_found() {
-        assert_eq!(route_for("GET", "/api/lineages").status, "404 Not Found");
-        assert_eq!(route_for("GET", "/api/lineage").status, "404 Not Found");
+    fn revisions_member_without_id_is_bad_request() {
+        assert_eq!(
+            route_for("GET", "/api/revisions/").status,
+            "400 Bad Request"
+        );
+    }
+
+    #[test]
+    fn snapshots_member_without_id_is_bad_request() {
+        assert_eq!(
+            route_for("GET", "/api/snapshots/").status,
+            "400 Bad Request"
+        );
+    }
+
+    #[test]
+    fn bare_snapshots_collection_is_not_found() {
+        // There is no snapshot-list endpoint; only `/api/snapshots/{id}` exists.
+        assert_eq!(route_for("GET", "/api/snapshots").status, "404 Not Found");
+    }
+
+    #[test]
+    fn deeper_member_paths_are_not_found() {
+        assert_eq!(
+            route_for("GET", "/api/revisions/a/b").status,
+            "404 Not Found"
+        );
+        assert_eq!(
+            route_for("GET", "/api/threads/anything").status,
+            "404 Not Found"
+        );
+    }
+
+    #[test]
+    fn retired_routes_are_not_found() {
+        // The pre-reshape object/singular routes and the older lineage routes.
+        for path in [
+            "/api/objects",
+            "/api/object",
+            "/api/revision",
+            "/api/lineages",
+            "/api/lineage",
+        ] {
+            assert_eq!(
+                route_for("GET", path).status,
+                "404 Not Found",
+                "{path} is retired"
+            );
+        }
     }
 
     #[test]
     fn query_param_reads_and_percent_decodes_values() {
-        let query = Some("id=snap%3Agit%3Asha256%3Aabc&other=1");
+        let query = Some("contentHash=snap%3Agit%3Asha256%3Aabc&other=1");
         assert_eq!(
-            query_param(query, "id").as_deref(),
+            query_param(query, "contentHash").as_deref(),
             Some("snap:git:sha256:abc")
         );
         assert_eq!(query_param(query, "missing"), None);
-        assert_eq!(query_param(None, "id"), None);
+        assert_eq!(query_param(None, "contentHash"), None);
     }
 
     #[test]
     fn split_target_separates_path_and_query() {
         assert_eq!(
-            split_target("/api/object?id=x"),
-            ("/api/object", Some("id=x"))
+            split_target("/api/snapshots/x?contentHash=y"),
+            ("/api/snapshots/x", Some("contentHash=y"))
         );
         assert_eq!(split_target("/"), ("/", None));
     }

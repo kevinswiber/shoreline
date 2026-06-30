@@ -1,7 +1,7 @@
 //! HTTP topology contract for the server-laid supersession-DAG geometry.
 //!
 //! The layout is computed server-side and emitted as the additive `laidOut`
-//! geometry on each `/api/objects` thread. These tests assert the layout's
+//! geometry on each `/api/threads` thread. These tests assert the layout's
 //! TOPOLOGY over a real fork — node set, edge `from`/`to`, head/superseded
 //! status, peer-equal head rank, normalized origin — and NEVER exact pixel
 //! coordinates (those are a property of the pinned engine version, not a stable
@@ -13,7 +13,7 @@ use support::git_repo::GitRepo;
 use support::inspect::{Inspector, capture_supersession_round};
 
 /// Build the canonical fork: A (root), B supersedes A, C supersedes A -> heads
-/// {B,C}. Returns the `/api/objects` payload plus the three revision ids.
+/// {B,C}. Returns the `/api/threads` payload plus the three revision ids.
 fn build_fork() -> (serde_json::Value, String, String, String) {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
@@ -23,7 +23,7 @@ fn build_fork() -> (serde_json::Value, String, String, String) {
     let b = capture_supersession_round(repo.path(), Some(&a));
     let c = capture_supersession_round(repo.path(), Some(&a));
     assert_ne!(b, c, "the two successors must be distinct");
-    let objects = Inspector::spawn(repo.path()).get_json("/api/objects");
+    let objects = Inspector::spawn(repo.path()).get_json("/api/threads");
     (objects, a, b, c)
 }
 
@@ -175,7 +175,7 @@ fn forked_thread_payload_surfaces_competing_heads_and_peer_layout() {
 #[test]
 fn api_revision_shows_a_superseded_revision_exactly() {
     // The DAG makes every node — including a superseded one in a competing fork —
-    // addressable by id. /api/revision must show that exact revision, not
+    // addressable by id. /api/revisions/{id} must show that exact revision, not
     // forward-resolve to a thread head (which errors on a competing fork).
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
@@ -186,7 +186,7 @@ fn api_revision_shows_a_superseded_revision_exactly() {
     let _c = capture_supersession_round(repo.path(), Some(&root));
 
     let inspector = Inspector::spawn(repo.path());
-    let shown = inspector.get_json(&format!("/api/revision?id={}", root.replace(':', "%3A")));
+    let shown = inspector.get_json(&format!("/api/revisions/{}", root.replace(':', "%3A")));
     assert_eq!(
         shown["revision"]["id"], root,
         "the superseded root shows itself exactly, not a forward-resolved head: {shown}"
@@ -219,7 +219,7 @@ fn laid_out_dag_degenerate_single_node_thread_has_no_edges() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     let _root = capture_supersession_round(repo.path(), None);
 
-    let objects = Inspector::spawn(repo.path()).get_json("/api/objects");
+    let objects = Inspector::spawn(repo.path()).get_json("/api/threads");
     let laid = &objects["threads"][0]["laidOut"];
     assert_eq!(laid["nodes"].as_array().unwrap().len(), 1);
     assert_eq!(laid["edges"].as_array().unwrap().len(), 0);

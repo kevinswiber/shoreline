@@ -99,7 +99,7 @@ fn supersession_thread_join_keys_exist_for_validation_entries() {
     let inspector = Inspector::spawn(repo.path());
 
     // Join side A: the supersession thread carries heads + superseded revisions.
-    let objects = inspector.get_json("/api/objects");
+    let objects = inspector.get_json("/api/threads");
     let thread = &objects["threads"][0];
     assert_eq!(thread["competing"], false);
     assert_eq!(thread["heads"].as_array().unwrap().len(), 1);
@@ -183,10 +183,7 @@ fn api_history_carries_typed_validation_summaries() {
 fn api_unit_serves_validation_checks_and_count() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
 
     assert_eq!(unit["schema"], "shore.review-revision");
     assert_eq!(unit["summary"]["validationCheckCount"], 2);
@@ -229,10 +226,7 @@ fn api_unit_serves_validation_checks_and_count() {
 fn api_unit_projects_validation_evidence_rows() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
 
     let check_ids: Vec<&str> = unit["validationChecks"]
         .as_array()
@@ -269,10 +263,7 @@ fn api_unit_projects_validation_evidence_rows() {
 fn api_unit_resolves_current_assessment_and_fact_arrays() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
 
     // The superseding assessment resolves the current assessment.
     let ca = &unit["currentAssessment"];
@@ -304,10 +295,7 @@ fn api_unit_resolves_current_assessment_and_fact_arrays() {
 fn validation_is_structurally_separate_from_assessment_authority() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
-    let unit = inspector.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let unit = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
 
     // currentAssessment references an assessment id, never a validation id, and
     // carries no validation fields.

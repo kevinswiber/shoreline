@@ -6,16 +6,13 @@ use support::inspect::{Inspector, representative_store, urlencode};
 fn anchored_range_fact_still_renders_after_map_bucketing() {
     // The representative store has exactly one range-anchored observation on
     // src/lib.rs:2-2. Bucketing must not change which facts anchor where: the
-    // /api/object snapshot carries that file, and /api/revision carries the
+    // /api/snapshots/{id} snapshot carries that file, and /api/revisions/{id} carries the
     // observation with its preserved range target. The Map refactor keys on the
     // same (side, line) the diff anchoring rule produces, so the fact is unchanged.
     let store = representative_store();
     let insp = Inspector::spawn(store.repo.path());
 
-    let unit = insp.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let unit = insp.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
     let obs = &unit["observations"][0]["target"];
     assert_eq!(obs["filePath"], "src/lib.rs");
     assert_eq!(obs["startLine"], 2);
@@ -23,7 +20,7 @@ fn anchored_range_fact_still_renders_after_map_bucketing() {
 
     // The captured snapshot still carries src/lib.rs so the fact has a row to
     // anchor to (the client builds the side:line Map over these rows).
-    let object = insp.get_json(&format!("/api/object?id={}", urlencode(&store.snapshot_id)));
+    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(&store.snapshot_id)));
     let files = object["snapshot"]["files"].as_array().unwrap();
     assert!(
         files
@@ -57,10 +54,7 @@ fn anchored_fact_remains_reachable_in_a_default_open_file() {
     // without a manual expand. Behavior floor preserved from the Map refactor.
     let store = representative_store();
     let insp = Inspector::spawn(store.repo.path());
-    let unit = insp.get_json(&format!(
-        "/api/revision?id={}",
-        urlencode(&store.revision_id)
-    ));
+    let unit = insp.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
     assert_eq!(unit["observations"][0]["target"]["filePath"], "src/lib.rs");
 }
 
@@ -139,7 +133,7 @@ fn binary_file_renders_collapsed_by_default() {
     let object_id = revisions["entries"][0]["objectId"]
         .as_str()
         .expect("the captured revision exposes its snapshot object id");
-    let object = insp.get_json(&format!("/api/object?id={}", urlencode(object_id)));
+    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(object_id)));
     let files = object["snapshot"]["files"].as_array().unwrap();
     let png = files
         .iter()

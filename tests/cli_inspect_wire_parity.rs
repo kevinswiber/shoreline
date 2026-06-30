@@ -194,17 +194,17 @@ fn api_payloads_match_committed_fixtures() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
-    assert_or_bless(&inspector, "/api/objects", "objects.json");
+    assert_or_bless(&inspector, "/api/threads", "threads.json");
     assert_or_bless(&inspector, "/api/history", "history.json");
     assert_or_bless(&inspector, "/api/revisions", "revisions.json");
     assert_or_bless(
         &inspector,
-        &format!("/api/revision?id={}", urlencode(&store.revision_id)),
+        &format!("/api/revisions/{}", urlencode(&store.revision_id)),
         "revision.json",
     );
     assert_or_bless(
         &inspector,
-        &format!("/api/object?id={}", urlencode(&store.snapshot_id)),
-        "object.json",
+        &format!("/api/snapshots/{}", urlencode(&store.snapshot_id)),
+        "snapshot.json",
     );
 }
