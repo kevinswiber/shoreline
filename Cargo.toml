@@ -55,6 +55,7 @@ ratatui = { version = "0.30.0", default-features = false, features = ["std", "cr
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 thiserror = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }

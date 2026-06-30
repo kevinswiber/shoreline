@@ -5,6 +5,12 @@
 //! view-only projection — they are never stored on the diff model and never affect the
 //! content-addressed snapshot artifact.
 
+// Scaffolding for the tokenizer core: detection lands before its consumers (the line tokenizer
+// and the file highlighter), so its items are briefly unused outside tests. The allow is removed
+// once `highlight_file` wires them in.
+#[allow(dead_code)]
+mod syntax;
+
 /// Surface-neutral classification of a token.
 ///
 /// The lowercase [`TokenKind::as_str`] string is the single spelling shared across surfaces: the
