@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use shoreline::dump::DumpDocument;
-use shoreline::model::{CursorState, FileId, HunkId, ReviewRow, RowId};
+use shoreline::highlight::{RowKey, TokenSpan, highlight_file};
+use shoreline::model::{CursorState, FileId, HunkId, ReviewRow, ReviewRowKind, RowId};
 use shoreline::stream::{LayoutSnapshot, NavigationCommand, RevealTarget, ViewportSpec};
 
 pub(crate) struct TuiApp {
@@ -10,6 +13,9 @@ pub(crate) struct TuiApp {
     scroll_top: usize,
     last_reload_error: Option<String>,
     should_quit: bool,
+    /// Read-time syntax tokens per diff row, computed once at load/reload (never on the stored
+    /// model, so `shore dump` stays plain). The render loop only reads this.
+    highlights: HashMap<RowId, Vec<TokenSpan>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +39,7 @@ impl TuiApp {
             .first()
             .map(|row| CursorState::at_row(row.id.clone()))
             .unwrap_or_else(CursorState::empty);
+        let highlights = Self::build_highlights(&document);
 
         Self {
             document,
@@ -42,7 +49,70 @@ impl TuiApp {
             scroll_top: 0,
             last_reload_error: None,
             should_quit: false,
+            highlights,
         }
+    }
+
+    /// Tokenize every (non-over-cap) file once and key the spans by the `RowId` the stream assigns
+    /// to each diff row, so the render loop can look them up without re-tokenizing per frame.
+    fn build_highlights(document: &DumpDocument) -> HashMap<RowId, Vec<TokenSpan>> {
+        // Reuse the inspector's large-file threshold: a file past this many rows renders plain.
+        const MAX_HIGHLIGHT_ROWS: usize = 500;
+        let mut by_file: HashMap<&str, HashMap<RowKey, Vec<TokenSpan>>> = HashMap::new();
+        for file in &document.snapshot.files {
+            let total_rows: usize = file.hunks.iter().map(|hunk| hunk.rows.len()).sum();
+            if total_rows > MAX_HIGHLIGHT_ROWS {
+                continue;
+            }
+            let map = highlight_file(file);
+            if !map.is_empty() {
+                by_file.insert(file.id.as_str(), map);
+            }
+        }
+
+        // Walk the stream, mapping each diff row's positional (hunk_index, row_index) key to its
+        // RowId. The stream emits a file's hunk rows in order, so the Nth diff row after a hunk
+        // header is that hunk's row N (notes/metadata rows do not advance the index).
+        let mut out: HashMap<RowId, Vec<TokenSpan>> = HashMap::new();
+        let mut current_file: Option<&str> = None;
+        let mut hunk_index: Option<usize> = None;
+        let mut row_index = 0usize;
+        for row in &document.stream.rows {
+            match &row.kind {
+                ReviewRowKind::FileHeader { .. } => {
+                    current_file = row.file_id.as_ref().map(FileId::as_str);
+                    hunk_index = None;
+                    row_index = 0;
+                }
+                ReviewRowKind::HunkHeader { .. } => {
+                    hunk_index = Some(hunk_index.map_or(0, |index| index + 1));
+                    row_index = 0;
+                }
+                ReviewRowKind::Diff { .. } => {
+                    if let (Some(file), Some(hunk)) = (current_file, hunk_index)
+                        && let Some(spans) = by_file
+                            .get(file)
+                            .and_then(|map| map.get(&(hunk, row_index)))
+                    {
+                        out.insert(row.id.clone(), spans.clone());
+                    }
+                    row_index += 1;
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The syntax tokens for a diff row, or an empty slice when it is unhighlighted.
+    #[allow(dead_code)]
+    pub(crate) fn highlights_for(&self, id: &RowId) -> &[TokenSpan] {
+        self.highlights.get(id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    #[cfg(test)]
+    pub(crate) fn highlights_nonempty(&self) -> bool {
+        !self.highlights.is_empty()
     }
 
     pub(crate) fn cursor(&self) -> &CursorState {
@@ -120,6 +190,7 @@ impl TuiApp {
         let preserved_hunk_id = preserved_row.and_then(|row| row.hunk_id.clone());
 
         self.document = document;
+        self.highlights = Self::build_highlights(&self.document);
         self.layout = LayoutSnapshot::from_stream(&self.document.stream, self.viewport);
         self.cursor = self.restore_cursor(preserved_row_id, preserved_file_id, preserved_hunk_id);
         self.scroll_top = 0;
@@ -231,6 +302,7 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use shoreline::dump::{DumpDocument, DumpInputSource, DumpInputSummary};
+    use shoreline::highlight::TokenKind;
     use shoreline::model::{
         Anchor, CursorState, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus,
         HunkId, LineRange, ObjectId, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote,
@@ -277,6 +349,27 @@ mod tests {
         assert_eq!(app.scroll_top(), 0);
         assert_eq!(app.viewport(), ViewportSpec::new(80, 10));
         assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn highlights_populated_for_loaded_document() {
+        let app = TuiApp::new(
+            document_with_one_hunk_and_one_note(),
+            ViewportSpec::new(80, 10),
+        );
+        // row:0002 is the `pub fn example() {}` diff row of the .rs file.
+        let spans = app.highlights_for(&RowId::new("row:0002"));
+        assert!(spans.iter().any(|s| s.kind == TokenKind::Keyword));
+    }
+
+    #[test]
+    fn highlights_recomputed_on_reload() {
+        let mut app = TuiApp::new(
+            document_with_one_hunk_and_one_note(),
+            ViewportSpec::new(80, 10),
+        );
+        app.reload_with(document_with_one_py_hunk());
+        assert!(app.highlights_nonempty());
     }
 
     #[test]
@@ -597,6 +690,90 @@ mod tests {
 
     fn app_with_two_hunks(viewport: ViewportSpec) -> TuiApp {
         TuiApp::new(document_with_two_hunks_and_one_note(), viewport)
+    }
+
+    fn document_with_one_py_hunk() -> DumpDocument {
+        let review_id = ReviewId::new("review:py");
+        let object_id = ObjectId::new("snapshot:py");
+        let file_id = FileId::new("app.py");
+        let hunk_id = HunkId::new("hunk:py");
+        let diff_row = DiffRow {
+            kind: DiffRowKind::Added,
+            old_line: None,
+            new_line: Some(1),
+            text: "def example(): pass".to_owned(),
+        };
+        let hunk = ReviewHunk {
+            id: hunk_id.clone(),
+            header: "@@ -0,0 +1,1 @@".to_owned(),
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 1,
+            rows: vec![diff_row.clone()],
+        };
+        let snapshot = DiffSnapshot::new(
+            review_id.clone(),
+            object_id.clone(),
+            vec![DiffFile {
+                id: file_id.clone(),
+                status: FileStatus::Added,
+                old_path: None,
+                new_path: Some("app.py".to_owned()),
+                old_mode: None,
+                new_mode: None,
+                old_oid: None,
+                new_oid: None,
+                similarity: None,
+                is_binary: false,
+                is_submodule: false,
+                is_mode_only: false,
+                synthetic: false,
+                metadata_rows: Vec::new(),
+                hunks: vec![hunk],
+            }],
+        );
+        let stream = ReviewStream {
+            review_id,
+            object_id,
+            rows: vec![
+                ReviewRow {
+                    id: RowId::new("row:0000"),
+                    ordinal: 0,
+                    file_id: Some(file_id.clone()),
+                    hunk_id: None,
+                    kind: ReviewRowKind::FileHeader {
+                        path: "app.py".to_owned(),
+                        status: FileStatus::Added,
+                    },
+                },
+                ReviewRow {
+                    id: RowId::new("row:0001"),
+                    ordinal: 1,
+                    file_id: Some(file_id.clone()),
+                    hunk_id: Some(hunk_id.clone()),
+                    kind: ReviewRowKind::HunkHeader {
+                        header: "@@ -0,0 +1,1 @@".to_owned(),
+                    },
+                },
+                ReviewRow {
+                    id: RowId::new("row:0002"),
+                    ordinal: 2,
+                    file_id: Some(file_id),
+                    hunk_id: Some(hunk_id),
+                    kind: ReviewRowKind::Diff { row: diff_row },
+                },
+            ],
+        };
+        DumpDocument::new(
+            DumpInputSummary {
+                source: DumpInputSource::ReviewNotes,
+            },
+            snapshot,
+            Vec::new(),
+            stream,
+            Vec::new(),
+        )
     }
 
     fn empty_document() -> DumpDocument {
