@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::RwLock;
 
 use mmdflux::graph::{Direction, Edge, Graph, Node};
 use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
@@ -25,6 +26,7 @@ use shoreline::session::{
     review_history, show_revision, show_revision_overviews,
 };
 
+use super::server::HighlightCache;
 use super::wire::WireObjectArtifact;
 
 #[derive(Serialize)]
@@ -846,6 +848,7 @@ pub(super) fn snapshot_json(
     repo: &Path,
     snapshot_id: &str,
     content_hash: Option<&str>,
+    cache: Option<&RwLock<HighlightCache>>,
 ) -> Result<String, String> {
     if snapshot_id.is_empty() {
         return Err("missing snapshot id".to_owned());
@@ -866,13 +869,28 @@ pub(super) fn snapshot_json(
         );
         format!("snapshot not found or unreadable: {snapshot_id}")
     })?;
+    // Key the cache on the VALIDATED artifact's content hash, never the raw request param: the read
+    // above already decoded and hash-checked the artifact, so a cache hit cannot bypass that check.
+    let cache_key = artifact.content_hash.clone();
+    if let Some(cache) = cache
+        && let Some(cached) = cache.read().ok().and_then(|cache| cache.get(&cache_key))
+    {
+        return Ok(cached);
+    }
     // Build the enriched wire DTO from the validated artifact: it mirrors the stored serialized
     // shape (identity/endpoints already absent on the v2 body) and additively carries per-row syntax
     // tokens. The stored bytes are untouched. Round-trip through `serde_json::Value` so the served
     // key order is unchanged from before this DTO existed (an unhighlighted row is byte-identical).
     let wire = WireObjectArtifact::from_artifact(&artifact, highlight_file);
     let value = serde_json::to_value(&wire).map_err(|error| error.to_string())?;
-    serde_json::to_string(&value).map_err(|error| error.to_string())
+    let body = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+    // Content-addressed: the body is immutable for this hash, so caching needs no invalidation.
+    if let Some(cache) = cache
+        && let Ok(mut cache) = cache.write()
+    {
+        cache.put(&cache_key, body.clone());
+    }
+    Ok(body)
 }
 
 /// The full composite projection for one Revision.
@@ -1209,7 +1227,8 @@ mod tests {
         let (repo, snapshot_id, _) = captured_repo();
 
         let wire: serde_json::Value =
-            serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id, None).unwrap()).unwrap();
+            serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id, None, None).unwrap())
+                .unwrap();
 
         // Object-scoped wire: content hash + frozen diff only. Identity and
         // endpoints live on /api/revisions/{id} (from the projection), never here — so
@@ -1232,7 +1251,7 @@ mod tests {
             "pub fn value() -> u32 { 2 }\n",
         );
         let json: serde_json::Value = serde_json::from_str(
-            &snapshot_json(repo.path(), &object_id, Some(&content_hash)).unwrap(),
+            &snapshot_json(repo.path(), &object_id, Some(&content_hash), None).unwrap(),
         )
         .unwrap();
         let row = &json["snapshot"]["files"][0]["hunks"][0]["rows"][0];
@@ -1247,11 +1266,27 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_json_is_byte_stable_across_two_calls() {
+        let (repo, object_id, content_hash) = captured_repo_with(
+            "src/lib.rs",
+            "pub fn value() -> u32 { 1 }\n",
+            "pub fn value() -> u32 { 2 }\n",
+        );
+        let cache = std::sync::RwLock::new(super::super::server::HighlightCache::new(8));
+        let first =
+            snapshot_json(repo.path(), &object_id, Some(&content_hash), Some(&cache)).unwrap();
+        // The second call hits the content-hash cache and must return identical bytes.
+        let second =
+            snapshot_json(repo.path(), &object_id, Some(&content_hash), Some(&cache)).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
     fn snapshot_json_omits_tokens_for_unknown_language() {
         let (repo, object_id, content_hash) =
             captured_repo_with("notes.xyzzy", "alpha\n", "beta\n");
         let json: serde_json::Value = serde_json::from_str(
-            &snapshot_json(repo.path(), &object_id, Some(&content_hash)).unwrap(),
+            &snapshot_json(repo.path(), &object_id, Some(&content_hash), None).unwrap(),
         )
         .unwrap();
         let row = &json["snapshot"]["files"][0]["hunks"][0]["rows"][0];
@@ -1309,6 +1344,7 @@ mod tests {
                 path,
                 first.object_id.as_str(),
                 Some(&first.object_artifact_content_hash),
+                None,
             )
             .unwrap(),
         )
@@ -1318,6 +1354,7 @@ mod tests {
                 path,
                 second.object_id.as_str(),
                 Some(&second.object_artifact_content_hash),
+                None,
             )
             .unwrap(),
         )
@@ -1344,7 +1381,7 @@ mod tests {
         json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         std::fs::write(&artifact_path, serde_json::to_vec(&json).unwrap()).unwrap();
 
-        let error = snapshot_json(repo.path(), &snapshot_id, None)
+        let error = snapshot_json(repo.path(), &snapshot_id, None, None)
             .expect_err("tampered artifact is rejected before wire shaping");
 
         assert!(error.contains("snapshot not found or unreadable"));

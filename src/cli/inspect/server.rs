@@ -6,16 +6,76 @@
 //! rule against pulling in a runtime before a remote backend forces it. It is
 //! a localhost developer tool, not a production server.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
 use shoreline::session::{HistoryCursor, HistoryWindow};
 
 use super::api;
+
+/// Shared, read-only inspector server state. Holds the resolved store path and the read-time
+/// highlight cache; cloned cheaply behind an `Arc` to every connection thread.
+pub(super) struct InspectState {
+    pub repo: PathBuf,
+    pub highlight_cache: RwLock<HighlightCache>,
+}
+
+impl InspectState {
+    pub(super) fn new(repo: PathBuf) -> Self {
+        Self {
+            repo,
+            highlight_cache: RwLock::new(HighlightCache::new(HIGHLIGHT_CACHE_CAPACITY)),
+        }
+    }
+}
+
+/// How many `snapshot_json` responses to retain. Snapshots are opened on demand (not polled), so a
+/// small cap amortizes repeat opens without holding the whole history.
+const HIGHLIGHT_CACHE_CAPACITY: usize = 64;
+
+/// A bounded, content-hash-keyed cache of fully-rendered `snapshot_json` responses. Eviction is
+/// always safe: the value is recomputable from the content-addressed artifact, so there is no
+/// invalidation — entries only age out by insertion order once the cap is reached.
+pub(super) struct HighlightCache {
+    cap: usize,
+    map: HashMap<String, String>,
+    order: Vec<String>,
+}
+
+impl HighlightCache {
+    pub(super) fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            map: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
+
+    pub(super) fn get(&self, key: &str) -> Option<String> {
+        self.map.get(key).cloned()
+    }
+
+    pub(super) fn put(&mut self, key: &str, value: String) {
+        if self.map.contains_key(key) {
+            self.map.insert(key.to_owned(), value);
+            return;
+        }
+        if self.cap == 0 {
+            return;
+        }
+        while self.order.len() >= self.cap {
+            let evicted = self.order.remove(0);
+            self.map.remove(&evicted);
+        }
+        self.order.push(key.to_owned());
+        self.map.insert(key.to_owned(), value);
+    }
+}
 
 const INDEX_HTML: &str = include_str!("assets/index.html");
 const TOKENS_CSS: &str = include_str!("assets/tokens.css");
@@ -86,13 +146,13 @@ pub(super) fn serve(
         open_browser(&url);
     }
 
-    let repo = Arc::new(repo);
+    let state = Arc::new(InspectState::new(repo));
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let repo = Arc::clone(&repo);
+                let state = Arc::clone(&state);
                 thread::spawn(move || {
-                    if let Err(error) = handle_connection(stream, &repo) {
+                    if let Err(error) = handle_connection(stream, &state) {
                         tracing::debug!(error = %error, "inspect_connection_error");
                     }
                 });
@@ -106,7 +166,7 @@ pub(super) fn serve(
     Ok(())
 }
 
-fn handle_connection(stream: TcpStream, repo: &Path) -> std::io::Result<()> {
+fn handle_connection(stream: TcpStream, state: &InspectState) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
 
@@ -132,15 +192,16 @@ fn handle_connection(stream: TcpStream, repo: &Path) -> std::io::Result<()> {
     let target = parts.next().unwrap_or("/");
     let (path, query) = split_target(target);
 
-    let response = route(repo, method, path, query);
+    let response = route(state, method, path, query);
     write_response(stream, &response)
 }
 
-fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response {
+fn route(state: &InspectState, method: &str, path: &str, query: Option<&str>) -> Response {
     if method != "GET" {
         return Response::text("405 Method Not Allowed", "method not allowed");
     }
 
+    let repo = state.repo.as_path();
     match path {
         "/" | "/index.html" => Response::asset("text/html; charset=utf-8", INDEX_HTML),
         "/tokens.css" => Response::asset("text/css; charset=utf-8", TOKENS_CSS),
@@ -154,7 +215,7 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
         "/api/threads" => api_response(api::threads_json(repo)),
         "/api/freshness" => api_response(api::freshness_json(repo)),
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
-        _ => route_member(repo, path, query),
+        _ => route_member(state, path, query),
     }
 }
 
@@ -162,7 +223,8 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
 /// member (a trailing slash with no id) is a `400`; anything else unmatched is a
 /// `404`. The id segment arrives percent-encoded (the client encodes it with
 /// `encodeURIComponent`) and is decoded here.
-fn route_member(repo: &Path, path: &str, query: Option<&str>) -> Response {
+fn route_member(state: &InspectState, path: &str, query: Option<&str>) -> Response {
+    let repo = state.repo.as_path();
     if let Some(raw) = path_member(path, "/api/revisions/") {
         return match decode_member(raw) {
             Some(id) => api_response(api::revision_json(repo, &id)),
@@ -173,7 +235,12 @@ fn route_member(repo: &Path, path: &str, query: Option<&str>) -> Response {
         return match decode_member(raw) {
             Some(id) => {
                 let content_hash = query_param(query, "contentHash");
-                api_response(api::snapshot_json(repo, &id, content_hash.as_deref()))
+                api_response(api::snapshot_json(
+                    repo,
+                    &id,
+                    content_hash.as_deref(),
+                    Some(&state.highlight_cache),
+                ))
             }
             None => Response::json_error("400 Bad Request", "missing snapshot id"),
         };
@@ -311,12 +378,28 @@ mod tests {
     fn route_for(method: &str, path: &str) -> Response {
         // Static assets, 404, 405, and the missing-id snapshot case do not
         // touch the store, so the repo path is never read for these cases.
-        route(
-            Path::new("/inspect-routing-test-unused"),
-            method,
-            path,
-            None,
-        )
+        let state = InspectState::new(PathBuf::from("/inspect-routing-test-unused"));
+        route(&state, method, path, None)
+    }
+
+    #[test]
+    fn snapshot_cache_returns_identical_bytes_on_hit() {
+        let mut cache = HighlightCache::new(8);
+        assert!(cache.get("sha256:abc").is_none()); // miss
+        let body = "{\"snapshot\":1}".to_owned();
+        cache.put("sha256:abc", body.clone());
+        assert_eq!(cache.get("sha256:abc").as_deref(), Some(body.as_str())); // hit
+    }
+
+    #[test]
+    fn highlight_cache_evicts_oldest_past_capacity() {
+        let mut cache = HighlightCache::new(2);
+        cache.put("a", "1".to_owned());
+        cache.put("b", "2".to_owned());
+        cache.put("c", "3".to_owned()); // evicts the oldest entry, "a"
+        assert!(cache.get("a").is_none());
+        assert_eq!(cache.get("b").as_deref(), Some("2"));
+        assert_eq!(cache.get("c").as_deref(), Some("3"));
     }
 
     #[test]
