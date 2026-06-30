@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use super::cursor::{HistoryCursor, HistoryWindow};
 use crate::model::{RevisionId, TrackId};
 use crate::session::event::EventType;
 use crate::session::{
@@ -22,6 +23,8 @@ pub struct ReviewHistoryOptions {
     pub(super) actor_attributes: Option<ActorAttributesMap>,
     pub(super) delegation_map: Option<DelegationMap>,
     pub(super) read_for_display: bool,
+    pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<HistoryCursor>,
 }
 
 impl ReviewHistoryOptions {
@@ -38,6 +41,8 @@ impl ReviewHistoryOptions {
             actor_attributes: None,
             delegation_map: None,
             read_for_display: false,
+            limit: None,
+            cursor: None,
         }
     }
 
@@ -101,6 +106,28 @@ impl ReviewHistoryOptions {
         self.read_for_display = value;
         self
     }
+
+    /// Bound the rendered output to at most `limit` entries (the first page when
+    /// no cursor is set). Absent by default — the full unbounded result.
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// Continue from a previous page's opaque cursor: take entries strictly after
+    /// it. Absent by default.
+    pub fn with_cursor(mut self, cursor: HistoryCursor) -> Self {
+        self.cursor = Some(cursor);
+        self
+    }
+
+    /// Resolve the requested limit/cursor into the window the projection applies.
+    pub(super) fn window(&self) -> HistoryWindow {
+        HistoryWindow {
+            limit: self.limit,
+            after: self.cursor.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -138,5 +165,31 @@ impl From<ResolvedHistoryFilters> for ReviewHistoryFilters {
             event_types: filters.event_types,
             include_body: filters.include_body,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::EventId;
+
+    #[test]
+    fn options_carry_limit_and_cursor() {
+        let cursor = HistoryCursor {
+            occurred_at: "unix-ms:1".into(),
+            event_id: EventId::new("evt:sha256:a"),
+        };
+        let opts = ReviewHistoryOptions::new("/repo")
+            .with_limit(10)
+            .with_cursor(cursor.clone());
+        let window = opts.window();
+        assert_eq!(window.limit, Some(10));
+        assert_eq!(window.after, Some(cursor));
+    }
+
+    #[test]
+    fn options_default_to_no_window() {
+        let opts = ReviewHistoryOptions::new("/repo");
+        assert_eq!(opts.window(), HistoryWindow::default());
     }
 }

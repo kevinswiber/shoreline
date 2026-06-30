@@ -11,6 +11,9 @@ pub struct ReviewHistoryResult {
     pub event_count: usize,
     pub filters: ReviewHistoryFilters,
     pub entries: Vec<ReviewHistoryEntry>,
+    /// An opaque continuation token for the next page when a window was applied
+    /// and entries remain after it; `null` for an unwindowed or final page.
+    pub next_cursor: Option<String>,
     /// Diagnostics describe the full replayed event set, not only filtered entries.
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }

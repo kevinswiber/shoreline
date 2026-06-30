@@ -1,3 +1,4 @@
+use super::cursor::{HistoryCursor, HistoryWindow, cmp_key};
 use super::options::ResolvedHistoryFilters;
 use super::result::ReviewHistoryResult;
 use super::summary::{ReviewHistoryEntry, ReviewHistorySummary};
@@ -21,6 +22,7 @@ use crate::session::{principal_view_for, verify_event_signature};
 pub(super) fn history_from_events(
     events: &[ShoreEvent],
     filters: ResolvedHistoryFilters,
+    window: HistoryWindow,
     backend: Option<&StoreBackend>,
 ) -> Result<ReviewHistoryResult> {
     let state = SessionState::from_events(events)?;
@@ -29,29 +31,48 @@ pub(super) fn history_from_events(
         .clone()
         .expect("SessionState::from_events sets event_set_hash");
     // Build the co-signature index once per document, only when a policy is set —
-    // the zero-policy path stays free of cost and output.
+    // the zero-policy path stays free of cost and output. It indexes the full
+    // event set (correctness), independent of any window.
     let cosig_index = filters
         .verification_policy
         .is_some()
         .then(|| CosignatureIndex::build(events))
         .transpose()?;
-    let mut entries = events
+
+    // Filter to the matching event references and sort them by the envelope
+    // (occurred_at, event_id) — the same ordering as before — without hydrating
+    // any bodies yet.
+    let mut matched: Vec<&ShoreEvent> = events
         .iter()
         .filter(|event| event_matches_filters(event, &filters))
+        .collect();
+    matched.sort_by(|left, right| {
+        cmp_key(&left.occurred_at, left.event_id.as_str())
+            .cmp(&cmp_key(&right.occurred_at, right.event_id.as_str()))
+    });
+
+    // Window over the cheap envelope keys, then hydrate full entries (bodies
+    // included) only for the windowed slice. This is what cuts body hydration:
+    // out-of-window bodies are never loaded.
+    let keys: Vec<HistoryCursor> = matched
+        .iter()
+        .map(|event| HistoryCursor {
+            occurred_at: event.occurred_at.clone(),
+            event_id: event.event_id.clone(),
+        })
+        .collect();
+    let slice = window.apply(&keys);
+    let entries = matched[slice.range.clone()]
+        .iter()
         .map(|event| history_entry_from_event(event, &filters, cosig_index.as_ref(), backend))
         .collect::<Result<Vec<_>>>()?;
-
-    entries.sort_by(|left, right| {
-        left.occurred_at
-            .cmp(&right.occurred_at)
-            .then_with(|| left.event_id.as_str().cmp(right.event_id.as_str()))
-    });
 
     Ok(ReviewHistoryResult {
         event_set_hash,
         event_count: events.len(),
         filters: filters.into(),
         entries,
+        next_cursor: slice.next_cursor,
         diagnostics: state.diagnostics,
     })
 }

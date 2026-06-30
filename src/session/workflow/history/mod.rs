@@ -44,6 +44,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         None => None,
     };
 
+    let window = options.window();
     let filters = ResolvedHistoryFilters {
         revision_id: options.revision_id,
         track_id,
@@ -55,7 +56,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         actor_attributes: options.actor_attributes,
         delegation_map: options.delegation_map,
     };
-    let mut result = history_from_events(&events, filters, Some(read_store.backend()))?;
+    let mut result = history_from_events(&events, filters, window, Some(read_store.backend()))?;
     result.diagnostics.extend(skip_diagnostics);
     Ok(result)
 }
@@ -84,7 +85,13 @@ mod tests {
 
     #[test]
     fn review_history_returns_empty_freshness_metadata_without_events() {
-        let result = history_from_events(&[], ResolvedHistoryFilters::default(), None).unwrap();
+        let result = history_from_events(
+            &[],
+            ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         assert_eq!(result.event_count, 0);
         assert_eq!(result.history_count(), 0);
@@ -104,6 +111,7 @@ mod tests {
                 event_types: vec![EventType::ReviewInitialized],
                 ..ResolvedHistoryFilters::default()
             },
+            HistoryWindow::default(),
             None,
         )
         .unwrap();
@@ -269,6 +277,7 @@ mod tests {
         let result = history_from_events(
             &[late, tie_b, tie_a],
             ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
             None,
         )
         .unwrap();
@@ -341,9 +350,13 @@ mod tests {
             payload: serde_json::Value::Null,
         };
 
-        let result =
-            history_from_events(&[init, task_event], ResolvedHistoryFilters::default(), None)
-                .unwrap();
+        let result = history_from_events(
+            &[init, task_event],
+            ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].event_type, EventType::ReviewInitialized);
@@ -379,7 +392,13 @@ mod tests {
         let mut events: Vec<ShoreEvent> = vec![init];
         events.extend(task_events);
 
-        let result = history_from_events(&events, ResolvedHistoryFilters::default(), None).unwrap();
+        let result = history_from_events(
+            &events,
+            ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].event_type, EventType::ReviewInitialized);
@@ -420,6 +439,7 @@ mod tests {
         let result = history_from_events(
             &[init, task_attempt],
             ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
             None,
         )
         .unwrap();
@@ -474,8 +494,13 @@ mod tests {
             ..ResolvedHistoryFilters::default()
         };
 
-        let result =
-            history_from_events(&[keep, other_track, other_unit, capture], filters, None).unwrap();
+        let result = history_from_events(
+            &[keep, other_track, other_unit, capture],
+            filters,
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(
@@ -526,7 +551,13 @@ mod tests {
             )),
             ..ResolvedHistoryFilters::default()
         };
-        let result = history_from_events(&[agent_event, human_event], filters, None).unwrap();
+        let result = history_from_events(
+            &[agent_event, human_event],
+            filters,
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         let agent_entry = result
             .entries
@@ -560,6 +591,7 @@ mod tests {
         let result = history_from_events(
             &[agent_written_observation()],
             ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
             None,
         )
         .unwrap();
@@ -580,8 +612,13 @@ mod tests {
             )),
             ..ResolvedHistoryFilters::default()
         };
-        let closed_result =
-            history_from_events(&[agent_written_observation()], closed, None).unwrap();
+        let closed_result = history_from_events(
+            &[agent_written_observation()],
+            closed,
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
         let closed_json = serde_json::to_value(&closed_result.entries[0]).unwrap();
         assert_eq!(
             closed_json["principal"]["status"], "none",
@@ -595,8 +632,13 @@ mod tests {
             )),
             ..ResolvedHistoryFilters::default()
         };
-        let covering_result =
-            history_from_events(&[agent_written_observation()], covering, None).unwrap();
+        let covering_result = history_from_events(
+            &[agent_written_observation()],
+            covering,
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
         let covering_json = serde_json::to_value(&covering_result.entries[0]).unwrap();
         assert_eq!(covering_json["principal"]["status"], "resolved");
     }
@@ -605,8 +647,13 @@ mod tests {
     fn history_omits_body_text_by_default() {
         let event = observation_event_with_body("inline body");
 
-        let result =
-            history_from_events(&[event], ResolvedHistoryFilters::default(), None).unwrap();
+        let result = history_from_events(
+            &[event],
+            ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
         let json = serde_json::to_value(&result.entries[0]).unwrap();
 
         assert!(json["summary"].get("body").is_none());
@@ -627,7 +674,7 @@ mod tests {
             review_note_imported_event(),
         ];
 
-        let result = history_from_events(&events, filters, None).unwrap();
+        let result = history_from_events(&events, filters, HistoryWindow::default(), None).unwrap();
         let entries = result
             .entries
             .iter()
@@ -674,6 +721,7 @@ mod tests {
         let result = history_from_events(
             &[observation_event_with_artifact_path(artifact_path)],
             filters,
+            HistoryWindow::default(),
             Some(&backend),
         )
         .unwrap();
@@ -686,12 +734,134 @@ mod tests {
     }
 
     #[test]
+    fn window_unset_hydrates_all_and_emits_no_cursor() {
+        let events = windowing_events(5);
+        let result = history_from_events(
+            &events,
+            ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.entries.len(), 5);
+        assert!(result.next_cursor.is_none());
+        assert_eq!(result.event_count, 5);
+    }
+
+    #[test]
+    fn window_limit_takes_prefix_and_keeps_full_identity() {
+        let events = windowing_events(5);
+        let result = history_from_events(
+            &events,
+            ResolvedHistoryFilters::default(),
+            HistoryWindow {
+                limit: Some(2),
+                after: None,
+            },
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.entries.len(), 2);
+        assert!(result.next_cursor.is_some());
+        // Identity always describes the full replayed set, never the window.
+        assert_eq!(result.event_count, 5);
+        assert_eq!(result.history_count(), 2);
+    }
+
+    #[test]
+    fn window_cursor_continues_without_overlap() {
+        let events = windowing_events(5);
+        let page1 = history_from_events(
+            &events,
+            ResolvedHistoryFilters::default(),
+            HistoryWindow {
+                limit: Some(2),
+                after: None,
+            },
+            None,
+        )
+        .unwrap();
+        let token = page1.next_cursor.clone().unwrap();
+
+        let page2 = history_from_events(
+            &events,
+            ResolvedHistoryFilters::default(),
+            HistoryWindow {
+                limit: Some(2),
+                after: Some(HistoryCursor::decode(&token).unwrap()),
+            },
+            None,
+        )
+        .unwrap();
+
+        // Page two starts strictly after page one's last entry: no overlap, no gap.
+        assert_ne!(
+            page1.entries.last().unwrap().event_id,
+            page2.entries.first().unwrap().event_id
+        );
+        assert!(
+            page2.entries.first().unwrap().occurred_at > page1.entries.last().unwrap().occurred_at
+        );
+    }
+
+    #[test]
+    fn window_excludes_out_of_window_body_hydration() {
+        let dir = tempfile::tempdir().unwrap();
+        // The first event carries an inline body that hydrates cleanly.
+        let mut head = observation_event_with_body("in-window body");
+        head.occurred_at = "2026-05-13T10:00:01Z".to_owned();
+        // A later event whose body lives in an artifact absent from the store:
+        // loading it errors. It sorts last, so a single-entry window must never
+        // reach it.
+        let mut tail = observation_event_with_artifact_path("artifacts/missing/body.json");
+        tail.occurred_at = "2026-05-13T10:00:09Z".to_owned();
+        let backend = StoreBackend::Local(dir.path().to_path_buf());
+        let with_bodies = || ResolvedHistoryFilters {
+            include_body: true,
+            ..ResolvedHistoryFilters::default()
+        };
+
+        // Slicing before hydration: the window excludes the unreadable tail body,
+        // so the read succeeds — proof the out-of-window body was never loaded. A
+        // hydrate-all-then-slice projection would have errored on it first.
+        let windowed = history_from_events(
+            &[head.clone(), tail.clone()],
+            with_bodies(),
+            HistoryWindow {
+                limit: Some(1),
+                after: None,
+            },
+            Some(&backend),
+        )
+        .unwrap();
+        assert_eq!(windowed.entries.len(), 1);
+
+        // The poison is real: hydrating the full set over the same store errors.
+        assert!(
+            history_from_events(
+                &[head, tail],
+                with_bodies(),
+                HistoryWindow::default(),
+                Some(&backend),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn history_includes_duplicate_semantic_diagnostics() {
         let first = observation_event_with_id_and_key("obs:sha256:same", "retry-a");
         let second = observation_event_with_id_and_key("obs:sha256:same", "retry-b");
 
-        let result =
-            history_from_events(&[first, second], ResolvedHistoryFilters::default(), None).unwrap();
+        let result = history_from_events(
+            &[first, second],
+            ResolvedHistoryFilters::default(),
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         assert!(result.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE
@@ -713,7 +883,13 @@ mod tests {
             ..ResolvedHistoryFilters::default()
         };
 
-        let result = history_from_events(&[duplicate_a, duplicate_b], filters, None).unwrap();
+        let result = history_from_events(
+            &[duplicate_a, duplicate_b],
+            filters,
+            HistoryWindow::default(),
+            None,
+        )
+        .unwrap();
 
         assert!(result.entries.is_empty());
         assert!(
@@ -789,6 +965,19 @@ mod tests {
         let mut event = observation_event("review-unit:sha256:one", "agent:codex", key);
         event.occurred_at = occurred_at.to_owned();
         event
+    }
+
+    /// `count` observation events with strictly increasing `occurred_at` and
+    /// distinct event ids, for exercising the windowed projection.
+    fn windowing_events(count: usize) -> Vec<ShoreEvent> {
+        (0..count)
+            .map(|i| {
+                event_with_time_and_key(
+                    &format!("2026-05-13T10:00:{:02}Z", i + 1),
+                    &format!("window-{i}"),
+                )
+            })
+            .collect()
     }
 
     fn observation_event(revision_id: &str, track_id: &str, title: &str) -> ShoreEvent {
