@@ -11,7 +11,7 @@
 // emit flip) invokes `main()` and ignores the return — the port stays parallel and
 // unserved here, so nothing calls `main()` automatically yet.
 
-import { load, pollFreshness } from "./data";
+import { load, maybeReloadForQuery, pollFreshness } from "./data";
 import { initControls as initDetail } from "./detail";
 import { initControls as initDiff } from "./diff/controller";
 import { $ } from "./dom";
@@ -68,6 +68,9 @@ function wireToolbar(): void {
 export function main(): Promise<void> {
   applyPrefs();
   subscribe(render);
+  // Subscribed after render so the query watcher observes render's type-toggle
+  // seeding: a query change re-fetches page 1, and an unchanged query is a no-op.
+  subscribe(maybeReloadForQuery);
   initPrefs();
   initDiff();
   initPalette();

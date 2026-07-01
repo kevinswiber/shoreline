@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import historyJson from "./fixtures/history.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
 import {
   installFetchMock,
@@ -31,13 +32,35 @@ afterEach(() => {
   resetDom();
 });
 
-// The single revision/object the committed fixtures describe.
-const REV =
-  "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd";
-const OBJ =
-  "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7";
 // history.json's eventCount, the marker the freshness baseline seeds from.
 const HISTORY_EVENT_COUNT = 8;
+
+// Capture the most recent `/api/history` request URL so a test can assert the
+// query the loader sent. Wraps the fixture mock (already installed in beforeEach).
+let lastHistoryUrl = "";
+function captureHistoryUrls(): () => void {
+  const inner = globalThis.fetch;
+  lastHistoryUrl = "";
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    if (new URL(url, "http://inspector.test").pathname === "/api/history")
+      lastHistoryUrl = url;
+    return inner(input as RequestInfo, init);
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = inner;
+  };
+}
+
+/** Let all pending microtasks / the load chain settle. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 describe("load", () => {
   it("commits history, revisions, and objects to the store", async () => {
@@ -82,41 +105,83 @@ describe("load", () => {
     expect(freshnessAt).toBeLessThan(historyAt);
   });
 
-  it("indexes every entry before committing — a subscriber never sees an un-indexed entry", async () => {
-    const indexedAtEachNotification: boolean[] = [];
-    store.subscribe(() => {
-      const entries = store.getState().history?.entries ?? [];
-      indexedAtEachNotification.push(
-        entries.every((e) => e.__search !== undefined),
-      );
-    });
-
-    await data.load();
-
-    expect(indexedAtEachNotification.length).toBeGreaterThan(0);
-    expect(indexedAtEachNotification.every(Boolean)).toBe(true);
+  it("fetches page 1 of /api/history for the current query, never the full set", async () => {
+    const restore = captureHistoryUrls();
+    try {
+      store.commit({ filterText: "pinned", order: "desc" });
+      await data.load();
+    } finally {
+      restore();
+    }
+    expect(lastHistoryUrl).toMatch(/\/api\/history\?/);
+    expect(lastHistoryUrl).toContain("q=pinned");
+    expect(lastHistoryUrl).toContain("order=desc");
+    expect(lastHistoryUrl).toContain("limit=");
+    // The server owns the haystack now — the loader builds no client index.
+    expect(
+      store.getState().history?.entries.every((e) => e.__search === undefined),
+    ).toBe(true);
   });
 
-  it("builds a structured search index (text + type + cross-doc object id) per entry", async () => {
+  it("commits the server facets, matchCount, and offset onto the store", async () => {
     await data.load();
-    const entries = store.getState().history?.entries ?? [];
-    expect(entries.length).toBe(8);
-    for (const e of entries) {
-      const idx = e.__search;
-      expect(idx).toBeDefined();
-      expect(typeof idx?.text).toBe("string");
-      expect(idx?.type).toBe(e.eventType);
-      expect(idx?.revision).toBe(REV);
-      // The object id is resolved against the revisions payload (cross-document).
-      expect(idx?.object).toBe(OBJ);
-    }
-    // A validation entry carries its status into the index.
-    const failed = entries.find(
-      (e) =>
-        e.eventType === "validation_check_recorded" &&
-        e.trackId === "human:kevin",
+    const s = store.getState();
+    expect(s.history?.facets).toEqual(
+      (historyJson as unknown as { facets: Record<string, number> }).facets,
     );
-    expect(failed?.__search?.status).toBe("failed");
+    expect(s.history?.matchCount).toBe(8);
+    expect(s.history?.offset).toBe(0);
+  });
+
+  it("stamps the loaded page with the query key it was fetched under", async () => {
+    store.commit({ filterText: "pinned" });
+    await data.load();
+    expect(store.getState().history?.queryKey).toContain("q=pinned");
+  });
+
+  it("a poll reload re-fetches page 1 of the CURRENT query", async () => {
+    await data.load();
+    const restore = captureHistoryUrls();
+    try {
+      store.commit({ filterText: "needle" });
+      await data.load();
+    } finally {
+      restore();
+    }
+    expect(lastHistoryUrl).toContain("q=needle");
+  });
+
+  it("a query change triggers a page-1 fetch via the query watcher", async () => {
+    await data.load();
+    const restore = captureHistoryUrls();
+    try {
+      store.subscribe(data.maybeReloadForQuery);
+      store.commit({ filterText: "pinned" });
+      await flush();
+    } finally {
+      restore();
+    }
+    expect(lastHistoryUrl).toContain("q=pinned");
+  });
+
+  it("the query watcher does not loop when the query key already matches", async () => {
+    await data.load();
+    // Mirror render's type-toggle seeding: every present type enabled, so the
+    // active query serializes with no `type=` param and matches the stamped key.
+    const present = new Set(
+      (store.getState().history?.entries ?? []).map((e) => e.eventType),
+    );
+    store.commit({ enabledTypes: present });
+    const restore = captureHistoryUrls();
+    try {
+      store.subscribe(data.maybeReloadForQuery);
+      // A commit that leaves the query untouched must not re-fetch.
+      store.commit({ selected: { kind: "event", id: "evt:x" } });
+      await flush();
+    } finally {
+      restore();
+    }
+    expect(lastHistoryUrl).toBe("");
   });
 
   it("does not paint the master pane itself — the store subscriber repaints", async () => {

@@ -1,57 +1,19 @@
-// Structured query grammar: the per-entry search haystack, the tokenizer, the
-// field:value + free-text parser, and the field/predicate matchers. Ported from
-// the served app.js query cluster. All pure (argument-driven, no DOM, no state).
+// Structured query grammar: the tokenizer, the field:value + free-text parser,
+// and the field/predicate matchers, still used by the revisions/threads lenses.
+// Ported from the served app.js query cluster. All pure (argument-driven, no DOM,
+// no state).
 //
-// The state-bound filter functions (currentClauses/matchesFilters/facetCounts and
-// the queryCache global) read `state` and are deferred to the next plan; they are
-// not ported here. Import direction stays downward: query -> projection -> leaves.
+// The timeline history query (its haystack, filter predicates, and facet counts)
+// moved to the server; the client no longer indexes or searches history entries.
+// The revisions/threads lenses keep matching client-side over the fully-loaded
+// supersession graph, so this grammar stays. Import direction stays downward.
 
-import {
-  entryAnchor,
-  entryRevisionId,
-  entryTags,
-  entryTitle,
-  entryTrack,
-} from "./projection";
-import {
-  type EntrySummary,
-  type HistoryEntry,
-  QUERY_FIELDS,
-  type SearchIndex,
-  TYPES,
-} from "./types";
+import { QUERY_FIELDS, type SearchIndex, TYPES } from "./types";
 
 /** A parsed query clause: a field:value equality or a free-text term, negatable. */
 export type QueryClause =
   | { kind: "field"; field: string; value: string; negate: boolean }
   | { kind: "text"; value: string; negate: boolean };
-
-// The lowercased haystack of an entry's human-relevant fields (not the whole
-// serialized event).
-/** Build the lowercased search haystack for a history entry. */
-export function buildHaystack(e: HistoryEntry): string {
-  const s: EntrySummary = e.summary || {};
-  const parts = [
-    entryTitle(e),
-    s.body,
-    s.summary,
-    s.assessment,
-    s.outcome,
-    s.reasonCode,
-    e.eventId,
-    entryRevisionId(e),
-    s.observationId,
-    s.assessmentId,
-    s.inputRequestId,
-    s.validationCheckId,
-    entryTrack(e),
-    entryAnchor(e),
-    s.checkName,
-    s.command,
-    ...entryTags(e),
-  ];
-  return parts.filter(Boolean).join(" ").toLowerCase();
-}
 
 // Split a query into tokens, honoring "quoted phrases" (optionally negated /
 // field-prefixed) and bare runs.

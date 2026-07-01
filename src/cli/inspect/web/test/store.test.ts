@@ -70,6 +70,26 @@ describe("commit applies patches", () => {
     expect(s.revisions?.entries.length ?? 0).toBeGreaterThan(0);
     expect(Array.isArray(s.threads?.threads)).toBe(true);
   });
+
+  it("holds the loaded page window, facets, and matchCount on the history doc", () => {
+    store.commit({
+      history: {
+        entries: [],
+        diagnostics: [],
+        facets: { review_observation_recorded: 3 },
+        matchCount: 42,
+        offset: 20,
+        nextCursor: "cursor-token",
+        queryKey: "q=pinned&limit=100",
+      } as unknown as HistoryDoc,
+    });
+    const s = store.getState();
+    expect(s.history?.facets).toEqual({ review_observation_recorded: 3 });
+    expect(s.history?.matchCount).toBe(42);
+    expect(s.history?.offset).toBe(20);
+    expect(s.history?.nextCursor).toBe("cursor-token");
+    expect(s.history?.queryKey).toBe("q=pinned&limit=100");
+  });
 });
 
 describe("commit restores the navigate() invariants", () => {

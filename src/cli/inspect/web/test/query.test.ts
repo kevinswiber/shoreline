@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { entryRevisionId, entryTrack } from "../src/projection";
 import {
-  buildHaystack,
   fieldMatches,
   matchesQuery,
   parseSearchQuery,
@@ -17,38 +16,6 @@ function entryOfType(type: string): HistoryEntry {
   if (!found) throw new Error(`no ${type} entry in fixture`);
   return found;
 }
-
-describe("buildHaystack", () => {
-  it("indexes the curated human fields, lowercased", () => {
-    const obs = entryOfType("review_observation_recorded");
-    const haystack = buildHaystack(obs);
-    expect(haystack).toBe(haystack.toLowerCase());
-    expect(haystack).toContain("observed change");
-    expect(haystack).toContain("agent:codex");
-  });
-
-  it("indexes the validation check name", () => {
-    expect(buildHaystack(entryOfType("validation_check_recorded"))).toContain(
-      "cargo test",
-    );
-  });
-
-  it("indexes body and tags but not unindexed wire fields like journalId", () => {
-    const haystack = buildHaystack({
-      eventType: "review_observation_recorded",
-      eventId: "evt:1",
-      trackId: "agent:x",
-      summary: { title: "T", body: "Body Text", tags: ["Alpha", "Beta"] },
-    });
-    expect(haystack).toContain("body text");
-    expect(haystack).toContain("alpha");
-    expect(haystack).toContain("beta");
-    // The curated haystack is not a whole-event stringify: journalId is not in it.
-    expect(
-      buildHaystack(entryOfType("review_observation_recorded")),
-    ).not.toContain("journal");
-  });
-});
 
 describe("tokenizeQuery", () => {
   it("splits on whitespace", () => {
@@ -162,11 +129,13 @@ describe("matchesQuery", () => {
   });
 });
 
-describe("query grammar over a real entry index", () => {
-  it("filters a fixture observation by its projected fields and haystack", () => {
+describe("query grammar over a real entry's projected fields", () => {
+  it("filters a fixture observation by its projected fields and free text", () => {
+    // The haystack is now built server-side; the client grammar still matches the
+    // projected fields (type/track/revision) and a lowercased free-text haystack.
     const obs = entryOfType("review_observation_recorded");
     const idx: SearchIndex = {
-      text: buildHaystack(obs),
+      text: "observed change in src/lib.rs",
       type: obs.eventType,
       track: entryTrack(obs),
       revision: entryRevisionId(obs),

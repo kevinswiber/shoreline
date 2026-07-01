@@ -19,7 +19,12 @@ import { TYPES } from "./types";
 // time (history diagnostics, object threads, the per-revision classification map)
 // stay `unknown`-typed dynamic JSON rather than re-declaring the wire here.
 
-/** The `/api/history` document: timeline entries plus load-time diagnostics. */
+/**
+ * The `/api/history` document: the loaded page of timeline entries plus load-time
+ * diagnostics. The server owns the query now — `entries` is a window of the
+ * filtered result, sized/placed by `matchCount`/`offset`, with `facets` and
+ * `nextCursor` carrying the toggle counts and the forward page token.
+ */
 export interface HistoryDoc {
   entries: HistoryEntry[];
   diagnostics: unknown[];
@@ -29,6 +34,20 @@ export interface HistoryDoc {
   eventSetHash?: string;
   // The durable-event count the stat row reads (present in the committed fixture).
   eventCount?: number;
+  // Per-type counts under the active query, excluding the type page-filter — the
+  // numbers the type toggles show (the toggle distribution, server-computed).
+  facets?: Record<string, number>;
+  // Total entries matching the active query, which sizes the virtual scrollbar
+  // without transferring the rows.
+  matchCount?: number;
+  // The global index of `entries[0]` within the matched set, placing the loaded
+  // window in the virtual list.
+  offset?: number;
+  // The opaque forward continuation token for the next page, or null at the end.
+  nextCursor?: string | null;
+  // The query string the loaded page was fetched under; a mismatch with the
+  // active query resets paging and re-fetches page 1.
+  queryKey?: string;
 }
 
 /** The `/api/revisions` document: one entry per captured revision. */
