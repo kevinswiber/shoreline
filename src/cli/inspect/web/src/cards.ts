@@ -19,12 +19,14 @@ import {
 import { escapeHtml } from "./escape";
 import { fmtDateTime } from "./format";
 import { renderBodyContent, renderContentHtml } from "./markdown";
+import type { ThreadLayout } from "./model";
 import {
   assessmentDisplayLabel,
   endorsementsBlock,
   verificationChip,
 } from "./projection";
 import { isMarkdownContentType, linkify } from "./refs";
+import { renderSupersessionSvg } from "./supersession";
 import type { Endorsement } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -378,4 +380,38 @@ export function factSection<T>(
     ? list.map(render).join("")
     : `<p class="${CLASS.upEmpty}">none</p>`;
   return `<section><h2>${escapeHtml(title)} (${list.length})</h2>${context}${body}</section>`;
+}
+
+/** One fact type's laid-out supersession graph, from `/api/revisions/{id}`. */
+export interface FactSupersessionGraph {
+  laidOut?: ThreadLayout;
+}
+
+/** The inspector-private fork-gated fact graphs on the composite document. */
+export interface FactSupersession {
+  assessments?: FactSupersessionGraph;
+  observations?: FactSupersessionGraph;
+}
+
+/**
+ * The fork-gated fact supersession DAG for one section, or "" when absent/empty.
+ * A read-time legibility readback of the already-computed `replaces`/`supersedes`
+ * shape — advisory, non-interactive, additive (the cards keep their own chips).
+ */
+export function renderFactSupersessionBlock(
+  graph: FactSupersessionGraph | null | undefined,
+  noun: "assessment" | "observation",
+): string {
+  const laid = graph?.laidOut;
+  if (!laid || !(laid.nodes ?? []).length) return "";
+  const svg = renderSupersessionSvg(laid, {
+    idAttr: "data-fact-id",
+    ariaNoun: noun,
+    interactive: false,
+    isSelected: () => false,
+  });
+  if (!svg) return "";
+  const heads = (laid.nodes ?? []).filter((n) => n.isHead).length;
+  const caption = `${noun} supersession${heads > 1 ? ` — ${heads} competing` : ""}`;
+  return `<figure class="${CLASS.factDag}"><figcaption>${escapeHtml(caption)}</figcaption>${svg}</figure>`;
 }

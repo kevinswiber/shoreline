@@ -259,6 +259,12 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .dag-node:focus rect { stroke: var(--accent); stroke-width: 2.5; }
 .dag-node:focus-visible rect { stroke: var(--accent); stroke-width: 3; }
 
+/* Fact-level supersession mini-DAG: reuses the .revision-dag stylesheet above;
+   the figure adds a caption and marks the nodes non-interactive. */
+.fact-dag { margin: 10px 0 4px; }
+.fact-dag figcaption { color: var(--fg-dim); font-size: var(--fs-xs); margin-bottom: 4px; }
+.fact-dag .dag-node { cursor: default; }
+
 .error { background: var(--error-bg); color: var(--danger); padding: 8px 16px; border-top: 1px solid var(--error-border); font-family: var(--mono); font-size: var(--fs-sm); }
 
 .badge { font-family: var(--mono); font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-sm); background: var(--bg-row); color: var(--fg-dim); }

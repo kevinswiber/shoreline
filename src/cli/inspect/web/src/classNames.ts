@@ -118,6 +118,7 @@ export const CLASS = {
   dagArrowHead: "dag-arrow-head",
   dagArrowHeadTraced: "dag-arrow-head-traced",
   revisionDag: "revision-dag",
+  factDag: "fact-dag",
   head: "head",
   stale: "stale",
   superseded: "superseded",

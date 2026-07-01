@@ -9,6 +9,7 @@ import {
   type RevisionDetail,
   renderAdapterNoteCard,
   renderAssessmentCard,
+  renderFactSupersessionBlock,
   renderInputRequestCard,
   renderObservationCard,
   renderValidationCheckCard,
@@ -380,5 +381,80 @@ describe("advisory framing", () => {
       doc.querySelector(".endorsements")?.getAttribute("title") ?? "";
     expect(endorseTitle).toContain("reader-relative");
     expect(endorseTitle).toContain("never gates a write");
+  });
+});
+
+describe("renderFactSupersessionBlock (the fork-gated fact DAG figure)", () => {
+  const graph = {
+    laidOut: {
+      nodes: [
+        {
+          id: "as:a",
+          x: 30,
+          y: 20,
+          w: 50,
+          h: 22,
+          isHead: false,
+          isSuperseded: true,
+        },
+        {
+          id: "as:b",
+          x: 20,
+          y: 70,
+          w: 50,
+          h: 22,
+          isHead: true,
+          isSuperseded: false,
+        },
+        {
+          id: "as:c",
+          x: 90,
+          y: 70,
+          w: 50,
+          h: 22,
+          isHead: true,
+          isSuperseded: false,
+        },
+      ],
+      edges: [
+        {
+          from: "as:b",
+          to: "as:a",
+          path: [
+            [20, 58],
+            [30, 32],
+          ],
+          kind: "replaces",
+        },
+      ],
+      bounds: { w: 150, h: 100 },
+    },
+  };
+
+  it("wraps the painter in a labeled fact-dag figure with the fact nodes", () => {
+    const html = renderFactSupersessionBlock(graph, "assessment");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelector("figure.fact-dag")).not.toBeNull();
+    expect(
+      doc.querySelector("figure.fact-dag figcaption")?.textContent,
+    ).toContain("assessment");
+    // Reused painter: revision-dag svg root, data-fact-id nodes, 2 competing heads.
+    expect(
+      doc.querySelector("figure.fact-dag svg.revision-dag"),
+    ).not.toBeNull();
+    expect(doc.querySelectorAll("g.dag-node[data-fact-id]").length).toBe(3);
+    expect(doc.querySelectorAll("g.dag-node.head").length).toBe(2);
+    // Non-interactive.
+    expect(doc.querySelector("g.dag-node[role]")).toBeNull();
+  });
+
+  it("returns '' when the graph is absent or empty", () => {
+    expect(renderFactSupersessionBlock(undefined, "assessment")).toBe("");
+    expect(
+      renderFactSupersessionBlock(
+        { laidOut: { nodes: [], edges: [], bounds: { w: 0, h: 0 } } },
+        "observation",
+      ),
+    ).toBe("");
   });
 });
