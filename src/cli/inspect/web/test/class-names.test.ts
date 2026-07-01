@@ -256,4 +256,9 @@ describe("ALL_EMITTABLE_CLASSES", () => {
       ALL_EMITTABLE_CLASSES.length,
     );
   });
+
+  test("registers the emphasis class", () => {
+    expect(CLASS.emph).toBe("emph");
+    expect(ALL_EMITTABLE_CLASSES).toContain("emph");
+  });
 });

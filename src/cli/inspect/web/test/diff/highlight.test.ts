@@ -34,4 +34,39 @@ describe("highlightRowText", () => {
       highlightRowText("a<b", [{ start: 2, end: 1, kind: "keyword" }]),
     ).toBe("a&lt;b");
   });
+
+  it("emphasis-only wraps just the changed span", () => {
+    expect(highlightRowText("let x", undefined, [{ start: 4, end: 5 }])).toBe(
+      'let <span class="emph">x</span>',
+    );
+  });
+
+  it("token + emphasis overlap merges classes on the shared segment", () => {
+    // keyword [0,3), emphasis [0,2) → "le" carries both, "t" carries only the token
+    expect(
+      highlightRowText(
+        "let x",
+        [{ start: 0, end: 3, kind: "keyword" }],
+        [{ start: 0, end: 2 }],
+      ),
+    ).toBe(
+      '<span class="tok tok-keyword emph">le</span><span class="tok tok-keyword">t</span> x',
+    );
+  });
+
+  it("invalid emphasis is dropped but valid tokens still render", () => {
+    expect(
+      highlightRowText(
+        "let x",
+        [{ start: 0, end: 3, kind: "keyword" }],
+        [{ start: 1, end: 99 }],
+      ),
+    ).toBe('<span class="tok tok-keyword">let</span> x');
+  });
+
+  it("emphasis escapes the changed segment", () => {
+    expect(highlightRowText("a<b", undefined, [{ start: 0, end: 3 }])).toBe(
+      '<span class="emph">a&lt;b</span>',
+    );
+  });
 });

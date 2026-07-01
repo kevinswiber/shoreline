@@ -101,6 +101,7 @@ export const CLASS = {
   drow: "drow",
   drowMeta: "drow-meta",
   dtext: "dtext",
+  emph: "emph",
   ln: "ln",
   sign: "sign",
 
