@@ -267,3 +267,11 @@ capture a separate handoff when that task reaches its own end.
 - **Capturing every small edit.** Wait for a coherent unit of implementation work.
 - **Using inconsistent tracks.** Set one `track` value for the handoff and reuse it for every author
   observation, input request, and readback command.
+- **Putting the run id in `SHORE_ACTOR_ID`.** The run/issue id belongs in the `--track`
+  (`agent:claude-code-234`), NEVER in the actor id. `SHORE_ACTOR_ID=actor:agent:claude-code-234` mints
+  a brand-new per-run identity whose auto-generated key is **not enrolled**, so every event lands
+  signed-but-**untrusted** with no diagnostic — while the durable, already-enrolled
+  `actor:agent:claude-code` key goes unused. Always
+  `export SHORE_ACTOR_ID="actor:agent:<agent-name>"` with no run suffix (`shore keys list` shows the
+  canonical name as `enrolled:true`). Do not `shore keys enroll` a throwaway per-run key to paper
+  over it. When these instructions arrive as skill args, take the run id as the track only.

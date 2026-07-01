@@ -278,6 +278,13 @@ did not change, and which input requests you responded to. Leave the assessment 
 
 - **Adding an assessment as the author.** The author never assesses. Only the reviewer records the
   review call.
+- **Putting the run id in `SHORE_ACTOR_ID`.** The run/issue id belongs in `--track`
+  (`agent:claude-code-234`), never the actor id. `SHORE_ACTOR_ID=actor:agent:claude-code-234` mints a
+  new per-run identity whose auto-generated key is **not enrolled**, so events land
+  signed-but-**untrusted** with no diagnostic while the durable, already-enrolled
+  `actor:agent:claude-code` key goes unused. Always
+  `export SHORE_ACTOR_ID="actor:agent:<agent-name>"` (the same canonical, run-free id the author run
+  used); if the run id arrives as a skill arg, take it as the track only.
 - **Recapturing the revision.** Attach to the existing revision with `--revision`; do not run
   `shore review capture` for the response leg.
 - **Using full revision show for readback.** Use bounded observation, input-request, and
