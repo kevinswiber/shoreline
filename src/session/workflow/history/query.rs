@@ -216,6 +216,7 @@ mod tests {
                 tags: vec![],
                 confidence: None,
                 supersedes: vec![],
+                responds_to: vec![],
             },
         };
         ReviewHistoryEntry {

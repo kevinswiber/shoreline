@@ -56,6 +56,12 @@ pub struct ObservationViewDocument {
     confidence: Option<String>,
     status: crate::session::ObservationStatus,
     supersedes: Vec<String>,
+    // Unlike `supersedes`, the response links skip when empty so an observation with no
+    // responses stays byte-identical to its pre-response-link form (no snapshot churn).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    responds_to: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    responded_by: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
     created_at: String,
@@ -229,6 +235,16 @@ impl From<ObservationView> for ObservationViewDocument {
             status: view.status,
             supersedes: view
                 .supersedes
+                .into_iter()
+                .map(|observation_id| observation_id.as_str().to_owned())
+                .collect(),
+            responds_to: view
+                .responds_to
+                .into_iter()
+                .map(|observation_id| observation_id.as_str().to_owned())
+                .collect(),
+            responded_by: view
+                .responded_by
                 .into_iter()
                 .map(|observation_id| observation_id.as_str().to_owned())
                 .collect(),

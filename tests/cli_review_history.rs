@@ -105,6 +105,59 @@ fn review_history_filters_by_track_and_event_type() {
 }
 
 #[test]
+fn review_history_summary_surfaces_responds_to() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let base = add_observation(&repo, "agent:codex", "Base");
+    let base_id = base["observationId"].as_str().unwrap().to_owned();
+    shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "Ack",
+        "--responds-to",
+        &base_id,
+    ]);
+
+    let output = shore(["review", "history", "--repo", repo.path().to_str().unwrap()]);
+    let json = parse_json(&output.stdout);
+    let ack = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| {
+            entry["summary"]["kind"] == "review_observation_recorded"
+                && entry["summary"]["title"] == "Ack"
+        })
+        .expect("history carries the acknowledging observation");
+    assert!(
+        ack["summary"]["respondsTo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == &base_id),
+        "history summary should carry the responds_to forward pointer"
+    );
+
+    // The plain base observation carries no response link, so the key is omitted.
+    let base_entry = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| {
+            entry["summary"]["kind"] == "review_observation_recorded"
+                && entry["summary"]["title"] == "Base"
+        })
+        .unwrap();
+    assert!(base_entry["summary"].get("respondsTo").is_none());
+}
+
+#[test]
 fn review_history_include_body_hydrates_text_without_artifact_paths() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);

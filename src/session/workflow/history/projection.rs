@@ -276,6 +276,7 @@ pub(super) fn history_entry_from_event(
                 tags: payload.tags,
                 confidence: payload.confidence,
                 supersedes: payload.supersedes_observation_ids,
+                responds_to: payload.responds_to_observation_ids,
             }
         }
         EventType::ReviewAssessmentRecorded => {

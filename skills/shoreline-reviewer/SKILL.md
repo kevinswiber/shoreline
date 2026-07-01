@@ -152,7 +152,10 @@ shore review observation add \
 ```
 
 Plain observations are for facts that need no response. If you need the author to make a decision,
-open an advisory input request instead.
+open an advisory input request instead. To acknowledge or dispose of another observation
+non-destructively — leaving it standing — add an observation with `--responds-to <observation-id>`
+(see [ADR-0026](../../docs/adr/adr-0026-fact-to-fact-response-relationship.md)); use `--supersedes`
+only to retire a target you are correcting.
 
 **Body content type — prefer Markdown for review content.** The `--body` (observations, input
 requests), `--summary` (validation, assessment), and `--reason` (input-request responses) fields

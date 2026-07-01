@@ -40,6 +40,8 @@ pub struct ObservationView {
     pub confidence: Option<String>,
     pub status: ObservationStatus,
     pub supersedes: Vec<ObservationId>,
+    pub responds_to: Vec<ObservationId>,
+    pub responded_by: Vec<ObservationId>,
     pub body_content_hash: Option<String>,
     pub created_at: String,
     pub writer: Writer,
@@ -58,6 +60,7 @@ pub(crate) fn project_observations(
     let mut observation_records: BTreeMap<ObservationId, ObservationEventRecord<'_>> =
         BTreeMap::new();
     let mut superseded_ids = BTreeSet::new();
+    let mut responded_by: BTreeMap<ObservationId, BTreeSet<ObservationId>> = BTreeMap::new();
 
     for event in options
         .events
@@ -73,6 +76,15 @@ pub(crate) fn project_observations(
         let payload: ReviewObservationRecordedPayload =
             serde_json::from_value(event.payload.clone())?;
         superseded_ids.extend(payload.supersedes_observation_ids.iter().cloned());
+        // Collect response edges here, before the track filter below, so a reviewer-track ack of an
+        // author-track observation still surfaces on the author-track view (the reverse-map is
+        // cross-track within the revision).
+        for target in &payload.responds_to_observation_ids {
+            responded_by
+                .entry(target.clone())
+                .or_default()
+                .insert(payload.observation_id.clone());
+        }
 
         let track_id =
             event.target.track_id.clone().ok_or_else(|| {
@@ -139,6 +151,8 @@ pub(crate) fn project_observations(
             confidence: record.payload.confidence,
             status: ObservationStatus::Active,
             supersedes: record.payload.supersedes_observation_ids,
+            responds_to: record.payload.responds_to_observation_ids,
+            responded_by: Vec::new(),
             body_content_hash: record.payload.body_content_hash,
             created_at: record.event.occurred_at.clone(),
             writer: record.event.writer.clone(),
@@ -149,6 +163,10 @@ pub(crate) fn project_observations(
         if superseded_ids.contains(&observation.id) {
             observation.status = ObservationStatus::Superseded;
         }
+        observation.responded_by = responded_by
+            .get(&observation.id)
+            .map(|responders| responders.iter().cloned().collect())
+            .unwrap_or_default();
     }
     sort_observation_views(&mut observations);
     Ok(observations)

@@ -1096,6 +1096,7 @@ mod tests {
             tags: vec![],
             confidence: None,
             supersedes_observation_ids: vec![],
+            responds_to_observation_ids: vec![],
         };
         tracked_event_for_unit(
             EventType::ReviewObservationRecorded,
@@ -1122,6 +1123,7 @@ mod tests {
             tags: vec!["correctness".to_owned()],
             confidence: Some("high".to_owned()),
             supersedes_observation_ids: vec![],
+            responds_to_observation_ids: vec![],
         };
         tracked_event(
             EventType::ReviewObservationRecorded,
@@ -1147,6 +1149,7 @@ mod tests {
             tags: vec![],
             confidence: None,
             supersedes_observation_ids: vec![],
+            responds_to_observation_ids: vec![],
         };
         tracked_event(
             EventType::ReviewObservationRecorded,
@@ -1204,6 +1207,7 @@ mod tests {
             tags: vec![],
             confidence: None,
             supersedes_observation_ids: vec![],
+            responds_to_observation_ids: vec![],
         };
         tracked_event(
             EventType::ReviewObservationRecorded,

@@ -41,6 +41,7 @@ pub struct ObservationAddOptions {
     tags: Vec<String>,
     confidence: Option<String>,
     supersedes_observation_ids: Vec<ObservationId>,
+    responds_to_observation_ids: Vec<ObservationId>,
     idempotency_key: Option<String>,
     actor_id: Option<ActorId>,
     signing: EventSigningOptions,
@@ -59,6 +60,7 @@ impl ObservationAddOptions {
             tags: Vec::new(),
             confidence: None,
             supersedes_observation_ids: Vec::new(),
+            responds_to_observation_ids: Vec::new(),
             idempotency_key: None,
             actor_id: None,
             signing: EventSigningOptions::default(),
@@ -116,6 +118,11 @@ impl ObservationAddOptions {
 
     pub fn superseding(mut self, observation_id: ObservationId) -> Self {
         self.supersedes_observation_ids.push(observation_id);
+        self
+    }
+
+    pub fn responding_to(mut self, observation_id: ObservationId) -> Self {
+        self.responds_to_observation_ids.push(observation_id);
         self
     }
 
@@ -187,6 +194,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
         tags: options.tags,
         confidence: options.confidence,
         supersedes_observation_ids: options.supersedes_observation_ids,
+        responds_to_observation_ids: options.responds_to_observation_ids,
         idempotency_key: options.idempotency_key,
         actor_id: options.actor_id,
         signing: options.signing,
@@ -205,6 +213,7 @@ struct ObservationWriteInput {
     tags: Vec<String>,
     confidence: Option<String>,
     supersedes_observation_ids: Vec<ObservationId>,
+    responds_to_observation_ids: Vec<ObservationId>,
     idempotency_key: Option<String>,
     actor_id: Option<ActorId>,
     signing: EventSigningOptions,
@@ -246,6 +255,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
         tags: &input.tags,
         confidence: input.confidence.as_deref(),
         supersedes_observation_ids: &input.supersedes_observation_ids,
+        responds_to_observation_ids: &input.responds_to_observation_ids,
         writer_actor_id: writer.actor_id.as_str(),
     })?;
     let source_key = input
@@ -287,6 +297,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
             tags: input.tags,
             confidence: input.confidence,
             supersedes_observation_ids: input.supersedes_observation_ids,
+            responds_to_observation_ids: input.responds_to_observation_ids,
         },
         current_timestamp(),
     )?;
@@ -335,6 +346,7 @@ struct ObservationIdMaterial<'a> {
     tags: &'a [String],
     confidence: Option<&'a str>,
     supersedes_observation_ids: &'a [ObservationId],
+    responds_to_observation_ids: &'a [ObservationId],
     writer_actor_id: &'a str,
 }
 
@@ -347,6 +359,12 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
         .map(|observation_id| observation_id.as_str())
         .collect::<Vec<_>>();
     supersedes.sort();
+    let mut responds_to = material
+        .responds_to_observation_ids
+        .iter()
+        .map(|observation_id| observation_id.as_str())
+        .collect::<Vec<_>>();
+    responds_to.sort();
     let mut value = json!({
         "revisionId": material.revision_id.as_str(),
         "trackId": material.track_id.as_str(),
@@ -361,6 +379,79 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
     if let Some(body_content_type) = material.body_content_type {
         value["bodyContentType"] = json!(body_content_type);
     }
+    // Fold the response links only when present. An empty list must not add a key
+    // to the id material, or every existing observation (none of which respond to
+    // anything) would get a new id and break idempotency for already-stored events.
+    if !responds_to.is_empty() {
+        value["respondsToObservationIds"] = json!(responds_to);
+    }
     let digest = sha256_json_prefixed(&value)?;
     Ok(ObservationId::new(format!("obs:{digest}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn synthetic_material() -> (RevisionId, TrackId, ReviewTargetRef) {
+        let revision_id = RevisionId::new("rev:sha256:fixed");
+        let track_id = TrackId::new("agent:codex");
+        let target = ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("rev:sha256:fixed"),
+        };
+        (revision_id, track_id, target)
+    }
+
+    /// The id a byte-identical observation produced before a response-link field
+    /// existed in the id material. Captured once from the pre-field material, this
+    /// pins the empty case to its historical value: folding an empty response list
+    /// must leave the id untouched (otherwise every already-stored observation
+    /// would silently re-key).
+    const EMPTY_RESPONSE_LINK_ID: &str =
+        "obs:sha256:61da623e21717eedce2eea746b4d059ce726479fa8f757ce09d3040dd18f5084";
+
+    #[test]
+    fn empty_response_links_keep_the_historical_observation_id() {
+        let (revision_id, track_id, target) = synthetic_material();
+        let id = build_observation_id(ObservationIdMaterial {
+            revision_id: &revision_id,
+            track_id: &track_id,
+            target: &target,
+            title: "x",
+            body_content_hash: None,
+            body_content_type: None,
+            tags: &[],
+            confidence: None,
+            supersedes_observation_ids: &[],
+            responds_to_observation_ids: &[],
+            writer_actor_id: "actor:test",
+        })
+        .unwrap();
+        assert_eq!(id.as_str(), EMPTY_RESPONSE_LINK_ID);
+    }
+
+    #[test]
+    fn response_links_fold_order_independently() {
+        let (revision_id, track_id, target) = synthetic_material();
+        let a = ObservationId::new("obs:sha256:aaa");
+        let b = ObservationId::new("obs:sha256:bbb");
+        let build = |links: &[ObservationId]| {
+            build_observation_id(ObservationIdMaterial {
+                revision_id: &revision_id,
+                track_id: &track_id,
+                target: &target,
+                title: "x",
+                body_content_hash: None,
+                body_content_type: None,
+                tags: &[],
+                confidence: None,
+                supersedes_observation_ids: &[],
+                responds_to_observation_ids: links,
+                writer_actor_id: "actor:test",
+            })
+            .unwrap()
+        };
+        // Set-equal links fold to one id regardless of the order they were authored in.
+        assert_eq!(build(&[a.clone(), b.clone()]), build(&[b, a]));
+    }
 }

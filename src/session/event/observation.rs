@@ -26,6 +26,8 @@ pub struct ReviewObservationRecordedPayload {
     pub confidence: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supersedes_observation_ids: Vec<ObservationId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub responds_to_observation_ids: Vec<ObservationId>,
 }
 
 impl ReviewObservationRecordedPayload {

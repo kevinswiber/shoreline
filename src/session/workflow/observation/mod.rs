@@ -26,8 +26,8 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        EngagementId, EventId, JournalId, ObjectId, ReviewEndpoint, ReviewTargetRef, RevisionId,
-        RevisionSource, Side, TrackId, WorktreeCaptureMode,
+        EngagementId, EventId, JournalId, ObjectId, ObservationId, ReviewEndpoint, ReviewTargetRef,
+        RevisionId, RevisionSource, Side, TrackId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         EventTarget, EventType, GitProvenance, Revision, ShoreEvent, WorkObjectProposal,
@@ -532,6 +532,60 @@ mod tests {
     }
 
     #[test]
+    fn observation_records_responds_to_link_in_payload() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let base = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("A"),
+        )
+        .unwrap();
+        let ack = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("noted — tracking as issue #N")
+                .responding_to(base.observation_id.clone()),
+        )
+        .unwrap();
+
+        // The payload records the responds-to link. (These ids differ only because the titles
+        // differ; that responds_to itself changes the id is a separate concern, exercised elsewhere.)
+        let events = EventStore::open(resolved_store_dir(repo.path()))
+            .list_events()
+            .unwrap();
+        let ack_event = events
+            .iter()
+            .find(|event| event.event_id == ack.event_id)
+            .unwrap();
+        assert_eq!(
+            ack_event.payload["respondsToObservationIds"][0],
+            base.observation_id.as_str()
+        );
+    }
+
+    #[test]
+    fn responds_to_yields_a_distinct_observation_id() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let plain = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("x"),
+        )
+        .unwrap();
+        let acking = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("x")
+                .responding_to(ObservationId::new("obs:sha256:deadbeef")),
+        )
+        .unwrap();
+        assert_ne!(plain.observation_id, acking.observation_id);
+    }
+
+    #[test]
     fn list_observations_returns_observations_for_current_revision() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -709,6 +763,53 @@ mod tests {
     }
 
     #[test]
+    fn responded_by_reverse_map_is_derived_cross_track_and_target_stays_active() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        // author-track observation A
+        let a = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:author")
+                .with_title("A"),
+        )
+        .unwrap();
+        // reviewer-track observation B responds to A (CROSS-TRACK)
+        let b = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:reviewer")
+                .with_title("B")
+                .responding_to(a.observation_id.clone()),
+        )
+        .unwrap();
+
+        // Project filtered to A's track, which EXCLUDES B from the returned set. If responds_to edges
+        // were collected AFTER the track filter, B's edge would be dropped and A.responded_by would be
+        // empty — so this filtered projection is what proves collection happens before the filter.
+        let filtered =
+            list_observations(ObservationListOptions::new(repo.path()).with_track("agent:author"))
+                .unwrap();
+        let a_view = filtered
+            .observations
+            .iter()
+            .find(|v| v.id == a.observation_id)
+            .unwrap();
+
+        // (1) derived reverse-map names B, even though B's track was filtered out of the returned set
+        assert!(a_view.responded_by.iter().any(|id| id == &b.observation_id));
+        // (2) target A stays Active — no status flip
+        assert_eq!(a_view.status, ObservationStatus::Active);
+
+        // (3) B carries the forward pointer — check via an unfiltered list (B is filtered out above)
+        let all = list_observations(ObservationListOptions::new(repo.path())).unwrap();
+        let b_view = all
+            .observations
+            .iter()
+            .find(|v| v.id == b.observation_id)
+            .unwrap();
+        assert!(b_view.responds_to.iter().any(|id| id == &a.observation_id));
+    }
+
+    #[test]
     fn list_observations_sorts_by_occurred_at_then_event_id() {
         let mut observations = vec![
             observation_view_for_sort("obs:sha256:b", "evt:sha256:b", "unix-ms:2"),
@@ -847,6 +948,8 @@ mod tests {
             confidence: None,
             status: ObservationStatus::Active,
             supersedes: vec![],
+            responds_to: vec![],
+            responded_by: vec![],
             body_content_hash: None,
             created_at: created_at.to_owned(),
             writer: Writer::shore_local("test"),

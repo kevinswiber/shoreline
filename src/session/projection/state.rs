@@ -885,6 +885,7 @@ mod tests {
                 tags: Vec::new(),
                 confidence: None,
                 supersedes_observation_ids: Vec::new(),
+                responds_to_observation_ids: Vec::new(),
             },
             "2026-05-10T00:00:00Z",
         )

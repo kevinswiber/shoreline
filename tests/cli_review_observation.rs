@@ -68,6 +68,55 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
 }
 
 #[test]
+fn observation_add_responds_to_records_link() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let a_out = shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "A",
+    ]);
+    assert!(
+        a_out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&a_out.stderr)
+    );
+    let a_id = parse_json(&a_out.stdout)["observationId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let out = shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "noted",
+        "--responds-to",
+        &a_id,
+    ]);
+
+    // clap accepts --responds-to and the add succeeds. (The payload link is asserted in the
+    // library test; the respondsTo/respondedBy JSON surface is asserted by the list tests.)
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn observation_markdown_body_content_type_round_trips() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
@@ -212,6 +261,105 @@ fn observation_list_reads_recorded_observations() {
     assert_eq!(json["observations"][0]["title"], "First");
     assert_eq!(json["observations"][0]["status"], "active");
     assert!(json["observations"][0].get("body").is_none());
+}
+
+#[test]
+fn observation_list_json_surfaces_responds_to_and_responded_by() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let a_out = shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "A",
+    ]);
+    let a_id = parse_json(&a_out.stdout)["observationId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let b_out = shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "B",
+        "--responds-to",
+        &a_id,
+    ]);
+    let b_id = parse_json(&b_out.stdout)["observationId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let list = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .stdout,
+    );
+    let observations = list["observations"].as_array().unwrap();
+    let a = observations.iter().find(|o| o["id"] == a_id).unwrap();
+    let b = observations.iter().find(|o| o["id"] == b_id).unwrap();
+
+    assert!(
+        b["respondsTo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == &a_id)
+    );
+    assert!(
+        a["respondedBy"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == &b_id)
+    );
+}
+
+#[test]
+fn observation_without_responses_omits_both_fields() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "plain",
+    ]);
+
+    let list = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .stdout,
+    );
+    let obs = &list["observations"][0];
+    // Skip-empty: an observation with no response links emits neither key.
+    assert!(obs.get("respondsTo").is_none());
+    assert!(obs.get("respondedBy").is_none());
 }
 
 #[test]

@@ -592,6 +592,19 @@ fn adr_0010_second_amendment_records_ssh_agent_custody() {
     assert!(!adr.contains("implementation plan"));
 }
 
+#[test]
+fn adr_0026_is_landed_and_free_of_private_planning_references() {
+    let adr = std::fs::read_to_string("docs/adr/adr-0026-fact-to-fact-response-relationship.md")
+        .expect("ADR-0026 is landed in docs/adr/");
+    assert!(adr.contains("**Status:** Accepted"));
+    for forbidden in [".gumbo", "plan-create", "adr-drafts", "0097"] {
+        assert!(
+            !adr.contains(forbidden),
+            "landed ADR-0026 leaks private token: {forbidden}"
+        );
+    }
+}
+
 fn assert_markdown_section_contains(markdown: &str, heading: &str, required: &[&str]) {
     let start = markdown
         .find(heading)

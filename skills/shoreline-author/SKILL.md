@@ -132,6 +132,14 @@ Good observation titles are short and specific. The body should explain why the 
 reviewer. Do not paste a transcript, summarize every hunk, or claim verification that you did not
 actually run.
 
+To acknowledge or dispose of a reviewer's observation non-destructively — "noted — tracking as issue
+#N" — add an observation with `--responds-to <observation-id>` (see
+[ADR-0026](../../docs/adr/adr-0026-fact-to-fact-response-relationship.md)). This leaves the reviewer's
+observation `Active` and records who responded. Do not use `--supersedes` to acknowledge; that retires
+the target from the current set. Answer a reviewer's *decision* request with
+`shore review input-request respond --outcome {dismissed|superseded|abandoned} --reason …`, not a plain
+observation.
+
 **Body content type — prefer Markdown for review content.** Observation and input-request `--body`,
 and validation `--summary`, default to plain text, but the inspector renders Markdown and the human
 reviews there, so **author review content as Markdown** whenever it names code. Pass

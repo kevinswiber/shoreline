@@ -579,6 +579,7 @@ mod tests {
                 tags: vec!["correctness".to_owned()],
                 confidence: Some("high".to_owned()),
                 supersedes_observation_ids: vec![],
+                responds_to_observation_ids: vec![],
             },
             "2026-05-12T00:00:00Z",
         )
@@ -632,6 +633,7 @@ mod tests {
                 tags: vec![],
                 confidence: None,
                 supersedes_observation_ids: vec![],
+                responds_to_observation_ids: vec![],
             },
             "2026-05-12T00:00:00Z",
         )

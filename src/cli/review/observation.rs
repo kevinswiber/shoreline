@@ -71,6 +71,9 @@ struct ObservationAddArgs {
     #[arg(long = "supersedes")]
     supersedes: Vec<String>,
 
+    #[arg(long = "responds-to")]
+    responds_to: Vec<String>,
+
     #[arg(long)]
     idempotency_key: Option<String>,
 
@@ -192,6 +195,9 @@ fn observation_add_options(
     }
     for supersedes in args.supersedes {
         options = options.superseding(ObservationId::new(supersedes));
+    }
+    for responds_to in args.responds_to {
+        options = options.responding_to(ObservationId::new(responds_to));
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);

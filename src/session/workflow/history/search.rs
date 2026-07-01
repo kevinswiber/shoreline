@@ -545,6 +545,7 @@ mod tests {
                 tags: tags.iter().map(|t| (*t).to_owned()).collect(),
                 confidence: None,
                 supersedes: vec![],
+                responds_to: vec![],
             },
         }
     }

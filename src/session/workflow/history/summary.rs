@@ -76,6 +76,8 @@ pub enum ReviewHistorySummary {
         confidence: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         supersedes: Vec<ObservationId>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        responds_to: Vec<ObservationId>,
     },
     InputRequestOpened {
         input_request_id: InputRequestId,

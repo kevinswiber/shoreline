@@ -125,6 +125,15 @@ Native assessments may relate to input requests through `--related-input-request
 relationship is evidence, not lifecycle. An assessment does not close an input request. Use
 `shore review input-request respond` to append the explicit closure event.
 
+A review follow-up that expects a *decision or disposition* ("fix now or track separately?") is an
+**advisory input request**, not a plain observation: it can target the observation or range and carries
+the `open → responded` lifecycle. Reserve plain observations for facts that need no response. To
+acknowledge or dispose of another observation non-destructively — without opening a request and without
+removing the target from the current set — use `responds_to` (`shore review observation add --responds-to
+<observation-id>`; see [ADR-0026](adr/adr-0026-fact-to-fact-response-relationship.md)). Use `--supersedes`
+only for a destructive correction that retires the target from the current set; do not use it to
+acknowledge.
+
 ## Legacy Intervention Events
 
 Earlier development versions of Shoreline wrote intervention events and exposed a
