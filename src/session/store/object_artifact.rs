@@ -647,10 +647,11 @@ mod tests {
 
     #[test]
     fn stored_artifact_hash_excludes_highlighting() {
-        // A snapshot whose file WOULD highlight (real Rust code). The stored artifact must never
-        // carry syntax tokens and its content hash must be self-consistent regardless of any
-        // highlighting elsewhere in the codebase. Keeping tokens off the stored type is also what
-        // preserves the byte-identical dedup that
+        // A snapshot whose file WOULD highlight (real Rust code). Both read-time, view-only channels
+        // — syntax tokens and intraline emphasis — live only on the wire DTO, never on the stored
+        // artifact, so its content hash stays self-consistent regardless of any highlighting or
+        // emphasis elsewhere in the codebase. Keeping both off the stored type is also what preserves
+        // the byte-identical dedup that
         // `same_range_in_two_repos_produces_byte_identical_artifacts` relies on.
         let snapshot = DiffSnapshot::new(
             ReviewId::new("review:default"),
@@ -695,6 +696,10 @@ mod tests {
         assert!(
             !serialized.contains("\"tokens\""),
             "stored ObjectArtifact must never serialize tokens"
+        );
+        assert!(
+            !serialized.contains("\"emphasis\""),
+            "stored ObjectArtifact must never serialize intraline emphasis (INV-A)"
         );
     }
 
