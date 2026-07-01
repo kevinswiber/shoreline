@@ -102,4 +102,25 @@
       </section>
     </div>
   </div>
+
+  <div class="ds-group">
+    <p class="ds-label">Intraline emphasis — the changed sub-span marked over its syntax color</p>
+    <div class="diff-body">
+      <section class="dfile" data-dfile="emph" aria-expanded="true">
+        <header class="dfile-head" role="button" tabindex="0">
+          <span class="dstatus s-modified">modified</span>
+          <span class="dpath">src/session/store/retention.rs</span></header>
+        <div class="dfile-body" data-rendered="1">
+          <div class="dhunk">@@ -40,5 +40,5 @@ impl RetentionPolicy</div>
+          <div class="drow drow-context"><span class="ln">40</span><span class="ln">40</span><span class="sign"> </span><span class="dtext">    <span class="tok tok-keyword">let</span> <span class="tok tok-variable">policy</span> <span class="tok tok-operator">=</span> <span class="tok tok-type">RetentionPolicy</span>::<span class="tok tok-function">default</span>();</span></div>
+          <div class="drow drow-removed"><span class="ln">41</span><span class="ln"></span><span class="sign">-</span><span class="dtext">    <span class="tok tok-keyword">let</span> <span class="tok tok-variable">max_age_days</span> <span class="tok tok-operator">=</span> <span class="tok tok-number emph">30</span><span class="tok tok-punctuation">;</span></span></div>
+          <div class="drow drow-added"><span class="ln"></span><span class="ln">41</span><span class="sign">+</span><span class="dtext">    <span class="tok tok-keyword">let</span> <span class="tok tok-variable">max_age_days</span> <span class="tok tok-operator">=</span> <span class="tok tok-number emph">90</span><span class="tok tok-punctuation">;</span></span></div>
+          <div class="drow drow-removed"><span class="ln">42</span><span class="ln"></span><span class="sign">-</span><span class="dtext">    <span class="tok tok-variable">policy</span>.<span class="tok tok-function emph">prune_older_than</span>(<span class="tok tok-variable">max_age_days</span>);</span></div>
+          <div class="drow drow-added"><span class="ln"></span><span class="ln">42</span><span class="sign">+</span><span class="dtext">    <span class="tok tok-variable">policy</span>.<span class="tok tok-function emph">sweep_older_than</span>(<span class="tok tok-variable">max_age_days</span>);</span></div>
+          <div class="drow drow-context"><span class="ln">43</span><span class="ln">43</span><span class="sign"> </span><span class="dtext">}</span></div>
+          <div class="drow drow-meta"><span class="dtext">emphasis (deeper tint) marks only the changed sub-span — 30 → 90 and prune → sweep — over its syntax color</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
 </div>
