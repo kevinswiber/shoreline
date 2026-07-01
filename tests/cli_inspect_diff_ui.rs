@@ -149,3 +149,51 @@ fn binary_file_renders_collapsed_by_default() {
         "the binary file carries no content hunks"
     );
 }
+
+#[test]
+fn snapshot_endpoint_emphasizes_changed_word() {
+    // A single-word edit on an otherwise-identical line. End to end: capture, serve, and assert the
+    // changed added row carries a plausible UTF-16 emphasis span while a context row omits it.
+    let repo = support::git_repo::GitRepo::new();
+    repo.write(
+        "src/lib.rs",
+        "pub fn compute() -> u32 {\n    let total = a;\n    total\n}\n",
+    );
+    repo.commit_all("base");
+    repo.write(
+        "src/lib.rs",
+        "pub fn compute() -> u32 {\n    let total = b;\n    total\n}\n",
+    );
+    support::inspect::capture(repo.path());
+
+    let insp = Inspector::spawn(repo.path());
+    let revisions = insp.get_json("/api/revisions");
+    let object_id = revisions["entries"][0]["objectId"]
+        .as_str()
+        .expect("the captured revision exposes its snapshot object id");
+    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(object_id)));
+    let rows = object["snapshot"]["files"][0]["hunks"][0]["rows"]
+        .as_array()
+        .expect("the modified file carries a hunk with rows");
+
+    let added = rows
+        .iter()
+        .find(|row| row["kind"] == "added")
+        .expect("the hunk carries an added row");
+    let emphasis = added["emphasis"]
+        .as_array()
+        .expect("the changed added row carries an emphasis array");
+    assert_eq!(emphasis.len(), 1, "only the changed word is emphasized");
+    let start = emphasis[0]["start"].as_u64().unwrap();
+    let end = emphasis[0]["end"].as_u64().unwrap();
+    assert!(end > start, "the emphasis span is a non-empty UTF-16 range");
+
+    let context = rows
+        .iter()
+        .find(|row| row["kind"] == "context")
+        .expect("the hunk carries a context row");
+    assert!(
+        context.get("emphasis").is_none(),
+        "context rows omit emphasis"
+    );
+}
