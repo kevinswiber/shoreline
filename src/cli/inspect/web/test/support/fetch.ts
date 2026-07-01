@@ -72,6 +72,20 @@ export function resetSnapshotResponse(): void {
   snapshotResponse = snapshotJson;
 }
 
+// The composite `/api/revisions/{id}` document defaults to the committed fixture;
+// a fact-supersession test overrides it to drive a fork the plain fixture lacks.
+let compositeResponse: unknown = revisionJson;
+
+/** Override the `/api/revisions/{id}` response the mock returns (fact-graph tests). */
+export function setCompositeResponse(payload: unknown): void {
+  compositeResponse = payload;
+}
+
+/** Restore the default `/api/revisions/{id}` response (the committed fixture). */
+export function resetCompositeResponse(): void {
+  compositeResponse = revisionJson;
+}
+
 /** The request target as a string, accepting the full `fetch` input union. */
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -128,7 +142,7 @@ const mockFetch: typeof fetch = (input) => {
   if (pathname === "/api/history") return json(historyResponse);
   for (const [prefix, fixture] of [
     ["/api/snapshots/", snapshotResponse],
-    ["/api/revisions/", revisionJson],
+    ["/api/revisions/", compositeResponse],
   ] as const) {
     const m = classifyMember(pathname, prefix);
     if (m?.kind === "member") return json(fixture);

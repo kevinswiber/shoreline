@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
 import historyJson from "./fixtures/history.json";
+import revisionJson from "./fixtures/revision.json";
 import revisionsJson from "./fixtures/revisions.json";
 import threadsJson from "./fixtures/threads.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
 import {
   installFetchMock,
+  resetCompositeResponse,
   resetSnapshotResponse,
+  setCompositeResponse,
   uninstallFetchMock,
 } from "./support/fetch";
 
@@ -62,6 +65,7 @@ beforeEach(async () => {
 afterEach(() => {
   uninstallFetchMock();
   resetSnapshotResponse();
+  resetCompositeResponse();
   resetDom();
 });
 
@@ -241,5 +245,146 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
     await detail.showComposite(REV);
     expect(detailEl().innerHTML).not.toContain("loading…");
     expect(detailEl().querySelector(".unit-page")).not.toBeNull();
+  });
+});
+
+describe("renderRevisionPage fact-supersession DAG (fork-gated, additive)", () => {
+  it("mounts the assessment fact DAG in the Assessments section when it forks", async () => {
+    const forked = {
+      ...(revisionJson as Record<string, unknown>),
+      factSupersession: {
+        assessments: {
+          laidOut: {
+            nodes: [
+              {
+                id: "as:a",
+                x: 30,
+                y: 20,
+                w: 50,
+                h: 22,
+                isHead: false,
+                isSuperseded: true,
+              },
+              {
+                id: "as:b",
+                x: 20,
+                y: 70,
+                w: 50,
+                h: 22,
+                isHead: true,
+                isSuperseded: false,
+              },
+              {
+                id: "as:c",
+                x: 90,
+                y: 70,
+                w: 50,
+                h: 22,
+                isHead: true,
+                isSuperseded: false,
+              },
+            ],
+            edges: [
+              {
+                from: "as:b",
+                to: "as:a",
+                path: [
+                  [20, 58],
+                  [30, 32],
+                ],
+                kind: "replaces",
+              },
+            ],
+            bounds: { w: 150, h: 100 },
+          },
+        },
+      },
+    };
+    setCompositeResponse(forked);
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.openRevision(REV);
+    const el = detailEl();
+    // The DAG mounts inside the ASSESSMENTS section specifically, reusing the painter.
+    const section = Array.from(el.querySelectorAll("section")).find((s) =>
+      s.querySelector("h2")?.textContent?.startsWith("Assessments"),
+    );
+    const figure = section?.querySelector("figure.fact-dag");
+    expect(figure).not.toBeNull();
+    expect(figure?.querySelectorAll("g.dag-node[data-fact-id]").length).toBe(3);
+    expect(figure?.querySelectorAll("g.dag-node.head").length).toBe(2);
+    // The observation section carries no DAG (this fixture only forks assessments).
+    const obsSection = Array.from(el.querySelectorAll("section")).find((s) =>
+      s.querySelector("h2")?.textContent?.startsWith("Observations"),
+    );
+    expect(obsSection?.querySelector("figure.fact-dag")).toBeNull();
+  });
+
+  it("mounts the observation fact DAG in the Observations section when it forks", async () => {
+    const forked = {
+      ...(revisionJson as Record<string, unknown>),
+      factSupersession: {
+        observations: {
+          laidOut: {
+            nodes: [
+              {
+                id: "obs:a",
+                x: 40,
+                y: 20,
+                w: 50,
+                h: 22,
+                isHead: false,
+                isSuperseded: true,
+              },
+              {
+                id: "obs:b",
+                x: 40,
+                y: 70,
+                w: 50,
+                h: 22,
+                isHead: true,
+                isSuperseded: false,
+              },
+            ],
+            edges: [
+              {
+                from: "obs:b",
+                to: "obs:a",
+                path: [
+                  [40, 58],
+                  [40, 32],
+                ],
+                kind: "supersedes",
+              },
+            ],
+            bounds: { w: 100, h: 100 },
+          },
+        },
+      },
+    };
+    setCompositeResponse(forked);
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.openRevision(REV);
+    const el = detailEl();
+    // The DAG mounts inside the Observations section (identify it by the section
+    // whose <h2> starts with "Observations").
+    const section = Array.from(el.querySelectorAll("section")).find((s) =>
+      s.querySelector("h2")?.textContent?.startsWith("Observations"),
+    );
+    expect(section?.querySelector("figure.fact-dag")).not.toBeNull();
+    expect(section?.querySelectorAll("g.dag-node[data-fact-id]").length).toBe(
+      2,
+    );
+    // The assessment DAG is NOT present (this fixture only forks observations).
+    const assessmentsSection = Array.from(el.querySelectorAll("section")).find(
+      (s) => s.querySelector("h2")?.textContent?.startsWith("Assessments"),
+    );
+    expect(assessmentsSection?.querySelector("figure.fact-dag")).toBeNull();
+  });
+
+  it("omits the fact DAG when the document carries no factSupersession", async () => {
+    setCompositeResponse(revisionJson); // the default, non-forked fixture
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.openRevision(REV);
+    expect(detailEl().querySelector("figure.fact-dag")).toBeNull();
   });
 });

@@ -21,12 +21,14 @@
 import {
   type AdapterNote,
   currentAssessmentSummary,
+  type FactSupersession,
   factSection,
   type InputRequest,
   type Observation,
   type RevisionDetail,
   renderAdapterNoteCard,
   renderAssessmentCard,
+  renderFactSupersessionBlock,
   renderInputRequestCard,
   renderObservationCard,
   renderValidationCheckCard,
@@ -98,6 +100,7 @@ interface RevisionPageDoc extends RevisionDetail {
   inputRequests?: InputRequest[];
   validationChecks?: ValidationCheck[];
   adapterNotes?: AdapterNote[];
+  factSupersession?: FactSupersession;
 }
 
 // The revision whose composite is currently shown, so a re-render with an
@@ -214,6 +217,17 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   const badge = supersessionBadge(revisionId);
   const title = `${shortId(ru.id)}${base.commitOid ? ` · base ${shortId(base.commitOid)}` : ""}`;
   const staleContext = staleFactSectionContext(revisionId);
+  // Prepend the fork-gated fact DAG (server-gated, absent otherwise) above the
+  // stale context in the Observations / Assessments sections; both are "" when the
+  // fact type does not fork, so the sections are unchanged for the common case.
+  const observationContext =
+    renderFactSupersessionBlock(
+      d.factSupersession?.observations,
+      "observation",
+    ) + staleContext;
+  const assessmentContext =
+    renderFactSupersessionBlock(d.factSupersession?.assessments, "assessment") +
+    staleContext;
 
   const stat = (label: string, n?: number): string =>
     `<span class="${CLASS.upStat}"><b>${n ?? 0}</b> ${label}</span>`;
@@ -249,7 +263,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
       "Observations",
       d.observations,
       renderObservationCard,
-      staleContext,
+      observationContext,
     ),
   );
   sections.push(
@@ -265,7 +279,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
       "Assessments",
       d.assessments,
       renderAssessmentCard,
-      staleContext,
+      assessmentContext,
     ),
   );
 
