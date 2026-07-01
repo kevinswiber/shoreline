@@ -113,6 +113,7 @@
     drow: "drow",
     drowMeta: "drow-meta",
     dtext: "dtext",
+    emph: "emph",
     ln: "ln",
     sign: "sign",
     // Revision list, supersession threads, and the laid-out DAG.
@@ -1784,20 +1785,37 @@
     return true;
   }
   __name(validChannel, "validChannel");
-  function highlightRowText(text, tokens) {
-    if (!tokens || tokens.length === 0) return escapeHtml(text);
-    if (!validChannel(tokens, text.length)) return escapeHtml(text);
-    let cursor = 0;
+  function segClass(kind, isEmph) {
+    const parts = [
+      kind ? tokClass(kind) : null,
+      isEmph ? CLASS.emph : null
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(" ") : null;
+  }
+  __name(segClass, "segClass");
+  function highlightRowText(text, tokens, emphasis) {
+    const toks = tokens && validChannel(tokens, text.length) ? tokens : [];
+    const emph = emphasis && validChannel(emphasis, text.length) ? emphasis : [];
+    if (toks.length === 0 && emph.length === 0) return escapeHtml(text);
+    const points = [
+      .../* @__PURE__ */ new Set([
+        0,
+        text.length,
+        ...toks.flatMap((t) => [t.start, t.end]),
+        ...emph.flatMap((e) => [e.start, e.end])
+      ])
+    ].sort((a, b) => a - b);
     let out = "";
-    for (const token of tokens) {
-      if (token.start > cursor)
-        out += escapeHtml(text.slice(cursor, token.start));
-      out += `<span class="${tokClass(token.kind)}">${escapeHtml(
-        text.slice(token.start, token.end)
-      )}</span>`;
-      cursor = token.end;
+    for (let i = 0; i + 1 < points.length; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (a >= b) continue;
+      const seg = escapeHtml(text.slice(a, b));
+      const kind = toks.find((t) => t.start <= a && a < t.end)?.kind;
+      const isEmph = emph.some((e) => e.start <= a && a < e.end);
+      const cls = segClass(kind, isEmph);
+      out += cls ? `<span class="${cls}">${seg}</span>` : seg;
     }
-    if (cursor < text.length) out += escapeHtml(text.slice(cursor));
     return out;
   }
   __name(highlightRowText, "highlightRowText");
@@ -1943,7 +1961,7 @@
         <span class="${CLASS.ln}">${r.old_line ?? ""}</span>
         <span class="${CLASS.ln}">${r.new_line ?? ""}</span>
         <span class="${CLASS.sign}">${sign}</span>
-        <span class="${CLASS.dtext}">${highlightRowText(r.text, r.tokens)}</span></div>`;
+        <span class="${CLASS.dtext}">${highlightRowText(r.text, r.tokens, r.emphasis)}</span></div>`;
         for (const a of matching) {
           if (!emitted.has(a.id)) {
             html += renderAnnotation(a, false);

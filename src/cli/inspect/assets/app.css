@@ -496,6 +496,12 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .tok-operator { color: var(--tok-operator); }
 .tok-punctuation { color: var(--tok-punctuation); }
 .tok-variable { color: var(--tok-variable); }
+/* Intraline emphasis (read-time diff sub-span marking). Emphasis is a BACKGROUND
+   channel, so it composes with the syntax foreground without fighting; the tint is
+   deeper than the row base so a changed sub-span stands out within its changed row. */
+.emph { border-radius: 2px; }
+.drow-added .emph { background: var(--emph-add-bg); }
+.drow-removed .emph { background: var(--emph-del-bg); }
 .drow-meta { grid-template-columns: 1fr; padding: 4px 12px; color: var(--fg-dim); font-style: italic; }
 .drow-noted { box-shadow: inset 3px 0 0 var(--success); cursor: pointer; }
 .drow-noted:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

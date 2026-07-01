@@ -70,6 +70,13 @@
   --diff-del-fg: #f3b0b0;
   --hunk-bg: #141b27;
 
+  /* Intraline emphasis: a stronger add/del tint than the row base so a changed
+     sub-span reads as "more changed" than its row. Like --diff-*-bg these are
+     translucent and theme-neutral — they composite over whichever --bg-row the
+     theme sets, so they keep their :root definitions with no light override. */
+  --emph-add-bg: rgba(70, 170, 110, 0.34);
+  --emph-del-bg: rgba(200, 90, 90, 0.34);
+
   /* Error bar surface — themed so the bar inverts with the page (its --danger
      text would otherwise sit on a dark literal and fail AA under the light theme). */
   --error-bg: #3a1416;
