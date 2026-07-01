@@ -104,14 +104,31 @@ side's oid is present** — both sides for commit-range modified/renamed files, 
 modified/deleted files** (its immutable blob, the high-value low-risk slice), and **not at all** for added or
 synthetic files — every cell without a blob falls back to the option-(b) side-stream.
 
-### D6. Intraline (word/char) diff is a cost-value-gated follow-on
+### D6. Intraline (word) diff ships as a second read-time, view-only channel
 
-Intraline emphasis is **not** co-shipped with highlighting. It is a separate, lower-risk read-time projection
-(pure per-pair string diff via the `similar` crate, `word-alt` heuristic + length guard) on a different visual
-channel (background/underline vs syntax foreground). It rides the **same** inspect-only DTO, the same byte→
-UTF-16 wire treatment, the same content-hash cache, and the same generic attributed-segment emit (D3) — which
-is the one design hook the initial implementation must include so intraline lands as a small increment rather
-than an emit rewrite.
+Intraline emphasis shipped as a follow-on to the initial highlighting, as D6 anticipated: a separate,
+lower-risk read-time projection on a different visual channel (background/underline) than the syntax
+foreground. The algorithm mirrors `delta`: within each hunk it buffers consecutive removed/added rows into
+minus/plus blocks, pairs lines greedily by homolog, tokenizes each line into `\w+` runs, diffs the token
+sequences with the `similar` crate, and gates each pair on a **width-ratio distance guard of `0.6`** (`delta`'s
+`--max-line-distance` default). The guard is the load-bearing fence: it is `delta`'s width-ratio distance
+(changed display-width over total display-width, sections trimmed), **not** `similar`'s token-count `ratio()` —
+the latter misclassifies a wholesale line rewrite as similar and would wrongly emphasize it, whereas the
+width-ratio metric suppresses it (a full-line rewrite lights up nothing; only genuinely similar lines emphasize
+their changed words).
+
+It rides the **same** hooks the initial implementation installed: the generic attributed-segment emit (D3),
+now a union-boundary sweep that carries both the syntax kind and an emphasis flag per minimal segment; the same
+inspect-only wire DTO (an additive, optional `emphasis` field alongside `tokens`); the same byte→UTF-16
+translation; and the same content-hash cache (D4), with no key change since emphasis is a pure function of the
+same immutable artifact bytes. Emphasis is identity-by-construction view-only (D1): it never touches the stored
+artifact, guarded by the same hash-stability fence extended to reject a serialized `emphasis` field.
+
+The visual channel is deliberately distinct from syntax color so the two compose without fighting: a `.emph`
+background tint on the web (a themed `--emph-*` token family derived from the diff-tint palette) and
+`Modifier::UNDERLINED` in the TUI (the row background is already the add/remove tint). The one remaining minor
+simplification from `delta` is char-based (not grapheme-based) tokenization of non-word runs, which only differs
+for combining sequences/emoji — rare in code, and safe to add later for this best-effort channel.
 
 ## Consequences
 
@@ -122,9 +139,10 @@ than an emit rewrite.
   single guard test remain the guarantee.
 - **The build stays C-toolchain-free** (D2) — no `onig`, so the Windows CI long pole is not aggravated.
 - **A measured, moderate dependency cost.** The initial implementation adds **+14 marginal runtime crates**
-  (~+12%, 120→134); the intraline follow-on (`similar`) adds +1. No `onig`; `regex-automata`/`regex-syntax`/
-  `memchr` are shared (already pulled by `tracing-subscriber`); **no new duplicate versions** (the `thiserror`
-  v1/v2 split is pre-existing).
+  (~+12%, 120→134); the intraline channel adds **+2** (`similar` + `unicode-width`, the latter giving
+  `delta`-exact display width for the distance guard). No `onig`; `regex-automata`/`regex-syntax`/`memchr` are
+  shared (already pulled by `tracing-subscriber`); **no new duplicate versions** (the `thiserror` v1/v2 split is
+  pre-existing).
 - **Binary size grows ~2.5 MiB.** A `cargo build --release` A/B measured the `shore` binary at **8,856,432
   bytes without highlighting vs 11,544,112 bytes with it — +2,687,680 bytes (+2.56 MiB, +30.3%)**, dominated by
   the `two-face` bundled syntax dump and `fancy-regex`. (Using syntect's stock dump alone — fewer languages,
