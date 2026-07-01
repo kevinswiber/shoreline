@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Thread } from "../src/model";
 import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
+import type { HistoryEntry } from "../src/types";
 import historyJson from "./fixtures/history.json";
 import revisionsJson from "./fixtures/revisions.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
-import { installFetchMock, uninstallFetchMock } from "./support/fetch";
+import {
+  installFetchMock,
+  resetHistoryResponse,
+  setHistoryResponse,
+  uninstallFetchMock,
+} from "./support/fetch";
 
 // `keyboard.ts` is the global keydown layer: selection stepping, activation, search
 // focus, two-key chords, the layered Escape, and the diff-local jump keys. It is
@@ -56,6 +62,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   document.removeEventListener("keydown", keyboard.onKey);
+  resetHistoryResponse();
   uninstallFetchMock();
   resetDom();
 });
@@ -292,5 +299,91 @@ describe("keyboard stepping visits only the filtered revision set", () => {
         model.threadRevisionOrder(FILTERED_THREAD),
       ),
     );
+  });
+});
+
+/** A `[from, to)` run of loaded timeline entries with ids `e<from>`..`e<to-1>`. */
+function pageEntries(from: number, to: number): HistoryEntry[] {
+  return Array.from({ length: to - from }, (_, i) => ({
+    eventId: `e${from + i}`,
+    eventType: "review_observation_recorded",
+    occurredAt: `unix-ms:${1782699185391 + from + i}`,
+  }));
+}
+
+/** Seed a timeline window: loaded entries at `offset` within a `matchCount` set. */
+function seedTimelineWindow(
+  entries: HistoryEntry[],
+  offset: number,
+  matchCount: number,
+): void {
+  store.commit({
+    history: {
+      entries,
+      diagnostics: [],
+      offset,
+      matchCount,
+      queryKey: "order=desc&limit=100",
+    } as unknown as HistoryDoc,
+    lens: "timeline",
+  });
+}
+
+describe("keyboard stepping pages past the loaded timeline window", () => {
+  it("stepping down past the loaded edge fetches the next page then selects", async () => {
+    seedTimelineWindow(pageEntries(0, 20), 0, 100);
+    store.commit({ selected: { kind: "event", id: "e19" } }); // last loaded row
+    setHistoryResponse({
+      entries: pageEntries(20, 40),
+      diagnostics: [],
+      offset: 20,
+      matchCount: 100,
+      facets: {},
+      nextCursor: null,
+    });
+    await keyboard.stepSelectionAsync(1);
+    // The next page was fetched, merged, and the selection advanced to global 20.
+    expect(store.getState().history?.entries.length).toBe(40);
+    expect(store.getState().selected.id).toBe("e20");
+  });
+
+  it("stepping up past the loaded start fetches the previous page then selects", async () => {
+    seedTimelineWindow(pageEntries(20, 40), 20, 100);
+    store.commit({ selected: { kind: "event", id: "e20" } }); // first loaded (global 20)
+    setHistoryResponse({
+      entries: pageEntries(0, 20),
+      diagnostics: [],
+      offset: 0,
+      matchCount: 100,
+      facets: {},
+      nextCursor: null,
+    });
+    await keyboard.stepSelectionAsync(-1);
+    expect(store.getState().selected.id).toBe("e19");
+  });
+
+  it("stepping within the loaded window does not fetch", async () => {
+    let fetched = false;
+    const inner = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(url, "http://inspector.test").pathname === "/api/history")
+        fetched = true;
+      return inner(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      seedTimelineWindow(pageEntries(0, 20), 0, 100);
+      store.commit({ selected: { kind: "event", id: "e5" } });
+      await keyboard.stepSelectionAsync(1);
+    } finally {
+      globalThis.fetch = inner;
+    }
+    expect(fetched).toBe(false);
+    expect(store.getState().selected.id).toBe("e6");
   });
 });

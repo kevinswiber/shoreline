@@ -12,8 +12,10 @@
 // `help` through the manager — so keyboard imports no sibling overlay module.
 // `pendingChord` / `chordTimer` stay module-local.
 
+import { fetchHistoryPage, HISTORY_PAGE } from "./data";
 import { jumpChange, jumpFact, openRevisionDiff } from "./diff/controller";
 import { $ } from "./dom";
+import { loadedWindow } from "./lenses/timeline";
 import { lensEntryIds } from "./model";
 import { resolveRef } from "./navigation";
 import {
@@ -51,14 +53,63 @@ function isTypingTarget(el: Element | null): boolean {
 }
 
 // Move the selection by delta within the active lens (replaceState — stepping a
-// cursor is a refinement, not a distinct navigation).
+// cursor is a refinement, not a distinct navigation). Fire-and-forget the async
+// timeline stepper so the key handler stays sync.
 function stepSelection(delta: number): void {
+  void stepSelectionAsync(delta);
+}
+
+// Step the fully-loaded revisions/threads lenses over their in-memory entries.
+function stepList(delta: number): void {
   const ids = lensEntryIds();
   if (!ids.length) return;
   let idx = ids.findIndex((x) => x.id === getState().selected.id);
   if (idx < 0) idx = delta > 0 ? -1 : 0;
   const next = Math.max(0, Math.min(ids.length - 1, idx + delta));
   navigate({ selected: ids[next] }, { replace: true });
+}
+
+// Step the server-paged timeline. `lensEntryIds()` is only the loaded window, so a
+// step past either edge fetches the adjacent page (offset-addressed) and then
+// selects the target's global index; an in-window step selects directly.
+async function stepTimeline(delta: number): Promise<void> {
+  const state = getState();
+  const { offset, count, matchCount } = loadedWindow(state);
+  const ids = lensEntryIds();
+  if (!ids.length || matchCount === 0) return;
+  const local = ids.findIndex((x) => x.id === state.selected.id);
+  if (local < 0) {
+    // No selection (or an off-window one) → start at the first loaded row.
+    navigate({ selected: ids[0] }, { replace: true });
+    return;
+  }
+  const cur = offset + local;
+  const target = Math.max(0, Math.min(matchCount - 1, cur + delta));
+  if (target === cur) return; // clamped at an end of the matched set
+  if (target >= offset && target < offset + count) {
+    navigate({ selected: ids[target - offset] }, { replace: true });
+    return;
+  }
+  await fetchHistoryPage({
+    offset:
+      target >= offset + count
+        ? offset + count
+        : Math.max(0, offset - HISTORY_PAGE),
+  });
+  const w = loadedWindow(getState());
+  const loaded = lensEntryIds();
+  const localAfter = target - w.offset;
+  if (localAfter >= 0 && localAfter < loaded.length)
+    navigate({ selected: loaded[localAfter] }, { replace: true });
+}
+
+/** Step the selection by delta, paging the timeline past its loaded edges. */
+export async function stepSelectionAsync(delta: number): Promise<void> {
+  if (getState().lens === "timeline") {
+    await stepTimeline(delta);
+    return;
+  }
+  stepList(delta);
 }
 
 // Open the selection's snapshot diff — a read affordance, never a gate.
