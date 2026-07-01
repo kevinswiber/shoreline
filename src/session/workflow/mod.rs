@@ -49,8 +49,9 @@ pub use event_signature::{
     EventSignatureRecordOptions, EventSignatureRecordResult, record_event_signature,
 };
 pub use history::{
-    HistoryCursor, HistoryWindow, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions,
-    ReviewHistoryResult, review_history,
+    HistoryCursor, HistoryWindow, QueryClause, ReviewHistoryEntry, ReviewHistoryFilters,
+    ReviewHistoryOptions, ReviewHistoryResult, SearchRecord, build_haystack, matches_query,
+    parse_search_query, review_history,
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
 pub use ingest::{

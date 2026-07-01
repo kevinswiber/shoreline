@@ -2,6 +2,7 @@ mod cursor;
 mod options;
 mod projection;
 mod result;
+mod search;
 mod summary;
 
 pub use self::cursor::{HistoryCursor, HistoryWindow};
@@ -9,6 +10,9 @@ use self::options::ResolvedHistoryFilters;
 pub use self::options::{ReviewHistoryFilters, ReviewHistoryOptions};
 use self::projection::history_from_events;
 pub use self::result::ReviewHistoryResult;
+pub use self::search::{
+    QueryClause, SearchRecord, build_haystack, matches_query, parse_search_query,
+};
 pub use self::summary::ReviewHistoryEntry;
 use crate::error::Result;
 use crate::session::EventStore;
