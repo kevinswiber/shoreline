@@ -21,7 +21,7 @@ import { escapeHtml } from "../escape";
 import { renderBodyContent } from "../markdown";
 import { linkify } from "../refs";
 import { DEFAULT_OPEN_FILES, LARGE_FILE_ROWS } from "../types";
-import { highlightRowText, type TokenSpan } from "./highlight";
+import { type EmphSpan, highlightRowText, type TokenSpan } from "./highlight";
 
 // ---------------------------------------------------------------------------
 // Wire view types
@@ -40,6 +40,8 @@ export interface DiffRow {
   text: string;
   /** Syntax tokens over `text` (UTF-16 offsets); absent when the row is unhighlighted. */
   tokens?: TokenSpan[];
+  /** Intraline emphasis spans over `text` (UTF-16 offsets); absent when unemphasized. */
+  emphasis?: EmphSpan[];
 }
 
 /** One captured hunk: its header and rows. */
@@ -328,7 +330,7 @@ export function renderDiffFileBody(
         <span class="${CLASS.ln}">${r.old_line ?? ""}</span>
         <span class="${CLASS.ln}">${r.new_line ?? ""}</span>
         <span class="${CLASS.sign}">${sign}</span>
-        <span class="${CLASS.dtext}">${highlightRowText(r.text, r.tokens)}</span></div>`;
+        <span class="${CLASS.dtext}">${highlightRowText(r.text, r.tokens, r.emphasis)}</span></div>`;
       for (const a of matching) {
         if (!emitted.has(a.id)) {
           html += renderAnnotation(a, false);

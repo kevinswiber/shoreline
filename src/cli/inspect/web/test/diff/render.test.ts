@@ -474,3 +474,29 @@ describe("renderDiffFileBody syntax tokens", () => {
     expect(html).not.toContain("tok-");
   });
 });
+
+describe("renderDiffFileBody emphasis", () => {
+  it("renders emphasis from the wire row", () => {
+    const file: DiffFile = {
+      status: "modified",
+      old_path: "m.rs",
+      new_path: "m.rs",
+      hunks: [
+        {
+          header: "@@ -1 +1 @@",
+          rows: [
+            {
+              kind: "added",
+              old_line: null,
+              new_line: 1,
+              text: "let x",
+              emphasis: [{ start: 4, end: 5 }],
+            },
+          ],
+        },
+      ],
+    };
+    const html = renderDiffFileBody(file, []);
+    expect(html).toContain('<span class="emph">x</span>');
+  });
+});
