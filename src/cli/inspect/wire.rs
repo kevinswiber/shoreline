@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use shoreline::highlight::{RowKey, TokenSpan};
+use shoreline::highlight::{EmphSpan, RowKey, TokenSpan};
 use shoreline::model::{
     DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileMetadataRow, FileStatus, HunkId,
     ObjectId, ReviewHunk, ReviewId,
@@ -77,6 +77,8 @@ pub(super) struct WireDiffRow {
     pub text: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tokens: Vec<WireTokenSpan>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub emphasis: Vec<WireEmphSpan>,
 }
 
 #[derive(Serialize)]
@@ -84,6 +86,14 @@ pub(super) struct WireTokenSpan {
     pub start: usize,
     pub end: usize,
     pub kind: &'static str,
+}
+
+/// Intraline emphasis span on the wire (UTF-16 offsets). Two fields only — unlike [`WireTokenSpan`]
+/// there is no `kind`; emphasis is a boolean decoration channel (INV-H).
+#[derive(Serialize)]
+pub(super) struct WireEmphSpan {
+    pub start: usize,
+    pub end: usize,
 }
 
 impl WireObjectArtifact {
@@ -178,7 +188,7 @@ impl WireReviewHunk {
                         .get(&(hunk_index, row_index))
                         .map(Vec::as_slice)
                         .unwrap_or(&[]);
-                    WireDiffRow::from_row(row, row_spans)
+                    WireDiffRow::from_row(row, row_spans, &[])
                 })
                 .collect(),
         }
@@ -186,36 +196,61 @@ impl WireReviewHunk {
 }
 
 impl WireDiffRow {
-    pub(super) fn from_row(row: &DiffRow, spans: &[TokenSpan]) -> Self {
-        // Checked byte->UTF-16 translation: never index `text` by raw byte ranges (a malformed span
-        // would panic). If any span is invalid, omit tokens for the whole row and render plain.
+    pub(super) fn from_row(row: &DiffRow, spans: &[TokenSpan], emph: &[EmphSpan]) -> Self {
+        // Checked byte->UTF-16 translation per channel: never index `text` by raw byte ranges (a
+        // malformed span would panic). Each channel is validated independently, so an invalid
+        // emphasis set drops emphasis only and vice-versa (INV-F); an invalid set renders plain.
         let tokens = translate_spans(&row.text, spans).unwrap_or_default();
+        let emphasis = translate_emphasis(&row.text, emph).unwrap_or_default();
         WireDiffRow {
             kind: row.kind.clone(),
             old_line: row.old_line,
             new_line: row.new_line,
             text: row.text.clone(),
             tokens,
+            emphasis,
         }
     }
 }
 
-/// Translate byte-offset spans into UTF-16 wire spans. Returns `None` if any span is reversed, out
-/// of range, or not on a char boundary, so the caller drops tokens for the whole row.
+/// Shared byte→UTF-16 offset mapper (single source of the UTF-16 rule, INV-G). Returns `None` if the
+/// span is reversed, out of range, or not on a char boundary, so the caller drops the whole channel's
+/// spans for the row.
+fn to_utf16_span(text: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    if start > end
+        || end > text.len()
+        || !text.is_char_boundary(start)
+        || !text.is_char_boundary(end)
+    {
+        return None;
+    }
+    Some((utf16_len(&text[..start]), utf16_len(&text[..end])))
+}
+
+/// Translate byte-offset token spans into UTF-16 wire spans (carrying `kind`). Returns `None` if any
+/// span is invalid, so the caller drops tokens for the whole row.
 fn translate_spans(text: &str, spans: &[TokenSpan]) -> Option<Vec<WireTokenSpan>> {
     spans
         .iter()
         .map(|span| {
-            if span.start > span.end {
-                return None;
-            }
-            text.get(..span.start)?; // validates start is a char boundary <= len
-            text.get(..span.end)?; // validates end likewise
+            let (start, end) = to_utf16_span(text, span.start, span.end)?;
             Some(WireTokenSpan {
-                start: utf16_len(&text[..span.start]),
-                end: utf16_len(&text[..span.end]),
+                start,
+                end,
                 kind: span.kind.as_str(),
             })
+        })
+        .collect()
+}
+
+/// Translate byte-offset emphasis spans into UTF-16 wire spans. Returns `None` if any span is
+/// invalid, so the caller drops emphasis for the whole row (INV-F).
+fn translate_emphasis(text: &str, spans: &[EmphSpan]) -> Option<Vec<WireEmphSpan>> {
+    spans
+        .iter()
+        .map(|span| {
+            let (start, end) = to_utf16_span(text, span.start, span.end)?;
+            Some(WireEmphSpan { start, end })
         })
         .collect()
 }
@@ -226,7 +261,7 @@ fn utf16_len(s: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use shoreline::highlight::{TokenKind, TokenSpan};
+    use shoreline::highlight::{EmphSpan, TokenKind, TokenSpan};
     use shoreline::model::{DiffRow, DiffRowKind};
 
     use super::*;
@@ -240,9 +275,49 @@ mod tests {
         }
     }
 
+    fn row_with_text(text: &str) -> DiffRow {
+        context_row(text)
+    }
+
+    fn row_json(row: &DiffRow, tokens: &[TokenSpan], emphasis: &[EmphSpan]) -> serde_json::Value {
+        serde_json::to_value(WireDiffRow::from_row(row, tokens, emphasis)).unwrap()
+    }
+
+    #[test]
+    fn wire_row_omits_emphasis_when_empty() {
+        let json = row_json(&context_row("let x"), &[], &[]);
+        assert!(json.get("emphasis").is_none()); // byte-identical to today
+    }
+
+    #[test]
+    fn wire_row_carries_utf16_emphasis_offsets() {
+        // raw "é let": byte span [3,6) = "let" → utf16 [2,5)
+        let json = row_json(
+            &row_with_text("é let"),
+            &[],
+            &[EmphSpan { start: 3, end: 6 }],
+        );
+        assert_eq!(json["emphasis"][0]["start"], 2);
+        assert_eq!(json["emphasis"][0]["end"], 5);
+        assert!(json["emphasis"][0].get("kind").is_none()); // no kind (INV-H)
+    }
+
+    #[test]
+    fn malformed_emphasis_drops_emphasis_but_keeps_tokens() {
+        let tokens = vec![TokenSpan {
+            start: 0,
+            end: 3,
+            kind: TokenKind::Keyword,
+        }];
+        let bad = vec![EmphSpan { start: 1, end: 99 }]; // out of range
+        let json = row_json(&row_with_text("let x"), &tokens, &bad);
+        assert_eq!(json["tokens"].as_array().unwrap().len(), 1); // syntax survives
+        assert!(json.get("emphasis").is_none()); // emphasis dropped (INV-F)
+    }
+
     #[test]
     fn wire_row_omits_tokens_when_empty() {
-        let row = WireDiffRow::from_row(&context_row("let x = 1;"), &[]); // no spans
+        let row = WireDiffRow::from_row(&context_row("let x = 1;"), &[], &[]); // no spans
         let json = serde_json::to_value(&row).unwrap();
         assert!(json.get("tokens").is_none()); // wire byte-identical to today when unhighlighted
     }
@@ -256,7 +331,7 @@ mod tests {
             end: 6,
             kind: TokenKind::Keyword,
         }]; // "let" by BYTES
-        let row = WireDiffRow::from_row(&context_row(raw), &byte_spans);
+        let row = WireDiffRow::from_row(&context_row(raw), &byte_spans, &[]);
         let json = serde_json::to_value(&row).unwrap();
         let t = &json["tokens"][0];
         assert_eq!(t["start"], 2); // UTF-16: "é " = 2 units
@@ -273,7 +348,7 @@ mod tests {
             end: 99,
             kind: TokenKind::Keyword,
         }]; // start splits 'é', end > len
-        let row = WireDiffRow::from_row(&context_row(raw), &bad);
+        let row = WireDiffRow::from_row(&context_row(raw), &bad, &[]);
         let json = serde_json::to_value(&row).unwrap();
         assert!(json.get("tokens").is_none()); // invalid span set -> render plain
 
@@ -283,7 +358,7 @@ mod tests {
             end: 0,
             kind: TokenKind::Keyword,
         }];
-        let row2 = WireDiffRow::from_row(&context_row("let x"), &reversed);
+        let row2 = WireDiffRow::from_row(&context_row("let x"), &reversed, &[]);
         assert!(serde_json::to_value(&row2).unwrap().get("tokens").is_none());
     }
 }
