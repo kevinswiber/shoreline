@@ -240,8 +240,9 @@ accepted with `--revision`. `--revision <id>` is a head seed: passing a current 
 exactly, while passing a superseded revision resolves its thread's current head (and a fork with
 competing heads errors, listing them). Sibling captures stay current, but routine
 list/history/exact reads no longer emit an ambient `ambiguous_current_revision` diagnostic just
-because multiple captures exist. Shoreline still has no way to retire a stale capture
-(kevinswiber/shoreline#106).
+because multiple captures exist. A stale or nested capture is retired by a later capture that
+supersedes it (`shore review capture --supersedes <revision>`); competing heads stay visible, so there
+is no single "canonical" scalar to set.
 
 ## Read back and stand down
 

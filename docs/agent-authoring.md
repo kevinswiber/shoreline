@@ -330,8 +330,8 @@ keep or `withdraw-commit` the edge you do not want. Optionally add a human-reada
 `shore review capture` again for the landing, and do not add or change the assessment — the resulting
 commit is an author fact, not a review call.
 
-When several captures are still current — re-captures stack, and Shoreline has no way to retire a
-stale one yet ([#106](https://github.com/kevinswiber/shoreline/issues/106)) — pin the landing to the
+When several captures are still current — re-captures stack, and a stale or superseded one is retired
+with `shore review capture --supersedes <revision>` — pin the landing to the
 revision that was actually reviewed and accepted by passing `--revision` explicitly, seeding it on the
 accepted revision when it is the current head of a supersession thread. Sibling captures
 remain, but routine list/history/exact/thread-scoped reads no longer emit an ambient
