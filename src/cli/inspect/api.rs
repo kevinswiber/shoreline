@@ -18,13 +18,14 @@ use shoreline::highlight::{emphasis_file, highlight_file};
 use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, ValidationStatus};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
-    BaseProjectionConfig, CurrentAssessmentStatus, EventVerificationPolicy, HistoryPage,
-    HistoryQuery, InputRequestStatus, LivenessEnrichment, ProjectionDiagnostic, ReviewHistoryEntry,
+    AssessmentRecordStatus, AssessmentView, BaseProjectionConfig, CurrentAssessmentStatus,
+    EventVerificationPolicy, HistoryPage, HistoryQuery, InputRequestStatus, LivenessEnrichment,
+    ObservationStatus, ObservationView, ProjectionDiagnostic, ReviewHistoryEntry,
     RevisionListEntry, RevisionListOptions, RevisionOverview, RevisionOverviewsOptions,
-    RevisionProjectionSummary, RevisionShowOptions, SessionState, SupersessionView,
-    apply_history_query, enrich_liveness, event_log_head_marker, history_base_projection,
-    list_revisions, read_bound_object_artifact, read_events_for_display, read_object_artifact,
-    show_revision, show_revision_overviews,
+    RevisionProjectionSummary, RevisionShowOptions, RevisionShowResult, SessionState,
+    SupersessionView, apply_history_query, enrich_liveness, event_log_head_marker,
+    history_base_projection, list_revisions, read_bound_object_artifact, read_events_for_display,
+    read_object_artifact, show_revision, show_revision_overviews,
 };
 
 use super::server::HighlightCache;
@@ -166,6 +167,34 @@ struct LaidOutEdgeWire {
 struct LayoutBounds {
     w: f64,
     h: f64,
+}
+
+/// Inspector-private, additive fact-level supersession graphs for one revision,
+/// spliced into `/api/revisions/{id}`. Fork-gated: a sub-field is present only
+/// when that fact type forks, and the whole struct is omitted when neither does,
+/// so a non-forked revision's wire is byte-identical. Never added to the shared
+/// `shore.review-revision` document.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FactSupersessionDocument {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assessments: Option<FactGraphDocument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    observations: Option<FactGraphDocument>,
+}
+
+impl FactSupersessionDocument {
+    fn is_empty(&self) -> bool {
+        self.assessments.is_none() && self.observations.is_none()
+    }
+}
+
+/// One fact type's laid-out supersession graph. `laidOut` is the exact revision
+/// `ThreadLayout` wire; its edges additionally carry `kind`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FactGraphDocument {
+    laid_out: ThreadLayout,
 }
 
 /// One `/api/revisions` entry: the full `RevisionListEntry` flattened verbatim,
@@ -1003,6 +1032,116 @@ pub(super) fn snapshot_json(
 
 /// The full composite projection for one Revision.
 ///
+/// Build the fork-gated fact graphs for one revision from its show result. A
+/// layout error degrades that fact type to `None` (advisory, best-effort — never
+/// fails the composite page).
+fn fact_supersession_document(result: &RevisionShowResult) -> FactSupersessionDocument {
+    let assessments = matches!(
+        result.current_assessment.status,
+        CurrentAssessmentStatus::Ambiguous(_)
+    )
+    .then(|| assessment_fact_graph(&result.assessments))
+    .flatten();
+
+    let observations = result
+        .observations
+        .iter()
+        .any(|o| o.status == ObservationStatus::Superseded)
+        .then(|| observation_fact_graph(&result.observations))
+        .flatten();
+
+    FactSupersessionDocument {
+        assessments,
+        observations,
+    }
+}
+
+fn assessment_fact_graph(assessments: &[AssessmentView]) -> Option<FactGraphDocument> {
+    let ids: std::collections::BTreeSet<&str> = assessments.iter().map(|a| a.id.as_str()).collect();
+    let nodes: Vec<SupersessionLayoutNode> = assessments
+        .iter()
+        .map(|a| SupersessionLayoutNode {
+            id: a.id.as_str().to_owned(),
+            label: short_node_label(a.id.as_str()),
+            is_head: a.status == AssessmentRecordStatus::Current,
+            is_superseded: a.status == AssessmentRecordStatus::Replaced,
+        })
+        .collect();
+    let mut edges = Vec::new();
+    for a in assessments {
+        for replaced in &a.replaces {
+            if ids.contains(replaced.as_str()) {
+                edges.push(SupersessionLayoutEdge {
+                    from: a.id.as_str().to_owned(),
+                    to: replaced.as_str().to_owned(),
+                    kind: Some("replaces"),
+                });
+            }
+        }
+    }
+    layout_or_log(&nodes, &edges, "assessment")
+}
+
+fn observation_fact_graph(observations: &[ObservationView]) -> Option<FactGraphDocument> {
+    let ids: std::collections::BTreeSet<&str> =
+        observations.iter().map(|o| o.id.as_str()).collect();
+    let nodes: Vec<SupersessionLayoutNode> = observations
+        .iter()
+        .map(|o| SupersessionLayoutNode {
+            id: o.id.as_str().to_owned(),
+            label: short_node_label(o.id.as_str()),
+            is_head: o.status == ObservationStatus::Active,
+            is_superseded: o.status == ObservationStatus::Superseded,
+        })
+        .collect();
+    let mut edges = Vec::new();
+    for o in observations {
+        for superseded in &o.supersedes {
+            if ids.contains(superseded.as_str()) {
+                edges.push(SupersessionLayoutEdge {
+                    from: o.id.as_str().to_owned(),
+                    to: superseded.as_str().to_owned(),
+                    kind: Some("supersedes"),
+                });
+            }
+        }
+    }
+    layout_or_log(&nodes, &edges, "observation")
+}
+
+fn layout_or_log(
+    nodes: &[SupersessionLayoutNode],
+    edges: &[SupersessionLayoutEdge],
+    kind: &str,
+) -> Option<FactGraphDocument> {
+    match layout_supersession_graph(nodes, edges) {
+        Ok(laid_out) => Some(FactGraphDocument { laid_out }),
+        Err(error) => {
+            tracing::debug!(error = %error, fact_kind = kind, "fact_supersession_layout_failed");
+            None
+        }
+    }
+}
+
+/// Splice the inspector-private `factSupersession` field into the composite value.
+/// A no-op (omits the key) when neither fact type forks, so the wire stays
+/// byte-identical for the common case.
+fn splice_fact_supersession(
+    value: &mut serde_json::Value,
+    doc: FactSupersessionDocument,
+) -> Result<(), String> {
+    if doc.is_empty() {
+        return Ok(());
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "factSupersession".to_owned(),
+            serde_json::to_value(&doc).map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(())
+}
+
 /// Reuses the exact `shore.review-revision` document the `shore review show`
 /// command builds (`revision_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
@@ -1039,9 +1178,13 @@ pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, St
         ReviewEndpoint::GitWorkingTree { .. } => None,
     };
     let commit_range = result.commit_range.clone();
+    // Build the inspector-private fact graphs while `result` is still live; it is
+    // moved into `revision_show_document` on the next line.
+    let fact_supersession = fact_supersession_document(&result);
     let document = revision_show_document(result);
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     splice_target_display(&mut value, target_display)?;
+    splice_fact_supersession(&mut value, fact_supersession)?;
 
     // Current/live enrichment is best-effort: a missing or unreadable repo leaves
     // `liveBranch` omitted ("reachability unknown"), never an error.
