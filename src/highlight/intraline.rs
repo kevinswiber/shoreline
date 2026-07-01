@@ -17,6 +17,35 @@ pub struct EmphSpan {
     pub end: usize,
 }
 
+/// delta's `\w` proxy: a word character is alphanumeric or `_`.
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// delta-style tokenization (`src/edits.rs::tokenize`): a run of `\w` characters is one token; every
+/// other character is its own token. Returns `(byte_start, byte_end)` ranges covering `line` in
+/// order, with no gaps or overlaps, so callers can map `similar` edit ops back onto `DiffRow.text`
+/// byte offsets. Char-based (not grapheme-based) — a deliberate simplification for this best-effort
+/// channel.
+fn tokenize(line: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut word_start: Option<usize> = None;
+    for (i, c) in line.char_indices() {
+        if is_word(c) {
+            word_start.get_or_insert(i);
+        } else {
+            if let Some(ws) = word_start.take() {
+                out.push((ws, i));
+            }
+            out.push((i, i + c.len_utf8()));
+        }
+    }
+    if let Some(ws) = word_start.take() {
+        out.push((ws, line.len()));
+    }
+    out
+}
+
 /// Intraline emphasis for a whole diff file, keyed by the same [`RowKey`] as
 /// [`super::highlight_file`].
 ///
@@ -87,5 +116,35 @@ mod tests {
             ],
         );
         assert!(emphasis_file(&file).is_empty());
+    }
+
+    #[test]
+    fn tokenize_words_and_separators() {
+        // "a.b cd" → word "a", '.', word "b", ' ', word "cd"
+        assert_eq!(
+            tokenize("a.b cd"),
+            vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 6)]
+        );
+    }
+
+    #[test]
+    fn tokenize_empty_is_empty() {
+        assert_eq!(tokenize(""), Vec::<(usize, usize)>::new());
+    }
+
+    #[test]
+    fn tokenize_concatenation_reconstructs_line() {
+        let line = "let x = f(a, b);";
+        let joined: String = tokenize(line).iter().map(|&(s, e)| &line[s..e]).collect();
+        assert_eq!(joined, line);
+    }
+
+    #[test]
+    fn tokenize_multibyte_word_run_is_one_token() {
+        // A `\w+` run of multibyte chars stays one token; concatenation still reconstructs.
+        let line = "café x";
+        assert_eq!(tokenize(line), vec![(0, 5), (5, 6), (6, 7)]);
+        let joined: String = tokenize(line).iter().map(|&(s, e)| &line[s..e]).collect();
+        assert_eq!(joined, line);
     }
 }
