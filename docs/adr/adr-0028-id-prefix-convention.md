@@ -1,6 +1,6 @@
 # ADR-0028: ID Prefix Convention — Ratify Minted Strings, Internal Registry as the Enumerable Source
 
-**Status:** Proposed — ratified by the owner landing the registry change for #162.
+**Status:** Accepted (owner-approved 2026-07-02); lands with the registry change for #162.
 **Date:** 2026-07-02
 **See also:** **ADR-0017** (identity layering — the object/revision split whose ids these
 prefixes open), **ADR-0018** (event-borne supersession — the reshape that retired the
