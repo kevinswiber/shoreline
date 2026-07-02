@@ -75,6 +75,7 @@ pub struct CaptureOptions {
     excluded_helper_paths: Vec<PathBuf>,
     actor_id: Option<ActorId>,
     supersedes: Vec<RevisionId>,
+    pathspecs: Vec<String>,
     signing: EventSigningOptions,
 }
 
@@ -86,6 +87,7 @@ impl CaptureOptions {
             excluded_helper_paths: Vec::new(),
             actor_id: None,
             supersedes: Vec::new(),
+            pathspecs: Vec::new(),
             signing: EventSigningOptions::default(),
         }
     }
@@ -117,6 +119,18 @@ impl CaptureOptions {
     /// not-yet-present target is resolved later by the read projections.
     pub fn with_supersedes(mut self, supersedes: Vec<RevisionId>) -> Self {
         self.supersedes = supersedes;
+        self
+    }
+
+    /// Scope the capture to the given native git pathspec(s), applied to both
+    /// the tracked diff and untracked-file synthesis. The set is canonicalized
+    /// (sorted, deduped, trailing slashes stripped from non-magic entries) and
+    /// recorded in the revision's provenance, so set-equal spellings converge
+    /// to one revision. Empty (the default) captures the whole repository,
+    /// exactly as before. A scoped capture whose inventory is empty is an
+    /// error.
+    pub fn with_pathspecs(mut self, pathspecs: Vec<String>) -> Self {
+        self.pathspecs = pathspecs;
         self
     }
 
@@ -185,12 +199,21 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     let storage = LocalStorage::new(&store_dir);
     prepare_write_landing(&write_store, &storage)?;
 
+    let pathspecs = normalize_pathspecs(&options.pathspecs)?;
     let PreparedCapture { files, fingerprint } = match &options.source {
-        CaptureSourceSpec::Worktree => prepare_worktree_capture(&worktree_root, &options)?,
+        CaptureSourceSpec::Worktree => {
+            prepare_worktree_capture(&worktree_root, &options, &pathspecs)?
+        }
         CaptureSourceSpec::CommitRange(range) => {
-            prepare_commit_range_capture(&worktree_root, range)?
+            prepare_commit_range_capture(&worktree_root, range, &pathspecs)?
         }
     };
+    if !pathspecs.is_empty() && files.is_empty() {
+        return Err(crate::error::ShoreError::Message(format!(
+            "pathspec scope matched no changed files: {}",
+            pathspecs.join(", ")
+        )));
+    }
     let review_id = ReviewId::new("review:default");
     let journal_id = JournalId::new("journal:default");
     let snapshot = DiffSnapshot::new(review_id, fingerprint.object_id.clone(), files);
@@ -361,12 +384,18 @@ struct PreparedCapture {
 fn prepare_worktree_capture(
     worktree_root: &Path,
     options: &CaptureOptions,
+    pathspecs: &[String],
 ) -> Result<PreparedCapture> {
-    let snapshot =
-        ingest_tracked_diff_with_options(worktree_root, capture_ingest_options(options))?;
+    let snapshot = ingest_tracked_diff_with_options(
+        worktree_root,
+        capture_ingest_options(options).with_pathspecs(pathspecs.to_vec()),
+    )?;
     let files = snapshot.files;
-    let fingerprint =
-        crate::session::fingerprint::revision_fingerprint_for_files(worktree_root, &files, &[])?;
+    let fingerprint = crate::session::fingerprint::revision_fingerprint_for_files(
+        worktree_root,
+        &files,
+        pathspecs,
+    )?;
     Ok(PreparedCapture { files, fingerprint })
 }
 
@@ -376,18 +405,23 @@ fn prepare_worktree_capture(
 fn prepare_commit_range_capture(
     worktree_root: &Path,
     range: &CommitRangeSpec,
+    pathspecs: &[String],
 ) -> Result<PreparedCapture> {
     let base = resolve_commit_endpoint(worktree_root, &range.base_rev)?;
     let target_rev = range.target_rev.as_deref().unwrap_or("HEAD");
     let target = resolve_commit_endpoint(worktree_root, target_rev)?;
-    let files =
-        capture_commit_range_diff_files(worktree_root, &base.commit_oid, &target.commit_oid, &[])?;
+    let files = capture_commit_range_diff_files(
+        worktree_root,
+        &base.commit_oid,
+        &target.commit_oid,
+        pathspecs,
+    )?;
     let fingerprint = crate::session::fingerprint::commit_range_revision_fingerprint_for_files(
         worktree_root,
         &base,
         &target,
         &files,
-        &[],
+        pathspecs,
     )?;
     Ok(PreparedCapture { files, fingerprint })
 }
@@ -530,6 +564,176 @@ mod tests {
         capture_worktree_review, export_artifact, import_artifact, read_object_artifact,
         referenced_artifacts, show_revision,
     };
+
+    fn two_dir_repo() -> TestRepo {
+        let repo = TestRepo::new();
+        repo.write("a/one.txt", "one\n");
+        repo.write("b/two.txt", "two\n");
+        repo.commit_all("base");
+        repo.write("a/one.txt", "one changed\n");
+        repo.write("b/two.txt", "two changed\n");
+        repo
+    }
+
+    #[test]
+    fn scoped_worktree_capture_records_only_scoped_files_and_the_scope() {
+        let repo = two_dir_repo();
+
+        let result =
+            capture_review(CaptureOptions::new(repo.path()).with_pathspecs(vec!["a".to_owned()]))
+                .unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+        assert_eq!(paths, vec!["a/one.txt"]);
+
+        // The recorded provenance carries the scope …
+        let crate::model::RevisionSource::GitWorktree { pathspecs, .. } = &result.source else {
+            panic!("expected a worktree source");
+        };
+        assert_eq!(pathspecs, &vec!["a".to_owned()]);
+
+        // … and so does the stored event payload, inside the source.
+        let events = EventStore::open(resolved_store_dir(repo.path()))
+            .list_events()
+            .unwrap();
+        let event = events
+            .iter()
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
+            .unwrap();
+        assert_eq!(
+            event.payload["workObject"]["revision"]["gitProvenance"]["source"]["pathspecs"][0],
+            "a"
+        );
+    }
+
+    #[test]
+    fn scoped_capture_composes_with_a_commit_range() {
+        let repo = two_dir_repo();
+        repo.commit_all("change");
+
+        let result = capture_review(
+            CaptureOptions::new(repo.path())
+                .with_commit_range(CommitRangeSpec::new("HEAD~1"))
+                .with_pathspecs(vec!["a".to_owned()]),
+        )
+        .unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+        assert_eq!(paths, vec!["a/one.txt"]);
+        let crate::model::RevisionSource::GitCommitRange { pathspecs, .. } = &result.source else {
+            panic!("expected a commit-range source");
+        };
+        assert_eq!(pathspecs, &vec!["a".to_owned()]);
+    }
+
+    #[test]
+    fn scoped_capture_matching_no_changes_errors_instead_of_recording_an_empty_unit() {
+        let repo = two_dir_repo();
+
+        // `docs` matches nothing; git exits 0 with an empty inventory, so the
+        // guard is Shore-side.
+        let error = capture_review(
+            CaptureOptions::new(repo.path()).with_pathspecs(vec!["docs".to_owned()]),
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("matched no changed files"),
+            "message: {message}"
+        );
+        assert!(message.contains("docs"), "message: {message}");
+
+        // No event was written.
+        let events = EventStore::open(resolved_store_dir(repo.path()))
+            .list_events()
+            .unwrap_or_default();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn scoped_range_capture_matching_no_changes_errors() {
+        let repo = two_dir_repo();
+        repo.commit_all("change");
+
+        let error = capture_review(
+            CaptureOptions::new(repo.path())
+                .with_commit_range(CommitRangeSpec::new("HEAD~1"))
+                .with_pathspecs(vec!["docs".to_owned()]),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("matched no changed files"));
+    }
+
+    #[test]
+    fn set_equal_pathspec_spellings_recapture_idempotently() {
+        let repo = two_dir_repo();
+
+        let first = capture_review(CaptureOptions::new(repo.path()).with_pathspecs(vec![
+            "b/".to_owned(),
+            "a".to_owned(),
+            "a/".to_owned(),
+        ]))
+        .unwrap();
+        let second = capture_review(
+            CaptureOptions::new(repo.path()).with_pathspecs(vec!["a".to_owned(), "b".to_owned()]),
+        )
+        .unwrap();
+
+        assert_eq!(first.revision_id, second.revision_id);
+        assert_eq!(second.events_created, 0);
+    }
+
+    #[test]
+    fn scoped_and_unscoped_captures_of_identical_content_coexist_as_distinct_revisions() {
+        // Only a/ changed, so scoping to a/ captures identical content: one
+        // shared content object, two revision positions, no artifact conflict.
+        let repo = TestRepo::new();
+        repo.write("a/one.txt", "one\n");
+        repo.commit_all("base");
+        repo.write("a/one.txt", "one changed\n");
+
+        let unscoped = capture_review(CaptureOptions::new(repo.path())).unwrap();
+        let scoped =
+            capture_review(CaptureOptions::new(repo.path()).with_pathspecs(vec!["a".to_owned()]))
+                .unwrap();
+
+        assert_eq!(unscoped.object_id, scoped.object_id);
+        assert_ne!(unscoped.revision_id, scoped.revision_id);
+        read_object_artifact(repo.path(), &scoped.object_id).unwrap();
+    }
+
+    #[test]
+    fn unscoped_capture_payload_carries_no_pathspecs_key() {
+        // The additive wire shape at the stored-event level: an unscoped payload
+        // stays byte-identical to one written before the field existed.
+        let repo = two_dir_repo();
+        capture_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let events = EventStore::open(resolved_store_dir(repo.path()))
+            .list_events()
+            .unwrap();
+        let event = events
+            .iter()
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
+            .unwrap();
+        assert!(
+            event.payload["workObject"]["revision"]["gitProvenance"]["source"]
+                .get("pathspecs")
+                .is_none()
+        );
+    }
 
     #[test]
     fn normalize_pathspecs_sorts_dedups_and_strips_trailing_slashes() {
