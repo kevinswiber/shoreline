@@ -464,6 +464,22 @@ of the missing bytes, distinguishing a removed artifact from one that is merely 
 corrupt. See [ADR-0016](./adr/adr-0016-content-targeted-artifact-removal-and-compaction.md) for the
 decision.
 
+The explained render covers snapshot content and note-shaped bodies alike (observation and
+input-request bodies, response reasons, assessment and validation summaries, imported note bodies):
+an operative removal renders as `suppressed_present` (removal recorded, bytes still stored until a
+compact) or `physically_removed` (bytes swept), never as an error — while bytes that are missing
+*without* an operative removal keep the hard `import referenced artifacts` error, so a removed
+artifact is never confused with a genuinely missing one. On the JSON read surfaces the body twin
+appears as a `bodyContentState` / `summaryContentState` / `reasonContentState` field beside the
+content hash (omitted entirely while present, so unaffected documents are byte-identical), plus
+`body_content_suppressed_present` / `body_content_physically_removed` diagnostics; imported notes,
+whose events carry no body content hash, expose the removal key as `removedBodyContentHash`. One
+deliberate boundary: inline bodies (at or below the externalization threshold) live in the immutable
+event log itself, and content-targeted removal does not cover event-payload bytes (the deferred
+Tier-2 in ADR-0016) — an operative removal over a matching hash never suppresses an inline render.
+This body-side render is read-surface consistency, not a privacy gate: the sensitive captured bytes
+are the snapshot artifacts, and their removal path is the one described above.
+
 Removal is two-phase. `shore store remove` appends the removal event (cheap, convergent, auditable);
 the marked bytes survive on disk until `shore store gc` / `shore store compact` runs a local,
 non-event maintenance sweep that physically deletes the removed and unreferenced blobs. Because a

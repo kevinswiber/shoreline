@@ -389,6 +389,16 @@ It emits `shore.store-compact` JSON listing each swept blob's `contentHash` and 
 (`removed` or `missing`) plus `bytesReclaimed`. Running it again is a no-op (every removed blob is
 already `missing`).
 
+Removed content renders as an explained state on every read surface, never as an error. For
+note-shaped bodies (observation and input-request bodies, response reasons, assessment and
+validation summaries, imported note bodies), `shore review show`, the leaf `list`/`fetch`/`show`
+commands, and `shore review history` omit the body text and carry a `bodyContentState` /
+`summaryContentState` / `reasonContentState` field beside the content hash — `suppressed_present`
+while the bytes are still stored (a compact would reclaim them) or `physically_removed` after the
+sweep — plus `body_content_suppressed_present` / `body_content_physically_removed` diagnostics.
+The field is omitted entirely while content is present, and a body that is missing *without* a
+recorded removal still fails the read with the `import referenced artifacts` guidance.
+
 Command output is the stable integration surface. Raw store paths, event files, artifact paths,
 `.git` paths, `.shore/data` paths, and `state.json` remain internal storage details.
 

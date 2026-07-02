@@ -78,7 +78,7 @@ pub use revision_list::{
     list_revisions, list_units_for_ref,
 };
 pub use revision_projection::{
-    AdapterNoteView, MemberReadback, RevisionOverview, RevisionOverviewsOptions,
+    AdapterNoteStatus, AdapterNoteView, MemberReadback, RevisionOverview, RevisionOverviewsOptions,
     RevisionProjectionIdentity, RevisionProjectionRow, RevisionProjectionSummary,
     RevisionShowFilters, RevisionShowOptions, RevisionShowResult, SnapshotContentState,
     SnapshotOrder, show_revision, show_revision_overviews,

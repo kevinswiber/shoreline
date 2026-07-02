@@ -8,7 +8,7 @@ use crate::model::{RevisionId, TrackId};
 use crate::session::observation::{
     CurrentRevisionContext, RevisionScope, RevisionSelection, resolve_revision, validated_track_id,
 };
-use crate::session::projection::body_content::BodyRemovalLens;
+use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 use crate::session::projection::cosignature::CosignatureIndex;
 use crate::session::signing::{RemovalPolicy, TrustSet};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -22,6 +22,8 @@ pub struct AssessmentShowOptions {
     pub(super) track: Option<String>,
     pub(super) include_summary: bool,
     pub(super) include_all: bool,
+    pub(super) trust_set: TrustSet,
+    pub(super) removal_policy: RemovalPolicy,
 }
 
 impl AssessmentShowOptions {
@@ -32,6 +34,8 @@ impl AssessmentShowOptions {
             track: None,
             include_summary: false,
             include_all: false,
+            trust_set: TrustSet::default(),
+            removal_policy: RemovalPolicy::default(),
         }
     }
 
@@ -51,6 +55,21 @@ impl AssessmentShowOptions {
 
     pub fn with_all(mut self, include_all: bool) -> Self {
         self.include_all = include_all;
+        self
+    }
+
+    /// Supply the reader's trust set for removal-state resolution
+    /// (reader-relativity; the empty default reads every signer as untrusted).
+    pub fn with_trust_set(mut self, trust_set: TrustSet) -> Self {
+        self.trust_set = trust_set;
+        self
+    }
+
+    /// Supply the render-time removal policy. A non-operative removal claim
+    /// renders the bytes; an operative one renders the explained removed
+    /// state. Render-only: it never gates the compact erasure sweep.
+    pub fn with_removal_policy(mut self, removal_policy: RemovalPolicy) -> Self {
+        self.removal_policy = removal_policy;
         self
     }
 }
@@ -87,9 +106,12 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
         .transpose()?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;
     let cosig_index = CosignatureIndex::build(&events)?;
-    let trust_set = TrustSet::default();
-    let removal_lens =
-        BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig_index);
+    let removal_lens = BodyRemovalLens::new(
+        &removal,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    );
     let (current, assessments) = project_assessments(AssessmentProjectionOptions {
         backend: Some(read_store.backend()),
         events: &events,
@@ -99,7 +121,12 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
         include_all: options.include_all,
         removal_lens: Some(&removal_lens),
     })?;
-    let diagnostics = SessionState::from_events(&events)?.diagnostics;
+    let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
+    diagnostics.extend(body_content_diagnostics(
+        assessments
+            .iter()
+            .map(|a| (a.summary_content_state, a.summary_content_hash.as_deref())),
+    ));
 
     Ok(AssessmentShowResult {
         revision_id: resolved.revision_id,

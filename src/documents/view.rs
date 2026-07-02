@@ -9,7 +9,7 @@ use crate::session::event::{
     ReviewAssessment, Writer,
 };
 use crate::session::{
-    AssessmentView, CurrentAssessmentStatus, DelegationMap, EndorsementReadback,
+    AssessmentView, BodyContentState, CurrentAssessmentStatus, DelegationMap, EndorsementReadback,
     EventVerificationStatus, InputRequestView, MemberReadback, ObservationView, PrincipalView,
     ValidationCheckView, principal_view_for,
 };
@@ -64,6 +64,8 @@ pub struct ObservationViewDocument {
     responded_by: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentState::is_present")]
+    body_content_state: BodyContentState,
     created_at: String,
     writer: Writer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +93,8 @@ pub struct InputRequestViewDocument {
     body_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentState::is_present")]
+    body_content_state: BodyContentState,
     status: &'static str,
     responses: Vec<InputRequestResponseViewDocument>,
     created_at: String,
@@ -116,6 +120,8 @@ pub struct InputRequestResponseViewDocument {
     reason_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason_content_hash: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentState::is_present")]
+    reason_content_state: BodyContentState,
     created_at: String,
     writer: Writer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,6 +169,8 @@ pub struct AssessmentViewDocument {
     summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_content_hash: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentState::is_present")]
+    summary_content_state: BodyContentState,
     status: &'static str,
     replaces: Vec<String>,
     related_observations: Vec<String>,
@@ -203,6 +211,8 @@ pub struct ValidationCheckViewDocument {
     summary_content_type: BodyContentType,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_content_hash: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentState::is_present")]
+    summary_content_state: BodyContentState,
     #[serde(skip_serializing_if = "Option::is_none")]
     started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -249,6 +259,7 @@ impl From<ObservationView> for ObservationViewDocument {
                 .map(|observation_id| observation_id.as_str().to_owned())
                 .collect(),
             body_content_hash: view.body_content_hash,
+            body_content_state: view.body_content_state,
             created_at: view.created_at,
             writer: view.writer,
             principal: None,
@@ -271,6 +282,7 @@ impl From<InputRequestView> for InputRequestViewDocument {
             body: view.body,
             body_content_type: view.body_content_type,
             body_content_hash: view.body_content_hash,
+            body_content_state: view.body_content_state,
             status: view.status.as_str(),
             responses: view
                 .responses
@@ -304,6 +316,7 @@ impl From<crate::session::InputRequestResponseView> for InputRequestResponseView
             reason: view.reason,
             reason_content_type: view.reason_content_type,
             reason_content_hash: view.reason_content_hash,
+            reason_content_state: view.reason_content_state,
             created_at: view.created_at,
             writer: view.writer,
             principal: None,
@@ -356,6 +369,7 @@ impl From<AssessmentView> for AssessmentViewDocument {
             summary: view.summary,
             summary_content_type: view.summary_content_type,
             summary_content_hash: view.summary_content_hash,
+            summary_content_state: view.summary_content_state,
             status: view.status.as_str(),
             replaces: view
                 .replaces
@@ -397,6 +411,7 @@ impl From<ValidationCheckView> for ValidationCheckViewDocument {
             summary: view.summary,
             summary_content_type: view.summary_content_type,
             summary_content_hash: view.summary_content_hash,
+            summary_content_state: view.summary_content_state,
             started_at: view.started_at,
             completed_at: view.completed_at,
             log_artifact_content_hashes: view.log_artifact_content_hashes,
@@ -520,6 +535,98 @@ impl ValidationCheckViewDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{
+        EventId, InputRequestResponseId, ObservationId, ReviewTargetRef, RevisionId, TrackId,
+    };
+    use crate::session::event::Writer;
+    use crate::session::{BodyContentState, ObservationStatus};
+
+    fn observation_view(
+        body: Option<String>,
+        state: BodyContentState,
+        hash: Option<String>,
+    ) -> ObservationView {
+        ObservationView {
+            id: ObservationId::new("obs:sha256:one"),
+            event_id: EventId::new("evt:sha256:one"),
+            track_id: TrackId::new("agent:codex"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("rev:sha256:one"),
+            },
+            title: "t".to_owned(),
+            body,
+            body_content_type: Default::default(),
+            tags: vec![],
+            confidence: None,
+            status: ObservationStatus::Active,
+            supersedes: vec![],
+            responds_to: vec![],
+            responded_by: vec![],
+            body_content_hash: hash,
+            body_content_state: state,
+            created_at: "2026-05-10T00:00:00Z".to_owned(),
+            writer: Writer::shore_local("test"),
+        }
+    }
+
+    #[test]
+    fn removed_observation_document_carries_body_content_state() {
+        let view = observation_view(
+            None,
+            BodyContentState::PhysicallyRemoved,
+            Some("sha256:x".to_owned()),
+        );
+
+        let json = serde_json::to_value(ObservationViewDocument::from(view)).unwrap();
+
+        assert_eq!(json["bodyContentState"], "physically_removed");
+        assert_eq!(json["bodyContentHash"], "sha256:x");
+        assert!(json.get("body").is_none());
+    }
+
+    #[test]
+    fn present_observation_document_omits_body_content_state() {
+        let view = observation_view(Some("b".to_owned()), BodyContentState::Present, None);
+
+        let json = serde_json::to_value(ObservationViewDocument::from(view)).unwrap();
+
+        assert!(json.get("bodyContentState").is_none());
+        assert_eq!(json["body"], "b");
+    }
+
+    #[test]
+    fn removed_response_document_carries_reason_content_state() {
+        let view = crate::session::InputRequestResponseView {
+            id: InputRequestResponseId::new("resp:sha256:one"),
+            event_id: EventId::new("evt:sha256:two"),
+            outcome: crate::session::event::InputRequestResponseOutcome::Approved,
+            reason: None,
+            reason_content_type: Default::default(),
+            reason_content_hash: Some("sha256:r".to_owned()),
+            reason_content_state: BodyContentState::SuppressedPresent,
+            created_at: "2026-05-10T00:00:00Z".to_owned(),
+            writer: Writer::shore_local("test"),
+        };
+
+        let json = serde_json::to_value(InputRequestResponseViewDocument::from(view)).unwrap();
+
+        assert_eq!(json["reasonContentState"], "suppressed_present");
+        assert!(json.get("reason").is_none());
+
+        let present = crate::session::InputRequestResponseView {
+            id: InputRequestResponseId::new("resp:sha256:one"),
+            event_id: EventId::new("evt:sha256:two"),
+            outcome: crate::session::event::InputRequestResponseOutcome::Approved,
+            reason: Some("ok".to_owned()),
+            reason_content_type: Default::default(),
+            reason_content_hash: None,
+            reason_content_state: BodyContentState::Present,
+            created_at: "2026-05-10T00:00:00Z".to_owned(),
+            writer: Writer::shore_local("test"),
+        };
+        let json = serde_json::to_value(InputRequestResponseViewDocument::from(present)).unwrap();
+        assert!(json.get("reasonContentState").is_none());
+    }
 
     #[test]
     fn input_request_assertion_mode_serializes_snake_case() {

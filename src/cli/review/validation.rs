@@ -226,7 +226,9 @@ fn validation_add_options(
 }
 
 fn validation_list_options(args: ValidationListArgs) -> ValidationListOptions {
-    let mut options = ValidationListOptions::new(&args.repo).with_include_body(args.include_body);
+    let mut options = ValidationListOptions::new(&args.repo)
+        .with_include_body(args.include_body)
+        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }

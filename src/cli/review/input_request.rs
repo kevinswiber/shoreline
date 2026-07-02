@@ -275,6 +275,7 @@ fn review_input_request_fetch(
     let delegation_map = super::common::discover_delegation_map(&args.repo);
     let result = fetch_input_request(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
+            .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo))
             .with_include_body(args.include_body),
     );
     let document = input_request_fetch_document(result?, delegation_map.as_ref());
@@ -335,7 +336,8 @@ fn input_request_open_options(
 fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOptions {
     let mut options = InputRequestListOptions::new(&args.repo)
         .with_status(args.status.into())
-        .with_include_body(args.include_body);
+        .with_include_body(args.include_body)
+        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }

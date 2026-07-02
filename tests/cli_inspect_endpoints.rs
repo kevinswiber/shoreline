@@ -939,3 +939,60 @@ fn api_history_reflects_a_new_event_after_an_append() {
         "the cache invalidates on a new event (marker changed): {before} -> {after}"
     );
 }
+
+/// A swept note body must not kill the inspector: the revision detail hydrates
+/// with `include_body` hardcoded, and the history base cache hydrates every
+/// body — both previously hard-errored on a removed-and-swept blob.
+#[test]
+fn inspector_serves_revision_and_history_over_a_swept_body() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let revision_id = capture(repo.path());
+    let arg = repo.path().to_str().unwrap();
+
+    let body = "x".repeat(5000);
+    let observation = shore_env(
+        [
+            "review",
+            "observation",
+            "add",
+            "--repo",
+            arg,
+            "--track",
+            "agent:codex",
+            "--title",
+            "a large observation",
+            "--body",
+            &body,
+        ],
+        &[],
+    );
+    assert!(
+        observation.status.success(),
+        "observation add stderr:\n{}",
+        String::from_utf8_lossy(&observation.stderr)
+    );
+    let removed = shore_env(
+        ["store", "remove", "--repo", arg, "--revision", &revision_id],
+        &[],
+    );
+    assert!(removed.status.success());
+    let compacted = shore_env(["store", "compact", "--repo", arg, "--yes"], &[]);
+    assert!(compacted.status.success());
+
+    let inspector = Inspector::spawn(repo.path());
+
+    let revision = inspector.get_json(&format!("/api/revisions/{}", urlencode(&revision_id)));
+    let entry = &revision["observations"][0];
+    assert!(entry.get("body").is_none());
+    assert_eq!(entry["bodyContentState"], "physically_removed");
+
+    let history = inspector.get_json("/api/history");
+    assert_eq!(history["schema"], "shore.inspect-history");
+    assert!(
+        !history["entries"].as_array().unwrap().is_empty(),
+        "the always-hydrating history base cache must survive a swept body"
+    );
+}

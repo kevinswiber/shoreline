@@ -10,7 +10,7 @@ use crate::session::event::AssertionMode;
 use crate::session::observation::{
     CurrentRevisionContext, RevisionScope, RevisionSelection, resolve_revision, validated_track_id,
 };
-use crate::session::projection::body_content::BodyRemovalLens;
+use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 use crate::session::projection::cosignature::CosignatureIndex;
 use crate::session::signing::{RemovalPolicy, TrustSet};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -26,6 +26,8 @@ pub struct InputRequestListOptions {
     file: Option<String>,
     status: InputRequestStatusFilter,
     include_body: bool,
+    trust_set: TrustSet,
+    removal_policy: RemovalPolicy,
 }
 
 impl InputRequestListOptions {
@@ -38,6 +40,8 @@ impl InputRequestListOptions {
             file: None,
             status: InputRequestStatusFilter::Open,
             include_body: false,
+            trust_set: TrustSet::default(),
+            removal_policy: RemovalPolicy::default(),
         }
     }
 
@@ -45,6 +49,22 @@ impl InputRequestListOptions {
         self.revision_id = Some(id);
         self
     }
+
+    /// Supply the reader's trust set for removal-state resolution
+    /// (reader-relativity; the empty default reads every signer as untrusted).
+    pub fn with_trust_set(mut self, trust_set: TrustSet) -> Self {
+        self.trust_set = trust_set;
+        self
+    }
+
+    /// Supply the render-time removal policy. A non-operative removal claim
+    /// renders the bytes; an operative one renders the explained removed
+    /// state. Render-only: it never gates the compact erasure sweep.
+    pub fn with_removal_policy(mut self, removal_policy: RemovalPolicy) -> Self {
+        self.removal_policy = removal_policy;
+        self
+    }
+
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
         self.track = Some(track.into());
         self
@@ -105,9 +125,12 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
         .transpose()?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;
     let cosig_index = CosignatureIndex::build(&events)?;
-    let trust_set = TrustSet::default();
-    let removal_lens =
-        BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig_index);
+    let removal_lens = BodyRemovalLens::new(
+        &removal,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    );
     let input_requests = project_input_requests(InputRequestProjectionOptions {
         backend: read_store.backend(),
         events: &events,
@@ -119,7 +142,20 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
         include_body: options.include_body,
         removal_lens: &removal_lens,
     })?;
-    let diagnostics = SessionState::from_events(&events)?.diagnostics;
+    let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
+    diagnostics.extend(body_content_diagnostics(
+        input_requests
+            .iter()
+            .map(|r| (r.body_content_state, r.body_content_hash.as_deref()))
+            .chain(input_requests.iter().flat_map(|r| {
+                r.responses.iter().map(|resp| {
+                    (
+                        resp.reason_content_state,
+                        resp.reason_content_hash.as_deref(),
+                    )
+                })
+            })),
+    ));
 
     Ok(InputRequestListResult {
         revision_id: resolved.revision_id,

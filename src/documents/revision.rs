@@ -7,9 +7,9 @@ use crate::documents::{
 };
 use crate::model::{EventId, ReviewTargetRef, Side};
 use crate::session::{
-    AdapterNoteView, CurrentCommitAssociation, CurrentRefAssociation, EndorsementReadback,
-    EventVerificationStatus, MemberReadback, RevisionCommitRangeView, RevisionListEntry,
-    RevisionListResult, RevisionProjectionIdentity, RevisionProjectionRow,
+    AdapterNoteView, BodyContentState, CurrentCommitAssociation, CurrentRefAssociation,
+    EndorsementReadback, EventVerificationStatus, MemberReadback, RevisionCommitRangeView,
+    RevisionListEntry, RevisionListResult, RevisionProjectionIdentity, RevisionProjectionRow,
     RevisionProjectionSummary, RevisionShowFilters, RevisionShowResult, WithdrawnCommitAssociation,
     WithdrawnRefAssociation,
 };
@@ -95,6 +95,13 @@ struct AdapterNoteDocument {
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<String>,
+    #[serde(skip_serializing_if = "BodyContentState::is_present")]
+    body_content_state: BodyContentState,
+    /// The removal key when the body is removed: the imported-note payload
+    /// carries no body content hash, so this is the surface's twin of the
+    /// snapshot result's removed-content-hash field; absent while present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removed_body_content_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<AdapterNoteTargetDocument>,
     status: &'static str,
@@ -313,6 +320,8 @@ impl From<AdapterNoteView> for AdapterNoteDocument {
             id: view.id,
             title: view.title,
             body: view.body,
+            body_content_state: view.body_content_state,
+            removed_body_content_hash: view.removed_body_content_hash,
             target: view.target.map(AdapterNoteTargetDocument::from),
             status: view.status.as_str(),
             file_path: view.file_path,
@@ -381,5 +390,61 @@ impl From<crate::session::SnapshotOrder> for SnapshotOrderDocument {
             hunk_index: order.hunk_index,
             row_index: order.row_index,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::AdapterNoteStatus;
+
+    fn adapter_note_view(
+        body: Option<String>,
+        state: BodyContentState,
+        removed_hash: Option<String>,
+    ) -> AdapterNoteView {
+        AdapterNoteView {
+            id: "note:one".to_owned(),
+            title: "t".to_owned(),
+            body,
+            body_content_state: state,
+            removed_body_content_hash: removed_hash,
+            target: None,
+            status: AdapterNoteStatus::Exact,
+            file_path: "src/lib.rs".to_owned(),
+            file_old_path: None,
+            tags: vec![],
+            confidence: None,
+            external_source: None,
+            author: None,
+            created_at: None,
+            sidecar_content_hash: "sha256:sidecar".to_owned(),
+        }
+    }
+
+    #[test]
+    fn removed_adapter_note_document_carries_state_and_removed_hash() {
+        let view = adapter_note_view(
+            None,
+            BodyContentState::PhysicallyRemoved,
+            Some("sha256:x".to_owned()),
+        );
+
+        let json = serde_json::to_value(AdapterNoteDocument::from(view)).unwrap();
+
+        assert_eq!(json["bodyContentState"], "physically_removed");
+        assert_eq!(json["removedBodyContentHash"], "sha256:x");
+        assert!(json.get("body").is_none());
+    }
+
+    #[test]
+    fn present_adapter_note_document_omits_removal_fields() {
+        let view = adapter_note_view(Some("b".to_owned()), BodyContentState::Present, None);
+
+        let json = serde_json::to_value(AdapterNoteDocument::from(view)).unwrap();
+
+        assert!(json.get("bodyContentState").is_none());
+        assert!(json.get("removedBodyContentHash").is_none());
+        assert_eq!(json["body"], "b");
     }
 }

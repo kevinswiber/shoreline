@@ -256,7 +256,8 @@ pub(super) fn assessment_add_options(
 pub(super) fn assessment_show_options(args: AssessmentShowArgs) -> AssessmentShowOptions {
     let mut options = AssessmentShowOptions::new(&args.repo)
         .with_all(args.all)
-        .with_include_summary(args.include_summary);
+        .with_include_summary(args.include_summary)
+        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }

@@ -6,7 +6,7 @@ use super::view::{
 };
 use crate::error::{Result, ShoreError};
 use crate::model::InputRequestId;
-use crate::session::projection::body_content::BodyRemovalLens;
+use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 use crate::session::projection::cosignature::CosignatureIndex;
 use crate::session::signing::{RemovalPolicy, TrustSet};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -18,6 +18,8 @@ pub struct InputRequestFetchOptions {
     repo: PathBuf,
     input_request_id: InputRequestId,
     include_body: bool,
+    trust_set: TrustSet,
+    removal_policy: RemovalPolicy,
 }
 
 impl InputRequestFetchOptions {
@@ -26,11 +28,28 @@ impl InputRequestFetchOptions {
             repo: repo.as_ref().to_path_buf(),
             input_request_id,
             include_body: false,
+            trust_set: TrustSet::default(),
+            removal_policy: RemovalPolicy::default(),
         }
     }
 
     pub fn with_include_body(mut self, include_body: bool) -> Self {
         self.include_body = include_body;
+        self
+    }
+
+    /// Supply the reader's trust set for removal-state resolution
+    /// (reader-relativity; the empty default reads every signer as untrusted).
+    pub fn with_trust_set(mut self, trust_set: TrustSet) -> Self {
+        self.trust_set = trust_set;
+        self
+    }
+
+    /// Supply the render-time removal policy. A non-operative removal claim
+    /// renders the bytes; an operative one renders the explained removed
+    /// state. Render-only: it never gates the compact erasure sweep.
+    pub fn with_removal_policy(mut self, removal_policy: RemovalPolicy) -> Self {
+        self.removal_policy = removal_policy;
         self
     }
 }
@@ -46,9 +65,12 @@ pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputReq
     let events = EventStore::from_backend(read_store.backend()).list_events()?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;
     let cosig_index = CosignatureIndex::build(&events)?;
-    let trust_set = TrustSet::default();
-    let removal_lens =
-        BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig_index);
+    let removal_lens = BodyRemovalLens::new(
+        &removal,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    );
     let InputRequestProjectionRecords {
         mut request_records,
         responses,
@@ -70,7 +92,17 @@ pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputReq
                 .unwrap_or_default(),
             options.include_body,
         )?;
-        let diagnostics = SessionState::from_events(&events)?.diagnostics;
+        let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
+        diagnostics.extend(body_content_diagnostics(
+            std::iter::once((view.body_content_state, view.body_content_hash.as_deref())).chain(
+                view.responses.iter().map(|resp| {
+                    (
+                        resp.reason_content_state,
+                        resp.reason_content_hash.as_deref(),
+                    )
+                }),
+            ),
+        ));
 
         return Ok(InputRequestFetchResult {
             input_request: view,

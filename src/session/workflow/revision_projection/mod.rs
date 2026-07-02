@@ -39,8 +39,8 @@ mod resolving;
 mod rows;
 mod snapshot;
 
-pub use self::adapter_notes::AdapterNoteView;
 use self::adapter_notes::project_adapter_notes;
+pub use self::adapter_notes::{AdapterNoteStatus, AdapterNoteView};
 use self::identity::principal_diagnostics;
 pub use self::identity::{
     MemberReadback, RevisionProjectionIdentity, RevisionProjectionSummary, RevisionShowFilters,
@@ -786,12 +786,12 @@ mod tests {
     use crate::session::{
         AssessmentAddOptions, AssessmentShowOptions, BodyContentState, CaptureOptions,
         CaptureResult, CurrentAssessmentStatus, EventStore, ImportNotesOptions,
-        InputRequestListOptions, InputRequestOpenOptions, InputRequestRespondOptions,
-        InputRequestStatus, InputRequestStatusFilter, ObservationAddOptions,
-        ObservationListOptions, ObservationTargetSelector, RemovalPolicy, RevisionListOptions,
-        capture_worktree_review, import_notes, list_input_requests, list_observations,
-        list_revisions, open_input_request, record_assessment, record_observation,
-        respond_input_request, show_assessments,
+        InputRequestFetchOptions, InputRequestListOptions, InputRequestOpenOptions,
+        InputRequestRespondOptions, InputRequestStatus, InputRequestStatusFilter,
+        ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, RemovalPolicy,
+        RevisionListOptions, capture_worktree_review, fetch_input_request, import_notes,
+        list_input_requests, list_observations, list_revisions, open_input_request,
+        record_assessment, record_observation, respond_input_request, show_assessments,
     };
 
     // ---- Overview batch: golden-equality + single-read invariants ----
@@ -2921,6 +2921,185 @@ mod tests {
             .expect_err("absent note bytes without an operative removal keep the hard error");
 
         assert!(err.to_string().contains("import referenced artifacts"));
+    }
+
+    #[test]
+    fn list_observations_surfaces_removed_body_diagnostics() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+        delete_note_body_blob(repo.path(), &body_hash);
+
+        let result =
+            list_observations(ObservationListOptions::new(repo.path()).with_include_body(true))
+                .expect("swept body must not hard-error the list");
+
+        assert_eq!(
+            result.observations[0].body_content_state,
+            BodyContentState::PhysicallyRemoved
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "body_content_physically_removed"
+                    && d.message.contains(&body_hash))
+        );
+    }
+
+    #[test]
+    fn list_observations_honors_removal_policy_option() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+
+        let result = list_observations(
+            ObservationListOptions::new(repo.path())
+                .with_include_body(true)
+                .with_removal_policy(RemovalPolicy::Advisory),
+        )
+        .expect("advisory policy renders the bytes");
+
+        assert_eq!(
+            result.observations[0].body_content_state,
+            BodyContentState::Present
+        );
+        assert!(result.observations[0].body.is_some());
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|d| d.code.starts_with("body_content_"))
+        );
+    }
+
+    #[test]
+    fn list_input_requests_surfaces_removed_body_diagnostics() {
+        let (repo, body_hash, reason_hash) = revision_with_externalized_input_request();
+        record_artifact_removed(repo.path(), &body_hash);
+        record_artifact_removed(repo.path(), &reason_hash);
+        delete_note_body_blob(repo.path(), &body_hash);
+
+        let result = list_input_requests(
+            InputRequestListOptions::new(repo.path())
+                .with_include_body(true)
+                .with_status(InputRequestStatusFilter::All),
+        )
+        .expect("swept body must not hard-error the list");
+
+        assert_eq!(
+            result.input_requests[0].body_content_state,
+            BodyContentState::PhysicallyRemoved
+        );
+        assert_eq!(
+            result.input_requests[0].responses[0].reason_content_state,
+            BodyContentState::SuppressedPresent
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "body_content_physically_removed")
+        );
+        assert!(result.diagnostics.iter().any(
+            |d| d.code == "body_content_suppressed_present" && d.message.contains(&reason_hash)
+        ));
+    }
+
+    #[test]
+    fn fetch_input_request_surfaces_removed_body_diagnostics() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let request = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
+                .with_revision_id(capture.revision_id.clone())
+                .with_track("agent:codex")
+                .with_title("a large request")
+                .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
+                .with_body("b".repeat(5000)),
+        )
+        .unwrap();
+        let body_hash = request.body_content_hash.expect("externalized body");
+        record_artifact_removed(repo.path(), &body_hash);
+        delete_note_body_blob(repo.path(), &body_hash);
+
+        let result = fetch_input_request(
+            InputRequestFetchOptions::new(repo.path(), request.input_request_id.clone())
+                .with_include_body(true),
+        )
+        .expect("swept body must not hard-error the fetch");
+
+        assert_eq!(
+            result.input_request.body_content_state,
+            BodyContentState::PhysicallyRemoved
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "body_content_physically_removed")
+        );
+    }
+
+    #[test]
+    fn show_assessments_surfaces_removed_summary_diagnostics() {
+        let (repo, summary_hash) = revision_with_externalized_assessment_summary();
+        record_artifact_removed(repo.path(), &summary_hash);
+        delete_note_body_blob(repo.path(), &summary_hash);
+
+        let result = show_assessments(
+            AssessmentShowOptions::new(repo.path())
+                .with_include_summary(true)
+                .with_all(true),
+        )
+        .expect("swept summary must not hard-error the show");
+
+        assert_eq!(
+            result.assessments[0].summary_content_state,
+            BodyContentState::PhysicallyRemoved
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "body_content_physically_removed")
+        );
+    }
+
+    #[test]
+    fn list_validation_checks_surfaces_removed_summary_diagnostics() {
+        use crate::session::{
+            ValidationAddOptions, ValidationListOptions, list_validation_checks,
+            record_validation_check,
+        };
+
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let check = record_validation_check(
+            ValidationAddOptions::new(repo.path())
+                .with_revision_id(capture.revision_id.clone())
+                .with_track("agent:codex")
+                .with_check_name("cargo test")
+                .with_status(ValidationStatus::Passed)
+                .with_summary("v".repeat(5000)),
+        )
+        .unwrap();
+        let summary_hash = check.summary_content_hash.expect("externalized summary");
+        record_artifact_removed(repo.path(), &summary_hash);
+        delete_note_body_blob(repo.path(), &summary_hash);
+
+        let result =
+            list_validation_checks(ValidationListOptions::new(repo.path()).with_include_body(true))
+                .expect("swept summary must not hard-error the list");
+
+        assert_eq!(
+            result.validation_checks[0].summary_content_state,
+            BodyContentState::PhysicallyRemoved
+        );
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "body_content_physically_removed")
+        );
     }
 
     #[test]

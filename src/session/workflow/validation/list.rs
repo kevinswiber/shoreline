@@ -8,7 +8,7 @@ use super::view::{
 };
 use crate::error::Result;
 use crate::model::{RevisionId, TrackId, ValidationStatus};
-use crate::session::projection::body_content::BodyRemovalLens;
+use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 use crate::session::projection::cosignature::CosignatureIndex;
 use crate::session::signing::{RemovalPolicy, TrustSet};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -22,6 +22,8 @@ pub struct ValidationListOptions {
     track: Option<String>,
     status: Option<ValidationStatus>,
     include_body: bool,
+    trust_set: TrustSet,
+    removal_policy: RemovalPolicy,
 }
 
 impl ValidationListOptions {
@@ -32,6 +34,8 @@ impl ValidationListOptions {
             track: None,
             status: None,
             include_body: false,
+            trust_set: TrustSet::default(),
+            removal_policy: RemovalPolicy::default(),
         }
     }
 
@@ -51,6 +55,21 @@ impl ValidationListOptions {
 
     pub fn with_include_body(mut self, include_body: bool) -> Self {
         self.include_body = include_body;
+        self
+    }
+
+    /// Supply the reader's trust set for removal-state resolution
+    /// (reader-relativity; the empty default reads every signer as untrusted).
+    pub fn with_trust_set(mut self, trust_set: TrustSet) -> Self {
+        self.trust_set = trust_set;
+        self
+    }
+
+    /// Supply the render-time removal policy. A non-operative removal claim
+    /// renders the bytes; an operative one renders the explained removed
+    /// state. Render-only: it never gates the compact erasure sweep.
+    pub fn with_removal_policy(mut self, removal_policy: RemovalPolicy) -> Self {
+        self.removal_policy = removal_policy;
         self
     }
 }
@@ -87,9 +106,12 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
         .transpose()?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;
     let cosig_index = CosignatureIndex::build(&events)?;
-    let trust_set = TrustSet::default();
-    let removal_lens =
-        BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig_index);
+    let removal_lens = BodyRemovalLens::new(
+        &removal,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    );
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
         backend: read_store.backend(),
         events: &events,
@@ -99,7 +121,12 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
         include_body: options.include_body,
         removal_lens: &removal_lens,
     })?;
-    let diagnostics = SessionState::from_events(&events)?.diagnostics;
+    let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
+    diagnostics.extend(body_content_diagnostics(
+        validation_checks
+            .iter()
+            .map(|v| (v.summary_content_state, v.summary_content_hash.as_deref())),
+    ));
 
     Ok(ValidationListResult {
         revision_id: resolved.revision_id,
