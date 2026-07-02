@@ -195,6 +195,46 @@ fn store_status_includes_redacted_sensitivity_findings() {
     assert!(!stdout.contains("PRIVATE KEY"));
     assert!(!stdout.contains(".env"));
     assert!(!stdout.contains("target/generated"));
+    // The additive audit fields are always present; no config → zero/empty.
+    assert_eq!(json["sensitivity"]["excludedPathCount"], 0);
+    assert!(
+        json["sensitivity"]["excludeGlobs"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn store_status_reports_exclude_glob_audit_counts() {
+    let repo = GitRepo::new();
+    repo.write(
+        "fixtures/dev.pem",
+        "-----BEGIN PRIVATE KEY-----\nredacted\n",
+    );
+    repo.write(
+        ".shore/sensitivity.json",
+        r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
+    );
+    repo.commit_all("base");
+
+    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let sensitivity = &json["sensitivity"];
+    // The excluded fixture no longer blocks, and the opt-out is auditable:
+    // count of skipped paths plus each configured glob's match count.
+    assert_eq!(sensitivity["policyOutcome"], "allow");
+    assert_eq!(sensitivity["excludedPathCount"], 1);
+    let globs = sensitivity["excludeGlobs"].as_array().unwrap();
+    assert_eq!(globs.len(), 1);
+    assert_eq!(globs[0]["glob"], "fixtures/**");
+    assert_eq!(globs[0]["matched"], 1);
 }
 
 struct LinkedWorktreeFixture {

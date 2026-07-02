@@ -74,6 +74,19 @@ pub struct StoreStatusRevisionObject {
 pub struct StoreStatusSensitivity {
     pub policy_outcome: String,
     pub findings: Vec<StoreStatusSensitivityFinding>,
+    /// Unique inventory paths the configured exclude globs skipped — the
+    /// audit trail that keeps an over-broad exclude visible, not silent.
+    pub excluded_path_count: usize,
+    /// Every configured exclude glob with its match count (zero-count globs
+    /// included). Glob strings are operator-authored config, safe to render.
+    pub exclude_globs: Vec<StoreStatusSensitivityExcludeGlob>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreStatusSensitivityExcludeGlob {
+    pub glob: String,
+    pub matched: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -154,6 +167,15 @@ impl From<SensitivityScan> for StoreStatusSensitivity {
                 .findings
                 .into_iter()
                 .map(StoreStatusSensitivityFinding::from)
+                .collect(),
+            excluded_path_count: scan.excluded_path_count,
+            exclude_globs: scan
+                .exclude_globs
+                .into_iter()
+                .map(|glob| StoreStatusSensitivityExcludeGlob {
+                    glob: glob.glob,
+                    matched: glob.matched,
+                })
                 .collect(),
         }
     }

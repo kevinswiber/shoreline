@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
 use crate::git::git_tracked_and_untracked_inventory;
+use crate::session::store::sensitivity_config::{glob_matches, resolve_sensitivity_excludes};
 
 const SCAN_READ_LIMIT: u64 = 64 * 1024;
 const LARGE_GENERATED_BYTES: u64 = 1024 * 1024;
@@ -17,6 +18,22 @@ const LARGE_GENERATED_BYTES: u64 = 1024 * 1024;
 pub(crate) struct SensitivityScan {
     pub policy_outcome: String,
     pub findings: Vec<SensitivityFinding>,
+    /// Unique inventory paths the configured exclude globs skipped — an
+    /// excluded path is NOT scanned, so the count keeps an over-broad exclude
+    /// visible rather than silent.
+    pub excluded_path_count: usize,
+    /// Every configured exclude glob with its match count, zero-count globs
+    /// included (a dead glob is itself a finding for the operator). Glob
+    /// strings are operator-authored config, safe to render; excluded paths
+    /// keep the scan's redaction posture and are never listed.
+    pub exclude_globs: Vec<SensitivityExcludeGlob>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SensitivityExcludeGlob {
+    pub glob: String,
+    pub matched: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -39,8 +56,29 @@ struct FindingAccumulator {
 }
 
 pub(crate) fn scan_worktree_sensitivity(worktree_root: &Path) -> Result<SensitivityScan> {
+    let exclude_globs = resolve_sensitivity_excludes(worktree_root)?;
+    let mut glob_match_counts = vec![0usize; exclude_globs.len()];
+    let mut excluded_path_count = 0usize;
     let mut findings = BTreeMap::<&'static str, FindingAccumulator>::new();
     for relative_path in git_inventory_paths(worktree_root)? {
+        // A path matching ANY configured glob is skipped before every
+        // filename/content check — an explicit operator opt-out, surfaced via
+        // the counts. Every matching glob's counter increments so overlapping
+        // globs each show the work they do.
+        if !exclude_globs.is_empty() {
+            let relative = relative_path.to_string_lossy();
+            let mut excluded = false;
+            for (glob, count) in exclude_globs.iter().zip(glob_match_counts.iter_mut()) {
+                if glob_matches(glob, &relative) {
+                    *count += 1;
+                    excluded = true;
+                }
+            }
+            if excluded {
+                excluded_path_count += 1;
+                continue;
+            }
+        }
         let path = worktree_root.join(&relative_path);
         let metadata = fs::metadata(&path)
             .map_err(|error| io_error("read scan file metadata", &path, error))?;
@@ -97,6 +135,12 @@ pub(crate) fn scan_worktree_sensitivity(worktree_root: &Path) -> Result<Sensitiv
     Ok(SensitivityScan {
         policy_outcome: combined_policy_outcome(&findings).to_owned(),
         findings,
+        excluded_path_count,
+        exclude_globs: exclude_globs
+            .into_iter()
+            .zip(glob_match_counts)
+            .map(|(glob, matched)| SensitivityExcludeGlob { glob, matched })
+            .collect(),
     })
 }
 
@@ -255,6 +299,110 @@ mod tests {
                 PathBuf::from("z-tracked.txt"),
             ]
         );
+    }
+
+    #[test]
+    fn excluded_globs_skip_matching_paths_before_content_checks() {
+        let repo = TestRepo::new();
+        // The motivating repro shape: a fixture file carrying a private-key marker.
+        repo.write(
+            "fixtures/dev.pem",
+            "-----BEGIN PRIVATE KEY-----\nredacted\n",
+        );
+        repo.write(
+            ".shore/sensitivity.json",
+            r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
+        );
+        repo.commit_all("base");
+
+        let scan = scan_worktree_sensitivity(repo.path()).unwrap();
+
+        assert_eq!(
+            scan.policy_outcome, "allow",
+            "the excluded fixture no longer blocks"
+        );
+        assert!(
+            scan.findings.is_empty(),
+            "no finding from an excluded path: {scan:?}"
+        );
+        assert_eq!(scan.excluded_path_count, 1);
+        assert_eq!(scan.exclude_globs.len(), 1);
+        assert_eq!(scan.exclude_globs[0].glob, "fixtures/**");
+        assert_eq!(scan.exclude_globs[0].matched, 1);
+    }
+
+    #[test]
+    fn non_excluded_sensitive_paths_still_block() {
+        // The gate stays protective for the rest of the tree — a targeted
+        // exclude is not a blanket override.
+        let repo = TestRepo::new();
+        repo.write(
+            "fixtures/dev.pem",
+            "-----BEGIN PRIVATE KEY-----\nredacted\n",
+        );
+        repo.write("keys/real.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
+        repo.write(
+            ".shore/sensitivity.json",
+            r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
+        );
+        repo.commit_all("base");
+
+        let scan = scan_worktree_sensitivity(repo.path()).unwrap();
+
+        assert_eq!(scan.policy_outcome, "block");
+        assert_eq!(scan.excluded_path_count, 1);
+    }
+
+    #[test]
+    fn zero_count_globs_are_still_reported() {
+        // A dead glob is itself a finding for the operator.
+        let repo = TestRepo::new();
+        repo.write("src/safe.txt", "safe\n");
+        repo.write(
+            ".shore/sensitivity.json",
+            r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["stale/**"]}"#,
+        );
+        repo.commit_all("base");
+
+        let scan = scan_worktree_sensitivity(repo.path()).unwrap();
+
+        assert_eq!(scan.excluded_path_count, 0);
+        assert_eq!(scan.exclude_globs.len(), 1);
+        assert_eq!(scan.exclude_globs[0].matched, 0);
+    }
+
+    #[test]
+    fn default_scan_without_config_reports_no_excludes_and_is_unchanged() {
+        let repo = TestRepo::new();
+        repo.write("keys/dev.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
+        repo.commit_all("base");
+
+        let scan = scan_worktree_sensitivity(repo.path()).unwrap();
+
+        assert_eq!(scan.policy_outcome, "block");
+        assert_eq!(scan.excluded_path_count, 0);
+        assert!(scan.exclude_globs.is_empty());
+    }
+
+    #[test]
+    fn excluded_paths_never_leak_into_the_serialized_scan() {
+        // Globs are operator-authored config (safe to render); excluded PATHS
+        // keep the scan's redaction posture — only counts appear.
+        let repo = TestRepo::new();
+        repo.write(
+            "fixtures/dev.pem",
+            "-----BEGIN PRIVATE KEY-----\nredacted\n",
+        );
+        repo.write(
+            ".shore/sensitivity.json",
+            r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
+        );
+        repo.commit_all("base");
+
+        let scan = scan_worktree_sensitivity(repo.path()).unwrap();
+        let json = serde_json::to_string(&scan).unwrap();
+        assert!(!json.contains("dev.pem"));
+        assert!(json.contains("fixtures/**"));
     }
 
     #[test]
