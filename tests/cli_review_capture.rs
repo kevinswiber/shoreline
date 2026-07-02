@@ -478,6 +478,29 @@ fn common_dir_store(repo: &GitRepo) -> std::path::PathBuf {
     std::path::Path::new(&common_dir).join("shore")
 }
 
+#[test]
+fn human_capture_ack_shows_short_revision_and_diffstat() {
+    let repo = modified_repo();
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "human",
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("captured"), "stdout:\n{stdout}");
+    // short_ref form of the revision id, e.g. rev:1ace028b.
+    assert!(stdout.contains("rev:"), "stdout:\n{stdout}");
+    // modified_repo changes exactly one file.
+    assert!(stdout.contains("1 file"), "stdout:\n{stdout}");
+    // Bespoke rendering, not the JSON fallback.
+    assert!(!stdout.contains("\"schema\""), "stdout:\n{stdout}");
+    assert!(stdout.lines().count() <= 8, "stdout:\n{stdout}");
+}
+
 fn bounded_added_file_repo() -> GitRepo {
     let repo = GitRepo::new();
     repo.write("README.md", "base\n");

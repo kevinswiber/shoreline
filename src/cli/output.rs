@@ -134,8 +134,6 @@ pub(super) fn write_document_json_fallback<T: serde::Serialize>(
 /// (`src/cli/inspect/web/src/refs.ts:36-44`). Prefixed content ids collapse to
 /// `<prefix>:<8 hex>`, bare `sha256:<hex>` to `sha256:<8 hex>`, a raw 40-hex git
 /// OID to its first 10 chars; anything else passes through unchanged.
-// Part of the output seam consumed by the per-command human renderers.
-#[allow(dead_code)]
 pub(super) fn short_ref(id: &str) -> String {
     if let Some(short) = prefixed_sha_short(id) {
         return short;
@@ -153,7 +151,6 @@ pub(super) fn short_ref(id: &str) -> String {
 }
 
 /// `<prefix>:(git:)?sha256:<hex>=6+>` -> `<prefix>:<first 8 hex>`, else `None`.
-#[allow(dead_code)]
 fn prefixed_sha_short(id: &str) -> Option<String> {
     let bytes = id.as_bytes();
     if bytes.is_empty() || !bytes[0].is_ascii_alphabetic() {
@@ -181,7 +178,6 @@ fn prefixed_sha_short(id: &str) -> Option<String> {
 
 /// Case-insensitive prefix strip; the remainder is a valid `str` slice because a
 /// match implies the leading bytes were ASCII.
-#[allow(dead_code)]
 fn strip_prefix_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
     let len = prefix.len();
     if value.len() >= len && value.as_bytes()[..len].eq_ignore_ascii_case(prefix.as_bytes()) {
@@ -191,7 +187,6 @@ fn strip_prefix_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
-#[allow(dead_code)]
 fn is_hex(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

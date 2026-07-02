@@ -8,8 +8,9 @@ use crate::git::{
     git_head_ref, git_rev_parse_commit_oid, ingest_tracked_diff_with_options,
 };
 use crate::model::{
-    ActorId, DiffFile, DiffSnapshot, EngagementId, EngagementType, JournalId, ObjectId,
-    ReviewEndpoint, ReviewId, ReviewTargetRef, RevisionId, RevisionSource, TargetRef, id_prefix,
+    ActorId, DiffFile, DiffRowKind, DiffSnapshot, EngagementId, EngagementType, FileStatus,
+    JournalId, ObjectId, ReviewEndpoint, ReviewId, ReviewTargetRef, RevisionId, RevisionSource,
+    TargetRef, id_prefix,
 };
 use crate::session::event::{
     EventTarget, EventType, Revision, ShoreEvent, WorkObjectProposal, WorkObjectProposedPayload,
@@ -175,6 +176,59 @@ pub struct CaptureResult {
     pub events_existing: usize,
     pub events_created_by_type: BTreeMap<String, usize>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
+    pub diffstat: CaptureDiffstat,
+}
+
+/// Per-file diff tallies computed at capture time from the in-hand `Vec<DiffFile>`,
+/// so a human capture readback needs no object-artifact re-read. Line churn counts
+/// textual diff rows only; binary and mode-only files count as files but contribute
+/// no lines.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CaptureDiffstat {
+    pub file_count: usize,
+    pub added_files: usize,
+    pub modified_files: usize,
+    pub deleted_files: usize,
+    pub renamed_files: usize,
+    pub copied_files: usize,
+    pub binary_files: usize,
+    pub mode_only_files: usize,
+    pub added_lines: usize,
+    pub removed_lines: usize,
+}
+
+/// Compute a [`CaptureDiffstat`] from the captured diff files.
+pub fn diffstat_from_files(files: &[DiffFile]) -> CaptureDiffstat {
+    let mut stat = CaptureDiffstat::default();
+    for file in files {
+        stat.file_count += 1;
+        match file.status {
+            FileStatus::Modified => stat.modified_files += 1,
+            FileStatus::Added => stat.added_files += 1,
+            FileStatus::Deleted => stat.deleted_files += 1,
+            FileStatus::Renamed => stat.renamed_files += 1,
+            FileStatus::Copied => stat.copied_files += 1,
+        }
+        if file.is_binary {
+            stat.binary_files += 1;
+        }
+        if file.is_mode_only {
+            stat.mode_only_files += 1;
+        }
+        // Binary and mode-only files carry no textual line churn.
+        if !file.is_binary && !file.is_mode_only {
+            for hunk in &file.hunks {
+                for row in &hunk.rows {
+                    match row.kind {
+                        DiffRowKind::Added => stat.added_lines += 1,
+                        DiffRowKind::Removed => stat.removed_lines += 1,
+                        DiffRowKind::Context => {}
+                    }
+                }
+            }
+        }
+    }
+    stat
 }
 
 /// Canonical capture entry point. Dispatches on the options' source spec to a
@@ -214,6 +268,9 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
             pathspecs.join(", ")
         )));
     }
+    // Tally the diffstat from the files in hand, before they move into the
+    // snapshot, so a human capture readback needs no object-artifact re-read.
+    let diffstat = diffstat_from_files(&files);
     let review_id = ReviewId::new(format!("{}:default", id_prefix::REVIEW));
     let journal_id = JournalId::new(format!("{}:default", id_prefix::JOURNAL));
     let snapshot = DiffSnapshot::new(review_id, fingerprint.object_id.clone(), files);
@@ -330,6 +387,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         events_existing: recorder.events_existing,
         events_created_by_type: recorder.events_created_by_type,
         diagnostics,
+        diffstat,
     })
 }
 
@@ -555,15 +613,94 @@ mod tests {
     use std::process::Command;
 
     use crate::git::git_common_dir;
-    use crate::model::{CommitRangeCaptureMode, ReviewEndpoint, RevisionSource};
+    use crate::model::{
+        CommitRangeCaptureMode, DiffFile, DiffRow, DiffRowKind, FileId, FileStatus, HunkId,
+        ReviewEndpoint, ReviewHunk, RevisionSource,
+    };
     use crate::session::event::EventType;
     use crate::session::store::content::ContentArtifacts;
+    use crate::session::workflow::capture::diffstat_from_files;
     use crate::session::{
         ArtifactKind, CaptureOptions, CommitRangeSpec, EventStore, ImportArtifactOptions,
         ImportArtifactOutcome, RevisionShowOptions, ShoreStorePaths, capture_review,
         capture_worktree_review, export_artifact, import_artifact, read_object_artifact,
         referenced_artifacts, show_revision,
     };
+
+    fn diff_row(kind: DiffRowKind) -> DiffRow {
+        DiffRow {
+            kind,
+            old_line: Some(1),
+            new_line: Some(1),
+            text: "x".to_owned(),
+        }
+    }
+
+    /// Build a `DiffFile` with the given status/flags and `added`/`removed` diff
+    /// rows in a single hunk, for exercising `diffstat_from_files`.
+    fn test_file(
+        status: FileStatus,
+        added: usize,
+        removed: usize,
+        is_binary: bool,
+        is_mode_only: bool,
+    ) -> DiffFile {
+        let mut rows = Vec::new();
+        rows.extend((0..added).map(|_| diff_row(DiffRowKind::Added)));
+        rows.extend((0..removed).map(|_| diff_row(DiffRowKind::Removed)));
+        let hunks = if rows.is_empty() {
+            Vec::new()
+        } else {
+            vec![ReviewHunk {
+                id: HunkId::new("hunk:test"),
+                header: "@@ -1 +1 @@".to_owned(),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                rows,
+            }]
+        };
+        DiffFile {
+            id: FileId::new("file:test"),
+            status,
+            old_path: None,
+            new_path: None,
+            old_mode: None,
+            new_mode: None,
+            old_oid: None,
+            new_oid: None,
+            similarity: None,
+            is_binary,
+            is_submodule: false,
+            is_mode_only,
+            synthetic: false,
+            metadata_rows: Vec::new(),
+            hunks,
+        }
+    }
+
+    #[test]
+    fn diffstat_counts_files_lines_and_statuses() {
+        let files = vec![
+            test_file(FileStatus::Modified, 3, 1, false, false),
+            test_file(FileStatus::Added, 10, 0, false, false),
+            test_file(FileStatus::Renamed, 0, 0, false, false),
+            test_file(FileStatus::Deleted, 0, 4, false, false),
+            test_file(FileStatus::Modified, 0, 0, true, false),
+            test_file(FileStatus::Modified, 0, 0, false, true),
+        ];
+        let stat = diffstat_from_files(&files);
+        assert_eq!(stat.file_count, 6);
+        assert_eq!(stat.modified_files, 3);
+        assert_eq!(stat.added_files, 1);
+        assert_eq!(stat.deleted_files, 1);
+        assert_eq!(stat.renamed_files, 1);
+        assert_eq!(stat.binary_files, 1);
+        assert_eq!(stat.mode_only_files, 1);
+        assert_eq!(stat.added_lines, 13);
+        assert_eq!(stat.removed_lines, 5);
+    }
 
     fn two_dir_repo() -> TestRepo {
         let repo = TestRepo::new();

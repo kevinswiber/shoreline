@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use clap::Args;
 use shoreline::documents::capture_document;
-use shoreline::model::RevisionId;
-use shoreline::session::{CaptureOptions, CommitRangeSpec, capture_review};
+use shoreline::model::{ReviewEndpoint, RevisionId};
+use shoreline::session::{CaptureOptions, CaptureResult, CommitRangeSpec, capture_review};
 
 use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
@@ -64,10 +64,76 @@ pub(super) fn run(
     let (options, skip) = capture_options(&args, tracing, stderr);
     let capture = capture_review(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
+    // `capture_document` consumes the result by value; keep a clone for the human lane.
+    let human_source = capture.clone();
     let document = capture_document(capture);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    output::write_document(stdout, format, &document, || {
+        render_capture_human(&human_source)
+    })
+}
+
+/// Human capture ack: a few-line confirmation shaped on the inspector's
+/// revision-page header — revision short ref, base -> target, diffstat, event
+/// counts. Renders from the public `CaptureResult`; wording is disposable.
+fn render_capture_human(result: &CaptureResult) -> String {
+    let stat = &result.diffstat;
+
+    let statuses: Vec<String> = [
+        (stat.added_files, "added"),
+        (stat.modified_files, "modified"),
+        (stat.deleted_files, "deleted"),
+        (stat.renamed_files, "renamed"),
+        (stat.copied_files, "copied"),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, label)| format!("{count} {label}"))
+    .collect();
+
+    let file_word = if stat.file_count == 1 {
+        "file"
+    } else {
+        "files"
+    };
+    let mut diff_line = format!("{} {file_word}", stat.file_count);
+    if !statuses.is_empty() {
+        diff_line.push_str(&format!(" ({})", statuses.join(", ")));
+    }
+    diff_line.push_str(&format!(" · +{}/−{}", stat.added_lines, stat.removed_lines));
+    if stat.binary_files > 0 {
+        diff_line.push_str(&format!(" · {} binary", stat.binary_files));
+    }
+    if stat.mode_only_files > 0 {
+        diff_line.push_str(&format!(" · {} mode-only", stat.mode_only_files));
+    }
+
+    [
+        format!(
+            "captured {} · base {} → {}",
+            output::short_ref(result.revision_id.as_str()),
+            endpoint_label(&result.base),
+            endpoint_label(&result.target),
+        ),
+        diff_line,
+        format!(
+            "events: {} created, {} existing",
+            result.events_created, result.events_existing
+        ),
+    ]
+    .join("\n")
+}
+
+/// Short human label for a capture endpoint, matching the document's endpoint
+/// vocabulary (commit vs. working tree).
+fn endpoint_label(endpoint: &ReviewEndpoint) -> String {
+    match endpoint {
+        ReviewEndpoint::GitCommit { commit_oid, .. } => {
+            format!("{} (commit)", output::short_ref(commit_oid))
+        }
+        ReviewEndpoint::GitWorkingTree { .. } => "worktree".to_owned(),
+    }
 }
 
 fn capture_options(

@@ -65,7 +65,7 @@ pub use workflow::{
     AssessmentAddResult, AssessmentRecordStatus, AssessmentShowFilters, AssessmentShowOptions,
     AssessmentShowResult, AssessmentTargetSelector, AssessmentView, AssociateCommitOptions,
     AssociateCommitResult, AssociateRefOptions, AssociateRefResult, AssociationAxis, BaseEntry,
-    BaseHistoryProjection, BaseProjectionConfig, CaptureOptions, CaptureResult,
+    BaseHistoryProjection, BaseProjectionConfig, CaptureDiffstat, CaptureOptions, CaptureResult,
     CommitGraphCondition, CommitLiveness, CommitRangeSpec, CompactOptions, CompactResult,
     CurrentAssessmentStatus, CurrentAssessmentView, EventSignatureRecordOptions,
     EventSignatureRecordResult, HistoryCursor, HistoryOrder, HistoryPage, HistoryQuery,
