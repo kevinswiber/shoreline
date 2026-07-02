@@ -75,7 +75,7 @@ pub fn capture_worktree_fingerprint(repo: &Path) -> Result<WorktreeFingerprint> 
 pub fn compute_revision_fingerprint(repo: &Path) -> Result<RevisionFingerprint> {
     let files = capture_worktree_diff_files(repo)?;
     let files = exclude_shore_storage_files(files);
-    revision_fingerprint_for_files(repo, &files)
+    revision_fingerprint_for_files(repo, &files, &[])
 }
 
 pub(crate) fn worktree_fingerprint_for_files(
@@ -99,12 +99,13 @@ pub(crate) fn worktree_fingerprint_for_files(
 
 pub(crate) fn resolve_combined_worktree_endpoints(
     repo: &Path,
+    pathspecs: &[String],
 ) -> Result<ResolvedRevisionEndpoints> {
     Ok(ResolvedRevisionEndpoints {
         source: RevisionSource::GitWorktree {
             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
             include_untracked: true,
-            pathspecs: Vec::new(),
+            pathspecs: pathspecs.to_vec(),
         },
         base: ReviewEndpoint::GitCommit {
             commit_oid: git_head_oid(repo)?,
@@ -118,15 +119,19 @@ pub(crate) fn resolve_combined_worktree_endpoints(
 
 /// Resolve the endpoint pair for a commit-range capture: a `GitCommitRange`
 /// source over a `GitCommit` base and a `GitCommit` target. No `GitWorkingTree`
-/// is involved, so a range capture is path-free at the target by construction.
+/// is involved, so a range capture is worktree-path-free at the target by
+/// construction. The pathspec set is provenance — how the source was addressed,
+/// sibling to the capture mode; empty means the whole repository and
+/// serializes to nothing.
 pub(crate) fn resolve_commit_range_endpoints(
     base: &ResolvedCommitEndpoint,
     target: &ResolvedCommitEndpoint,
+    pathspecs: &[String],
 ) -> ResolvedRevisionEndpoints {
     ResolvedRevisionEndpoints {
         source: RevisionSource::GitCommitRange {
             mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
-            pathspecs: Vec::new(),
+            pathspecs: pathspecs.to_vec(),
         },
         base: ReviewEndpoint::GitCommit {
             commit_oid: base.commit_oid.clone(),
@@ -142,8 +147,9 @@ pub(crate) fn resolve_commit_range_endpoints(
 pub(crate) fn revision_fingerprint_for_files(
     repo: &Path,
     files: &[DiffFile],
+    pathspecs: &[String],
 ) -> Result<RevisionFingerprint> {
-    let endpoints = resolve_combined_worktree_endpoints(repo)?;
+    let endpoints = resolve_combined_worktree_endpoints(repo, pathspecs)?;
     revision_fingerprint_from_parts(endpoints, files)
 }
 
@@ -156,9 +162,10 @@ pub(crate) fn commit_range_revision_fingerprint_for_files(
     base: &ResolvedCommitEndpoint,
     target: &ResolvedCommitEndpoint,
     files: &[DiffFile],
+    pathspecs: &[String],
 ) -> Result<RevisionFingerprint> {
     let _ = repo;
-    let endpoints = resolve_commit_range_endpoints(base, target);
+    let endpoints = resolve_commit_range_endpoints(base, target, pathspecs);
     revision_fingerprint_from_parts(endpoints, files)
 }
 
@@ -560,10 +567,78 @@ mod tests {
     }
 
     #[test]
+    fn scoped_worktree_endpoints_record_the_pathspec_set_in_the_source() {
+        let repo = modified_repo();
+        let pathspecs = vec!["src".to_owned()];
+
+        let endpoints = resolve_combined_worktree_endpoints(repo.path(), &pathspecs).unwrap();
+
+        let RevisionSource::GitWorktree {
+            pathspecs: recorded,
+            ..
+        } = endpoints.source
+        else {
+            panic!("expected a worktree source");
+        };
+        assert_eq!(recorded, pathspecs);
+    }
+
+    #[test]
+    fn scoped_range_endpoints_record_the_pathspec_set_in_the_source() {
+        let repo = committed_repo();
+        let base = resolved_endpoint(repo.path(), "HEAD~1");
+        let target = resolved_endpoint(repo.path(), "HEAD");
+        let pathspecs = vec!["src".to_owned()];
+
+        let endpoints = resolve_commit_range_endpoints(&base, &target, &pathspecs);
+
+        let RevisionSource::GitCommitRange {
+            pathspecs: recorded,
+            ..
+        } = endpoints.source
+        else {
+            panic!("expected a commit-range source");
+        };
+        assert_eq!(recorded, pathspecs);
+    }
+
+    #[test]
+    fn pathspec_scope_forks_the_revision_id_but_not_the_object_id() {
+        // Identity layering: identical captured content under a different
+        // declared scope is the same content object at a different revision
+        // position — the same layering as worktree-vs-range provenance.
+        let repo = modified_repo();
+        let files = capture_worktree_diff_files(repo.path()).unwrap();
+
+        let unscoped = revision_fingerprint_for_files(repo.path(), &files, &[]).unwrap();
+        let scoped =
+            revision_fingerprint_for_files(repo.path(), &files, &["src".to_owned()]).unwrap();
+        let scoped_other =
+            revision_fingerprint_for_files(repo.path(), &files, &["docs".to_owned()]).unwrap();
+
+        assert_eq!(unscoped.object_id, scoped.object_id);
+        assert_ne!(unscoped.revision_id, scoped.revision_id);
+        assert_ne!(scoped.revision_id, scoped_other.revision_id);
+    }
+
+    #[test]
+    fn equal_pathspec_sets_mint_equal_revision_ids() {
+        let repo = modified_repo();
+        let files = capture_worktree_diff_files(repo.path()).unwrap();
+        let scope = vec!["src".to_owned()];
+
+        let first = revision_fingerprint_for_files(repo.path(), &files, &scope).unwrap();
+        let second = revision_fingerprint_for_files(repo.path(), &files, &scope).unwrap();
+
+        assert_eq!(first.revision_id, second.revision_id);
+        assert_eq!(first.engagement_id, second.engagement_id);
+    }
+
+    #[test]
     fn combined_worktree_capture_resolves_head_commit_and_tree() {
         let repo = modified_repo();
 
-        let endpoints = resolve_combined_worktree_endpoints(repo.path()).unwrap();
+        let endpoints = resolve_combined_worktree_endpoints(repo.path(), &[]).unwrap();
 
         assert!(matches!(
             endpoints.source,
@@ -675,7 +750,7 @@ mod tests {
         let base = resolved_endpoint(repo.path(), "HEAD~1");
         let target = resolved_endpoint(repo.path(), "HEAD");
 
-        let endpoints = resolve_commit_range_endpoints(&base, &target);
+        let endpoints = resolve_commit_range_endpoints(&base, &target, &[]);
 
         assert!(matches!(
             endpoints.source,
@@ -714,10 +789,10 @@ mod tests {
                 .unwrap();
 
         let first =
-            commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files)
+            commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files, &[])
                 .unwrap();
         let second =
-            commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files)
+            commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files, &[])
                 .unwrap();
 
         assert_eq!(first.object_id, second.object_id);
@@ -736,9 +811,9 @@ mod tests {
             capture_commit_range_diff_files(repo.path(), &base.commit_oid, &target.commit_oid, &[])
                 .unwrap();
 
-        let worktree = revision_fingerprint_for_files(repo.path(), &files).unwrap();
+        let worktree = revision_fingerprint_for_files(repo.path(), &files, &[]).unwrap();
         let range =
-            commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files)
+            commit_range_revision_fingerprint_for_files(repo.path(), &base, &target, &files, &[])
                 .unwrap();
 
         assert_eq!(worktree.object_id, range.object_id);
@@ -764,6 +839,7 @@ mod tests {
             &base_a,
             &target_a,
             &files_a,
+            &[],
         )
         .unwrap();
 
@@ -784,6 +860,7 @@ mod tests {
             &base_b,
             &target_b,
             &files_b,
+            &[],
         )
         .unwrap();
 

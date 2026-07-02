@@ -366,7 +366,7 @@ fn prepare_worktree_capture(
         ingest_tracked_diff_with_options(worktree_root, capture_ingest_options(options))?;
     let files = snapshot.files;
     let fingerprint =
-        crate::session::fingerprint::revision_fingerprint_for_files(worktree_root, &files)?;
+        crate::session::fingerprint::revision_fingerprint_for_files(worktree_root, &files, &[])?;
     Ok(PreparedCapture { files, fingerprint })
 }
 
@@ -387,6 +387,7 @@ fn prepare_commit_range_capture(
         &base,
         &target,
         &files,
+        &[],
     )?;
     Ok(PreparedCapture { files, fingerprint })
 }
