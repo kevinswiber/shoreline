@@ -458,3 +458,52 @@ describe("renderFactSupersessionBlock (the fork-gated fact DAG figure)", () => {
     ).toBe("");
   });
 });
+
+describe("removed body cue", () => {
+  it("renders the content-removed cue for a physically removed body", () => {
+    const html = renderObservationCard({
+      ...observation,
+      body: undefined,
+      bodyContentState: "physically_removed",
+    });
+    const doc = parse(html);
+    const cue = doc.querySelector(".fact-body-removed");
+    expect(cue?.textContent).toBe("content removed");
+    expect(cue?.getAttribute("title")).toBe(
+      "removed; bytes swept from the store",
+    );
+  });
+
+  it("renders the suppressed-present cue with the still-stored title", () => {
+    const html = renderObservationCard({
+      ...observation,
+      body: undefined,
+      bodyContentState: "suppressed_present",
+    });
+    const doc = parse(html);
+    const cue = doc.querySelector(".fact-body-removed");
+    expect(cue?.textContent).toBe("content removed");
+    expect(cue?.getAttribute("title")).toBe(
+      "removal recorded; bytes still stored until compact",
+    );
+  });
+
+  it("renders no cue without a removed state", () => {
+    const html = renderObservationCard(observation);
+    expect(parse(html).querySelector(".fact-body-removed")).toBeNull();
+  });
+
+  it("renders the cue for a removed response reason", () => {
+    const html = renderInputRequestCard({
+      ...inputRequest,
+      responses: [
+        {
+          outcome: "approved",
+          reason: undefined,
+          reasonContentState: "physically_removed",
+        },
+      ],
+    });
+    expect(parse(html).querySelector(".fact-body-removed")).not.toBeNull();
+  });
+});

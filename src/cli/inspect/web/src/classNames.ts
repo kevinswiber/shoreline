@@ -45,6 +45,7 @@ export const CLASS = {
   annoTime: "anno-time",
   annoTitle: "anno-title",
   annoTrack: "anno-track",
+  factBodyRemoved: "fact-body-removed",
   factRel: "fact-rel",
   factResponse: "fact-response",
   factResponses: "fact-responses",

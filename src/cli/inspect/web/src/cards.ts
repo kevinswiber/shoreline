@@ -67,6 +67,7 @@ export interface Observation {
   tags?: string[];
   body?: string;
   bodyContentType?: string;
+  bodyContentState?: string;
   createdAt?: string;
   verificationStatus?: string;
   endorsements?: Endorsement[];
@@ -78,6 +79,7 @@ export interface InputRequestResponse {
   outcome?: string;
   reason?: string;
   reasonContentType?: string;
+  reasonContentState?: string;
   verificationStatus?: string;
   endorsements?: Endorsement[];
 }
@@ -92,6 +94,7 @@ export interface InputRequest {
   reasonCode?: string;
   body?: string;
   bodyContentType?: string;
+  bodyContentState?: string;
   createdAt?: string;
   verificationStatus?: string;
   endorsements?: Endorsement[];
@@ -107,6 +110,7 @@ export interface Assessment {
   target?: CardTarget;
   summary?: string;
   summaryContentType?: string;
+  summaryContentState?: string;
   createdAt?: string;
   verificationStatus?: string;
   endorsements?: Endorsement[];
@@ -125,6 +129,7 @@ export interface ValidationCheck {
   exitCode?: number;
   summary?: string;
   summaryContentType?: string;
+  summaryContentState?: string;
   completedAt?: string;
   createdAt?: string;
   verificationStatus?: string;
@@ -140,6 +145,7 @@ export interface AdapterNote {
   status?: string;
   filePath?: string;
   body?: string;
+  bodyContentState?: string;
   createdAt?: string;
 }
 
@@ -159,6 +165,9 @@ export interface FactCardOptions {
   tags?: Array<string | null | undefined>;
   body?: string;
   bodyContentType?: string;
+  /** The removed-body state (`suppressed_present` | `physically_removed`);
+   *  when set, the card renders the content-removed cue instead of a body. */
+  bodyContentState?: string;
   createdAt?: string;
   /** Already-rendered advisory signature chip HTML (from `verificationChip`). */
   verify?: string;
@@ -233,13 +242,27 @@ export function targetLabel(t: CardTarget | null | undefined): string {
 // title/status/target/tags/verify/time) plus the body, endorsement readback, and
 // any kind-specific extra. The advisory signature/endorsement readback flows in
 // pre-rendered (reader-relative, never a gate).
+/** The muted content-removed cue for a removed body state, or null. */
+function removedBodyCue(state: string | undefined): string | null {
+  if (state !== "suppressed_present" && state !== "physically_removed") {
+    return null;
+  }
+  const title =
+    state === "suppressed_present"
+      ? "removal recorded; bytes still stored until compact"
+      : "removed; bytes swept from the store";
+  return `<div class="${CLASS.factBodyRemoved}" title="${title}">content removed</div>`;
+}
+
 /** The shared fact-card HTML for a given kind and options. */
 export function factCard(kind: string, opts: FactCardOptions): string {
   const tags = (opts.tags || [])
     .filter(Boolean)
     .map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`)
     .join(" ");
-  const body = renderBodyContent(opts.body, opts.bodyContentType);
+  const body =
+    removedBodyCue(opts.bodyContentState) ??
+    renderBodyContent(opts.body, opts.bodyContentType);
   return `<div class="${annoContainerClass(kind)}">
     <div class="${CLASS.annoHead}">
       <span class="${annoKindClass(kind)}">${kind}</span>
@@ -270,6 +293,7 @@ export function renderObservationCard(o: Observation): string {
     tags: o.tags,
     body: o.body,
     bodyContentType: o.bodyContentType,
+    bodyContentState: o.bodyContentState,
     createdAt: o.createdAt,
     verify: verificationChip(o.verificationStatus ?? ""),
     endorsements: endorsementsBlock(o.endorsements),
@@ -282,7 +306,7 @@ export function renderInputRequestCard(ir: InputRequest): string {
   const responses = (ir.responses ?? [])
     .map(
       (r) =>
-        `<div class="${CLASS.factResponse}"><span class="${CLASS.outcome}">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`,
+        `<div class="${CLASS.factResponse}"><span class="${CLASS.outcome}">${escapeHtml(r.outcome)}</span>${removedBodyCue(r.reasonContentState) ?? (r.reason ? renderBodyContent(r.reason, r.reasonContentType) : "")} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`,
     )
     .join("");
   return factCard("input-request", {
@@ -293,6 +317,7 @@ export function renderInputRequestCard(ir: InputRequest): string {
     tags: [ir.mode, ir.reasonCode],
     body: ir.body,
     bodyContentType: ir.bodyContentType,
+    bodyContentState: ir.bodyContentState,
     createdAt: ir.createdAt,
     verify: verificationChip(ir.verificationStatus ?? ""),
     endorsements: endorsementsBlock(ir.endorsements),
@@ -322,6 +347,7 @@ export function renderAssessmentCard(a: Assessment): string {
     target: targetLabel(a.target),
     body: a.summary,
     bodyContentType: a.summaryContentType,
+    bodyContentState: a.summaryContentState,
     createdAt: a.createdAt,
     verify: verificationChip(a.verificationStatus ?? ""),
     endorsements: endorsementsBlock(a.endorsements),
@@ -347,6 +373,7 @@ export function renderValidationCheckCard(v: ValidationCheck): string {
     tags: [v.trigger, v.exitCode != null ? `exit ${v.exitCode}` : null],
     body: v.summary || "",
     bodyContentType: v.summaryContentType,
+    bodyContentState: v.summaryContentState,
     createdAt: v.completedAt || v.createdAt,
     verify: verificationChip(v.verificationStatus ?? ""),
     endorsements: endorsementsBlock(v.endorsements),
@@ -364,6 +391,7 @@ export function renderAdapterNoteCard(n: AdapterNote): string {
     status: n.status,
     target: n.filePath ? escapeHtml(n.filePath) : "",
     body: n.body,
+    bodyContentState: n.bodyContentState,
     createdAt: n.createdAt,
   });
 }

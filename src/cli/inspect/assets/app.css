@@ -651,6 +651,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .advisory-note, .reader-scope-note { font-size: var(--fs-xs); color: var(--fg-dim); margin: 4px 0 0; }
 .advisory-mode { color: var(--fg-dim); }
 .fact-rel { font-size: var(--fs-xs); color: var(--fg-dim); margin-top: 4px; }
+.fact-body-removed { font-size: var(--fs-xs); color: var(--fg-dim); font-style: italic; margin-top: 4px; }
 .fact-responses { margin-top: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
 .fact-response { font-size: var(--fs-sm); margin-top: 4px; }
 .fact-response .outcome { font-family: var(--mono); color: var(--teal); }

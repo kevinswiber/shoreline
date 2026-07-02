@@ -61,6 +61,7 @@
     annoTime: "anno-time",
     annoTitle: "anno-title",
     annoTrack: "anno-track",
+    factBodyRemoved: "fact-body-removed",
     factRel: "fact-rel",
     factResponse: "fact-response",
     factResponses: "fact-responses",
@@ -1404,9 +1405,17 @@
     }
   }
   __name(targetLabel, "targetLabel");
+  function removedBodyCue(state2) {
+    if (state2 !== "suppressed_present" && state2 !== "physically_removed") {
+      return null;
+    }
+    const title = state2 === "suppressed_present" ? "removal recorded; bytes still stored until compact" : "removed; bytes swept from the store";
+    return `<div class="${CLASS.factBodyRemoved}" title="${title}">content removed</div>`;
+  }
+  __name(removedBodyCue, "removedBodyCue");
   function factCard(kind, opts) {
     const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
-    const body = renderBodyContent(opts.body, opts.bodyContentType);
+    const body = removedBodyCue(opts.bodyContentState) ?? renderBodyContent(opts.body, opts.bodyContentType);
     return `<div class="${annoContainerClass(kind)}">
     <div class="${CLASS.annoHead}">
       <span class="${annoKindClass(kind)}">${kind}</span>
@@ -1434,6 +1443,7 @@
       tags: o.tags,
       body: o.body,
       bodyContentType: o.bodyContentType,
+      bodyContentState: o.bodyContentState,
       createdAt: o.createdAt,
       verify: verificationChip(o.verificationStatus ?? ""),
       endorsements: endorsementsBlock(o.endorsements),
@@ -1443,7 +1453,7 @@
   __name(renderObservationCard, "renderObservationCard");
   function renderInputRequestCard(ir) {
     const responses = (ir.responses ?? []).map(
-      (r) => `<div class="${CLASS.factResponse}"><span class="${CLASS.outcome}">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`
+      (r) => `<div class="${CLASS.factResponse}"><span class="${CLASS.outcome}">${escapeHtml(r.outcome)}</span>${removedBodyCue(r.reasonContentState) ?? (r.reason ? renderBodyContent(r.reason, r.reasonContentType) : "")} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`
     ).join("");
     return factCard("input-request", {
       track: ir.trackId,
@@ -1453,6 +1463,7 @@
       tags: [ir.mode, ir.reasonCode],
       body: ir.body,
       bodyContentType: ir.bodyContentType,
+      bodyContentState: ir.bodyContentState,
       createdAt: ir.createdAt,
       verify: verificationChip(ir.verificationStatus ?? ""),
       endorsements: endorsementsBlock(ir.endorsements),
@@ -1479,6 +1490,7 @@
       target: targetLabel(a.target),
       body: a.summary,
       bodyContentType: a.summaryContentType,
+      bodyContentState: a.summaryContentState,
       createdAt: a.createdAt,
       verify: verificationChip(a.verificationStatus ?? ""),
       endorsements: endorsementsBlock(a.endorsements),
@@ -1500,6 +1512,7 @@
       tags: [v.trigger, v.exitCode != null ? `exit ${v.exitCode}` : null],
       body: v.summary || "",
       bodyContentType: v.summaryContentType,
+      bodyContentState: v.summaryContentState,
       createdAt: v.completedAt || v.createdAt,
       verify: verificationChip(v.verificationStatus ?? ""),
       endorsements: endorsementsBlock(v.endorsements),
@@ -1514,6 +1527,7 @@
       status: n.status,
       target: n.filePath ? escapeHtml(n.filePath) : "",
       body: n.body,
+      bodyContentState: n.bodyContentState,
       createdAt: n.createdAt
     });
   }
