@@ -17,7 +17,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::{Result, ShoreError};
-use crate::model::JournalId;
+use crate::model::{JournalId, id_prefix};
 
 /// Decode a Claude Code session JSONL into a typed [`ParsedSession`].
 ///
@@ -80,7 +80,10 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
     }
 
     let claude_session_uuid = session_uuid.unwrap_or_default();
-    let session_id = JournalId::new(format!("journal:claude:{claude_session_uuid}"));
+    let session_id = JournalId::new(format!(
+        "{}:claude:{claude_session_uuid}",
+        id_prefix::JOURNAL
+    ));
     let project_path = first_cwd.unwrap_or(parent_dir_path);
 
     pair_tool_uses_with_results(&mut messages);

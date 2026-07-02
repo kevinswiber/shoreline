@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
+use crate::model::id_prefix;
 use crate::session::event::{EventType, IngestVia, ShoreEvent, stamp_ingest_provenance};
 use crate::session::object_artifact::decode_and_validate_object_artifact;
 use crate::session::store::body_artifact::NoteBodyEnvelope;
@@ -632,7 +633,7 @@ fn event_artifact_requirements(
         insert_artifact_requirement(
             &mut refs,
             ArtifactRequirement {
-                artifact_ref: format!("object:{content_hash}"),
+                artifact_ref: format!("{}:{content_hash}", id_prefix::ARTIFACT_OBJECT),
                 kind: ExportArtifactKind::Object,
                 locator: ArtifactLocator::Object {
                     object_id: object_id.to_owned(),
@@ -645,7 +646,7 @@ fn event_artifact_requirements(
 
     for path in note_body_artifact_paths_for_event(event.event_type, &event.payload) {
         if let Some(stem) = note_body_hash_from_path(path) {
-            let artifact_ref = format!("note-body:sha256:{stem}");
+            let artifact_ref = format!("{}:sha256:{stem}", id_prefix::NOTE_BODY);
             insert_artifact_requirement(
                 &mut refs,
                 ArtifactRequirement {

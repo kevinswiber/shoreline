@@ -9,7 +9,7 @@ use crate::git::{
 };
 use crate::model::{
     ActorId, DiffFile, DiffSnapshot, EngagementId, EngagementType, JournalId, ObjectId,
-    ReviewEndpoint, ReviewId, ReviewTargetRef, RevisionId, RevisionSource, TargetRef,
+    ReviewEndpoint, ReviewId, ReviewTargetRef, RevisionId, RevisionSource, TargetRef, id_prefix,
 };
 use crate::session::event::{
     EventTarget, EventType, Revision, ShoreEvent, WorkObjectProposal, WorkObjectProposedPayload,
@@ -214,8 +214,8 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
             pathspecs.join(", ")
         )));
     }
-    let review_id = ReviewId::new("review:default");
-    let journal_id = JournalId::new("journal:default");
+    let review_id = ReviewId::new(format!("{}:default", id_prefix::REVIEW));
+    let journal_id = JournalId::new(format!("{}:default", id_prefix::JOURNAL));
     let snapshot = DiffSnapshot::new(review_id, fingerprint.object_id.clone(), files);
     let artifact = crate::session::object_artifact::write_object_artifact_to(
         write_store.backend(),

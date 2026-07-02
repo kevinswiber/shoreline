@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::crypto::SignerId;
 use crate::git::git_config_get;
-use crate::model::ActorId;
+use crate::model::{ActorId, id_prefix};
 use crate::session::event::{Writer, WriterProducer};
 
 /// Environment variable that pins the writing actor to an explicit, fully
@@ -118,13 +118,13 @@ fn shore_producer() -> WriterProducer {
 
 fn actor_id_from_git_config(repo: &Path) -> ActorId {
     git_config_get(repo, "user.email")
-        .map(|email| ActorId::new(format!("actor:git-email:{email}")))
+        .map(|email| ActorId::new(format!("{}:git-email:{email}", id_prefix::ACTOR)))
         .or_else(|| {
             git_config_get(repo, "user.name")
-                .map(|name| ActorId::new(format!("actor:git-name:{name}")))
+                .map(|name| ActorId::new(format!("{}:git-name:{name}", id_prefix::ACTOR)))
         })
         // V1 local workflows treat missing Git identity as one local actor.
-        .unwrap_or_else(|| ActorId::new("actor:local"))
+        .unwrap_or_else(|| ActorId::new(format!("{}:local", id_prefix::ACTOR)))
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use crate::model::{
     DiffFile, DiffRow, DiffSnapshot, FileId, FileStatus, HunkId, ReviewNote, ReviewRow,
-    ReviewRowKind, ReviewStream, RowId,
+    ReviewRowKind, ReviewStream, RowId, id_prefix,
 };
 use crate::sidecar::{ReviewNotesDiagnostic, ReviewNotesSidecar, apply_file_order, resolve_notes};
 
@@ -234,7 +234,7 @@ impl<'a> StreamBuilder<'a> {
         let ordinal = self.rows.len();
         // RowId is opaque in the dump contract — see README "Behavior" notes under `shore dump`.
         // The width of this padding is not load-bearing; consumers must use `ordinal` for position.
-        let id = RowId::new(format!("row:{ordinal:04}"));
+        let id = RowId::new(format!("{}:{ordinal:04}", id_prefix::ROW));
         self.rows.push(ReviewRow {
             id: id.clone(),
             ordinal,

@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
 use crate::git::git_untracked_inventory;
+use crate::model::id_prefix;
 use crate::session::event::{EventType, ShoreEvent};
 use crate::session::store::body_artifact::NoteBodyEnvelope;
 use crate::session::store::object_artifact::ObjectArtifact;
@@ -125,7 +126,7 @@ fn scan_object_artifacts(
         }
         let byte_size = contents.len() as u64;
         let object_id = artifact.snapshot.object_id.as_str().to_owned();
-        let artifact_ref = format!("object:{}", artifact.content_hash);
+        let artifact_ref = format!("{}:{}", id_prefix::ARTIFACT_OBJECT, artifact.content_hash);
         let revision_ids = capture_owners
             .get(&(object_id.clone(), artifact.content_hash.clone()))
             .map(|ids| ids.iter().cloned().collect::<Vec<_>>())
@@ -210,7 +211,7 @@ fn scan_note_artifacts(
                 ))
             })?;
         artifacts.push(ArtifactInventoryEntry {
-            artifact_ref: format!("note-body:sha256:{stem}"),
+            artifact_ref: format!("{}:sha256:{stem}", id_prefix::NOTE_BODY),
             artifact_kind: "note_body".to_owned(),
             byte_size,
         });

@@ -8,7 +8,9 @@
 
 use super::parse::{AssistantMessage, ParsedMessage, ParsedSession, ToolUse, UserMessage};
 use crate::canonical_hash::sha256_bytes_hex;
-use crate::model::{ActorId, CheckpointId, JournalId, TargetRef, TaskTargetRef, WorkObjectId};
+use crate::model::{
+    ActorId, CheckpointId, JournalId, TargetRef, TaskTargetRef, WorkObjectId, id_prefix,
+};
 use crate::session::event::{AssertionMode, SourceRef, SourceSpeaker, Writer, WriterProducer};
 
 const SOURCE_SYSTEM_CLAUDE_CODE: &str = "claude_code";
@@ -25,7 +27,8 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
         parsed.project_path, parsed.claude_session_uuid, initial_prompt_hash
     );
     let task_attempt_id = WorkObjectId::new(format!(
-        "task-attempt:sha256:{}",
+        "{}:sha256:{}",
+        id_prefix::TASK_ATTEMPT,
         sha256_bytes_hex(task_attempt_material.as_bytes())
     ));
 
@@ -69,7 +72,8 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
             tool_use_ids.join(",")
         );
         let checkpoint_id = CheckpointId::new(format!(
-            "checkpoint:sha256:{}",
+            "{}:sha256:{}",
+            id_prefix::CHECKPOINT,
             sha256_bytes_hex(cp_material.as_bytes())
         ));
         let target = TargetRef::Task(TaskTargetRef::Checkpoint {
@@ -241,7 +245,7 @@ fn content_carries_hook_output(content: &str) -> bool {
 // these writers differ only by the synthetic actor id attributing the write.
 fn writer_user() -> Writer {
     Writer {
-        actor_id: ActorId::new("actor:claude_code:user"),
+        actor_id: ActorId::new(format!("{}:claude_code:user", id_prefix::ACTOR)),
         producer: WriterProducer {
             name: "claude_code".to_owned(),
             version: String::new(),
@@ -251,7 +255,7 @@ fn writer_user() -> Writer {
 
 fn writer_agent() -> Writer {
     Writer {
-        actor_id: ActorId::new("actor:claude_code:assistant"),
+        actor_id: ActorId::new(format!("{}:claude_code:assistant", id_prefix::ACTOR)),
         producer: WriterProducer {
             name: "claude_code".to_owned(),
             version: String::new(),

@@ -12,7 +12,7 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, ObservationId, ReviewTargetRef, RevisionId, TargetRef, TrackId,
+    ActorId, EventId, ObservationId, ReviewTargetRef, RevisionId, TargetRef, TrackId, id_prefix,
 };
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent,
@@ -386,7 +386,10 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
         value["respondsToObservationIds"] = json!(responds_to);
     }
     let digest = sha256_json_prefixed(&value)?;
-    Ok(ObservationId::new(format!("obs:{digest}")))
+    Ok(ObservationId::new(format!(
+        "{}:{digest}",
+        id_prefix::OBSERVATION
+    )))
 }
 
 #[cfg(test)]

@@ -3,7 +3,9 @@ use std::path::Path;
 use super::translate::AdapterIntent;
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
-use crate::model::{EngagementId, ObservationId, TargetRef, TaskTargetRef, WorkObjectType};
+use crate::model::{
+    EngagementId, ObservationId, TargetRef, TaskTargetRef, WorkObjectType, id_prefix,
+};
 use crate::session::event::{
     EventTarget, EventType, ShoreEvent, TaskCheckpointCapturedPayload,
     TaskObservationRecordedPayload, WorkObjectProposal, WorkObjectProposedPayload,
@@ -36,7 +38,8 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
             // engagement from its revision id: two captures of the same attempt
             // converge to the same engagement.
             let engagement_id = EngagementId::new(format!(
-                "engagement:sha256:{}",
+                "{}:sha256:{}",
+                id_prefix::ENGAGEMENT,
                 sha256_bytes_hex(task_attempt_id.as_str().as_bytes())
             ));
             let payload = WorkObjectProposedPayload {
@@ -141,7 +144,8 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 .source_id
                 .clone();
             let observation_id = ObservationId::new(format!(
-                "obs:sha256:{}",
+                "{}:sha256:{}",
+                id_prefix::OBSERVATION,
                 sha256_bytes_hex(source_id.as_bytes())
             ));
             let checkpoint_id = match target_ref {

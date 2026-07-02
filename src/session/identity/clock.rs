@@ -1,13 +1,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::instant::format_rfc3339_utc_millis;
+use crate::model::id_prefix;
 
 pub(crate) fn current_timestamp() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("unix-ms:{millis}")
+    format!("{}:{millis}", id_prefix::UNIX_MS)
 }
 
 /// "Now" as an RFC 3339 UTC instant — the only new wall-clock boundary this plan

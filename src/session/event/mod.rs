@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::SignerId;
 use crate::error::{Result, ShoreError};
-use crate::model::EventId;
+use crate::model::{EventId, id_prefix};
 
 mod artifact_removal;
 mod assertion;
@@ -157,7 +157,8 @@ impl ShoreEvent {
         let payload = serde_json::to_value(payload)?;
         let payload_hash = sha256_json_prefixed(&payload)?;
         let event_id = EventId::new(format!(
-            "evt:sha256:{}",
+            "{}:sha256:{}",
+            id_prefix::EVENT,
             sha256_bytes_hex(idempotency_key.as_bytes())
         ));
 

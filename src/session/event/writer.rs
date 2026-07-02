@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::model::ActorId;
+use crate::model::{ActorId, id_prefix};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,7 +12,7 @@ pub struct Writer {
 impl Writer {
     pub fn shore_local(version: impl Into<String>) -> Self {
         Self {
-            actor_id: ActorId::new("actor:local"),
+            actor_id: ActorId::new(format!("{}:local", id_prefix::ACTOR)),
             producer: WriterProducer {
                 name: "shore".to_owned(),
                 version: version.into(),

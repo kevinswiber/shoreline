@@ -8,7 +8,7 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, InputRequestId, ReviewTargetRef, RevisionId, TargetRef, TrackId,
+    ActorId, EventId, InputRequestId, ReviewTargetRef, RevisionId, TargetRef, TrackId, id_prefix,
 };
 use crate::session::event::{
     AssertionMode, BodyContentType, EventTarget, EventType, InputRequestOpenedPayload,
@@ -317,5 +317,8 @@ fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputR
         value["bodyContentType"] = json!(body_content_type);
     }
     let digest = sha256_json_prefixed(&value)?;
-    Ok(InputRequestId::new(format!("input-request:{digest}")))
+    Ok(InputRequestId::new(format!(
+        "{}:{digest}",
+        id_prefix::INPUT_REQUEST
+    )))
 }

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
 use crate::git::{git_rev_list_range, git_rev_parse_commit_oid};
-use crate::model::{ActorId, JournalId, ObjectId, RevisionId};
+use crate::model::{ActorId, JournalId, ObjectId, RevisionId, id_prefix};
 use crate::session::body_artifact::{
     note_body_content_hash_from_path, validate_note_body_artifact_bytes,
 };
@@ -144,7 +144,7 @@ pub fn remove_content(options: RemoveOptions) -> Result<RemoveResult> {
     let resolved = resolve_selector(&options.selector, &events, &options.repo, &index)?;
 
     // One ArtifactRemoved per resolved hash, session-anchored and idempotent.
-    let session_id = JournalId::new("journal:default");
+    let session_id = JournalId::new(format!("{}:default", id_prefix::JOURNAL));
     let writer = writer_from_options(&worktree_root, options.actor_id.as_ref());
 
     let mut removed = Vec::new();

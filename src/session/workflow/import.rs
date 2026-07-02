@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::JournalId;
+use crate::model::{JournalId, id_prefix};
 use crate::session::body_artifact::{BodyArtifactOutcome, stage_body_artifact};
 use crate::session::event::{
     EventTarget, EventType, ImportedNoteTarget, ReviewInitializedPayload,
@@ -198,7 +198,7 @@ pub(crate) fn extract_note_import_records(
 
 fn stable_note_id(file: &ReviewNotesFile, note: &ReviewNoteEntry) -> Result<String> {
     if let Some(explicit_id) = note.id.as_deref().filter(|id| !id.trim().is_empty()) {
-        return Ok(format!("note:{explicit_id}"));
+        return Ok(format!("{}:{explicit_id}", id_prefix::NOTE));
     }
 
     let content_hash = sha256_json_prefixed(&json!({
@@ -212,7 +212,7 @@ fn stable_note_id(file: &ReviewNotesFile, note: &ReviewNoteEntry) -> Result<Stri
         "tags": note.tags,
     }))?;
 
-    Ok(format!("note:{content_hash}"))
+    Ok(format!("{}:{content_hash}", id_prefix::NOTE))
 }
 
 fn imported_note_target(target: ReviewNoteTarget) -> ImportedNoteTarget {

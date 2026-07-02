@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, SchemaBreakRecord, ShoreError};
+use crate::model::id_prefix;
 use crate::session::event::{AssertionMode, EventType, ShoreEvent};
 use crate::session::store::backend::{Journal, JournalEntry, LocalJournal, StoreBackend};
 use crate::storage::{CreateOutcome, LocalStorage};
@@ -343,7 +344,8 @@ fn validate_event(event: &ShoreEvent, path: Option<&Path>) -> Result<()> {
     }
 
     let expected_event_id = format!(
-        "evt:sha256:{}",
+        "{}:sha256:{}",
+        id_prefix::EVENT,
         sha256_bytes_hex(event.idempotency_key.as_bytes())
     );
     if event.event_id.as_str() != expected_event_id {

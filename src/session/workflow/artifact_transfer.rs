@@ -3,7 +3,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::model::ObjectId;
+use crate::model::{ObjectId, id_prefix};
 use crate::session::body_artifact::note_body_content_hash_from_path;
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
@@ -202,7 +202,10 @@ fn referenced_artifacts_for_event(
                     ..
                 } => insert_artifact_ref(
                     refs,
-                    format!("object:{object_artifact_content_hash}"),
+                    format!(
+                        "{}:{object_artifact_content_hash}",
+                        id_prefix::ARTIFACT_OBJECT
+                    ),
                     ArtifactRef {
                         locator: ArtifactLocator::Object {
                             object_id: revision.object_id,
@@ -268,7 +271,7 @@ fn insert_body_ref(
     let content_hash = note_body_content_hash_from_path(relative_path)?;
     insert_artifact_ref(
         refs,
-        format!("body:{content_hash}"),
+        format!("{}:{content_hash}", id_prefix::ARTIFACT_BODY),
         ArtifactRef {
             locator: ArtifactLocator::Body {
                 relative_path: relative_path.to_owned(),

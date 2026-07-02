@@ -1,6 +1,7 @@
 mod cursor;
 mod file;
 mod hunk;
+pub(crate) mod id_prefix;
 mod ids;
 mod review;
 mod review_note;

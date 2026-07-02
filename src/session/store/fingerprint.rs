@@ -7,7 +7,7 @@ use crate::error::{Result, ShoreError};
 use crate::git::{capture_worktree_diff_files, git_head_oid, git_head_tree_oid, git_worktree_root};
 use crate::model::{
     CommitRangeCaptureMode, DiffFile, DiffRowKind, EngagementId, FileStatus, ObjectId,
-    ReviewEndpoint, RevisionId, RevisionSource, WorktreeCaptureMode,
+    ReviewEndpoint, RevisionId, RevisionSource, WorktreeCaptureMode, id_prefix,
 };
 use crate::session::event::GitProvenance;
 
@@ -92,8 +92,8 @@ pub(crate) fn worktree_fingerprint_for_files(
     let hash = sha256_json_hex(&descriptor)?;
 
     Ok(WorktreeFingerprint {
-        revision_id: RevisionId::new(format!("rev:worktree:sha256:{hash}")),
-        object_id: ObjectId::new(format!("obj:git:sha256:{hash}")),
+        revision_id: RevisionId::new(format!("{}:worktree:sha256:{hash}", id_prefix::REVISION)),
+        object_id: ObjectId::new(format!("{}:git:sha256:{hash}", id_prefix::OBJECT)),
     })
 }
 
@@ -212,7 +212,10 @@ pub(in crate::session) fn revision_id_from(
         git_provenance,
     };
     let hash = sha256_json_hex(&descriptor)?;
-    Ok(RevisionId::new(format!("rev:sha256:{hash}")))
+    Ok(RevisionId::new(format!(
+        "{}:sha256:{hash}",
+        id_prefix::REVISION
+    )))
 }
 
 /// Derive the engagement grouping hint for a root generative move (empty
@@ -220,7 +223,7 @@ pub(in crate::session) fn revision_id_from(
 /// that mint the same revision converge to the same engagement.
 pub(in crate::session) fn engagement_id_from_root(revision_id: &RevisionId) -> EngagementId {
     let hash = crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes());
-    EngagementId::new(format!("engagement:sha256:{hash}"))
+    EngagementId::new(format!("{}:sha256:{hash}", id_prefix::ENGAGEMENT))
 }
 
 /// Derive a provisional engagement hint for a generative move whose superseded
@@ -235,7 +238,7 @@ pub(in crate::session) fn engagement_id_provisional(supersedes: &[RevisionId]) -
         .collect::<Vec<_>>()
         .join("\n");
     let hash = crate::canonical_hash::sha256_bytes_hex(joined.as_bytes());
-    EngagementId::new(format!("engagement:sha256:{hash}"))
+    EngagementId::new(format!("{}:sha256:{hash}", id_prefix::ENGAGEMENT))
 }
 
 #[cfg(test)]
@@ -300,7 +303,7 @@ pub(in crate::session) fn object_identity(files: &[DiffFile]) -> ObjectId {
     };
     let hash =
         sha256_json_hex(&descriptor).expect("content-only object projection always serializes");
-    ObjectId::new(format!("obj:sha256:{hash}"))
+    ObjectId::new(format!("{}:sha256:{hash}", id_prefix::OBJECT))
 }
 
 /// Project a `DiffFile` to its content-only identity view: keep the path, rename

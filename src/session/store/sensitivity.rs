@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
 use crate::git::git_tracked_and_untracked_inventory;
+use crate::model::id_prefix;
 use crate::session::store::sensitivity_config::{glob_matches, resolve_sensitivity_excludes};
 
 const SCAN_READ_LIMIT: u64 = 64 * 1024;
@@ -200,7 +201,8 @@ fn read_text_prefix(path: &Path) -> Result<String> {
 
 fn redacted_file_ref(relative_path: &Path) -> String {
     format!(
-        "file:sha256:{}",
+        "{}:sha256:{}",
+        id_prefix::REDACTED_FILE,
         sha256_bytes_hex(relative_path.to_string_lossy().as_bytes())
     )
 }

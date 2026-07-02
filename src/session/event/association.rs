@@ -19,7 +19,7 @@ use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::Result;
 use crate::model::{
     CommitAssociationId, CommitWithdrawalId, RefAssociationId, RefWithdrawalId, ReviewEndpoint,
-    ReviewTargetRef, RevisionId,
+    ReviewTargetRef, RevisionId, id_prefix,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -133,7 +133,10 @@ pub(crate) fn build_commit_association_id(
         "revisionId": revision_id.as_str(),
         "commitOid": commit_oid,
     }))?;
-    Ok(CommitAssociationId::new(format!("assoc-commit:{digest}")))
+    Ok(CommitAssociationId::new(format!(
+        "{}:{digest}",
+        id_prefix::COMMIT_ASSOCIATION
+    )))
 }
 
 /// Content id for a ref association, folding the full ref name and head OID.
@@ -147,7 +150,10 @@ pub(crate) fn build_ref_association_id(
         "refName": ref_name,
         "headOid": head_oid,
     }))?;
-    Ok(RefAssociationId::new(format!("assoc-ref:{digest}")))
+    Ok(RefAssociationId::new(format!(
+        "{}:{digest}",
+        id_prefix::REF_ASSOCIATION
+    )))
 }
 
 /// Content id for a commit withdrawal, folding the association id it retracts.
@@ -159,7 +165,10 @@ pub(crate) fn build_commit_withdrawal_id(
         "revisionId": revision_id.as_str(),
         "commitAssociationId": commit_association_id.as_str(),
     }))?;
-    Ok(CommitWithdrawalId::new(format!("withdraw-commit:{digest}")))
+    Ok(CommitWithdrawalId::new(format!(
+        "{}:{digest}",
+        id_prefix::COMMIT_WITHDRAWAL
+    )))
 }
 
 /// Content id for a ref withdrawal, folding the association id it retracts.
@@ -171,7 +180,10 @@ pub(crate) fn build_ref_withdrawal_id(
         "revisionId": revision_id.as_str(),
         "refAssociationId": ref_association_id.as_str(),
     }))?;
-    Ok(RefWithdrawalId::new(format!("withdraw-ref:{digest}")))
+    Ok(RefWithdrawalId::new(format!(
+        "{}:{digest}",
+        id_prefix::REF_WITHDRAWAL
+    )))
 }
 
 #[cfg(test)]

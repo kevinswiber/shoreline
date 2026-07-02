@@ -10,7 +10,7 @@ use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     ActorId, AssessmentId, EventId, InputRequestId, ObservationId, ReviewTargetRef, RevisionId,
-    TargetRef, TrackId,
+    TargetRef, TrackId, id_prefix,
 };
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
@@ -463,7 +463,10 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
         value["summaryContentType"] = json!(summary_content_type);
     }
     let digest = sha256_json_prefixed(&value)?;
-    Ok(AssessmentId::new(format!("assess:{digest}")))
+    Ok(AssessmentId::new(format!(
+        "{}:{digest}",
+        id_prefix::ASSESSMENT
+    )))
 }
 
 #[cfg(test)]

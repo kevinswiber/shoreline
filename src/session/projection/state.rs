@@ -6,7 +6,7 @@ use super::freshness::event_set_hash_for_events;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     AssessmentId, EventId, InputRequestId, InputRequestResponseId, JournalId, ObjectId,
-    ObservationId, RevisionId, ValidationCheckId,
+    ObservationId, RevisionId, ValidationCheckId, id_prefix,
 };
 use crate::session::event::{
     AssertionMode, EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
@@ -109,7 +109,7 @@ struct StateReducer {
 impl Default for StateReducer {
     fn default() -> Self {
         Self {
-            journal_id: JournalId::new("journal:default"),
+            journal_id: JournalId::new(format!("{}:default", id_prefix::JOURNAL)),
             captured_revisions: BTreeMap::new(),
             note_count: 0,
             observation_events: BTreeMap::new(),

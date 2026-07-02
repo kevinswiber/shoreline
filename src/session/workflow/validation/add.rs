@@ -12,7 +12,7 @@ use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     ActorId, EventId, ReviewTargetRef, RevisionId, TargetRef, TrackId, ValidationCheckId,
-    ValidationStatus, ValidationTarget, ValidationTrigger,
+    ValidationStatus, ValidationTarget, ValidationTrigger, id_prefix,
 };
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload,
@@ -421,7 +421,10 @@ pub(super) fn build_validation_check_id(
         value["summaryContentType"] = json!(summary_content_type);
     }
     let digest = sha256_json_prefixed(&value)?;
-    Ok(ValidationCheckId::new(format!("validation:{digest}")))
+    Ok(ValidationCheckId::new(format!(
+        "{}:{digest}",
+        id_prefix::VALIDATION
+    )))
 }
 
 fn required_check_name(value: Option<&str>) -> Result<String> {

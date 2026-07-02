@@ -2,7 +2,7 @@ use super::RevisionProjectionSummary;
 use super::adapter_notes::AdapterNoteView;
 use crate::model::{
     AssessmentId, DiffFile, DiffSnapshot, InputRequestId, ObservationId, ReviewTargetRef,
-    RevisionId, RowId, ValidationCheckId, ValidationTarget,
+    RevisionId, RowId, ValidationCheckId, ValidationTarget, id_prefix,
 };
 use crate::session::assessment::AssessmentView;
 use crate::session::input_request::InputRequestView;
@@ -209,7 +209,7 @@ pub(super) fn build_observation_rows(
         .map(|(index, observation)| {
             let (file_path, old_path) = target_paths(&observation.target);
             RevisionProjectionRow {
-                id: RowId::new(format!("row:{index:06}")),
+                id: RowId::new(format!("{}:{index:06}", id_prefix::ROW)),
                 kind: RevisionProjectionRowKind::Observation,
                 projection_phase: ProjectionPhase::Narrative,
                 projection_order: index,
@@ -236,7 +236,7 @@ pub(super) fn build_input_request_rows(
         .map(|(index, input_request)| {
             let (file_path, old_path) = target_paths(&input_request.target);
             RevisionProjectionRow {
-                id: RowId::new(format!("row:{index:06}")),
+                id: RowId::new(format!("{}:{index:06}", id_prefix::ROW)),
                 kind: RevisionProjectionRowKind::InputRequest,
                 projection_phase: ProjectionPhase::Narrative,
                 projection_order: index,
@@ -261,7 +261,7 @@ pub(super) fn build_assessment_rows(assessments: &[AssessmentView]) -> Vec<Revis
         .map(|(index, assessment)| {
             let (file_path, old_path) = target_paths(&assessment.target);
             RevisionProjectionRow {
-                id: RowId::new(format!("row:{index:06}")),
+                id: RowId::new(format!("{}:{index:06}", id_prefix::ROW)),
                 kind: RevisionProjectionRowKind::Assessment,
                 projection_phase: ProjectionPhase::Narrative,
                 projection_order: index,
@@ -289,7 +289,7 @@ pub(super) fn build_validation_rows(
             let target = validation_target_to_review_target(&validation.target);
             let (file_path, old_path) = target_paths(&target);
             RevisionProjectionRow {
-                id: RowId::new(format!("row:{index:06}")),
+                id: RowId::new(format!("{}:{index:06}", id_prefix::ROW)),
                 kind: RevisionProjectionRowKind::ValidationEvidence,
                 projection_phase: ProjectionPhase::Narrative,
                 projection_order: index,
@@ -323,7 +323,7 @@ pub(super) fn build_adapter_note_rows(
                 end_line: target.end_line,
             });
             RevisionProjectionRow {
-                id: RowId::new(format!("row:{index:06}")),
+                id: RowId::new(format!("{}:{index:06}", id_prefix::ROW)),
                 kind: RevisionProjectionRowKind::AdapterNote,
                 projection_phase: ProjectionPhase::Narrative,
                 projection_order: index,
@@ -351,7 +351,7 @@ pub(super) fn snapshot_row(
     old_path: Option<String>,
 ) -> RevisionProjectionRow {
     RevisionProjectionRow {
-        id: RowId::new(format!("row:{projection_order:06}")),
+        id: RowId::new(format!("{}:{projection_order:06}", id_prefix::ROW)),
         kind,
         projection_phase: ProjectionPhase::SnapshotRemainder,
         projection_order,
@@ -369,7 +369,7 @@ pub(super) fn snapshot_row(
 
 pub(super) fn renumber_projection_rows(rows: &mut [RevisionProjectionRow]) {
     for (index, row) in rows.iter_mut().enumerate() {
-        row.id = RowId::new(format!("row:{index:06}"));
+        row.id = RowId::new(format!("{}:{index:06}", id_prefix::ROW));
         row.projection_order = index;
     }
 }

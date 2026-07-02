@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 use crate::model::{
     Anchor, DiffFile, FileId, LineRange, ResolutionStatus, ReviewNote, ReviewNoteId,
-    ReviewNoteSource, Side, hash_normalized_lines, rows_for_line_range,
+    ReviewNoteSource, Side, hash_normalized_lines, id_prefix, rows_for_line_range,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -235,11 +235,9 @@ fn model_note(
     anchor: Anchor,
 ) -> ReviewNote {
     ReviewNote {
-        id: note
-            .id
-            .clone()
-            .map(ReviewNoteId::new)
-            .unwrap_or_else(|| ReviewNoteId::new(format!("note:{file_index}:{note_index}"))),
+        id: note.id.clone().map(ReviewNoteId::new).unwrap_or_else(|| {
+            ReviewNoteId::new(format!("{}:{file_index}:{note_index}", id_prefix::NOTE))
+        }),
         anchor,
         source: ReviewNoteSource::Sidecar,
         title: note.title.clone().unwrap_or_default(),
