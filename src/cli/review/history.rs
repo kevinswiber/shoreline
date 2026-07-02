@@ -11,7 +11,7 @@ use shoreline::session::{
     read_events_for_display, review_history,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct HistoryArgs {
@@ -72,6 +72,9 @@ pub(super) struct HistoryArgs {
     /// Poll interval in milliseconds for `--watch`.
     #[arg(long, default_value_t = 3000)]
     poll_ms: u64,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -127,7 +130,11 @@ fn render_once(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = review_history(history_options(args)?);
     let document = history_document(result?);
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 /// Client-side liveness poll: re-render only when the store's liveness moves —

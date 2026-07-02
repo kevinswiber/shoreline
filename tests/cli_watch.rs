@@ -37,6 +37,7 @@ impl Watcher {
             ])
             .env_remove("SHORE_LOG")
             .env_remove("RUST_LOG")
+            .env_remove("SHORE_FORMAT")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()

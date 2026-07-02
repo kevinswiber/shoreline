@@ -6,13 +6,16 @@ use clap::Args;
 // binary crate and reaches only the re-exported `pub` items at `shoreline::keys::*`).
 use shoreline::keys::generate_key;
 
-use crate::cli::json;
+use crate::cli::{json, output};
 
 #[derive(Debug, Args)]
 pub(super) struct InitArgs {
     /// Label for the generated key (its filename stem in the keystore).
     #[arg(long, default_value = "default")]
     name: String,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(serde::Serialize)]
@@ -37,5 +40,7 @@ pub(super) fn run(
         path: handle.private_key_path().to_owned(),
     };
     let document = json::DiagnosticDocument::new("shore.keys-init", body, vec![]);
-    json::write_json(stdout, &document, false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

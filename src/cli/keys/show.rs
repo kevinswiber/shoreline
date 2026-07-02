@@ -5,7 +5,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Args;
 use shoreline::keys::load_signer_id;
 
-use crate::cli::json;
+use crate::cli::{json, output};
 
 #[derive(Debug, Args)]
 pub(super) struct ShowArgs {
@@ -20,6 +20,9 @@ pub(super) struct ShowArgs {
     /// Include the key's raw Ed25519 public key (base64).
     #[arg(long)]
     pubkey: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(serde::Serialize)]
@@ -57,5 +60,7 @@ pub(super) fn run(
         public_key,
     };
     let document = json::DiagnosticDocument::new("shore.keys-show", body, vec![]);
-    json::write_json(stdout, &document, false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

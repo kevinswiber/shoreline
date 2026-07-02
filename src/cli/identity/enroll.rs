@@ -9,7 +9,8 @@ use shoreline::session::{
     DelegationWriteRecord, ensure_shore_gitignore, now_rfc3339_utc, stage_delegation,
 };
 
-use crate::cli::json::{self, DiagnosticDocument};
+use crate::cli::json::DiagnosticDocument;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct EnrollArgs {
@@ -38,6 +39,9 @@ pub(super) struct EnrollArgs {
     /// Pretty-print the JSON response.
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Serialize)]
@@ -122,5 +126,9 @@ pub(super) fn run(
         local_shadows_committed,
     };
     let document = DiagnosticDocument::new("shore.identity-enroll", body, Vec::new());
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

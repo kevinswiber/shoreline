@@ -191,6 +191,9 @@ where
     let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
     command
         .args(args)
+        // Isolate byte-asserting tracing tests from an ambient output-lane selector;
+        // these tests deliberately keep SHORE_LOG/RUST_LOG to exercise logging.
+        .env_remove("SHORE_FORMAT")
         .current_dir(std::env::current_dir().expect("current dir"));
     command
 }

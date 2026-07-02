@@ -10,7 +10,8 @@ use shoreline::session::{
 };
 
 use super::common::resolve_signer;
-use crate::cli::json::{self, DiagnosticDocument};
+use crate::cli::json::DiagnosticDocument;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct EndorseArgs {
@@ -32,6 +33,9 @@ pub(super) struct EndorseArgs {
     /// Pretty-print the JSON response.
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Serialize)]
@@ -88,5 +92,9 @@ pub(super) fn run(
         events_existing: result.events_existing,
     };
     let document = DiagnosticDocument::new("shore.review-endorse", body, Vec::new());
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

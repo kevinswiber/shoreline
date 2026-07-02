@@ -6,7 +6,7 @@ use shoreline::session::{
 };
 
 use crate::cli::input::ReviewInputArgs;
-use crate::cli::json;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct NotesArgs {
@@ -23,6 +23,9 @@ enum NotesCommand {
 struct NotesApplyArgs {
     #[command(flatten)]
     input: ReviewInputArgs,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(serde::Serialize)]
@@ -57,7 +60,9 @@ fn notes_apply(
     let _entered = span.enter();
     let result = import_notes(notes_apply_options(&args.input)?)?;
     let document = NotesApplyDocument::from(result);
-    json::write_json(stdout, &document, false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn notes_apply_options(

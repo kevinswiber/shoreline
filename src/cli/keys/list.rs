@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::Args;
 use shoreline::keys::{KeyCustody, agent_has_key, list_keys};
 
-use crate::cli::json;
 use crate::cli::review::common::discover_trust_set;
+use crate::cli::{json, output};
 
 #[derive(Debug, Args)]
 pub(super) struct ListArgs {
@@ -15,6 +15,9 @@ pub(super) struct ListArgs {
 
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(serde::Serialize)]
@@ -71,5 +74,9 @@ pub(super) fn run(
         })
         .collect();
     let document = json::DiagnosticDocument::new("shore.keys-list", ListBody { keys }, vec![]);
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

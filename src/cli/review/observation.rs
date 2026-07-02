@@ -9,7 +9,7 @@ use shoreline::session::{
     record_observation,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
@@ -83,6 +83,9 @@ struct ObservationAddArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -110,6 +113,9 @@ struct ObservationListArgs {
 
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -146,11 +152,13 @@ fn review_observation_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let format_explicit = args.format_args.explicit(false);
     let (options, skip) = observation_add_options(args, stderr)?;
     let result = record_observation(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
     let document = observation_add_document(result);
-    json::write_json(stdout, &document, false)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn review_observation_list(
@@ -158,11 +166,13 @@ fn review_observation_list(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let result = list_observations(observation_list_options(args));
     let delegation_map = super::common::discover_delegation_map(&repo);
     let document = observation_list_document(result?, delegation_map.as_ref());
-    json::write_json(stdout, &document, pretty)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn observation_add_options(

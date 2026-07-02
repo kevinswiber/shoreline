@@ -9,7 +9,8 @@ use shoreline::session::{
     ActorAttributesWriteRecord, ensure_shore_gitignore, stage_actor_attributes,
 };
 
-use crate::cli::json::{self, DiagnosticDocument};
+use crate::cli::json::DiagnosticDocument;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct AttestArgs {
@@ -36,6 +37,9 @@ pub(super) struct AttestArgs {
     /// Pretty-print the JSON response.
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Serialize)]
@@ -96,5 +100,9 @@ pub(super) fn run(
         changed,
     };
     let document = DiagnosticDocument::new("shore.identity-attest", body, Vec::new());
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

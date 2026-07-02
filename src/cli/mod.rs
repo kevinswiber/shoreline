@@ -14,6 +14,7 @@ mod inspect;
 mod json;
 mod keys;
 mod notes;
+mod output;
 mod review;
 mod show;
 mod store;
@@ -180,6 +181,10 @@ mod tests {
                 "dump",
                 "--repo",
                 repo.path().to_str().unwrap(),
+                // This in-process run reads the ambient SHORE_FORMAT; pin the machine
+                // lane so the compact-JSON byte assertion is deterministic.
+                "--format",
+                "json",
             ],
             &mut stdout,
             &mut stderr,
@@ -250,6 +255,7 @@ mod tests {
                 input: input.clone(),
                 pretty: false,
                 compact: true,
+                format_args: Default::default(),
             },
             &tracing,
         )
@@ -282,6 +288,7 @@ mod tests {
                 input: input.clone(),
                 pretty: false,
                 compact: true,
+                format_args: Default::default(),
             },
             &tracing,
         )
@@ -310,6 +317,7 @@ mod tests {
                 input: input.clone(),
                 pretty: false,
                 compact: true,
+                format_args: Default::default(),
             },
             &tracing,
         )
@@ -378,6 +386,7 @@ mod tests {
                 input: input.clone(),
                 pretty: false,
                 compact: true,
+                format_args: Default::default(),
             },
             &tracing,
         )

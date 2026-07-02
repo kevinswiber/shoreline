@@ -10,7 +10,7 @@ use shoreline::session::{
     show_assessments,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
@@ -108,6 +108,9 @@ pub(super) struct AssessmentAddArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -139,6 +142,9 @@ pub(super) struct AssessmentShowArgs {
     /// Force compact JSON output.
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -176,11 +182,13 @@ fn review_assessment_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let format_explicit = args.format_args.explicit(false);
     let (options, skip) = assessment_add_options(args, stderr)?;
     let result = record_assessment(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
     let document = assessment_add_document("shore.review-assessment-add", result);
-    json::write_json(stdout, &document, false)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn review_assessment_show(
@@ -188,6 +196,7 @@ fn review_assessment_show(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let result = show_assessments(assessment_show_options(args));
     let delegation_map = super::common::discover_delegation_map(&repo);
@@ -196,7 +205,8 @@ fn review_assessment_show(
         result?,
         delegation_map.as_ref(),
     );
-    json::write_json(stdout, &document, pretty)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 pub(super) fn assessment_add_options(

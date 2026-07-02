@@ -8,7 +8,7 @@ use shoreline::session::{
     ValidationAddOptions, ValidationListOptions, list_validation_checks, record_validation_check,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli::review::common::{ContentTypeArg, read_body_input};
 
 #[derive(Debug, Args)]
@@ -82,6 +82,9 @@ struct ValidationAddArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -106,6 +109,9 @@ struct ValidationListArgs {
 
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -151,11 +157,13 @@ fn review_validation_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let format_explicit = args.format_args.explicit(false);
     let (options, skip) = validation_add_options(args, stderr)?;
     let result = record_validation_check(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
     let document = validation_add_document(result);
-    json::write_json(stdout, &document, false)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn review_validation_list(
@@ -163,11 +171,13 @@ fn review_validation_list(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let result = list_validation_checks(validation_list_options(args));
     let delegation_map = super::common::discover_delegation_map(&repo);
     let document = validation_list_document(result?, delegation_map.as_ref());
-    json::write_json(stdout, &document, pretty)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn validation_add_options(

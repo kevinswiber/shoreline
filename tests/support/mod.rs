@@ -21,6 +21,9 @@ where
         .args(args)
         .env_remove("SHORE_LOG")
         .env_remove("RUST_LOG")
+        // Isolate byte-asserting tests from a developer's ambient output-lane
+        // selector; tests that exercise SHORE_FORMAT set it explicitly via shore_env.
+        .env_remove("SHORE_FORMAT")
         .output()
         .expect("run shore binary")
 }
@@ -37,7 +40,10 @@ where
     command
         .args(args)
         .env_remove("SHORE_LOG")
-        .env_remove("RUST_LOG");
+        .env_remove("RUST_LOG")
+        // Clear an ambient output-lane selector first; a caller that passes
+        // SHORE_FORMAT in `env` re-sets it below and still wins.
+        .env_remove("SHORE_FORMAT");
     for (key, value) in env {
         command.env(key, value);
     }

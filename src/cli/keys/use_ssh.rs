@@ -7,7 +7,7 @@ use clap::Args;
 // `shoreline::keys::*`).
 use shoreline::keys::{KeyName, parse_ssh_ed25519_public_key, write_agent_reference};
 
-use crate::cli::json;
+use crate::cli::{json, output};
 
 #[derive(Debug, Args)]
 pub(super) struct UseSshArgs {
@@ -20,6 +20,9 @@ pub(super) struct UseSshArgs {
     /// `default` so the adopted key becomes the user-default signer.
     #[arg(long, default_value = "default")]
     name: String,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(serde::Serialize)]
@@ -62,7 +65,9 @@ pub(super) fn run(
         path: handle.private_key_path().to_owned(),
     };
     let document = json::DiagnosticDocument::new("shore.keys-use-ssh", body, vec![]);
-    json::write_json(stdout, &document, false)?;
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)?;
 
     // Enrollment hint on stderr (the JSON document is the machine-readable stdout
     // contract; this is human guidance), mirroring the agent-keygen notice.

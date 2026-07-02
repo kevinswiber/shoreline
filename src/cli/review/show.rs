@@ -8,7 +8,7 @@ use shoreline::session::{
     EventVerificationPolicy, RemovalPolicy, RevisionShowOptions, enrich_liveness, show_revision,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct ShowArgs {
@@ -37,6 +37,9 @@ pub(super) struct ShowArgs {
     /// Emit compact JSON explicitly.
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 pub(super) fn run(
@@ -63,7 +66,11 @@ pub(super) fn run(
     {
         commit_range.insert("liveness".to_owned(), serde_json::to_value(liveness)?);
     }
-    json::write_json(stdout, &value, pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &value)
 }
 
 fn show_options(args: &ShowArgs) -> RevisionShowOptions {

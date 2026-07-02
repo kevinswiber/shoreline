@@ -5,7 +5,7 @@ use clap::{Args, ValueEnum};
 use shoreline::documents::revision_list_document;
 use shoreline::session::{OrphanVisibility, RefFilterMode, RevisionListOptions, list_revisions};
 
-use crate::cli::json;
+use crate::cli::output;
 
 #[derive(Debug, Args)]
 pub(super) struct RevisionsArgs {
@@ -53,6 +53,9 @@ pub(super) struct RevisionsArgs {
     /// Emit compact JSON explicitly.
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
@@ -112,5 +115,9 @@ pub(super) fn run(
     }
 
     let document = revision_list_document(result);
-    json::write_json(stdout, &document, pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }

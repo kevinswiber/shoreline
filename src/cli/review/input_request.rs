@@ -16,7 +16,7 @@ use shoreline::session::{
     fetch_input_request, list_input_requests, open_input_request, respond_input_request,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
@@ -89,6 +89,9 @@ struct InputRequestOpenArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -119,6 +122,9 @@ struct InputRequestListArgs {
 
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -136,6 +142,9 @@ struct InputRequestFetchArgs {
 
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -169,6 +178,9 @@ struct InputRequestRespondArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -248,11 +260,13 @@ fn review_input_request_open(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let format_explicit = args.format_args.explicit(false);
     let (options, skip) = input_request_open_options(args, stderr)?;
     let result = open_input_request(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
     let document = input_request_open_document(result);
-    json::write_json(stdout, &document, false)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn review_input_request_list(
@@ -260,11 +274,13 @@ fn review_input_request_list(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let result = list_input_requests(input_request_list_options(args));
     let delegation_map = super::common::discover_delegation_map(&repo);
     let document = input_request_list_document(result?, delegation_map.as_ref());
-    json::write_json(stdout, &document, pretty)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn review_input_request_fetch(
@@ -272,6 +288,7 @@ fn review_input_request_fetch(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let format_explicit = args.format_args.explicit(pretty);
     let delegation_map = super::common::discover_delegation_map(&args.repo);
     let result = fetch_input_request(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
@@ -279,7 +296,8 @@ fn review_input_request_fetch(
             .with_include_body(args.include_body),
     );
     let document = input_request_fetch_document(result?, delegation_map.as_ref());
-    json::write_json(stdout, &document, pretty)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn review_input_request_respond(
@@ -287,11 +305,13 @@ fn review_input_request_respond(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let format_explicit = args.format_args.explicit(false);
     let (options, skip) = input_request_respond_options(args, stderr)?;
     let result = respond_input_request(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
     let document = input_request_respond_document(result);
-    json::write_json(stdout, &document, false)
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn input_request_open_options(

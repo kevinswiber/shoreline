@@ -13,7 +13,7 @@ use shoreline::session::{
     withdraw_commit, withdraw_ref,
 };
 
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli::review::common::{SignableOptions, SigningSkip};
 
 #[derive(Debug, Args)]
@@ -52,6 +52,9 @@ struct AssociateCommitArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -71,6 +74,9 @@ struct WithdrawCommitArgs {
 
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -94,6 +100,9 @@ struct AssociateRefArgs {
 
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -113,6 +122,9 @@ struct WithdrawRefArgs {
 
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -136,6 +148,9 @@ struct ListArgs {
 
     #[arg(long)]
     compact: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -198,7 +213,9 @@ fn associate_commit_run(
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = associate_commit(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
-    json::write_json(stdout, &associate_commit_document(result), false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &associate_commit_document(result))
 }
 
 fn withdraw_commit_run(
@@ -213,7 +230,9 @@ fn withdraw_commit_run(
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = withdraw_commit(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
-    json::write_json(stdout, &withdraw_commit_document(result), false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &withdraw_commit_document(result))
 }
 
 fn associate_ref_run(
@@ -227,7 +246,9 @@ fn associate_ref_run(
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = associate_ref(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
-    json::write_json(stdout, &associate_ref_document(result), false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &associate_ref_document(result))
 }
 
 fn withdraw_ref_run(
@@ -241,7 +262,9 @@ fn withdraw_ref_run(
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = withdraw_ref(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
-    json::write_json(stdout, &withdraw_ref_document(result), false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &withdraw_ref_document(result))
 }
 
 fn list_run(args: ListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
@@ -254,7 +277,11 @@ fn list_run(args: ListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::e
         options = options.with_axis(axis.into());
     }
     let result = list_associations(options)?;
-    json::write_json(stdout, &list_associations_document(result), pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &list_associations_document(result))
 }
 
 /// Apply the `--revision` selection shared by the write verbs. The four

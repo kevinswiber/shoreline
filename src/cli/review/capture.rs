@@ -6,7 +6,7 @@ use shoreline::documents::capture_document;
 use shoreline::model::RevisionId;
 use shoreline::session::{CaptureOptions, CommitRangeSpec, capture_review};
 
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
 
 #[derive(Debug, Args)]
@@ -44,6 +44,9 @@ pub(super) struct CaptureArgs {
     /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 pub(super) fn run(
@@ -62,7 +65,9 @@ pub(super) fn run(
     let capture = capture_review(options)?;
     super::common::surface_best_effort_skip(&skip, stderr);
     let document = capture_document(capture);
-    json::write_json(stdout, &document, false)
+    let format =
+        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn capture_options(

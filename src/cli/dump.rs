@@ -4,7 +4,7 @@ use clap::Args;
 use shoreline::dump::DumpDocument;
 
 use crate::cli::input::{self, ReviewInputArgs};
-use crate::cli::json;
+use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
 
 #[derive(Debug, Args)]
@@ -17,6 +17,9 @@ pub(super) struct DumpArgs {
 
     #[arg(long)]
     pub(super) compact: bool,
+
+    #[command(flatten)]
+    pub(super) format_args: output::FormatArgs,
 }
 
 pub(super) fn run(
@@ -27,7 +30,11 @@ pub(super) fn run(
     let span = tracing::info_span!("shore.dump");
     let _entered = span.enter();
     let document = document_for_dump(&args, tracing)?;
-    json::write_json(stdout, &document, should_pretty_print(&args))
+    let format = output::resolve_format(
+        args.format_args.explicit(should_pretty_print(&args)),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 pub(super) fn document_for_dump(

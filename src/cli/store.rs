@@ -12,11 +12,11 @@ use shoreline::session::{
     set_store_mode_for_repo, store_status,
 };
 
-use crate::cli::json;
 use crate::cli::review::common::{
     SigningSkip, apply_resolved_signer, discover_trust_set, resolve_and_surface_signer,
     surface_best_effort_skip,
 };
+use crate::cli::{json, output};
 
 #[derive(Debug, Args)]
 pub(super) struct StoreArgs {
@@ -42,6 +42,9 @@ struct StoreStatusArgs {
 
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -55,6 +58,9 @@ struct StoreModeArgs {
 
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -76,6 +82,9 @@ struct StoreMigrateArgs {
 
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -117,6 +126,9 @@ struct StoreRemoveArgs {
     /// key file. Removal is a write, so a signed store stays signed.
     #[arg(long)]
     sign_key: Option<String>,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(Debug, Args)]
@@ -135,6 +147,9 @@ struct StoreCompactArgs {
 
     #[arg(long)]
     pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
 }
 
 #[derive(serde::Serialize)]
@@ -250,7 +265,11 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let result = store_status(StoreStatusOptions::new(args.repo))?;
     let document =
         json::DiagnosticDocument::new("shore.store-status", StoreStatusBody::from(result), vec![]);
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
@@ -270,7 +289,11 @@ fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
         source: outcome.source,
     };
     let document = json::DiagnosticDocument::new("shore.store-mode", body, vec![]);
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn migrate(
@@ -289,7 +312,11 @@ fn migrate(
         StoreMigrateBody::from(result),
         vec![],
     );
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn remove(
@@ -314,7 +341,11 @@ fn remove(
     surface_best_effort_skip(&skip, stderr);
     let document =
         json::DiagnosticDocument::new("shore.store-remove", StoreRemoveBody::from(result), vec![]);
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 fn compact(
@@ -383,7 +414,11 @@ fn compact(
         StoreCompactBody::from(result),
         diagnostics,
     );
-    json::write_json(stdout, &document, args.pretty)
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
 }
 
 /// Map a skipped removal's reason to its public `removal_claim_*` code, matching
