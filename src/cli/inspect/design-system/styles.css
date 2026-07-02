@@ -20,6 +20,16 @@
 body {
   margin: 0;
   background: var(--bg);
+}
+
+/* Card theme scope. The Design gallery re-hosts card markup and drops <html>
+   attributes, so light twins keyed on <html data-theme="light"> fell back to
+   the dark :root. bake.sh wraps every card body in <div class="ds-card"
+   data-theme="…">; the wrapper paints its own canvas so it reads correctly
+   even when body styling is dropped too. The <html> attribute is still baked
+   for standalone rendering. */
+.ds-card {
+  background: var(--bg);
   color: var(--fg);
   font: 14px/1.45 var(--sans);
 }

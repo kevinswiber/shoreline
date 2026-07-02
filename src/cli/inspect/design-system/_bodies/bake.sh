@@ -38,9 +38,12 @@ bake() {
     # Cards that demo the self-hosted font opt in (5th arg): inline the @font-face
     # faces, path-rewritten one dir up since cards live in a subdirectory.
     if [ -n "$with_fonts" ]; then sed 's#url("fonts/#url("../fonts/#g' "$DS/fonts.css"; fi
-    printf '    </style>\n  </head>\n  <body>\n'
+    # Theme scope wrapper: the Design gallery re-hosts card markup and drops
+    # <html> attributes, so the data-theme marker must ride an inner element
+    # (the <html> attribute is still set above for standalone rendering).
+    printf '    </style>\n  </head>\n  <body>\n    <div class="ds-card" data-theme="%s">\n' "${theme:-dark}"
     cat "$DS/_bodies/$body"
-    printf '  </body>\n</html>\n'
+    printf '    </div>\n  </body>\n</html>\n'
   } > "$DS/$out"
   echo "baked $out"
 }
