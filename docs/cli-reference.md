@@ -9,8 +9,9 @@ narrow **hard core** is frozen within each document's `version`:
 - the field-paths a non-human consumer actually reads — `shore review capture`'s `revision.id`,
   `shore review input-request list`'s `inputRequests[].{id,title,mode,reasonCode,trackId}`, and
   `shore review input-request respond`'s `inputRequestResponseId` and `eventId`;
-- the wire-value vocabularies that review-loop drivers branch on — the assessment values and the
-  input-request response outcomes (see the [`assessment`](#shore-review-assessment) and
+- the wire-value vocabularies — the assessment values, the input-request response outcomes, and the
+  input-request `mode` (`operative`/`advisory`) and `reasonCode` value sets that ride the consumed
+  `input-request list` field-paths (see the [`assessment`](#shore-review-assessment) and
   [`input-request`](#shore-review-input-request) sections).
 
 Changing any hard-core value is a coordinated break: bump that document's `version` and migrate
@@ -567,7 +568,10 @@ Input requests are durable pause or decision requests for a captured revision.
 - `--revision` pins the request to one captured revision. Without either, the command defaults to the single captured revision and errors if
   multiple captured revisions exist.
 - `--mode` defaults to `operative`; `advisory` requests are durable and visible but do not imply a
-  cooperative client must pause.
+  cooperative client must pause. The `mode` (`operative`/`advisory`) and `reasonCode` values surface
+  on the consumed `input-request list` field-paths, so — like the response outcomes below — they are
+  part of the frozen hard core: stable within `version:1`, changed only by a coordinated `version`
+  bump.
 - Targets mirror observations: review-wide by default, captured file, captured range, or an
   existing native observation through `--observation <observation-id>`.
 - Request bodies may come from `--body`, `--body-file`, or `--body-stdin`.
