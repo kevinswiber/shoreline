@@ -64,12 +64,13 @@ git status        # confirm the changes you expect are present
 
 By default the store is the shared common-dir store at `.git/shore`, under the clone's Git common
 directory — every worktree of the clone resolves the same store, and because it lives inside `.git`
-it never appears in `git status`. The first Shoreline command run in the worktree registers the
-per-worktree `.shore/` config directory (and a worktree-local `.shore/data/` store, if you opt into
-an ephemeral worktree) in the repository-local `.git/info/exclude` when it is not already ignored.
-This keeps those paths out of `git status` without modifying your tracked `.gitignore` or dirtying
-the working tree. If they are already ignored — for example by a project `.gitignore` entry —
-Shoreline leaves the ignore files untouched.
+it never appears in `git status`, so ordinary captures never touch the working tree at all. Opting
+into an ephemeral worktree (`shore store mode ephemeral`) or writing a `--local` identity override
+generates a committed `.shore/.gitignore` (two lines: `data/` + `*.local.json`) that keeps the
+worktree-local store and the private overrides out of `git status`; the file is visible, meant to
+be committed, and survives clone. If the paths are already ignored — for example by a project
+`.gitignore` entry — Shoreline generates nothing and leaves your ignore files untouched. Nothing
+writes the hidden `.git/info/exclude` anymore.
 
 ## 2. Capture a revision
 

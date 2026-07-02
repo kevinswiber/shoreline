@@ -194,10 +194,12 @@ tree, including untracked files (source `git_worktree`).
   subcommand) — distinct from `shore store migrate`, which folds a pre-flip worktree-local
   `.shore/data/` store into the shared store; see
   [storage-model.md](./storage-model.md#migrations-and-doctor).
-- The command registers `.shore/data/` in the repository-local `.git/info/exclude`
-  when it is not already ignored, so it never modifies a tracked `.gitignore` or
-  dirties the working tree. This applies to every writer-initializing command
-  (capture, observation, input-request, assessment, validation), not just `capture`.
+- Opting into ephemeral mode generates a committed `.shore/.gitignore` (two lines: `data/` +
+  `*.local.json`) when the paths are not already ignored, so the worktree-local store stays out of
+  `git status`; the file is visible, meant to be committed, and survives clone. Writer-initializing
+  commands against the ephemeral store generate it too; a shared-store write generates nothing (the
+  shared store lives inside `.git/`, which git already ignores) and never mutates the working tree.
+  Nothing writes `.git/info/exclude` anymore, and no tracked `.gitignore` is ever modified.
   Committed config siblings (`.shore/delegates.json`, `.shore/actor-attributes.json`,
   `.shore/allowed-signers.json`, `.shore/store.json`) stay tracked; only `.shore/data/` and the
   private `.shore/delegates.local.json`, `.shore/actor-attributes.local.json`, and
@@ -351,7 +353,8 @@ file to apply it (`git log -p` is the audit trail), exactly like `shore keys enr
   deduped + sorted. Re-attesting **replaces** the actor's entry (kind, roles, and comment) — it is not
   additive. Emits a `shore.identity-attest` document.
 - **`--local`** writes the private `.local.json` sibling instead of the committed file and git-excludes
-  it via `.git/info/exclude`. The layers merge git-config style: a local entry **fully replaces** the
+  it via the generated, committed `.shore/.gitignore` (its `*.local.json` line covers every private
+  override). The layers merge git-config style: a local entry **fully replaces** the
   committed entry for that key on this machine (never a merge), and the command surfaces that
   full-replace caveat on stderr.
 - `--repo` (default `.`) may be the repository root or a path inside it; the entry always lands at the

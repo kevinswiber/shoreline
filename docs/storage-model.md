@@ -83,12 +83,23 @@ of the clone resolves the same store; an ephemeral worktree instead keeps its st
 `.shore/data/`. Either way the store's on-disk layout (`events/`, `state.json`, `artifacts/…`) is the
 same. The worktree's `.shore/` directory always holds the committed config siblings (`store.json`,
 `delegates.json`, `actor-attributes.json`, `allowed-signers.json`). Only the ephemeral store subtree
-and the private `.local.json` overrides are kept out of Git, via `.git/info/exclude`
-entries (`.shore/data/`, `.shore/store.local.json`, `.shore/delegates.local.json`, and
-`.shore/actor-attributes.local.json`) — never a wholesale `.shore/` exclude, which would hide the
-committed config. (`allowed-signers.json` is committed-only and has no `.local.json` override, by
-deliberate trust-set-locality decision.) Shoreline writes these exclude entries automatically on the
-first store write.
+and the private `.local.json` overrides are kept out of Git, via a committed
+**`.shore/.gitignore`** carrying exactly two lines (`data/` and `*.local.json`) — never a wholesale
+`.shore/` exclude, which would hide the committed config, and never the hidden, per-clone
+`.git/info/exclude`. (`allowed-signers.json` is committed-only and has no `.local.json` override, by
+deliberate trust-set-locality decision.) Shoreline generates the file when something first needs
+covering — opting into ephemeral mode (`shore store mode ephemeral` or a write to an ephemeral
+store) or staging a `--local` identity override — and skips generation entirely when the paths are
+already ignored by any standard source, so user-managed ignore files are respected. A shared-store
+write generates nothing and never touches the working tree (the shared store lives inside `.git/`,
+which git already ignores).
+
+Clones that predate the committed `.shore/.gitignore` may still carry the retired mechanism's
+narrow entries (`.shore/data/`, `.shore/*.local.json`-style lines) in `.git/info/exclude`; those
+are harmless — redundant with the committed file — and can be removed by hand. A legacy
+**wholesale `.shore/`** line is different: it hides committed `.shore/` config and suppresses the
+generated `.shore/.gitignore`, so the flat-store relocation (`just migrate-store`) removes it
+automatically, and a clone carrying one without a flat store should delete that line by hand.
 
 `events/` is the authoritative log. Events are immutable, independently written, and never moved to
 `failed/`, retried in place, or rewritten on read.
@@ -825,11 +836,12 @@ empty array, which disavows the agent locally); agents absent from the local fil
 committed map; either file may exist alone, and a malformed local file is advisory — it never
 poisons the committed default. The committed file stays the shared, portable audit/authority root;
 the local override is a private, non-portable convenience. Shoreline keeps
-`.shore/delegates.local.json` out of Git via `.git/info/exclude` (the committed
-`.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately tracked). That exclude
-entry is written automatically on the first store write; if you create the override before ever
-writing a store, run any `shore` write once or add the `.git/info/exclude` line by hand so it does
-not show up in `git status`.
+`.shore/delegates.local.json` out of Git via the committed `.shore/.gitignore`'s `*.local.json`
+line (the committed `.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately
+tracked). `shore identity enroll --local` generates that file automatically before staging the
+override; if you hand-create the override instead, commit a two-line `.shore/.gitignore` (`data/`
++ `*.local.json`) yourself — or run the enroll command once — so it does not show up in
+`git status`.
 
 In this release, delegation entries are created by editing `.shore/delegates.json` directly (or by
 an agent proposing a working-tree edit); the human's review-and-commit is the authorization. The
@@ -964,8 +976,9 @@ Runtime code should read canonical storage. Legacy repair and migration belong i
 The relocation of a legacy flat `.shore/` store to `.shore/data/` is exactly such an explicit
 command: `just migrate-store [<repo>]` (a thin `examples/migrate-store.rs` driver over the tested
 `migrate_store` library function). It nests the flat store's entries (`events/`, `artifacts/`, and
-`state.json`) under `.shore/data/` crash-safely (copy in, then remove the flat originals), rewrites
-a wholesale `.shore/` `.git/info/exclude` line to the narrow `.shore/data/`, and upgrades every
+`state.json`) under `.shore/data/` crash-safely (copy in, then remove the flat originals), removes
+a legacy wholesale `.shore/` `.git/info/exclude` line (generating the committed `.shore/.gitignore`
+in its place — the relocation never writes fresh info/exclude content), and upgrades every
 event's writer fields in place (`writer.tool` → `writer.producer`, dropping `writer.role`) — the
 writer is outside every hash, so event identity is preserved. It is owner-run and **not** part of
 the shipped `shore` CLI. A legacy flat store is detected by the same flat-store-marker set the
