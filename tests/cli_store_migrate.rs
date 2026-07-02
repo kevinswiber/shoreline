@@ -136,6 +136,123 @@ fn store_migrate_retire_source_completes_in_one_command() {
 }
 
 #[test]
+fn store_migrate_excluded_fixture_paths_unblock_the_gate() {
+    let repo = repo_with_pending_change();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    // A committed private-key fixture would flag the worktree `block`; the
+    // committed exclude config is the targeted alternative to the blanket
+    // --include-ephemeral override.
+    repo.write(
+        "fixtures/dev.pem",
+        "-----BEGIN PRIVATE KEY-----\nredacted\n",
+    );
+    repo.write(
+        ".shore/sensitivity.json",
+        r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
+    );
+    repo.commit_all("fixture and exclude config");
+
+    // Seed a worktree-local store to migrate.
+    assert!(
+        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shore(["review", "capture", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shore(["store", "mode", "shared", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+
+    // Without the exclude config this would refuse; with it, the gate passes
+    // and the migrate output carries the audit count.
+    let migrate = shore(["store", "migrate", "--repo", &repo_arg]);
+    assert!(
+        migrate.status.success(),
+        "excluded fixture must unblock the gate: {}",
+        String::from_utf8_lossy(&migrate.stderr)
+    );
+    let json = parse_json(&migrate.stdout);
+    assert_eq!(json["sensitivityExcludedPathCount"], 1);
+}
+
+#[test]
+fn store_migrate_block_refusal_names_the_targeted_exclude_alternative() {
+    let repo = repo_with_pending_change();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    repo.write("keys/dev.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
+    repo.commit_all("sensitive fixture");
+    assert!(
+        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shore(["review", "capture", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shore(["store", "mode", "shared", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+
+    let migrate = shore(["store", "migrate", "--repo", &repo_arg]);
+    assert!(!migrate.status.success(), "a block finding still refuses");
+    let stderr = String::from_utf8_lossy(&migrate.stderr);
+    assert!(
+        stderr.contains("sensitivity.json"),
+        "the refusal names the targeted alternative: {stderr}"
+    );
+    assert!(
+        stderr.contains("include-ephemeral"),
+        "the blanket override stays documented: {stderr}"
+    );
+}
+
+#[test]
+fn store_migrate_include_ephemeral_omits_the_excluded_count() {
+    let repo = repo_with_pending_change();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    assert!(
+        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shore(["review", "capture", "--repo", &repo_arg])
+            .status
+            .success()
+    );
+
+    // --include-ephemeral skips the gate scan entirely, so no count is
+    // reported (absent, not zero — zero would claim a scan ran).
+    let migrate = shore([
+        "store",
+        "migrate",
+        "--include-ephemeral",
+        "--repo",
+        &repo_arg,
+    ]);
+    assert!(
+        migrate.status.success(),
+        "override migrate: {}",
+        String::from_utf8_lossy(&migrate.stderr)
+    );
+    let json = parse_json(&migrate.stdout);
+    assert!(
+        json.get("sensitivityExcludedPathCount").is_none(),
+        "the count is omitted when the scan did not run: {json}"
+    );
+}
+
+#[test]
 fn store_migrate_refuses_ephemeral_without_include_ephemeral() {
     let repo = repo_with_pending_change();
     let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);

@@ -89,7 +89,8 @@ pub use store_migrate_common_dir::{
 };
 pub use store_status::{
     StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
-    StoreStatusRevisionObject, StoreStatusSensitivity, StoreStatusSensitivityFinding, store_status,
+    StoreStatusRevisionObject, StoreStatusSensitivity, StoreStatusSensitivityExcludeGlob,
+    StoreStatusSensitivityFinding, store_status,
 };
 pub use validation::{
     ValidationAddOptions, ValidationAddResult, ValidationCheckView, ValidationListFilters,

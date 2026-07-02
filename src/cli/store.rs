@@ -148,6 +148,9 @@ struct StoreMigrateBody {
     source_retired: bool,
     verified_events: usize,
     verified_artifacts: usize,
+    /// Absent (not zero) when `--include-ephemeral` skipped the gate scan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sensitivity_excluded_path_count: Option<usize>,
 }
 
 #[derive(serde::Serialize)]
@@ -429,6 +432,7 @@ impl From<MigrateToCommonDirResult> for StoreMigrateBody {
             source_retired: result.source_retired,
             verified_events: result.verified_events,
             verified_artifacts: result.verified_artifacts,
+            sensitivity_excluded_path_count: result.sensitivity_excluded_path_count,
         }
     }
 }

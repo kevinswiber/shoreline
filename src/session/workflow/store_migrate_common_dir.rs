@@ -80,6 +80,11 @@ pub struct MigrateToCommonDirResult {
     /// the retire was not requested or nothing needed verifying.
     pub verified_events: usize,
     pub verified_artifacts: usize,
+    /// Unique paths the consent-gate sensitivity scan skipped via the
+    /// configured exclude globs — `Some` whenever the gate scan ran (audit for
+    /// the targeted opt-out), `None` when `--include-ephemeral` skipped the
+    /// scan (absent, not zero: zero would claim a scan ran).
+    pub sensitivity_excluded_path_count: Option<usize>,
 }
 
 /// The sentinel `scan_worktree_sensitivity` emits for a worktree that must not be
@@ -97,6 +102,7 @@ pub fn migrate_store_to_common_dir(
     // caller explicitly opted in. Checked BEFORE any write to the common dir, and
     // deliberately before the missing-source no-op below: a refusal is uniform for
     // an ephemeral worktree and is never downgraded to a `source_empty` success.
+    let mut sensitivity_excluded_path_count = None;
     if !options.include_ephemeral {
         if resolve_store_mode(&worktree_root)? == StoreMode::Ephemeral {
             return Err(ShoreError::Message(
@@ -109,10 +115,12 @@ pub fn migrate_store_to_common_dir(
         if scan.policy_outcome == SENSITIVITY_BLOCK {
             return Err(ShoreError::Message(
                 "refusing to migrate a worktree flagged sensitive into the shared store; \
-                 re-run with the include-ephemeral override to fan it in"
+                 add known-safe paths to .shore/sensitivity.json excludeGlobs for a targeted \
+                 exclude, or re-run with the include-ephemeral override to fan it in wholesale"
                     .to_owned(),
             ));
         }
+        sensitivity_excluded_path_count = Some(scan.excluded_path_count);
     }
 
     // The retire path classifies the source by PHYSICAL FILE COUNTS, never
@@ -142,6 +150,7 @@ pub fn migrate_store_to_common_dir(
                     source_retired,
                     verified_events: 0,
                     verified_artifacts: 0,
+                    sensitivity_excluded_path_count,
                 });
             }
             RetireSourceShape::ArtifactsWithoutEvents => {
@@ -166,6 +175,7 @@ pub fn migrate_store_to_common_dir(
             source_retired: false,
             verified_events: 0,
             verified_artifacts: 0,
+            sensitivity_excluded_path_count,
         });
     }
 
@@ -179,6 +189,7 @@ pub fn migrate_store_to_common_dir(
     let target = clone_local_store_dir(&worktree_root)?;
     let imported = import_store_bundle(&source, &target)?;
     let mut result = MigrateToCommonDirResult::from_import(imported);
+    result.sensitivity_excluded_path_count = sensitivity_excluded_path_count;
     if options.retire_source {
         let verification = verify_source_subset_of_target(&source, &target)?;
         std::fs::remove_dir_all(&source).map_err(|error| {
@@ -259,6 +270,7 @@ impl MigrateToCommonDirResult {
             source_retired: false,
             verified_events: 0,
             verified_artifacts: 0,
+            sensitivity_excluded_path_count: None,
         }
     }
 }
