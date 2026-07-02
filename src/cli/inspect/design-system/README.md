@@ -12,6 +12,7 @@ stays in the live inspector.
 
 | Path | Role |
 | --- | --- |
+| `ABOUT.md` | Product context for Claude Design (what Shoreline/`shore inspect` is, the design language, UI vocabulary). Synced to both projects alongside the cards. |
 | `../assets/tokens.css` | The single source of truth for the palette (the only `:root`). |
 | `styles.css` | Component rules only — references the tokens via `var(--…)`. |
 | `_bodies/*.body.html` | Per-card markup fragments (the authored content of each card). |
