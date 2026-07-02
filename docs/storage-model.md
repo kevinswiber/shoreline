@@ -400,13 +400,24 @@ disappear when the worktree is removed.
 A pre-flip worktree-local `.shore/data/` store on a non-ephemeral worktree (data written before the
 shared common-dir default) is detected on any read or write and errors with a hint to run
 `shore store migrate`. `shore store migrate` folds that legacy store into the shared common-dir store
-**non-destructively**: it copies events and artifacts forward with strict content-hash validation
-and leaves `.shore/data/` in place, so the operator can verify the result and then remove
-`.shore/data/` to finish the switch. It is idempotent — re-running reports already-present facts as
-existing — and refuses an ephemeral or sensitivity-flagged worktree unless `--include-ephemeral` is
-passed. It scans for sensitivity findings before moving data and reports them in the command
-document. (Distinct from the owner-run flat-store driver `just migrate-store`, which relocates a
-legacy flat `.shore/` store to `.shore/data/`; see [Migrations And Doctor](#migrations-and-doctor).)
+**non-destructively** by default: it copies events and artifacts forward with strict content-hash
+validation and leaves `.shore/data/` in place, so the operator can verify the result and then remove
+`.shore/data/` to finish the switch — or completes the switch in one command with
+`--retire-source`, which independently re-verifies the fold from disk (a physical walk requiring
+every durable source file present with identical content in the shared store — never a
+manifest-driven check, which cannot see orphan/unreferenced files) and only then deletes
+`.shore/data/`; on any divergence it errors and deletes nothing. It is idempotent — re-running
+reports already-present facts as existing — and refuses an ephemeral or sensitivity-flagged worktree
+unless `--include-ephemeral` is passed. It scans for sensitivity findings before moving data and
+reports them in the command document. (Distinct from the owner-run flat-store driver
+`just migrate-store`, which relocates a legacy flat `.shore/` store to `.shore/data/`; see
+[Migrations And Doctor](#migrations-and-doctor).)
+
+The legacy-store guard deliberately keeps firing after a plain (no-retire) migrate until
+`.shore/data/` is removed: the guard is not auto-suppressed once the fold looks like a subset,
+because that check would run on **every** read and write (each opens the store), and a
+suppressed-but-present `.shore/data/` would silently diverge the moment anything wrote to it.
+`--retire-source` is the supported completion; the guard's hint names it.
 
 `shore store status` is the public health and inventory surface for the resolved store. Its
 `inventory` reports event and artifact byte counts, total bytes, optional Git untracked bytes,

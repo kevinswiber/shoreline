@@ -242,7 +242,7 @@ worktree, and the fact lands directly in that shared store, visible to every wor
 ```bash
 shore store status [--repo <path>] [--pretty]
 shore store mode (shared | ephemeral | show) [--repo <path>] [--pretty]
-shore store migrate [--repo <path>] [--include-ephemeral] [--pretty]
+shore store migrate [--repo <path>] [--include-ephemeral] [--retire-source] [--pretty]
 shore store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
 shore store gc [--repo <path>] [--pretty]
 shore store compact [--repo <path>] [--pretty]
@@ -293,13 +293,27 @@ it. All three forms emit `shore.store-mode` JSON with `mode` (`shared` | `epheme
 A pre-flip worktree-local `.shore/data` store on a non-ephemeral worktree (data written before the
 shared common-dir default) is detected on any read or write and errors with a hint to run
 `shore store migrate`. `shore store migrate` folds that legacy store into the shared common-dir store
-**non-destructively**: it copies events and artifacts forward and leaves `.shore/data` in place, so
-you can verify the result and then remove `.shore/data` yourself to finish the switch. It is
-idempotent (re-running reports the already-present facts as existing), and it refuses an ephemeral or
-sensitivity-flagged worktree unless you pass `--include-ephemeral`. It emits `shore.store-migrate`
-JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`, `artifactsExisting`, and
-`sourceEmpty`. (This is distinct from the owner-run flat-store driver `just migrate-store`, which
-relocates a legacy flat `.shore/` store to `.shore/data/`; see
+**non-destructively** by default: it copies events and artifacts forward and leaves `.shore/data` in
+place, so you can verify the result and then remove `.shore/data` yourself to finish the switch. It
+is idempotent (re-running reports the already-present facts as existing), and it refuses an ephemeral
+or sensitivity-flagged worktree unless you pass `--include-ephemeral`.
+
+**`--retire-source`** completes the switch in one command: after the fold, an independent
+verification walks every durable file in the source store (`events/` and `artifacts/`, recursively;
+the regenerable `state.json` and in-flight `*.tmp` files are excluded) and requires each to be
+present in the shared store with identical content — byte-identical for artifacts, canonically
+identical modulo the import's own ingest-provenance stamp for events. Only then is `.shore/data`
+deleted, so the very next read resolves. On **any** missing or divergent file — including an orphan
+artifact no event references, which the fold deliberately does not carry — the command errors,
+names the offending paths, and deletes nothing. A source with no durable files at all (only a stale
+`state.json` or the empty directories the writer pre-creates) is removed as a husk without a fold;
+a source holding artifact files but no event files is refused outright. Classification is by file
+counts, never directory existence.
+
+It emits `shore.store-migrate` JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`,
+`artifactsExisting`, `sourceEmpty`, `sourceRetired`, `verifiedEvents`, and `verifiedArtifacts`.
+(This is distinct from the owner-run flat-store driver `just migrate-store`, which relocates a
+legacy flat `.shore/` store to `.shore/data/`; see
 [storage-model.md](./storage-model.md#migrations-and-doctor).)
 
 `shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
