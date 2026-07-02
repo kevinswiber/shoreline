@@ -21,10 +21,11 @@ use shoreline::session::{
     IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
     InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
     InputRequestStatusFilter, ObservationAddOptions, ReloadOutcome, ReviewHistoryOptions,
-    RevisionShowOptions, TrustSet, capture_worktree_review, event_signature_trust_set,
-    export_artifact, fetch_input_request, import_artifact, import_notes, ingest_events,
-    list_input_requests, open_input_request, read_events, record_observation, referenced_artifacts,
-    respond_input_request, review_history, show_revision, verify_event_signature,
+    RevisionShowOptions, SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity, TrustSet,
+    capture_worktree_review, event_signature_trust_set, export_artifact, fetch_input_request,
+    import_artifact, import_notes, ingest_events, list_input_requests, open_input_request,
+    read_events, record_observation, referenced_artifacts, respond_input_request, review_history,
+    show_revision, verify_event_signature,
 };
 use support::git_repo::GitRepo;
 
@@ -698,5 +699,127 @@ fn local_override_exclusion_helpers_are_public() {
         exclude
             .lines()
             .any(|l| l.trim() == ".shore/actor-attributes.local.json")
+    );
+}
+
+/// The sensitivity-scan vocabulary is a typed public contract (#150): kinds,
+/// severities, and the block > warn > allow lattice are nameable, and their wire
+/// strings are byte-for-byte the scanner's output.
+#[test]
+fn sensitivity_vocabulary_is_publicly_nameable_and_stable() {
+    fn _accepts(_: SensitivityKind, _: SensitivitySeverity, _: SensitivityPolicyOutcome) {}
+
+    let kind_names: Vec<&str> = SensitivityKind::ALL
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(
+        kind_names,
+        [
+            "known_token",
+            "private_key",
+            "high_entropy",
+            "sensitive_filename",
+            "generated_path",
+        ]
+    );
+    let severity_names: Vec<&str> = SensitivitySeverity::ALL
+        .iter()
+        .map(|severity| severity.as_str())
+        .collect();
+    assert_eq!(severity_names, ["medium", "high"]);
+    let outcome_names: Vec<&str> = SensitivityPolicyOutcome::ALL
+        .iter()
+        .map(|outcome| outcome.as_str())
+        .collect();
+    assert_eq!(outcome_names, ["allow", "warn", "block"]);
+
+    // serde forms, Display, and parse round-trip agree with as_str.
+    for kind in SensitivityKind::ALL {
+        assert_eq!(
+            serde_json::to_value(kind).unwrap(),
+            Value::String(kind.as_str().to_owned())
+        );
+        assert_eq!(kind.to_string(), kind.as_str());
+        assert_eq!(SensitivityKind::parse(kind.as_str()), Some(kind));
+    }
+    for severity in SensitivitySeverity::ALL {
+        assert_eq!(
+            serde_json::to_value(severity).unwrap(),
+            Value::String(severity.as_str().to_owned())
+        );
+        assert_eq!(severity.to_string(), severity.as_str());
+        assert_eq!(
+            SensitivitySeverity::parse(severity.as_str()),
+            Some(severity)
+        );
+    }
+    for outcome in SensitivityPolicyOutcome::ALL {
+        assert_eq!(
+            serde_json::to_value(outcome).unwrap(),
+            Value::String(outcome.as_str().to_owned())
+        );
+        assert_eq!(outcome.to_string(), outcome.as_str());
+        assert_eq!(
+            SensitivityPolicyOutcome::parse(outcome.as_str()),
+            Some(outcome)
+        );
+    }
+    assert_eq!(SensitivityKind::parse("unknown_kind"), None);
+    assert_eq!(SensitivitySeverity::parse(""), None);
+    assert_eq!(SensitivityPolicyOutcome::parse("BLOCK"), None);
+
+    // Kind metadata pins the scanner's severity/outcome assignments.
+    use SensitivityKind::*;
+    for (kind, severity, outcome) in [
+        (
+            KnownToken,
+            SensitivitySeverity::High,
+            SensitivityPolicyOutcome::Block,
+        ),
+        (
+            PrivateKey,
+            SensitivitySeverity::High,
+            SensitivityPolicyOutcome::Block,
+        ),
+        (
+            HighEntropy,
+            SensitivitySeverity::Medium,
+            SensitivityPolicyOutcome::Warn,
+        ),
+        (
+            SensitiveFilename,
+            SensitivitySeverity::Medium,
+            SensitivityPolicyOutcome::Warn,
+        ),
+        (
+            GeneratedPath,
+            SensitivitySeverity::Medium,
+            SensitivityPolicyOutcome::Warn,
+        ),
+    ] {
+        assert_eq!(kind.severity(), severity);
+        assert_eq!(kind.policy_outcome(), outcome);
+    }
+
+    // The lattice: ordering and combine.
+    assert!(SensitivitySeverity::Medium < SensitivitySeverity::High);
+    assert!(SensitivityPolicyOutcome::Allow < SensitivityPolicyOutcome::Warn);
+    assert!(SensitivityPolicyOutcome::Warn < SensitivityPolicyOutcome::Block);
+    assert_eq!(
+        SensitivityPolicyOutcome::combine([]),
+        SensitivityPolicyOutcome::Allow
+    );
+    assert_eq!(
+        SensitivityPolicyOutcome::combine([SensitivityPolicyOutcome::Warn]),
+        SensitivityPolicyOutcome::Warn
+    );
+    assert_eq!(
+        SensitivityPolicyOutcome::combine([
+            SensitivityPolicyOutcome::Warn,
+            SensitivityPolicyOutcome::Block,
+            SensitivityPolicyOutcome::Allow,
+        ]),
+        SensitivityPolicyOutcome::Block
     );
 }

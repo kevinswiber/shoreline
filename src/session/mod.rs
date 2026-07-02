@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod event;
 mod identity;
 mod projection;
+mod sensitivity_vocabulary;
 mod signing;
 mod store;
 mod workflow;
@@ -34,6 +35,7 @@ pub use projection::{
     WithdrawnRefAssociation, load_durable_notes_for_repo, read_events, read_events_for_display,
     rebuild_state,
 };
+pub use sensitivity_vocabulary::{SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity};
 pub use signing::{
     ALLOWED_SIGNERS_REL_PATH, ArtifactAvailability, BestEffortSkipSink,
     COSIGNATURE_BINDING_MISMATCH_CODE, COSIGNATURE_INVALID_CODE, COSIGNATURE_TARGET_PENDING_CODE,
