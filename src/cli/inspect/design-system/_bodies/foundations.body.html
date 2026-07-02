@@ -64,7 +64,10 @@
     status: [["--success","head · passed · accepted"],["--success-deep","observation accent"],["--warning","superseded · open"],["--warning-soft","diagnostics text"],["--danger","failed · needs-changes"],["--assess","assessment"],["--validation","validation"],["--info","hunk header"],["--teal","response outcome"]],
     diff: [["--diff-add-bg","added line bg"],["--diff-add-fg","added text"],["--diff-del-bg","removed line bg"],["--diff-del-fg","removed text"],["--hunk-bg","hunk header bg"]]
   };
-  const cs = getComputedStyle(document.documentElement);
+  // Read from the .ds-card theme scope, not <html> — the Design gallery
+  // re-hosts cards without <html> attributes, so documentElement would
+  // always resolve the dark :root values on light twins.
+  const cs = getComputedStyle(document.querySelector(".ds-card") || document.documentElement);
   for (const [id, items] of Object.entries(groups)) {
     document.getElementById(id).innerHTML = items.map(([v, desc]) => {
       const val = cs.getPropertyValue(v).trim();
