@@ -21,7 +21,8 @@
  * spacing reinforce, matching Shoreline's own values.
  */
 
-:root {
+:root,
+[data-theme="dark"] {
   color-scheme: dark;
 
   /* Brand — the wave ramp, lifted verbatim from the Pointbreak logo. This is

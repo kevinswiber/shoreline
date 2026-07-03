@@ -50,14 +50,14 @@ bake() {
 
 # Dark cards. Every card has a light twin, so each dark card carries an explicit
 # name and each light card carries a matching "— light" name plus subtitle.
-bake foundations.body.html         foundations/foundations.html Foundations "Foundations — tokens"                with-fonts "" "Foundations"
-bake navigation-topbar.body.html   navigation/topbar.html      Navigation "Navigation — top bar, tabs, stats"    "" "" "Navigation"
-bake inputs-controls.body.html     inputs/controls.html        Inputs     "Inputs — toolbar, buttons, toggles"    "" "" "Inputs"
-bake data-timeline.body.html       data/timeline.html          Data       "Data — timeline & detail pane"        "" "" "Timeline"
-bake data-cards.body.html          data/cards.html             Data       "Data — unit & revision-thread cards"  "" "" "Revision thread"
-bake data-review-facts.body.html   data/review-facts.html      Data       "Data — verdict, facts, endorsements"  "" "" "Review facts"
-bake data-diff.body.html           data/diff.html              Data       "Data — annotated diff"                "" "" "Annotated diff"
-bake feedback-diagnostics.body.html feedback/diagnostics.html  Feedback   "Feedback — diagnostics & errors"      "" "" "Feedback"
+bake foundations.body.html         foundations/foundations.html Foundations "Foundations — tokens"                with-fonts "" "Foundations — dark" "Dark theme"
+bake navigation-topbar.body.html   navigation/topbar.html      Navigation "Navigation — top bar, tabs, stats"    "" "" "Navigation — dark" "Dark theme"
+bake inputs-controls.body.html     inputs/controls.html        Inputs     "Inputs — toolbar, buttons, toggles"    "" "" "Inputs — dark" "Dark theme"
+bake data-timeline.body.html       data/timeline.html          Data       "Data — timeline & detail pane"        "" "" "Timeline — dark" "Dark theme"
+bake data-cards.body.html          data/cards.html             Data       "Data — unit & revision-thread cards"  "" "" "Revision thread — dark" "Dark theme"
+bake data-review-facts.body.html   data/review-facts.html      Data       "Data — verdict, facts, endorsements"  "" "" "Review facts — dark" "Dark theme"
+bake data-diff.body.html           data/diff.html              Data       "Data — annotated diff"                "" "" "Annotated diff — dark" "Dark theme"
+bake feedback-diagnostics.body.html feedback/diagnostics.html  Feedback   "Feedback — diagnostics & errors"      "" "" "Feedback — dark" "Dark theme"
 
 # Light-theme variants — paired beside their dark twin in the SAME group (not a
 # separate one), each carrying a "— light" name + "Light theme" subtitle so the pair

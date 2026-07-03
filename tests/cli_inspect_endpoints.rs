@@ -525,13 +525,13 @@ fn design_system_gallery_covers_live_shell_and_overlay_states() {
 
     let normalized_bake = bake.split_whitespace().collect::<Vec<_>>().join(" ");
     for named_pair in [
-        "bake navigation-topbar.body.html navigation/topbar.html Navigation \"Navigation — top bar, tabs, stats\" \"\" \"\" \"Navigation\"",
-        "bake inputs-controls.body.html inputs/controls.html Inputs \"Inputs — toolbar, buttons, toggles\" \"\" \"\" \"Inputs\"",
-        "bake feedback-diagnostics.body.html feedback/diagnostics.html Feedback \"Feedback — diagnostics & errors\" \"\" \"\" \"Feedback\"",
+        "bake navigation-topbar.body.html navigation/topbar.html Navigation \"Navigation — top bar, tabs, stats\" \"\" \"\" \"Navigation — dark\" \"Dark theme\"",
+        "bake inputs-controls.body.html inputs/controls.html Inputs \"Inputs — toolbar, buttons, toggles\" \"\" \"\" \"Inputs — dark\" \"Dark theme\"",
+        "bake feedback-diagnostics.body.html feedback/diagnostics.html Feedback \"Feedback — diagnostics & errors\" \"\" \"\" \"Feedback — dark\" \"Dark theme\"",
     ] {
         assert!(
             normalized_bake.contains(named_pair),
-            "dark theme twin carries explicit marker name: {named_pair}"
+            "dark theme twin carries explicit marker name + subtitle: {named_pair}"
         );
     }
 }
