@@ -15,6 +15,29 @@ fn err_text(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+/// Strip ANSI SGR sequences (`ESC [ … m`) from a string. Escapes are ASCII, so
+/// multibyte code points in the surrounding text pass through untouched.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            let mut lookahead = chars.clone();
+            if lookahead.next() == Some('[') {
+                chars = lookahead;
+                for cc in chars.by_ref() {
+                    if cc == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// A repo with one committed base and an uncommitted single-line change, so
 /// `shore review capture` records a one-file worktree diff.
 fn modified_repo() -> GitRepo {
@@ -137,4 +160,71 @@ fn shore_diff_rejects_explicit_format_flag() {
         "json",
     ]);
     assert!(!output.status.success()); // clap: unexpected argument
+}
+
+#[test]
+fn shore_diff_color_always_emits_ansi() {
+    // `modified_repo` captures a `.rs` change, so a language is detected and tokens exist.
+    let repo = modified_repo();
+    capture(repo.path());
+
+    let out = shore([
+        "diff",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--color",
+        "always",
+    ]);
+    assert!(out.status.success(), "stderr:\n{}", err_text(&out));
+    assert!(out_text(&out).contains('\x1b')); // ANSI escapes present
+}
+
+#[test]
+fn shore_diff_color_never_and_piped_default_are_plain() {
+    let repo = modified_repo();
+    capture(repo.path());
+
+    let never = shore([
+        "diff",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--color",
+        "never",
+    ]);
+    assert!(never.status.success(), "stderr:\n{}", err_text(&never)); // assert exit first
+    assert!(!out_text(&never).contains('\x1b'));
+
+    // The default under a piped (non-TTY) test harness is also plain (INV-D).
+    let default_piped = shore(["diff", "--repo", repo.path().to_str().unwrap()]);
+    assert!(
+        default_piped.status.success(),
+        "stderr:\n{}",
+        err_text(&default_piped)
+    );
+    assert!(!out_text(&default_piped).contains('\x1b'));
+}
+
+#[test]
+fn shore_diff_color_text_is_identical_to_plain_after_stripping_ansi() {
+    // Presentation never changes content (INV-D): strip SGR from the colored
+    // output and it equals the plain output byte-for-byte.
+    let repo = modified_repo();
+    capture(repo.path());
+
+    let colored = shore([
+        "diff",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--color",
+        "always",
+    ]);
+    let plain = shore([
+        "diff",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--color",
+        "never",
+    ]);
+    assert!(colored.status.success() && plain.status.success());
+    assert_eq!(strip_ansi(&out_text(&colored)), out_text(&plain));
 }

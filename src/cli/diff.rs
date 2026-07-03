@@ -7,10 +7,14 @@
 //! tree: `git diff` owns the live tree, and shore's bare verbs read against the
 //! review record.
 
-use std::io::Write;
+use std::collections::HashMap;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
-use shoreline::model::{DiffFile, DiffRowKind, DiffSnapshot, FileStatus, RevisionId};
+use shoreline::highlight::{
+    EmphSpan, TokenKind, TokenSpan, attributed_segments, emphasis_file, highlight_file,
+};
+use shoreline::model::{DiffFile, DiffRowKind, DiffSnapshot, FileStatus, ReviewHunk, RevisionId};
 use shoreline::session::{
     RevisionShowOptions, RevisionShowResult, SnapshotContentState, diffstat_from_files,
     show_revision,
@@ -29,6 +33,61 @@ pub(super) struct DiffArgs {
     /// Print only the diffstat, not the diff body.
     #[arg(long)]
     stat: bool,
+    /// When to colorize output: auto (TTY only) | always | never.
+    #[arg(long, value_enum, default_value_t = ColorChoice::Auto)]
+    color: ColorChoice,
+}
+
+/// When `shore diff` colorizes its output. Resolved against the ADR-0029 D5
+/// presentation precedence by [`resolve_color`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, clap::ValueEnum)]
+pub(super) enum ColorChoice {
+    /// Colorize only when stdout is a TTY (honoring `NO_COLOR` / `CLICOLOR_FORCE`).
+    #[default]
+    Auto,
+    /// Always colorize, even when piped.
+    Always,
+    /// Never colorize.
+    Never,
+}
+
+/// Pure presentation-precedence core: does `shore diff` emit ANSI color?
+///
+/// Implements the ADR-0029 D5 total order `--color` > `NO_COLOR` >
+/// `CLICOLOR_FORCE` > `isatty(stdout)`. `no_color` is a present, non-empty
+/// `NO_COLOR`; `force` is a non-zero `CLICOLOR_FORCE`. Under `Auto`, disabling
+/// wins ties (`NO_COLOR` beats `CLICOLOR_FORCE`). Injected signals keep it
+/// unit-testable without a real terminal.
+pub(super) fn resolve_color_core(
+    flag: ColorChoice,
+    no_color: bool,
+    force: bool,
+    stdout_is_tty: bool,
+) -> bool {
+    match flag {
+        ColorChoice::Always => true,
+        ColorChoice::Never => false,
+        ColorChoice::Auto => {
+            if no_color {
+                false
+            } else if force {
+                true
+            } else {
+                stdout_is_tty
+            }
+        }
+    }
+}
+
+/// Reads the `NO_COLOR` / `CLICOLOR_FORCE` env signals once and isattys the real
+/// stdout, then delegates to [`resolve_color_core`]. The single env decision point
+/// for color; the resolved `bool` threads to the render (and, later, the pager).
+pub(super) fn resolve_color(flag: ColorChoice) -> bool {
+    let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    let force = std::env::var("CLICOLOR_FORCE")
+        .ok()
+        .is_some_and(|v| v != "0" && !v.is_empty());
+    resolve_color_core(flag, no_color, force, std::io::stdout().is_terminal())
 }
 
 pub(super) fn run(
@@ -70,7 +129,12 @@ pub(super) fn run(
 
     write!(stdout, "{}", render_diffstat(&result.snapshot.files))?;
     writeln!(stdout)?;
-    write!(stdout, "{}", render_unified_diff(&result.snapshot))?;
+    let body = if resolve_color(args.color) {
+        render_unified_diff_colored(&result.snapshot)
+    } else {
+        render_unified_diff(&result.snapshot)
+    };
+    write!(stdout, "{body}")?;
     Ok(())
 }
 
@@ -80,15 +144,9 @@ pub(super) fn render_unified_diff(snapshot: &DiffSnapshot) -> String {
     let mut out = String::new();
     for file in &snapshot.files {
         render_file_header(&mut out, file);
-        for meta in &file.metadata_rows {
-            out.push_str(&meta.text);
-            out.push('\n');
-        }
+        push_metadata_rows(&mut out, file);
         for hunk in &file.hunks {
-            out.push_str(&hunk.header);
-            if !hunk.header.ends_with('\n') {
-                out.push('\n');
-            }
+            push_hunk_header(&mut out, hunk);
             for row in &hunk.rows {
                 // `row.text` is bare (the marker byte is stripped at ingestion,
                 // src/git/patch.rs); emit exactly one marker from `row.kind`.
@@ -101,12 +159,163 @@ pub(super) fn render_unified_diff(snapshot: &DiffSnapshot) -> String {
     out
 }
 
+/// Emit a file's metadata rows (binary/mode/rename/submodule summaries) verbatim.
+/// Shared by the plain and colored renderers so both stay byte-identical here.
+fn push_metadata_rows(out: &mut String, file: &DiffFile) {
+    for meta in &file.metadata_rows {
+        out.push_str(&meta.text);
+        out.push('\n');
+    }
+}
+
+/// Emit a hunk's `@@ … @@` header, normalizing its trailing newline. Shared by
+/// both renderers (INV-D: the colored path only recolors code rows, never headers).
+fn push_hunk_header(out: &mut String, hunk: &ReviewHunk) {
+    out.push_str(&hunk.header);
+    if !hunk.header.ends_with('\n') {
+        out.push('\n');
+    }
+}
+
 fn marker(kind: &DiffRowKind) -> char {
     match kind {
         DiffRowKind::Added => '+',
         DiffRowKind::Removed => '-',
         DiffRowKind::Context => ' ',
     }
+}
+
+/// Per-file row cap above which highlighting is skipped and rows render plain
+/// (best-effort presentation, never a hard cost — INV-E).
+const HIGHLIGHT_ROW_CAP: usize = 500;
+
+const SGR_RESET: &str = "\x1b[0m";
+const SGR_UNDERLINE: &str = "\x1b[4m";
+
+/// Terminal color capability, mirroring the TUI's `color_depth` (`src/tui/render.rs`).
+#[derive(Clone, Copy)]
+pub(super) enum ColorDepth {
+    Truecolor,
+    Named,
+}
+
+/// Truecolor only when the terminal advertises it via `COLORTERM`; otherwise the
+/// named-ANSI 16-color palette, which degrades cleanly on limited terminals. No new
+/// dependency — just the `COLORTERM` convention the TUI already follows.
+fn color_depth() -> ColorDepth {
+    match std::env::var("COLORTERM").ok().as_deref() {
+        Some("truecolor") | Some("24bit") => ColorDepth::Truecolor,
+        _ => ColorDepth::Named,
+    }
+}
+
+/// `TokenKind` → ANSI SGR foreground. The color *policy* mirrors the TUI palette
+/// (`token_fg`, `src/tui/render.rs`); only the *encoding* is new — raw SGR strings,
+/// no ratatui and no styling dependency (INV-E: a new emit surface, not a parallel
+/// highlighter). `Plain` carries no color.
+fn sgr_for_kind(kind: TokenKind, depth: ColorDepth) -> &'static str {
+    match depth {
+        ColorDepth::Truecolor => match kind {
+            TokenKind::Keyword => "\x1b[38;2;179;136;255m",
+            TokenKind::String => "\x1b[38;2;109;210;138m",
+            TokenKind::Comment => "\x1b[38;2;154;165;179m",
+            TokenKind::Number => "\x1b[38;2;79;208;192m",
+            TokenKind::Type => "\x1b[38;2;138;180;248m",
+            TokenKind::Function => "\x1b[38;2;90;169;230m",
+            TokenKind::Constant => "\x1b[38;2;240;183;90m",
+            TokenKind::Operator => "\x1b[38;2;215;221;229m",
+            TokenKind::Punctuation => "\x1b[38;2;154;165;179m",
+            TokenKind::Variable => "\x1b[38;2;215;221;229m",
+            TokenKind::Plain => "",
+        },
+        ColorDepth::Named => match kind {
+            TokenKind::Keyword => "\x1b[35m",     // magenta
+            TokenKind::String => "\x1b[32m",      // green
+            TokenKind::Comment => "\x1b[90m",     // dark gray
+            TokenKind::Number => "\x1b[36m",      // cyan
+            TokenKind::Type => "\x1b[33m",        // yellow
+            TokenKind::Function => "\x1b[34m",    // blue
+            TokenKind::Constant => "\x1b[93m",    // light yellow
+            TokenKind::Operator => "\x1b[97m",    // white
+            TokenKind::Punctuation => "\x1b[37m", // gray
+            TokenKind::Variable => "\x1b[97m",    // white
+            TokenKind::Plain => "",
+        },
+    }
+}
+
+/// Colored render of one diff row. `text` is the BARE row text (the marker byte is
+/// stripped at ingestion); the `+`/`-`/` ` gutter is emitted here from `kind`,
+/// OUTSIDE any colored segment. Code segments come from
+/// `attributed_segments(text, tokens, emphasis)` (offsets into the bare text), each
+/// wrapped in its `sgr_for_kind` foreground and underlined when emphasized. Empty
+/// `tokens`/`emphasis` leaves the bare text after the gutter, so stripping the SGR
+/// reproduces the plain row exactly (INV-D).
+fn render_row_ansi(
+    text: &str,
+    kind: DiffRowKind,
+    tokens: &[TokenSpan],
+    emphasis: &[EmphSpan],
+    depth: ColorDepth,
+) -> String {
+    let mut out = String::new();
+    out.push(marker(&kind));
+    for seg in attributed_segments(text, tokens, emphasis) {
+        let slice = &text[seg.start..seg.end];
+        let fg = seg.kind.map(|k| sgr_for_kind(k, depth)).unwrap_or("");
+        let underline = if seg.emphasized { SGR_UNDERLINE } else { "" };
+        if fg.is_empty() && underline.is_empty() {
+            out.push_str(slice);
+        } else {
+            out.push_str(fg);
+            out.push_str(underline);
+            out.push_str(slice);
+            out.push_str(SGR_RESET);
+        }
+    }
+    out.push('\n');
+    out
+}
+
+/// Colored sibling of [`render_unified_diff`]. File/hunk headers and metadata rows
+/// are emitted identically (uncolored); only code rows carry syntax + intraline SGR,
+/// so `strip_ansi(colored) == render_unified_diff` — color is pure presentation over
+/// identical text (INV-D). Highlighting is best-effort (INV-E): a file over the row
+/// cap or of an unknown language has empty span maps and renders plain.
+pub(super) fn render_unified_diff_colored(snapshot: &DiffSnapshot) -> String {
+    let depth = color_depth();
+    let mut out = String::new();
+    for file in &snapshot.files {
+        render_file_header(&mut out, file);
+        push_metadata_rows(&mut out, file);
+        let total_rows: usize = file.hunks.iter().map(|hunk| hunk.rows.len()).sum();
+        let (tokens_map, emphasis_map) = if total_rows <= HIGHLIGHT_ROW_CAP {
+            (highlight_file(file), emphasis_file(file))
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
+        for (h, hunk) in file.hunks.iter().enumerate() {
+            push_hunk_header(&mut out, hunk);
+            for (r, row) in hunk.rows.iter().enumerate() {
+                let tokens = tokens_map
+                    .get(&(h, r))
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let emphasis = emphasis_map
+                    .get(&(h, r))
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                out.push_str(&render_row_ansi(
+                    &row.text,
+                    row.kind.clone(),
+                    tokens,
+                    emphasis,
+                    depth,
+                ));
+            }
+        }
+    }
+    out
 }
 
 fn render_file_header(out: &mut String, file: &DiffFile) {
@@ -440,5 +649,53 @@ mod tests {
         assert!(table.contains("src/lib.rs"));
         assert!(table.contains("1 file changed"));
         assert!(!table.contains("@@")); // stat table carries no hunk body
+    }
+
+    // Color-resolution precedence: (flag, no_color, clicolor_force, stdout_is_tty) -> emit ANSI?
+
+    #[test]
+    fn flag_always_and_never_beat_everything() {
+        // An explicit flag wins outright, over every env signal and isatty.
+        assert!(resolve_color_core(ColorChoice::Always, true, false, false));
+        assert!(!resolve_color_core(ColorChoice::Never, false, true, true));
+    }
+
+    #[test]
+    fn no_color_beats_clicolor_force_under_auto() {
+        // Both set -> disabling wins ties.
+        assert!(!resolve_color_core(ColorChoice::Auto, true, true, true));
+    }
+
+    #[test]
+    fn clicolor_force_enables_color_when_piped_under_auto() {
+        assert!(resolve_color_core(ColorChoice::Auto, false, true, false));
+    }
+
+    #[test]
+    fn auto_falls_through_to_isatty() {
+        assert!(resolve_color_core(ColorChoice::Auto, false, false, true));
+        assert!(!resolve_color_core(ColorChoice::Auto, false, false, false));
+    }
+
+    #[test]
+    fn token_kind_maps_to_an_ansi_sgr_sequence() {
+        let seq = sgr_for_kind(TokenKind::Keyword, ColorDepth::Named);
+        assert!(seq.starts_with("\x1b[")); // CSI
+    }
+
+    #[test]
+    fn colored_row_wraps_a_token_segment_and_resets() {
+        // `render_row_ansi` takes the BARE row text and emits the `+` gutter itself;
+        // spans are byte offsets into the bare text. Keyword "let" = [0,3).
+        let tokens = vec![TokenSpan {
+            start: 0,
+            end: 3,
+            kind: TokenKind::Keyword,
+        }];
+        let out = render_row_ansi("let x", DiffRowKind::Added, &tokens, &[], ColorDepth::Named);
+        assert!(out.starts_with('+')); // gutter from the kind, outside any colored segment
+        assert!(out.contains("\x1b[")); // an SGR wraps the keyword
+        assert!(out.contains("\x1b[0m")); // reset
+        assert!(out.ends_with('\n'));
     }
 }

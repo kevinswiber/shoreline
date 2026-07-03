@@ -24,6 +24,10 @@ where
         // Isolate byte-asserting tests from a developer's ambient output-lane
         // selector; tests that exercise SHORE_FORMAT set it explicitly via shore_env.
         .env_remove("SHORE_FORMAT")
+        // Isolate color-asserting tests from an ambient NO_COLOR / CLICOLOR_FORCE;
+        // color tests select the lane explicitly with `--color`.
+        .env_remove("NO_COLOR")
+        .env_remove("CLICOLOR_FORCE")
         .output()
         .expect("run shore binary")
 }
