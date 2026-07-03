@@ -45,6 +45,11 @@ pub(crate) const REF_WITHDRAWAL: &str = "withdraw-ref";
 pub(crate) const TASK_ATTEMPT: &str = "task-attempt";
 /// Checkpoint ids: `checkpoint:sha256:<hex>` (adapter-minted).
 pub(crate) const CHECKPOINT: &str = "checkpoint";
+/// Opaque signed-target subject ids: `subject:sha256:<hex>` — the hash over a
+/// subject's identity-bearing fields (never its renamable kind tag) that the
+/// signed envelope binds in place of the structural subject. Reconstructed for
+/// display from the payload, not referenced by users.
+pub(crate) const SUBJECT: &str = "subject";
 /// Review note ids, in three shapes: `note:sha256:<hex>` (imported content),
 /// `note:<explicit_id>` (sidecar-supplied), `note:<file_index>:<note_index>`
 /// (positional fallback).
@@ -193,6 +198,12 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
     },
     IdPrefix {
         prefix: CHECKPOINT,
+        kind: PrefixKind::ContentId,
+        minted: true,
+        linkified: false,
+    },
+    IdPrefix {
+        prefix: SUBJECT,
         kind: PrefixKind::ContentId,
         minted: true,
         linkified: false,
@@ -361,6 +372,7 @@ mod tests {
             REF_WITHDRAWAL,
             TASK_ATTEMPT,
             CHECKPOINT,
+            SUBJECT,
             NOTE,
             JOURNAL,
             REVIEW,
@@ -372,7 +384,7 @@ mod tests {
             REDACTED_FILE,
             UNIX_MS,
         ];
-        // 25 minted constants + the 2 legacy display literals.
+        // 26 minted constants + the 2 legacy display literals.
         assert_eq!(ID_PREFIXES.len(), minted.len() + 2);
         for prefix in minted {
             let entry = ID_PREFIXES
@@ -391,8 +403,8 @@ mod tests {
     #[test]
     fn registry_kind_partition_is_stable() {
         let count = |kind: PrefixKind| ID_PREFIXES.iter().filter(|e| e.kind == kind).count();
-        // 16 minted content-id prefixes + the 2 legacy display entries.
-        assert_eq!(count(PrefixKind::ContentId), 18);
+        // 17 minted content-id prefixes + the 2 legacy display entries.
+        assert_eq!(count(PrefixKind::ContentId), 19);
         assert_eq!(count(PrefixKind::StructuralId), 4);
         assert_eq!(count(PrefixKind::ArtifactRef), 4);
         assert_eq!(count(PrefixKind::Token), 1);

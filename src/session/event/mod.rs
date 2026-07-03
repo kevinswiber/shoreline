@@ -19,6 +19,7 @@ mod record_hash;
 mod review;
 mod signature;
 mod source;
+mod subject_id;
 mod target;
 mod task;
 mod tbs;
