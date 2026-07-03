@@ -103,30 +103,20 @@ fn render_revision_digest(result: &RevisionShowResult) -> String {
         endpoint_label(&identity.target),
     ));
 
-    match &result.current_assessment.status {
-        CurrentAssessmentStatus::Unassessed => {
-            lines.push("current call: none recorded".to_owned());
-        }
-        CurrentAssessmentStatus::Resolved(assessment) => {
-            lines.push(format!(
-                "current call: {} (advisory — a recorded judgement, not a merge gate)",
-                assessment.display_label(),
-            ));
-            // Signed-by-enrolled-key keys on the resolved call's own event id;
-            // a resolved status always carries exactly one current record.
-            if let Some(record) = result.current_assessment.records.first() {
-                lines.push(format!(
-                    "signed by enrolled key: {}",
-                    signed_by_enrolled_key(result, &record.event_id),
-                ));
-            }
-        }
-        CurrentAssessmentStatus::Ambiguous(candidates) => {
-            lines.push(format!(
-                "current call: ambiguous ({} candidates)",
-                candidates.len(),
-            ));
-        }
+    lines.push(super::common::current_call_line(
+        &result.current_assessment.status,
+    ));
+    // Signed-by-enrolled-key keys on the resolved call's own event id; a resolved
+    // status always carries exactly one current record.
+    if matches!(
+        result.current_assessment.status,
+        CurrentAssessmentStatus::Resolved(_)
+    ) && let Some(record) = result.current_assessment.records.first()
+    {
+        lines.push(format!(
+            "signed by enrolled key: {}",
+            signed_by_enrolled_key(result, &record.event_id),
+        ));
     }
 
     let summary = &result.summary;

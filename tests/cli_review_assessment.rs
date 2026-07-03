@@ -102,6 +102,39 @@ fn shore_review_assessment_show_marks_ambiguous_with_two_writers() {
 }
 
 #[test]
+fn human_assessment_show_renders_current_call_not_json() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", repo_arg]);
+    add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
+
+    let show = shore([
+        "review",
+        "assessment",
+        "show",
+        "--repo",
+        repo_arg,
+        "--format",
+        "human",
+    ]);
+    assert!(
+        show.status.success(),
+        "assessment show failed: {}",
+        String::from_utf8_lossy(&show.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&show.stdout);
+
+    assert!(stdout.contains("current call"), "stdout:\n{stdout}");
+    assert!(stdout.contains("accepted"), "stdout:\n{stdout}");
+    assert!(!stdout.contains("\"schema\""), "stdout:\n{stdout}");
+    assert!(
+        stdout.lines().count() <= 10,
+        "digest must be bounded, got {} lines:\n{stdout}",
+        stdout.lines().count()
+    );
+}
+
+#[test]
 fn shore_review_assessment_add_rejects_state_change_value() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();

@@ -6,8 +6,8 @@ use shoreline::documents::{assessment_add_document, assessment_show_document};
 use shoreline::model::{AssessmentId, InputRequestId, ObservationId, RevisionId};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
-    AssessmentAddOptions, AssessmentShowOptions, AssessmentTargetSelector, record_assessment,
-    show_assessments,
+    AssessmentAddOptions, AssessmentRecordStatus, AssessmentShowOptions, AssessmentShowResult,
+    AssessmentTargetSelector, record_assessment, show_assessments,
 };
 
 use crate::cli::output;
@@ -198,15 +198,56 @@ fn review_assessment_show(
     let pretty = args.pretty && !args.compact;
     let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
-    let result = show_assessments(assessment_show_options(args));
+    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
+    let result = show_assessments(assessment_show_options(args))?;
     let delegation_map = super::common::discover_delegation_map(&repo);
+    // `assessment_show_document` consumes the result by value; the human lane
+    // reads the same result, so clone it only when that lane will render.
+    let human_source = matches!(format.format, output::OutputFormat::Human).then(|| result.clone());
     let document = assessment_show_document(
         "shore.review-assessment-show",
-        result?,
+        result,
         delegation_map.as_ref(),
     );
-    let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    output::write_document(stdout, format, &document, || {
+        render_assessment_show_human(
+            human_source
+                .as_ref()
+                .expect("human lane resolves the assessment source"),
+        )
+    })
+}
+
+/// Bespoke human lane for `assessment show` (INV-5): the current call, the
+/// track and recorded-at of each current record, its summary when hydrated, and
+/// the replaced count when `--all` reveals history. Reads only the public
+/// `AssessmentShowResult`; ids truncate via `output::short_ref`.
+fn render_assessment_show_human(result: &AssessmentShowResult) -> String {
+    let mut lines = vec![super::common::current_call_line(&result.current.status)];
+    for record in &result.current.records {
+        lines.push(format!(
+            "  track {} · recorded {}",
+            output::short_ref(record.track_id.as_str()),
+            record.created_at,
+        ));
+        if let Some(summary) = &record.summary {
+            lines.push(format!("  summary: {summary}"));
+        }
+    }
+    let replaced = result
+        .assessments
+        .iter()
+        .filter(|record| record.status == AssessmentRecordStatus::Replaced)
+        .count();
+    if replaced > 0 {
+        let noun = if replaced == 1 {
+            "replaced assessment"
+        } else {
+            "replaced assessments"
+        };
+        lines.push(format!("{replaced} {noun}"));
+    }
+    lines.join("\n")
 }
 
 pub(super) fn assessment_add_options(

@@ -11,11 +11,28 @@ use shoreline::keys::{
 use shoreline::model::{ActorId, Side};
 use shoreline::session::{
     ActorAttributesMap, AssessmentAddOptions, AssociateCommitOptions, AssociateRefOptions,
-    BestEffortSkipSink, BodyContentType, CaptureOptions, DelegationMap, InputRequestOpenOptions,
-    InputRequestRespondOptions, ObservationAddOptions, RemoveOptions, TrustSet,
-    ValidationAddOptions, WithdrawCommitOptions, WithdrawRefOptions, is_agent_actor_id,
+    BestEffortSkipSink, BodyContentType, CaptureOptions, CurrentAssessmentStatus, DelegationMap,
+    InputRequestOpenOptions, InputRequestRespondOptions, ObservationAddOptions, RemoveOptions,
+    TrustSet, ValidationAddOptions, WithdrawCommitOptions, WithdrawRefOptions, is_agent_actor_id,
     resolve_writer_actor_id,
 };
+
+/// The inspector's current-assessment header line (`detail.ts:250`), shared by
+/// the review-show digest and `assessment show`'s human lane: the resolved call
+/// followed by the advisory note, or the unassessed / ambiguous states. The
+/// review call is advisory — a recorded judgement, never a merge gate.
+pub(crate) fn current_call_line(status: &CurrentAssessmentStatus) -> String {
+    match status {
+        CurrentAssessmentStatus::Unassessed => "current call: none recorded".to_owned(),
+        CurrentAssessmentStatus::Resolved(assessment) => format!(
+            "current call: {} (advisory — a recorded judgement, not a merge gate)",
+            assessment.display_label(),
+        ),
+        CurrentAssessmentStatus::Ambiguous(candidates) => {
+            format!("current call: ambiguous ({} candidates)", candidates.len())
+        }
+    }
+}
 
 /// Discover the layered delegation map under `<worktree-root>/.shore/`.
 ///
