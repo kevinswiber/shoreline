@@ -87,7 +87,7 @@ signature *is* the endorsement's content. See
 ## `shore diff`
 
 ```bash
-shore diff [--repo <path>] [--revision <id>] [--stat]
+shore diff [--repo <path>] [--revision <id>] [--stat] [--color <auto|always|never>]
 ```
 
 `shore diff` prints a captured revision's diff — base to target, from the **frozen captured
@@ -104,6 +104,12 @@ revision recorded; its subject is always the captured snapshot, never the live w
   colorizes only when stdout is a TTY, honoring `NO_COLOR` and `CLICOLOR_FORCE` (precedence: `--color`
   > `NO_COLOR` > `CLICOLOR_FORCE` > isatty); piped or redirected output stays plain. Color is pure
   presentation — stripping the ANSI reproduces the plain diff exactly.
+- `shore diff` is a **filter, not a pager**: it writes plain git-diff to any pipe or redirect and
+  colorizes only when writing directly to a terminal, so it composes with the tools you already use —
+  `shore diff | less -R` to page, `shore diff | delta` (or another diff renderer) to reformat,
+  `shore diff > change.diff` to save. There is no built-in pager and no `--no-pager` flag; use
+  `--color always` to force color through a pipe (e.g. `shore diff --color always | less -R`). A
+  reader that closes the pipe early (`shore diff | head`) is a clean exit.
 - The command is **text-only and non-interactive**: it has no `--format` selector and emits no JSON
   (machine consumers read the review documents, e.g. `shore review show --format json`). Its output
   is **disposable** — wording, layout, and ordering may change between releases, so nothing should

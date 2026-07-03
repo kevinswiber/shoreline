@@ -53,13 +53,18 @@ top-level bare `show` names none). This principle decides every case below.
 ### 2. `shore diff` — captured-revision human diff readback (the #96 home)
 
 `shore diff` prints a captured revision's diff — base to target, from the frozen captured snapshot
-— as a human unified diff on stdout. Under ADR-0029's text-default convention it is
+— as a text unified diff on stdout. Under ADR-0029's text-default convention it is
 **text-only**: its text lane is its only lane (it offers no `--format json` initially — passing
-one is an error; machine consumers keep using the review documents). It is non-interactive and
-pipe-friendly (piped output is plain bytes), with pager and color only at a TTY under ADR-0029's
-presentation rules (Decisions 4–5: `SHORE_PAGER`/`PAGER`, `--no-pager`, the `--color`/`NO_COLOR`
-precedence, any future syntax coloring included), and its output is formally disposable — nothing
-parses it.
+one is an error; machine consumers keep using the review documents). It is non-interactive and a
+well-behaved **filter**: piped, redirected, or paged output is plain git-diff bytes, and it applies
+its own syntax coloring only when writing directly to a TTY (ADR-0029 Decision 5's
+`--color`/`NO_COLOR`/`CLICOLOR_FORCE` precedence; `--color always` forces color through a pipe). It
+does **not** spawn a pager — because its output is genuine git-diff, the reader pipes it to any pager
+or diff renderer of their choice (`shore diff | less -R`, `shore diff | delta`), which then owns
+presentation; this also keeps `shore diff`'s own coloring from stacking on a re-coloring pager. Its
+output is formally disposable — nothing parses it. (ADR-0029 Decision 4 leaves whether a surface
+pages at all to per-command design; `shore diff` chooses not to, and no `SHORE_PAGER`/`PAGER`/
+`--no-pager` machinery exists for it.)
 
 Its subject is a captured revision, never the live working tree: `git diff` already owns the live
 tree, and shore's bare verbs read against the review record per Decision 1. Revision selection
