@@ -47,7 +47,7 @@ use crate::session::event::{
     EventType, InputRequestOpenedPayload, InputRequestRespondedPayload,
     ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, ShoreEvent,
     ValidationCheckRecordedPayload, Writer, event_signature_pre_authentication_encoding,
-    event_type_from_code, type_code,
+    event_type_from_code, subject_id, type_code,
 };
 use crate::session::workflow::assessment::add::{AssessmentIdMaterial, build_assessment_id};
 use crate::session::workflow::input_request::open::{
@@ -291,7 +291,7 @@ fn transform_pass_one(
     let legacy_key = value["idempotencyKey"]
         .as_str()
         .ok_or_else(|| migrate_error("event is missing idempotencyKey"))?;
-    let new_key = rekey(legacy_key, event_type, content_remap)?;
+    let new_key = rekey(legacy_key, event_type, &subject, content_remap)?;
 
     let journal_id = JournalId::new(
         migrated["target"]["journalId"]
@@ -684,11 +684,23 @@ fn sort_unique_string_array(payload: &mut Value, field: &str) {
 /// Re-key an event onto the type code: strip the legacy snake_case type prefix,
 /// substitute every re-derived id the remainder embedded, then prepend the code.
 /// An explicit dedupe key embeds no content id, so its remainder is untouched.
+///
+/// A `work_object_proposed` key is not a prefix swap: its material changed from
+/// the revision/attempt id to the opaque subject id, so it is rebuilt directly
+/// from the reshaped subject — the value a fresh capture mints today, so a
+/// re-capture converges rather than forking.
 fn rekey(
     legacy_key: &str,
     event_type: EventType,
+    subject: &TargetRef,
     content_remap: &BTreeMap<String, String>,
 ) -> Result<String> {
+    if event_type == EventType::WorkObjectProposed {
+        let subject_id = subject_id(subject)?.ok_or_else(|| {
+            migrate_error("work_object_proposed subject has no opaque subject id")
+        })?;
+        return Ok(format!("{}:{subject_id}", type_code(event_type)));
+    }
     let legacy_prefix = format!("{}:", event_type.as_str());
     let rest = legacy_key.strip_prefix(&legacy_prefix).ok_or_else(|| {
         migrate_error(&format!(
@@ -1406,6 +1418,419 @@ mod tests {
                 .path()
                 .join("events/migration-manifest.json")
                 .exists()
+        );
+    }
+}
+
+/// The decisive convergence gate: a fact the migrated store already holds must
+/// *deduplicate* on a fresh re-record through the live workflow, not fork. The
+/// migrator self-check cannot catch a wrong id (ids are opaque to the read path),
+/// so the live workflow re-recording to `Existing` is the only proof the migrated
+/// id and key are the ones the builders mint today.
+#[cfg(test)]
+mod convergence_tests {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::model::{ObservationId, ValidationStatus, ValidationTrigger};
+    use crate::session::event::{
+        AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment,
+    };
+    use crate::session::{
+        AssessmentAddOptions, AssociateCommitOptions, CaptureOptions, InputRequestOpenOptions,
+        InputRequestRespondOptions, InputRequestTargetSelector, ObservationAddOptions,
+        ValidationAddOptions, associate_commit, capture_worktree_review, open_input_request,
+        record_assessment, record_observation, record_validation_check, respond_input_request,
+    };
+
+    /// Record one fact of every review family the migrator re-derives, so a loop
+    /// over the store exercises each family's id derivation and convergence.
+    fn record_every_family(repo: &TestRepo) {
+        record_validation_check(
+            ValidationAddOptions::new(repo.path())
+                .with_track("agent:tester")
+                .with_check_name("just test")
+                .with_command("cargo test")
+                .with_status(ValidationStatus::Passed)
+                .with_trigger(ValidationTrigger::Manual),
+        )
+        .unwrap();
+        let request = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
+                .with_track("agent:tester")
+                .with_title("a question")
+                .with_body("which way?")
+                .with_target(InputRequestTargetSelector::Revision)
+                .with_assertion_mode(AssertionMode::Operative)
+                .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
+        )
+        .unwrap();
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id.clone())
+                .with_outcome(InputRequestResponseOutcome::Approved)
+                .with_reason("approved"),
+        )
+        .unwrap();
+        record_assessment(
+            AssessmentAddOptions::new(repo.path())
+                .with_track("agent:tester")
+                .with_assessment(ReviewAssessment::Accepted)
+                .with_summary("looks good"),
+        )
+        .unwrap();
+        associate_commit(
+            AssociateCommitOptions::new(repo.path(), "HEAD").with_track("agent:tester"),
+        )
+        .unwrap();
+    }
+
+    struct TestRepo {
+        root: tempfile::TempDir,
+    }
+
+    impl TestRepo {
+        fn new() -> Self {
+            let root = tempfile::tempdir().expect("temp git repo dir");
+            let repo = Self { root };
+            repo.git(["init"]);
+            repo.git(["config", "user.name", "Shore Tests"]);
+            repo.git(["config", "user.email", "shore-tests@example.com"]);
+            repo.git(["config", "commit.gpgsign", "false"]);
+            repo
+        }
+        fn path(&self) -> &Path {
+            self.root.path()
+        }
+        fn store_dir(&self) -> PathBuf {
+            crate::git::git_common_dir(self.path())
+                .unwrap()
+                .join("shore")
+        }
+        fn write(&self, path: &str, contents: &str) {
+            let path = self.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+        fn commit_all(&self, message: &str) {
+            self.git(["add", "."]);
+            self.git(["commit", "-m", message]);
+        }
+        fn git<I, S>(&self, args: I)
+        where
+            I: IntoIterator<Item = S>,
+            S: AsRef<std::ffi::OsStr>,
+        {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(self.path())
+                .output()
+                .expect("run git");
+            assert!(output.status.success(), "git failed");
+        }
+    }
+
+    fn modified_repo() -> TestRepo {
+        let repo = TestRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 {\n    1\n}\n");
+        repo.commit_all("base");
+        repo.write("src/lib.rs", "pub fn value() -> u32 {\n    2\n}\n");
+        repo
+    }
+
+    fn observe(repo: &TestRepo, title: &str, responds_to: &[&ObservationId]) -> ObservationId {
+        let mut options = ObservationAddOptions::new(repo.path())
+            .with_track("agent:tester")
+            .with_title(title);
+        for id in responds_to {
+            options = options.responding_to((*id).clone());
+        }
+        record_observation(options).unwrap().observation_id
+    }
+
+    /// A frozen, structurally-unrelated stand-in for a content id, so a pre-break
+    /// store carries ids the opaque-subject builder does not reproduce and the
+    /// migrator must genuinely re-derive them.
+    fn frozen_id(id: &str) -> String {
+        let prefix = id.split(":sha256:").next().unwrap();
+        format!(
+            "{prefix}:sha256:{}",
+            sha256_bytes_hex(format!("legacy:{id}").as_bytes())
+        )
+    }
+
+    /// Map every moving content id in the store to a frozen stand-in.
+    fn freeze_map(events: &[Value]) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        for value in events {
+            let Ok(event_type) = event_type_of(value) else {
+                continue;
+            };
+            if let Some(kind) = ContentKind::from_event_type(event_type)
+                && kind.is_moving()
+                && let Some(id) = value["payload"][kind.own_field()].as_str()
+            {
+                map.insert(id.to_owned(), frozen_id(id));
+            }
+        }
+        map
+    }
+
+    /// Reverse the opaque-coded reshape for one event, producing the pre-break
+    /// shape the migrator reads: snake_case eventType, a structural `target.subject`
+    /// reconstructed from the payload, the legacy idempotency key (the
+    /// `work_object_proposed` key reverts to folding the revision id), and frozen
+    /// content ids throughout. Hashes are re-derived so the raw event is coherent.
+    fn downgrade(new_value: &Value, freeze: &BTreeMap<String, String>) -> Value {
+        let event: ShoreEvent = serde_json::from_value(new_value.clone()).unwrap();
+        let subject = event.reconstruct_subject().unwrap();
+        let mut value = new_value.clone();
+
+        value["eventType"] = json!(event.event_type.as_str());
+
+        let mut target = serde_json::Map::new();
+        target.insert(
+            "journalId".to_owned(),
+            new_value["target"]["journalId"].clone(),
+        );
+        target.insert(
+            "subject".to_owned(),
+            serde_json::to_value(&subject).unwrap(),
+        );
+        if let Some(track) = new_value["target"].get("trackId") {
+            target.insert("trackId".to_owned(), track.clone());
+        }
+        value["target"] = Value::Object(target);
+
+        let new_key = new_value["idempotencyKey"].as_str().unwrap();
+        let legacy_key = if event.event_type == EventType::WorkObjectProposed {
+            let revision_id = crate::model::subject_revision_id(&subject)
+                .expect("a review capture folds a revision id");
+            format!("work_object_proposed:{}", revision_id.as_str())
+        } else {
+            let code_prefix = format!("{}:", type_code(event.event_type));
+            new_key
+                .strip_prefix(&code_prefix)
+                .map(|rest| format!("{}:{rest}", event.event_type.as_str()))
+                .unwrap_or_else(|| new_key.to_owned())
+        };
+        value["idempotencyKey"] = json!(legacy_key);
+
+        // Freeze every moving content id across the whole event — the own id, the
+        // reference edges, and the (non-work-object-proposed) key that embeds it.
+        let mut text = serde_json::to_string(&value).unwrap();
+        for (new_id, frozen) in freeze {
+            text = text.replace(new_id.as_str(), frozen.as_str());
+        }
+        let mut value: Value = serde_json::from_str(&text).unwrap();
+
+        let key = value["idempotencyKey"].as_str().unwrap().to_owned();
+        value["eventId"] = json!(derive_event_id(&key).as_str());
+        value["payloadHash"] = json!(sha256_json_prefixed(&value["payload"]).unwrap());
+        value
+    }
+
+    /// Downgrade the whole store into a fresh pre-break source store, migrate it
+    /// back over the repo's store, and return the migration summary.
+    fn downgrade_and_migrate(repo: &TestRepo) -> MigrateSummary {
+        let store_dir = repo.store_dir();
+        let events = read_raw_events(&store_dir).unwrap();
+        let freeze = freeze_map(&events);
+
+        let legacy = tempfile::tempdir().unwrap();
+        let legacy_dir = legacy.path();
+        let legacy_backend = StoreBackend::Local(legacy_dir.to_path_buf());
+        for value in &events {
+            let downgraded = downgrade(value, &freeze);
+            let key = downgraded["idempotencyKey"].as_str().unwrap();
+            legacy_backend
+                .journal()
+                .insert_raw(key, &serde_json::to_vec(&downgraded).unwrap())
+                .unwrap();
+        }
+        // Artifacts are unchanged by the break: hand the migrator the same trees.
+        copy_dir_verbatim(
+            &store_dir.join("artifacts/objects"),
+            &legacy_dir.join("artifacts/objects"),
+        )
+        .unwrap();
+        copy_dir_verbatim(
+            &store_dir.join("artifacts/notes"),
+            &legacy_dir.join("artifacts/notes"),
+        )
+        .unwrap();
+
+        std::fs::remove_dir_all(&store_dir).unwrap();
+        let keystore = tempfile::tempdir().unwrap();
+        migrate_opaque_identity(MigrateOptions {
+            source_store_dir: legacy_dir.to_path_buf(),
+            target_store_dir: store_dir,
+            keystore_dir: keystore.path().to_path_buf(),
+        })
+        .unwrap()
+    }
+
+    fn count_event_type(store_dir: &Path, code: &str) -> usize {
+        read_raw_events(store_dir)
+            .unwrap()
+            .iter()
+            .filter(|value| value["eventType"] == code)
+            .count()
+    }
+
+    #[test]
+    fn a_migrated_review_store_converges_with_fresh_re_records() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let observation_id = observe(&repo, "a finding", &[]);
+        // Record every review family so the downgrade, migration, and self-check
+        // exercise the full family set end to end, not just the observation.
+        record_every_family(&repo);
+
+        let summary = downgrade_and_migrate(&repo);
+        assert!(summary.self_check_passed);
+
+        // The migrated observation recovered the id the live builder mints.
+        let migrated = read_raw_events(&repo.store_dir()).unwrap();
+        let observation = migrated
+            .iter()
+            .find(|value| value["eventType"] == type_code(EventType::ReviewObservationRecorded))
+            .unwrap();
+        assert_eq!(
+            observation["payload"]["observationId"],
+            json!(observation_id.as_str()),
+            "the migrator must recover the live-builder observation id"
+        );
+
+        // The decisive gate: a fresh re-record of the same fact deduplicates.
+        let re_recorded = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:tester")
+                .with_title("a finding"),
+        )
+        .unwrap();
+        assert_eq!(
+            re_recorded.events_created, 0,
+            "a fresh re-record must converge with the migrated observation, not fork"
+        );
+        assert_eq!(re_recorded.observation_id, observation_id);
+
+        // A fresh re-capture of the same revision also converges — the
+        // work_object_proposed key folds the opaque subject id, so the migrated
+        // capture is the one a fresh capture mints (a prefix-swap would fork here).
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        assert_eq!(
+            count_event_type(&repo.store_dir(), type_code(EventType::WorkObjectProposed)),
+            1,
+            "a fresh re-capture must converge with the migrated capture, not fork"
+        );
+    }
+
+    #[test]
+    fn a_migrated_responds_to_observation_converges_reordered_and_duplicate() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let a = observe(&repo, "finding a", &[]);
+        let b = observe(&repo, "finding b", &[]);
+        // An acknowledgment folding both fact pointers, exercising the reference
+        // edge remap through migration.
+        let ack = observe(&repo, "noted", &[&a, &b]);
+
+        let summary = downgrade_and_migrate(&repo);
+        assert!(summary.self_check_passed);
+
+        // The remapped responds_to observation recovered its live id.
+        let migrated = read_raw_events(&repo.store_dir()).unwrap();
+        assert!(
+            migrated.iter().any(|value| {
+                value["eventType"] == type_code(EventType::ReviewObservationRecorded)
+                    && value["payload"]["observationId"] == json!(ack.as_str())
+            }),
+            "the migrated acknowledgment must recover its live id"
+        );
+
+        // A reordered fact-pointer re-record deduplicates.
+        let reordered = observe_result(&repo, "noted", &[&b, &a]);
+        assert_eq!(
+            reordered.events_created, 0,
+            "a reordered responds_to re-record must converge, not fork or conflict"
+        );
+        assert_eq!(reordered.observation_id, ack);
+
+        // A duplicate-bearing fact-pointer re-record deduplicates — proving the
+        // migrator re-emitted the sorted_unique-normalized payload (dedup, not just
+        // ordering).
+        let duplicated = observe_result(&repo, "noted", &[&a, &a, &b]);
+        assert_eq!(
+            duplicated.events_created, 0,
+            "a duplicate-bearing responds_to re-record must converge, not fork or conflict"
+        );
+        assert_eq!(duplicated.observation_id, ack);
+    }
+
+    fn observe_result(
+        repo: &TestRepo,
+        title: &str,
+        responds_to: &[&ObservationId],
+    ) -> crate::session::ObservationAddResult {
+        let mut options = ObservationAddOptions::new(repo.path())
+            .with_track("agent:tester")
+            .with_title(title);
+        for id in responds_to {
+            options = options.responding_to((*id).clone());
+        }
+        record_observation(options).unwrap()
+    }
+
+    #[test]
+    fn migrator_id_derivation_pins_to_live_builders() {
+        // Every content id the migrator recomputes from a live-recorded payload
+        // must equal the id the live builder stored — the migrator and a native
+        // write cannot drift, or a migrated store would silently fork.
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        observe(&repo, "a finding", &[]);
+        record_every_family(&repo);
+
+        let mut families_checked = 0;
+        for value in read_raw_events(&repo.store_dir()).unwrap() {
+            // The migrated store is opaque-coded, so decode the event through the
+            // type-code adapter, then read its family off the decoded event.
+            let event: ShoreEvent = serde_json::from_value(value.clone()).unwrap();
+            let Some(kind) = ContentKind::from_event_type(event.event_type) else {
+                continue;
+            };
+            if !kind.is_moving() {
+                continue;
+            }
+            if kind.is_input_request() && event.addresses_task_subject().unwrap() {
+                continue;
+            }
+            let track = event.target.track_id.clone().unwrap();
+            let recomputed = rederive_content_id(
+                kind,
+                &event.payload,
+                &track,
+                event.writer.actor_id.as_str(),
+                event.assertion_mode,
+            )
+            .unwrap();
+            let stored = event.payload[kind.own_field()].as_str().unwrap();
+            assert_eq!(
+                recomputed,
+                stored,
+                "the migrator's id derivation drifted from the live builder for {}",
+                kind.own_field()
+            );
+            families_checked += 1;
+        }
+        // Observation, validation, input-request-opened, input-request-responded,
+        // and assessment all fold the opaque subject and must be pinned.
+        assert_eq!(
+            families_checked, 5,
+            "every moving review family must be pinned to its live builder"
         );
     }
 }
