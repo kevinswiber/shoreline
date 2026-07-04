@@ -287,6 +287,7 @@ impl EventStore {
     /// Event file names in this store, with the same accept/skip rules as
     /// `list_events` but without parsing event JSON. Sorted; a missing events
     /// directory lists as empty.
+    #[cfg(test)]
     pub(crate) fn list_event_file_names(&self) -> Result<Vec<String>> {
         Ok(self
             .files()

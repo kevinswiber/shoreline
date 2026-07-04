@@ -24,15 +24,14 @@ impl ShoreStorePaths {
                 return Err(ShoreError::Message(
                     "both a legacy flat .shore/ store and a migrated .shore/data/ store are \
                      present; this is a partial/interrupted migration — inspect both and remove \
-                     the stale one (the migration removes the flat store only after a successful \
-                     relocation)"
+                     the stale one"
                         .to_owned(),
                 ));
             }
             StoreLayout::Flat => {
                 return Err(ShoreError::Message(
-                    "legacy flat .shore/ store detected; run `just migrate-store` to relocate it \
-                     to .shore/data/ and upgrade event writer fields"
+                    "legacy flat .shore/ store detected; this pre-1.0 store format is retired and \
+                     no longer supported"
                         .to_owned(),
                 ));
             }
@@ -531,19 +530,20 @@ mod tests {
     }
 
     #[test]
-    fn legacy_flat_store_returns_migrate_hint() {
+    fn legacy_flat_store_is_a_loud_error() {
         let repo = git_repo();
         // Pre-migration FLAT store: events + state.json directly under .shore/,
-        // no .shore/data/.
+        // no .shore/data/. At the 1.0 format floor this pre-1.0 layout is retired,
+        // so it is a loud error rather than a silent dual-read or a migration offer.
         fs::create_dir_all(repo.path().join(".shore/events")).unwrap();
         fs::write(repo.path().join(".shore/state.json"), "{}").unwrap();
 
         let err = ShoreStorePaths::resolve(repo.path())
-            .expect_err("legacy flat .shore/ store must be a loud, actionable error");
+            .expect_err("legacy flat .shore/ store must be a loud error");
         let message = err.to_string();
         assert!(
-            message.contains("migrate-store"),
-            "names the fix; got: {message}"
+            message.contains("no longer supported"),
+            "reads as a retired format; got: {message}"
         );
         assert!(
             message.contains(".shore"),

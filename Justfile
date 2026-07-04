@@ -75,11 +75,6 @@ commit-check range='origin/main..HEAD':
 run *args:
     cargo +stable run --bin shore -- {{ args }}
 
-# One-off: migrate a legacy flat .shore/ store to .shore/data/ and upgrade event
-# writer fields in place. Owner-run; not part of the shipped CLI.
-migrate-store repo=".":
-    cargo +stable run --example migrate-store -- {{ repo }}
-
 # Fold a worktree-local .shore/data store into the common-dir store (.git/shore).
 # Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
 # you pass include-ephemeral=true. This IS a shipped subcommand (shore store migrate).

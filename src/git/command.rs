@@ -70,6 +70,7 @@ where
 enum RepoFact {
     WorktreeRoot,
     CommonDir,
+    #[cfg(test)]
     InfoExcludePath,
 }
 
@@ -192,6 +193,7 @@ fn absolute_git_cwd_path(repo: &Path, path: PathBuf) -> Result<PathBuf> {
     })
 }
 
+#[cfg(test)]
 pub fn git_info_exclude_path(repo: &Path) -> Result<PathBuf> {
     cached_repo_fact(repo, RepoFact::InfoExcludePath, || {
         let output = run_git(repo, ["rev-parse", "--git-path", "info/exclude"])?;
