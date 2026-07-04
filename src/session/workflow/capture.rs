@@ -445,10 +445,19 @@ fn prepare_worktree_capture(
     options: &CaptureOptions,
     pathspecs: &[String],
 ) -> Result<PreparedCapture> {
-    let snapshot = ingest_tracked_diff_with_options(
-        worktree_root,
-        capture_ingest_options(options).with_pathspecs(pathspecs.to_vec()),
-    )?;
+    // Auto-exclude Shore's own generated files (today just an untracked, byte-
+    // identical `.shore/.gitignore`) through the provenance-free helper-path filter:
+    // the file is dropped from the inventory before fingerprinting and nothing is
+    // recorded in provenance, so its presence never forks the revision id. A
+    // user-edited or committed file is not returned, so it stays a visible reviewable
+    // change. Worktree-source only — a commit-range capture never lands here.
+    let ingest_options = crate::session::store::shore_generated_excluded_paths(worktree_root)?
+        .into_iter()
+        .fold(
+            capture_ingest_options(options).with_pathspecs(pathspecs.to_vec()),
+            |ingest_options, path| ingest_options.exclude_helper_path(path),
+        );
+    let snapshot = ingest_tracked_diff_with_options(worktree_root, ingest_options)?;
     let files = snapshot.files;
     let fingerprint = crate::session::fingerprint::revision_fingerprint_for_files(
         worktree_root,
@@ -636,8 +645,8 @@ mod tests {
     use crate::session::{
         ArtifactKind, CaptureOptions, CommitRangeSpec, EventStore, ImportArtifactOptions,
         ImportArtifactOutcome, RevisionShowOptions, ShoreStorePaths, capture_review,
-        capture_worktree_review, export_artifact, import_artifact, read_object_artifact,
-        referenced_artifacts, show_revision,
+        capture_worktree_review, ensure_shore_gitignore, export_artifact, import_artifact,
+        read_object_artifact, referenced_artifacts, show_revision,
     };
 
     fn diff_row(kind: DiffRowKind) -> DiffRow {
@@ -713,6 +722,112 @@ mod tests {
         assert_eq!(stat.mode_only_files, 1);
         assert_eq!(stat.added_lines, 13);
         assert_eq!(stat.removed_lines, 5);
+    }
+
+    #[test]
+    fn untracked_shore_generated_gitignore_is_excluded_from_worktree_capture() {
+        // #349 headline: one code change + a freshly generated, untracked, byte-
+        // identical .shore/.gitignore captures as a ONE-file review.
+        let repo = modified_repo();
+        ensure_shore_gitignore(repo.path()).unwrap();
+
+        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+        assert_eq!(paths, vec!["src/lib.rs"]);
+    }
+
+    #[test]
+    fn generated_gitignore_presence_does_not_fork_capture_identity() {
+        // With a fixed base + code change (SAME repo), generating an untracked
+        // canonical .shore/.gitignore changes neither the revision id nor the object
+        // id, and recapture is idempotent — nothing folds into provenance.
+        let repo = modified_repo();
+        let absent = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        ensure_shore_gitignore(repo.path()).unwrap(); // untracked canonical file now present
+        let present = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        assert_eq!(present.revision_id, absent.revision_id);
+        assert_eq!(present.object_id, absent.object_id);
+        assert_eq!(present.events_created, 0); // same revision + ref ⇒ nothing created
+    }
+
+    #[test]
+    fn committing_the_generated_gitignore_preserves_the_object_id() {
+        // Honest cross-commit invariant (#349): committing the generated file keeps
+        // review content = the code change alone (SAME object id), but advances HEAD,
+        // so the base-bearing revision id necessarily differs. No exclusion mechanism
+        // can make the revision id equal across a commit.
+        let repo = modified_repo();
+        ensure_shore_gitignore(repo.path()).unwrap();
+        let untracked = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        // Commit ONLY the generated file; src/lib.rs stays uncommitted.
+        repo.git(["add", ".shore/.gitignore"]);
+        repo.git(["commit", "-m", "commit shore gitignore"]);
+        let committed = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        assert_eq!(untracked.object_id, committed.object_id);
+        assert_ne!(untracked.revision_id, committed.revision_id);
+    }
+
+    #[test]
+    fn user_edited_gitignore_stays_a_visible_reviewable_change() {
+        // A non-canonical (user-edited) untracked .shore/.gitignore is NOT suppressed
+        // — it stays a real, visible reviewable change.
+        let repo = modified_repo();
+        ensure_shore_gitignore(repo.path()).unwrap();
+        fs::write(
+            repo.path().join(".shore/.gitignore"),
+            "data/\n*.local.json\nmy-notes/\n",
+        )
+        .unwrap();
+
+        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+        assert!(
+            paths.contains(&".shore/.gitignore"),
+            "a user-edited generated file stays visible: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn committed_then_modified_to_canonical_gitignore_stays_visible() {
+        // Even edited back to a byte-identical canonical body, a committed
+        // .shore/.gitignore is TRACKED (not untracked), so the untracked gate keeps it
+        // visible. Proves the untracked gate does independent work from the byte oracle.
+        let repo = TestRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+        repo.write(".shore/.gitignore", "data/\n"); // committed PARTIAL body
+        repo.commit_all("base");
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+        repo.write(".shore/.gitignore", "data/\n*.local.json\n"); // canonical, but tracked + modified
+
+        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+        assert!(
+            paths.contains(&".shore/.gitignore"),
+            "a committed-and-modified generated file stays visible: {paths:?}"
+        );
     }
 
     fn two_dir_repo() -> TestRepo {

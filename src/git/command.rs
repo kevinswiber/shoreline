@@ -266,6 +266,28 @@ pub(crate) fn git_tracked_and_untracked_inventory(repo: &Path) -> Result<Vec<Git
     git_ls_files_inventory(repo, ["ls-files", "-co", "--exclude-standard", "-z", "--"])
 }
 
+/// True when `relative_path` is present in the worktree as an **untracked** file
+/// (git `--others`, honoring the standard excludes). A tracked path — clean or
+/// modified — reports false, as does an absent or git-ignored path. Scoped to the
+/// single path via a trailing pathspec, so it never lists the whole worktree.
+pub(crate) fn git_path_is_untracked(repo: &Path, relative_path: &str) -> Result<bool> {
+    let output = run_git(
+        repo,
+        [
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            relative_path,
+        ],
+    )?;
+    Ok(output
+        .stdout
+        .split(|byte| *byte == 0)
+        .any(|field| !field.is_empty()))
+}
+
 fn git_ls_files_inventory<const N: usize>(
     repo: &Path,
     args: [&str; N],
@@ -857,6 +879,30 @@ mod tests {
             .into_iter()
             .map(|path| path.into_utf8_string("test inventory path").unwrap())
             .collect()
+    }
+
+    #[test]
+    fn git_path_is_untracked_distinguishes_untracked_tracked_and_absent() {
+        let repo = TwoCommitRepo::new();
+
+        // Absent path → false.
+        assert!(!git_path_is_untracked(repo.path(), "nope.txt").unwrap());
+
+        // Tracked, clean → false.
+        assert!(!git_path_is_untracked(repo.path(), "file.txt").unwrap());
+
+        // Tracked, modified in the worktree → still tracked, so false.
+        fs::write(repo.path().join("file.txt"), "three\n").unwrap();
+        assert!(!git_path_is_untracked(repo.path(), "file.txt").unwrap());
+
+        // Untracked, present → true.
+        fs::write(repo.path().join("new.txt"), "x\n").unwrap();
+        assert!(git_path_is_untracked(repo.path(), "new.txt").unwrap());
+
+        // Untracked but git-ignored → excluded-standard, so false.
+        fs::write(repo.path().join(".git/info/exclude"), "ignored.txt\n").unwrap();
+        fs::write(repo.path().join("ignored.txt"), "y\n").unwrap();
+        assert!(!git_path_is_untracked(repo.path(), "ignored.txt").unwrap());
     }
 
     struct TwoCommitRepo {

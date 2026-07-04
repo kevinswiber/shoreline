@@ -28,5 +28,7 @@ pub use store_config::{
     StoreMode, StoreModeOutcome, StoreModeSource, resolve_store_mode_for_repo,
     set_store_mode_for_repo,
 };
-pub(crate) use store_init::{ShoreStorePaths, sweep_stale_temp_files};
+pub(crate) use store_init::{
+    ShoreStorePaths, shore_generated_excluded_paths, sweep_stale_temp_files,
+};
 pub use store_init::{ensure_shore_gitignore, store_dir_for_repo};

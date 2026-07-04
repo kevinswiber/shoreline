@@ -3,7 +3,7 @@ use shoreline::session::event::{EventType, ShoreEvent};
 use shoreline::session::{
     CaptureOptions, ImportNotesOptions, SessionState, capture_worktree_fingerprint,
     capture_worktree_review, ensure_shore_gitignore, import_notes, load_durable_notes_for_repo,
-    read_events, rebuild_state, store_dir_for_repo,
+    read_events, read_object_artifact, rebuild_state, store_dir_for_repo,
 };
 
 use crate::support::git_repo::GitRepo;
@@ -687,6 +687,37 @@ fn load_durable_notes_for_repo_still_works_with_small_inline_bodies() {
         parsed.sidecar.files[0].notes[0].body.as_deref(),
         Some(small_body)
     );
+}
+
+#[test]
+fn worktree_capture_excludes_untracked_shore_generated_gitignore() {
+    // #349 acceptance: on current main this worktree captured as a 2-file review; it
+    // must now capture as a ONE-file review, identity unchanged from the no-file
+    // capture. Exercises the public capture entry point end to end.
+    let repo = modified_repo();
+
+    // Baseline: capture the code change with no generated file present.
+    let baseline = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+    // Generate the ephemeral-mode .shore/.gitignore (untracked, canonical) and recapture.
+    ensure_shore_gitignore(repo.path()).unwrap();
+    assert_eq!(repo.read(".shore/.gitignore"), "data/\n*.local.json\n");
+    let with_generated = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+    // Identity-neutral: same revision id and object id, and an idempotent recapture.
+    assert_eq!(with_generated.revision_id, baseline.revision_id);
+    assert_eq!(with_generated.object_id, baseline.object_id);
+    assert_eq!(with_generated.events_created, 0);
+
+    // The reviewed snapshot is the code change alone.
+    let artifact = read_object_artifact(repo.path(), &with_generated.object_id).unwrap();
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["src/lib.rs"]);
 }
 
 fn modified_repo() -> GitRepo {

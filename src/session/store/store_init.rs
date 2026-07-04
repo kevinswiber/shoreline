@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::git::{git_paths_are_ignored, git_worktree_root};
+use crate::git::{git_path_is_untracked, git_paths_are_ignored, git_worktree_root};
 use crate::storage::{LocalStorage, TempSweepAge};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -175,6 +175,56 @@ const SHORE_GITIGNORE_SPECS: [(&str, &str); 4] = [
     (".shore/store.local.json", "*.local.json"),
 ];
 
+/// Worktree-relative path of the file Shore may generate and capture must not
+/// sweep in while it is untracked and Shore-generated.
+const SHORE_GITIGNORE_RELATIVE_PATH: &str = ".shore/.gitignore";
+
+/// The canonical gitignore lines Shore can write into a fresh `.shore/.gitignore`,
+/// in generation order and deduplicated, derived from [`SHORE_GITIGNORE_SPECS`] so
+/// the generator and the capture-suppression oracle share one source of truth.
+/// Today: `data/` then `*.local.json`.
+fn canonical_shore_gitignore_lines() -> Vec<&'static str> {
+    let mut lines: Vec<&'static str> = Vec::new();
+    for (_, line) in SHORE_GITIGNORE_SPECS {
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
+/// True when `body` is byte-identical to a `.shore/.gitignore` Shore itself could
+/// have generated: non-empty, LF-terminated, and its lines form an ordered,
+/// duplicate-free subsequence of [`canonical_shore_gitignore_lines`]. Pure — no
+/// git-ignore probing (an existing file covers its own probes, so a live probe
+/// would self-contradict). A user-edited body (extra line, comment, reorder,
+/// duplicate, blank line), any non-LF line ending (Shore writes LF only, so a
+/// `\r` stays attached to the split line and fails the exact match), or any body
+/// without a trailing newline is rejected.
+fn body_is_purely_shore_generated(body: &str) -> bool {
+    // Strip exactly the trailing LF, then split on LF only. `str::lines()` would
+    // also swallow a `\r`, letting a CRLF body pass as if it were LF — which is not
+    // byte-identical to what Shore generates.
+    let Some(without_trailing_newline) = body.strip_suffix('\n') else {
+        return false;
+    };
+    if without_trailing_newline.is_empty() {
+        return false;
+    }
+    let canonical = canonical_shore_gitignore_lines();
+    let mut next = 0usize; // advancing cursor into `canonical` enforces order + no dupes
+    for line in without_trailing_newline.split('\n') {
+        let Some(offset) = canonical[next..]
+            .iter()
+            .position(|candidate| *candidate == line)
+        else {
+            return false;
+        };
+        next += offset + 1;
+    }
+    true
+}
+
 /// Keep Shoreline's generated/private files out of Git status via a committed
 /// `.shore/.gitignore` — visible in the working tree, scoped to the directory,
 /// and shared through clone — never by mutating the hidden, per-clone
@@ -196,6 +246,41 @@ pub fn ensure_shore_gitignore(worktree_root: &Path) -> Result<()> {
         return Ok(());
     }
     append_shore_gitignore_lines(worktree_root, &missing)
+}
+
+/// True when `<worktree_root>/.shore/.gitignore` is an **untracked** file whose
+/// bytes are byte-identical to what Shore itself generates. A tracked (committed)
+/// file — clean or modified, even one edited back to a canonical body — a
+/// user-edited untracked file, or an absent file all report false, so a real
+/// reviewable change is never hidden. Reads the bytes first (a fast NotFound
+/// short-circuit for the common no-file case) and applies the pure oracle before
+/// the git probe, so the subprocess runs only for a genuinely Shore-shaped file.
+/// Do not reorder the git probe ahead of the pure check.
+pub(crate) fn generated_gitignore_is_capture_suppressible(worktree_root: &Path) -> Result<bool> {
+    let path = worktree_root.join(SHORE_GITIGNORE_RELATIVE_PATH);
+    let body = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io_error("read .shore/.gitignore", &path, error)),
+    };
+    if !body_is_purely_shore_generated(&body) {
+        return Ok(false);
+    }
+    git_path_is_untracked(worktree_root, SHORE_GITIGNORE_RELATIVE_PATH)
+}
+
+/// Absolute paths of Shore-generated files a worktree capture should filter out of
+/// its inventory right now — currently just `.shore/.gitignore`, and only while it
+/// is untracked and byte-identical to what Shore generates. Returned as absolute
+/// paths ready for [`crate::git::IngestOptions::exclude_helper_path`], which records
+/// nothing in provenance, so the suppression never folds into the revision id.
+/// Empty when nothing is suppressible.
+pub(crate) fn shore_generated_excluded_paths(worktree_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    if generated_gitignore_is_capture_suppressible(worktree_root)? {
+        paths.push(worktree_root.join(SHORE_GITIGNORE_RELATIVE_PATH));
+    }
+    Ok(paths)
 }
 
 /// Append `lines` (each newline-terminated) to `<worktree_root>/.shore/.gitignore`,
@@ -423,6 +508,116 @@ mod tests {
                 hits, 1,
                 "{line} must be written at most once across repeated runs"
             );
+        }
+    }
+
+    #[test]
+    fn body_oracle_accepts_every_body_shore_can_generate() {
+        // The three non-empty ordered subsequences of [data/, *.local.json].
+        assert!(body_is_purely_shore_generated("data/\n*.local.json\n"));
+        assert!(body_is_purely_shore_generated("data/\n"));
+        assert!(body_is_purely_shore_generated("*.local.json\n"));
+    }
+
+    #[test]
+    fn body_oracle_rejects_user_touched_or_malformed_bodies() {
+        assert!(!body_is_purely_shore_generated(
+            "data/\n*.local.json\nmine/\n"
+        )); // extra line
+        assert!(!body_is_purely_shore_generated(
+            "# mine\ndata/\n*.local.json\n"
+        )); // comment
+        assert!(!body_is_purely_shore_generated("*.local.json\ndata/\n")); // reordered
+        assert!(!body_is_purely_shore_generated("data/\ndata/\n")); // duplicate
+        assert!(!body_is_purely_shore_generated("data/\n\n*.local.json\n")); // blank line
+        assert!(!body_is_purely_shore_generated("data/\n*.local.json")); // no trailing newline
+        assert!(!body_is_purely_shore_generated("")); // empty
+        assert!(!body_is_purely_shore_generated("\n")); // lone newline
+    }
+
+    #[test]
+    fn body_oracle_rejects_non_lf_line_endings() {
+        // Shore writes LF only; a CRLF or bare-CR body is not byte-identical, even
+        // though its visible lines match. `str::lines()` would strip the `\r` — the
+        // oracle must not, or a user-touched CRLF file could be wrongly suppressed.
+        assert!(!body_is_purely_shore_generated("data/\r\n*.local.json\r\n")); // CRLF
+        assert!(!body_is_purely_shore_generated("data/\r\n")); // CRLF, single line
+        assert!(!body_is_purely_shore_generated("data/\r*.local.json\n")); // bare CR separator
+    }
+
+    #[test]
+    fn untracked_canonical_gitignore_is_suppressible() {
+        let repo = git_repo();
+        ensure_shore_gitignore(repo.path()).unwrap(); // writes canonical, untracked
+        assert!(generated_gitignore_is_capture_suppressible(repo.path()).unwrap());
+        assert_eq!(
+            shore_generated_excluded_paths(repo.path()).unwrap(),
+            vec![repo.path().join(".shore/.gitignore")]
+        );
+    }
+
+    #[test]
+    fn absent_gitignore_is_not_suppressible() {
+        let repo = git_repo();
+        assert!(!generated_gitignore_is_capture_suppressible(repo.path()).unwrap());
+        assert!(
+            shore_generated_excluded_paths(repo.path())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn user_edited_untracked_gitignore_is_not_suppressible() {
+        let repo = git_repo();
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/.gitignore"),
+            "data/\n*.local.json\nmine/\n",
+        )
+        .unwrap();
+        assert!(!generated_gitignore_is_capture_suppressible(repo.path()).unwrap());
+        assert!(
+            shore_generated_excluded_paths(repo.path())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn committed_gitignore_is_not_suppressible_even_when_canonical() {
+        let repo = git_repo();
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/.gitignore"),
+            "data/\n*.local.json\n",
+        )
+        .unwrap();
+        commit_all(&repo); // now TRACKED, byte-identical to canonical
+        // Byte-oracle passes, but the untracked gate fails ⇒ not suppressible.
+        assert!(!generated_gitignore_is_capture_suppressible(repo.path()).unwrap());
+        assert!(
+            shore_generated_excluded_paths(repo.path())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// Commit everything in a `git_repo()` (which has no identity configured).
+    fn commit_all(repo: &tempfile::TempDir) {
+        for args in [
+            vec!["config", "user.email", "t@example.com"],
+            vec!["config", "user.name", "t"],
+            vec!["config", "commit.gpgsign", "false"],
+            vec!["add", "--all"],
+            vec!["commit", "-m", "x"],
+        ] {
+            let out = Command::new("git")
+                .args(&args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?} failed");
         }
     }
 
