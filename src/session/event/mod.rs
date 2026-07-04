@@ -120,9 +120,9 @@ pub struct ShoreEvent {
     /// Reserved — no codec populates it yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content_encoding: Vec<String>,
-    /// The decoded payload's view version — the key a read-time view upcast
-    /// dispatches on. Hash-excluded, so a bump is signature-neutral. Reserved
-    /// at its default of `1`.
+    /// The decoded payload's view version — a hash-excluded axis reserved for a
+    /// future interpretation-only change (no read-time upcast ships at the 1.0
+    /// format floor). A bump is signature-neutral. Reserved at its default of `1`.
     #[serde(
         default = "default_payload_version",
         skip_serializing_if = "is_default_payload_version"

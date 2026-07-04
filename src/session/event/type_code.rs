@@ -11,8 +11,8 @@
 //!
 //! A code carries **no embedded version**: it identifies a *family*, and a family's
 //! identity must not move when its payload shape evolves. Payload-shape versioning
-//! lives on a separate, hash-excluded axis (`payloadVersion` + the read-time view
-//! upcast), so a shape change never re-keys the signed identity. See
+//! lives on a separate, hash-excluded axis (`payloadVersion`), so a shape change
+//! never re-keys the signed identity. See
 //! `docs/event-versioning.md` for the four version axes and the decision procedure.
 
 use super::EventType;

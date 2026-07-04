@@ -171,10 +171,11 @@ pub fn build_all_fixtures(fixture_dir: &Path) -> FixtureSet {
     }));
     set.insert_json("mutation-cases.json", &json!({ "cases": mutation_index }));
 
-    // Legacy-payload-view fixture for the read-time payload-view upcast: a signed
-    // review-domain proposal whose payload still uses the retired artifact-hash
-    // wire key, marked payloadVersion 0. The signature binds the stored legacy
-    // payload; the projection-layer upcast re-presents it without re-hashing.
+    // Legacy-payload-view fixture: a signed review-domain proposal whose payload
+    // uses the retired artifact-hash wire key, marked payloadVersion 0. At the 1.0
+    // format floor there is no read-time upcast, so this view is refused on read;
+    // the fixture exercises that rejection while its signature stays valid over the
+    // stored legacy bytes.
     let legacy_view = sign_event(
         legacy_view_revision_proposed_event(),
         &keys.did_key,
@@ -390,9 +391,9 @@ fn task_event() -> Value {
 /// A signed review-domain `work_object_proposed` envelope pinned at a legacy
 /// payload view: the artifact binding rides under the retired
 /// `snapshotArtifactContentHash` wire key and the envelope carries
-/// `payloadVersion: 0`, so the read-time payload-view upcast — not the strict
-/// reader — is what re-presents it under the current model. The signature is
-/// over the stored (legacy) payload bytes; the upcast must leave it valid.
+/// `payloadVersion: 0`. At the 1.0 format floor this view is refused on read (no
+/// read-time upcast); the fixture exercises that rejection. The signature is over
+/// the stored (legacy) payload bytes and stays valid regardless.
 fn legacy_view_revision_proposed_event() -> Value {
     let revision_id = format!("rev:sha256:{}", "8".repeat(64));
     let object_id = format!("obj:sha256:{}", "9".repeat(64));

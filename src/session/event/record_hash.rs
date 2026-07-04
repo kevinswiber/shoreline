@@ -22,11 +22,10 @@ use crate::session::event::{AssertionMode, EventTarget, ShoreEvent, Writer};
 /// list; that exclusion is a post-approval ADR correction the convergence claim requires.)
 ///
 /// `contentEncoding` and `payloadVersion` are excluded because they describe how the
-/// record is stored (content-coding tokens) and how its payload is read (the view
-/// version a read-time upcast dispatches on), not what the fact is. Identity is
-/// computed over the decoded content, so re-encoding a record or bumping its view
-/// version must never re-mint its identity (see ADR-0004's storage-descriptor
-/// amendment).
+/// record is stored (content-coding tokens) and which shape its payload takes (the
+/// hash-excluded view version), not what the fact is. Identity is computed over the
+/// decoded content, so re-encoding a record or bumping its view version must never
+/// re-mint its identity (see ADR-0004's storage-descriptor amendment).
 ///
 /// This view is **exhaustively** the `ShoreEvent` envelope minus exactly six fields
 /// (`signer`, `signature`, `sourceRef`, `ingest`, `contentEncoding`, `payloadVersion`).
