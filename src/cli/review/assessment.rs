@@ -10,8 +10,8 @@ use shoreline::session::{
     AssessmentTargetSelector, record_assessment, show_assessments,
 };
 
+use crate::cli::common::{ContentTypeArg, SideArg, read_body_input};
 use crate::cli::output;
-use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct AssessmentArgs {
@@ -187,7 +187,7 @@ fn review_assessment_add(
     let format_explicit = args.format_args.explicit(false);
     let (options, skip) = assessment_add_options(args, stderr)?;
     let result = record_assessment(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let document = assessment_add_document("shore.review-assessment-add", result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
@@ -202,7 +202,7 @@ fn review_assessment_show(
     let repo = args.repo.clone();
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     let result = show_assessments(assessment_show_options(args))?;
-    let delegation_map = super::common::discover_delegation_map(&repo);
+    let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     // `assessment_show_document` consumes the result by value; the text lane
     // reads the same result, so clone it only when that lane will render.
     let text_source = matches!(format.format, output::OutputFormat::Text).then(|| result.clone());
@@ -225,7 +225,9 @@ fn review_assessment_show(
 /// the replaced count when `--all` reveals history. Reads only the public
 /// `AssessmentShowResult`; ids truncate via `output::short_ref`.
 fn render_assessment_show_text(result: &AssessmentShowResult) -> String {
-    let mut lines = vec![super::common::current_call_line(&result.current.status)];
+    let mut lines = vec![crate::cli::common::current_call_line(
+        &result.current.status,
+    )];
     for record in &result.current.records {
         lines.push(format!(
             "  track {} · recorded {}",
@@ -255,7 +257,7 @@ fn render_assessment_show_text(result: &AssessmentShowResult) -> String {
 pub(super) fn assessment_add_options(
     args: AssessmentAddArgs,
     stderr: &mut dyn Write,
-) -> Result<(AssessmentAddOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
+) -> Result<(AssessmentAddOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
     let target = assessment_target(
         args.file.as_ref(),
         args.side,
@@ -296,9 +298,9 @@ pub(super) fn assessment_add_options(
     }
     let mut skip = None;
     if let Some(resolved) =
-        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+        crate::cli::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }
@@ -310,7 +312,7 @@ pub(super) fn assessment_show_options(args: AssessmentShowArgs) -> AssessmentSho
     let mut options = AssessmentShowOptions::new(&args.repo)
         .with_all(args.all)
         .with_include_summary(args.include_summary)
-        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
+        .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }

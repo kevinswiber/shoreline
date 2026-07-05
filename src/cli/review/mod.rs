@@ -7,7 +7,6 @@ use crate::cli_tracing::TracingArgs;
 pub(super) mod assessment;
 pub(super) mod association;
 pub(super) mod capture;
-pub(super) mod common;
 pub(super) mod endorse;
 pub(super) mod history;
 pub(super) mod input_request;

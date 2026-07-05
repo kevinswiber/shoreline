@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 
 use crate::cli_tracing::TracingArgs;
 
+pub(crate) mod common;
 mod diff;
 mod dump;
 mod identity;

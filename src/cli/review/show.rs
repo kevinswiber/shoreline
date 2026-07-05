@@ -103,7 +103,7 @@ fn render_revision_digest(result: &RevisionShowResult) -> String {
         endpoint_label(&identity.target),
     ));
 
-    lines.push(super::common::current_call_line(
+    lines.push(crate::cli::common::current_call_line(
         &result.current_assessment.status,
     ));
     // Signed-by-enrolled-key keys on the resolved call's own event id; a resolved
@@ -158,7 +158,7 @@ fn render_revision_digest(result: &RevisionShowResult) -> String {
             lines.push(format!(
                 "  {} — \"{}\" ({})",
                 output::short_ref(request.id.as_str()),
-                super::common::clamp_title(&request.title),
+                crate::cli::common::clamp_title(&request.title),
                 mode_label(request.mode),
             ));
         }
@@ -278,15 +278,15 @@ fn show_options(args: &ShowArgs) -> RevisionShowOptions {
     if let Some(track) = &args.track {
         options = options.with_track(track.clone());
     }
-    if let Some(map) = super::common::discover_delegation_map(&args.repo) {
+    if let Some(map) = crate::cli::common::discover_delegation_map(&args.repo) {
         options = options.with_delegation_map(map);
     }
     // Advisory policy + reader trust: enable the per-event verificationStatus +
     // endorsement readback, reader-relative; render-only, never a gate.
     options = options
-        .with_trust_set(super::common::discover_trust_set(&args.repo))
+        .with_trust_set(crate::cli::common::discover_trust_set(&args.repo))
         .with_verification_policy(EventVerificationPolicy::advisory())
         .with_removal_policy(RemovalPolicy::default())
-        .with_actor_attributes(super::common::discover_actor_attributes(&args.repo));
+        .with_actor_attributes(crate::cli::common::discover_actor_attributes(&args.repo));
     options
 }

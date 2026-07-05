@@ -14,8 +14,8 @@ use shoreline::session::{
     list_associations, withdraw_commit, withdraw_ref,
 };
 
+use crate::cli::common::{SignableOptions, SigningSkip};
 use crate::cli::output;
-use crate::cli::review::common::{SignableOptions, SigningSkip};
 
 #[derive(Debug, Args)]
 pub(super) struct AssociationArgs {
@@ -222,7 +222,7 @@ fn associate_commit_run(
     options = with_selection(options, args.revision);
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = associate_commit(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &associate_commit_document(result))
@@ -239,7 +239,7 @@ fn withdraw_commit_run(
     options = with_selection(options, args.revision);
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = withdraw_commit(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &withdraw_commit_document(result))
@@ -255,7 +255,7 @@ fn associate_ref_run(
     options = with_selection(options, args.revision);
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = associate_ref(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &associate_ref_document(result))
@@ -271,7 +271,7 @@ fn withdraw_ref_run(
     options = with_selection(options, args.revision);
     let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
     let result = withdraw_ref(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &withdraw_ref_document(result))
@@ -383,8 +383,8 @@ fn render_association_text(result: &ListAssociationsResult, landing: &str) -> St
     for reference in &result.current_refs {
         lines.push(format!(
             "  ref {} → {}",
-            super::common::clamp_title(&reference.ref_name),
-            super::common::clamp_title(&output::short_ref(&reference.head_oid)),
+            crate::cli::common::clamp_title(&reference.ref_name),
+            crate::cli::common::clamp_title(&output::short_ref(&reference.head_oid)),
         ));
     }
 
@@ -449,8 +449,8 @@ fn apply_signer<O: SignableOptions>(
     stderr: &mut dyn Write,
 ) -> (O, SigningSkip) {
     let mut skip = None;
-    if let Some(resolved) = super::common::resolve_and_surface_signer(repo, sign_key, stderr) {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+    if let Some(resolved) = crate::cli::common::resolve_and_surface_signer(repo, sign_key, stderr) {
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }

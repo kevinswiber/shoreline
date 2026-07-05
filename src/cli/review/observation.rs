@@ -9,8 +9,8 @@ use shoreline::session::{
     record_observation,
 };
 
+use crate::cli::common::{ContentTypeArg, SideArg, read_body_input};
 use crate::cli::output;
-use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct ObservationArgs {
@@ -159,7 +159,7 @@ fn review_observation_add(
     let format_explicit = args.format_args.explicit(false);
     let (options, skip) = observation_add_options(args, stderr)?;
     let result = record_observation(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let document = observation_add_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
@@ -173,7 +173,7 @@ fn review_observation_list(
     let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let result = list_observations(observation_list_options(args));
-    let delegation_map = super::common::discover_delegation_map(&repo);
+    let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     let document = observation_list_document(result?, delegation_map.as_ref());
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
@@ -182,7 +182,7 @@ fn review_observation_list(
 fn observation_add_options(
     args: ObservationAddArgs,
     stderr: &mut dyn Write,
-) -> Result<(ObservationAddOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
+) -> Result<(ObservationAddOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
     let target = observation_target(&args);
     let body = read_body_input(
         args.body.as_deref(),
@@ -218,9 +218,9 @@ fn observation_add_options(
     }
     let mut skip = None;
     if let Some(resolved) =
-        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+        crate::cli::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }
@@ -231,7 +231,7 @@ fn observation_add_options(
 fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions {
     let mut options = ObservationListOptions::new(&args.repo)
         .with_include_body(args.include_body)
-        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
+        .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }

@@ -461,7 +461,7 @@ fn revision_overviews(
         RevisionOverviewsOptions::new(repo)
             .with_revisions(entries.iter().map(|entry| entry.revision_id.clone()))
             .with_read_for_display(true)
-            .with_trust_set(crate::cli::review::common::discover_trust_set(repo)),
+            .with_trust_set(crate::cli::common::discover_trust_set(repo)),
     )
     .map_err(|error| {
         tracing::debug!(error = %error, "inspect_unit_overviews_failed");
@@ -662,9 +662,9 @@ fn assessment_label(assessment: ReviewAssessment) -> &'static str {
 fn inspect_base_config(repo: &Path) -> BaseProjectionConfig {
     BaseProjectionConfig {
         verification_policy: Some(EventVerificationPolicy::advisory()),
-        trust_set: crate::cli::review::common::discover_trust_set(repo),
-        actor_attributes: crate::cli::review::common::discover_actor_attributes(repo),
-        delegation_map: crate::cli::review::common::discover_delegation_map(repo),
+        trust_set: crate::cli::common::discover_trust_set(repo),
+        actor_attributes: crate::cli::common::discover_actor_attributes(repo),
+        delegation_map: crate::cli::common::discover_delegation_map(repo),
         removal_policy: shoreline::session::RemovalPolicy::default(),
     }
 }
@@ -1194,9 +1194,9 @@ pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, St
         .with_include_body(true)
         .with_read_for_display(true)
         .with_verification_policy(EventVerificationPolicy::advisory())
-        .with_trust_set(crate::cli::review::common::discover_trust_set(repo))
-        .with_actor_attributes(crate::cli::review::common::discover_actor_attributes(repo));
-    if let Some(map) = crate::cli::review::common::discover_delegation_map(repo) {
+        .with_trust_set(crate::cli::common::discover_trust_set(repo))
+        .with_actor_attributes(crate::cli::common::discover_actor_attributes(repo));
+    if let Some(map) = crate::cli::common::discover_delegation_map(repo) {
         show_options = show_options.with_delegation_map(map);
     }
     let result = show_revision(show_options).map_err(|error| {

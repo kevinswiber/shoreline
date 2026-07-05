@@ -194,14 +194,15 @@ fn history_options(args: &HistoryArgs) -> Result<ReviewHistoryOptions, Box<dyn s
     if let Some(ref_name) = &args.ref_name {
         options = options.with_ref_filter(ref_name.clone(), args.by.into());
     }
-    if let Some(map) = super::common::discover_delegation_map(&args.repo) {
+    if let Some(map) = crate::cli::common::discover_delegation_map(&args.repo) {
         options = options.with_delegation_map(map);
     }
     // Advisory policy: presence enables the verificationStatus render, never gates a write.
-    options = options.with_trust_set(super::common::discover_trust_set(&args.repo));
+    options = options.with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     options = options.with_verification_policy(EventVerificationPolicy::advisory());
     // Sibling enrichment for endorsement readbacks (endorser kind/roles), reader-relative.
-    options = options.with_actor_attributes(super::common::discover_actor_attributes(&args.repo));
+    options =
+        options.with_actor_attributes(crate::cli::common::discover_actor_attributes(&args.repo));
     Ok(options)
 }
 

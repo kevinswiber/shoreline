@@ -9,7 +9,7 @@ use shoreline::session::{
     resolve_writer_actor_id,
 };
 
-use super::common::resolve_signer;
+use crate::cli::common::resolve_signer;
 use crate::cli::json::DiagnosticDocument;
 use crate::cli::output;
 

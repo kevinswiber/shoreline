@@ -17,8 +17,8 @@ use shoreline::session::{
     open_input_request, respond_input_request,
 };
 
+use crate::cli::common::{ContentTypeArg, SideArg, read_body_input};
 use crate::cli::output;
-use crate::cli::review::common::{ContentTypeArg, SideArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct InputRequestArgs {
@@ -270,7 +270,7 @@ fn review_input_request_open(
     let format_explicit = args.format_args.explicit(false);
     let (options, skip) = input_request_open_options(args, stderr)?;
     let result = open_input_request(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let document = input_request_open_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
@@ -285,7 +285,7 @@ fn review_input_request_list(
     let repo = args.repo.clone();
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     let result = list_input_requests(input_request_list_options(args))?;
-    let delegation_map = super::common::discover_delegation_map(&repo);
+    let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     // `input_request_list_document` consumes the result by value; the text lane
     // reads the same result, so clone it only when that lane will render.
     let text_source = matches!(format.format, output::OutputFormat::Text).then(|| result.clone());
@@ -305,10 +305,10 @@ fn review_input_request_fetch(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let format_explicit = args.format_args.explicit(pretty);
-    let delegation_map = super::common::discover_delegation_map(&args.repo);
+    let delegation_map = crate::cli::common::discover_delegation_map(&args.repo);
     let result = fetch_input_request(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
-            .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo))
+            .with_trust_set(crate::cli::common::discover_trust_set(&args.repo))
             .with_include_body(args.include_body),
     );
     let document = input_request_fetch_document(result?, delegation_map.as_ref());
@@ -324,7 +324,7 @@ fn review_input_request_respond(
     let format_explicit = args.format_args.explicit(false);
     let (options, skip) = input_request_respond_options(args, stderr)?;
     let result = respond_input_request(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let text_source = result.clone();
     let document = input_request_respond_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
@@ -350,7 +350,7 @@ fn render_input_request_list_text(result: &InputRequestListResult) -> String {
         lines.push(format!(
             "  {} · \"{}\" · {} · {} · {}",
             output::short_ref(request.id.as_str()),
-            super::common::clamp_title(&request.title),
+            crate::cli::common::clamp_title(&request.title),
             wire_label(&request.mode),
             wire_label(&request.reason_code),
             request.status.as_str(),
@@ -393,7 +393,8 @@ fn status_filter_label(filter: InputRequestStatusFilter) -> &'static str {
 fn input_request_open_options(
     args: InputRequestOpenArgs,
     stderr: &mut dyn Write,
-) -> Result<(InputRequestOpenOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
+) -> Result<(InputRequestOpenOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>>
+{
     let target = input_request_target(&args)?;
     let body = read_body_input(
         args.body.as_deref(),
@@ -419,9 +420,9 @@ fn input_request_open_options(
     }
     let mut skip = None;
     if let Some(resolved) =
-        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+        crate::cli::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }
@@ -433,7 +434,7 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
     let mut options = InputRequestListOptions::new(&args.repo)
         .with_status(args.status.into())
         .with_include_body(args.include_body)
-        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
+        .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }
@@ -452,7 +453,8 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
 fn input_request_respond_options(
     args: InputRequestRespondArgs,
     stderr: &mut dyn Write,
-) -> Result<(InputRequestRespondOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
+) -> Result<(InputRequestRespondOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>>
+{
     let reason = read_body_input(
         args.reason.as_deref(),
         args.reason_file.as_deref(),
@@ -470,9 +472,9 @@ fn input_request_respond_options(
     }
     let mut skip = None;
     if let Some(resolved) =
-        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+        crate::cli::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }

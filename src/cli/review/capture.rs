@@ -64,7 +64,7 @@ pub(super) fn run(
     }
     let (options, skip) = capture_options(&args, tracing, stderr);
     let capture = capture_review(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     // `capture_document` consumes the result by value; keep a clone for the text lane.
     let text_source = capture.clone();
     let document = capture_document(capture);
@@ -141,7 +141,7 @@ fn capture_options(
     args: &CaptureArgs,
     tracing: &TracingArgs,
     stderr: &mut dyn Write,
-) -> (CaptureOptions, super::common::SigningSkip) {
+) -> (CaptureOptions, crate::cli::common::SigningSkip) {
     let mut options = CaptureOptions::new(&args.repo);
     if let Some(range) = commit_range_spec(args) {
         options = options.with_commit_range(range);
@@ -162,9 +162,9 @@ fn capture_options(
     }
     let mut skip = None;
     if let Some(resolved) =
-        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+        crate::cli::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }

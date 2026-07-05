@@ -8,8 +8,8 @@ use shoreline::session::{
     ValidationAddOptions, ValidationListOptions, list_validation_checks, record_validation_check,
 };
 
+use crate::cli::common::{ContentTypeArg, read_body_input};
 use crate::cli::output;
-use crate::cli::review::common::{ContentTypeArg, read_body_input};
 
 #[derive(Debug, Args)]
 pub(super) struct ValidationArgs {
@@ -164,7 +164,7 @@ fn review_validation_add(
     let format_explicit = args.format_args.explicit(false);
     let (options, skip) = validation_add_options(args, stderr)?;
     let result = record_validation_check(options)?;
-    super::common::surface_best_effort_skip(&skip, stderr);
+    crate::cli::common::surface_best_effort_skip(&skip, stderr);
     let document = validation_add_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
@@ -178,7 +178,7 @@ fn review_validation_list(
     let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let result = list_validation_checks(validation_list_options(args));
-    let delegation_map = super::common::discover_delegation_map(&repo);
+    let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     let document = validation_list_document(result?, delegation_map.as_ref());
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
@@ -187,7 +187,7 @@ fn review_validation_list(
 fn validation_add_options(
     args: ValidationAddArgs,
     stderr: &mut dyn Write,
-) -> Result<(ValidationAddOptions, super::common::SigningSkip), Box<dyn std::error::Error>> {
+) -> Result<(ValidationAddOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
     let summary = read_body_input(
         args.summary.as_deref(),
         args.summary_file.as_deref(),
@@ -229,9 +229,9 @@ fn validation_add_options(
     }
     let mut skip = None;
     if let Some(resolved) =
-        super::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
+        crate::cli::common::resolve_and_surface_signer(&args.repo, args.sign_key.as_deref(), stderr)
     {
-        let (signed, signer_skip) = super::common::apply_resolved_signer(options, resolved);
+        let (signed, signer_skip) = crate::cli::common::apply_resolved_signer(options, resolved);
         options = signed;
         skip = signer_skip;
     }
@@ -242,7 +242,7 @@ fn validation_add_options(
 fn validation_list_options(args: ValidationListArgs) -> ValidationListOptions {
     let mut options = ValidationListOptions::new(&args.repo)
         .with_include_body(args.include_body)
-        .with_trust_set(crate::cli::review::common::discover_trust_set(&args.repo));
+        .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = args.revision {
         options = options.with_revision_id(RevisionId::new(revision));
     }
