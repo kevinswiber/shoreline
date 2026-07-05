@@ -202,7 +202,8 @@ body {
 /* Selection = a light --sel-bg wash + an --accent left bar; the bar carries the
    signal so the wash stays light enough for colored event-type labels to clear AA. */
 .event[aria-selected="true"] { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
-.event .time { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); }
+.event .time { color: var(--fg-dim); font-size: 11px; font-family: var(--mono); display: flex; flex-direction: column; line-height: 1.3; }
+.event-date { color: var(--fg-dim); opacity: 0.8; }
 .event .rail { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
 .event .body { min-width: 0; }
 .event .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
