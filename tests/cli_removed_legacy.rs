@@ -2,6 +2,64 @@ mod support;
 
 use support::{dump_repo, shore};
 
+struct RemovedPath {
+    argv: &'static [&'static str],
+    /// Substrings the successor hint must contain (empty = no hint expected).
+    hint_contains: &'static [&'static str],
+}
+
+// Family/rename tasks APPEND rows here.
+const REMOVED_PATHS: &[RemovedPath] = &[
+    // Fully removed review verbs: unregistered, no successor hint.
+    RemovedPath {
+        argv: &["review", "publish", "--help"],
+        hint_contains: &[],
+    },
+    RemovedPath {
+        argv: &["review", "verdict", "--help"],
+        hint_contains: &[],
+    },
+    RemovedPath {
+        argv: &["review", "ack", "--help"],
+        hint_contains: &[],
+    },
+    // Retired names that point at their post-reshape successors.
+    RemovedPath {
+        argv: &["review", "intervention", "--help"],
+        hint_contains: &["shore input-request"],
+    },
+    RemovedPath {
+        argv: &["review", "lineage", "--help"],
+        hint_contains: &["shore capture --supersedes", "shore revision list"],
+    },
+    RemovedPath {
+        argv: &["review", "unit", "--help"],
+        hint_contains: &["shore revision list", "shore revision show"],
+    },
+];
+
+#[test]
+fn removed_review_paths_are_unregistered_and_hint_at_successors() {
+    for case in REMOVED_PATHS {
+        let output = shore(case.argv.iter().copied());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(!output.status.success(), "{:?} must be rejected", case.argv);
+        assert!(
+            stderr.contains("unrecognized subcommand"),
+            "{:?} should be unregistered:\n{stderr}",
+            case.argv
+        );
+        for needle in case.hint_contains {
+            assert!(
+                stderr.contains(needle),
+                "{:?} hint missing {needle:?}:\n{stderr}",
+                case.argv
+            );
+        }
+    }
+}
+
 #[test]
 fn legacy_hunk_flag_is_rejected_without_shore_mutation() {
     for command in [vec!["dump"], vec!["show"], vec!["notes", "apply"]] {
@@ -25,20 +83,6 @@ fn legacy_hunk_flag_is_rejected_without_shore_mutation() {
         assert!(
             !repo.path().join(".shore/data").exists(),
             "clap rejection must happen before any writer runs"
-        );
-    }
-}
-
-#[test]
-fn removed_review_commands_are_unknown() {
-    for command in ["publish", "verdict", "ack"] {
-        let output = shore(["review", command, "--help"]);
-
-        assert!(!output.status.success(), "{command} should be removed");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand"),
-            "stderr:\n{}",
-            String::from_utf8_lossy(&output.stderr)
         );
     }
 }

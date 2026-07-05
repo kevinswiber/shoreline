@@ -74,7 +74,7 @@ where
     S: Into<OsString>,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    let removed_command_hint = removed_review_command_hint(&args);
+    let removed_command_hint = removed_command_hint(&args);
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
@@ -106,26 +106,63 @@ where
     }
 }
 
-/// A hint for a removed `shore review <sub>` command, surfaced after clap's
-/// invalid-subcommand error so a stale invocation points at its replacement.
-fn removed_review_command_hint(args: &[OsString]) -> Option<&'static str> {
-    let invokes = |name: &str| {
-        args.windows(2)
-            .any(|pair| pair[0].to_str() == Some("review") && pair[1].to_str() == Some(name))
-    };
-    if invokes("intervention") {
-        Some("Use `shore review input-request` instead of `shore review intervention`.")
-    } else if invokes("lineage") {
-        Some(
-            "`shore review lineage` is removed; record supersession on `shore review capture --supersedes <revision>` and read it with `shore review revisions`.",
-        )
-    } else if invokes("unit") {
-        Some(
-            "`shore review unit` is removed; list with `shore review revisions` and show one with `shore review show --revision <id>`.",
-        )
-    } else {
-        None
+/// A predicate over the raw argv that recognizes a removed/renamed command.
+enum HintPredicate {
+    /// Two or three adjacent argv tokens, e.g. `["review", "revisions"]`.
+    AdjacentWindow(&'static [&'static str]),
+    /// The first non-flag argv token — the attempted subcommand. Used for the
+    /// bare-family and pluralized-family retirements the family/rename tasks add.
+    // Precursor: no seed row uses this yet; the first LeadingToken row (bare
+    // `review`) arrives when the `review` namespace is retired. Remove this allow
+    // when a row uses it.
+    #[allow(dead_code)]
+    LeadingToken(&'static str),
+}
+
+impl HintPredicate {
+    fn matches(&self, tokens: &[&str]) -> bool {
+        match self {
+            HintPredicate::AdjacentWindow(seq) => tokens
+                .windows(seq.len())
+                .any(|window| window.iter().zip(seq.iter()).all(|(a, b)| a == b)),
+            HintPredicate::LeadingToken(name) => tokens
+                .iter()
+                .skip(1) // skip the program name
+                .find(|token| !token.starts_with('-'))
+                .is_some_and(|token| token == name),
+        }
     }
+}
+
+/// Removed/renamed command hints, evaluated in order (first match wins). Keep
+/// specific `AdjacentWindow` rows before general `LeadingToken` rows so a stale
+/// `shore review <verb>` gets the verb-specific hint rather than the family hint.
+/// Family/rename tasks append rows; they never change this mechanism.
+const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
+    (
+        HintPredicate::AdjacentWindow(&["review", "intervention"]),
+        "Use `shore input-request` instead of `shore review intervention`.",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "lineage"]),
+        "`shore review lineage` is removed; record supersession on \
+         `shore capture --supersedes <revision>` and read it with `shore revision list`.",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "unit"]),
+        "`shore review unit` is removed; list with `shore revision list` \
+         and show one with `shore revision show <revision>`.",
+    ),
+];
+
+/// A hint for a removed or renamed command, surfaced after clap's
+/// invalid-subcommand error so a stale invocation points at its replacement.
+fn removed_command_hint(args: &[OsString]) -> Option<&'static str> {
+    let tokens: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
+    REMOVED_COMMAND_HINTS
+        .iter()
+        .find(|(predicate, _)| predicate.matches(&tokens))
+        .map(|(_, hint)| *hint)
 }
 
 fn run_cli(
