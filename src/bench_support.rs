@@ -189,4 +189,71 @@ mod tests {
             "the synthetic store occupies on-disk bytes"
         );
     }
+
+    /// Schema-currency guard: a store authored by the current code must read back
+    /// through the harness's strict `list_events`. This is the exact seam the
+    /// `SHORE_BENCH_FIXTURE` real-world group uses to decide whether to run — so a
+    /// schema break that regressed it would silently skip the benchmark instead of
+    /// failing. Here it fails loudly.
+    #[test]
+    fn a_current_schema_store_reads_back_through_the_harness() {
+        let repo = author_current_schema_store();
+        let store_dir = crate::session::store_dir_for_repo(repo.path()).expect("resolve store dir");
+
+        let harness = StoreBenchHarness::open(&store_dir);
+
+        let count = harness
+            .try_read_all()
+            .expect("a current-schema store must read back under strict list_events");
+        assert!(
+            count >= 2,
+            "expected at least the capture + observation events, got {count}"
+        );
+    }
+
+    /// Build a throwaway git repo and author a small current-schema store into it:
+    /// a captured revision (object artifact) plus one observation (a body-bearing
+    /// family). Returns the temp repo, which the caller keeps alive.
+    fn author_current_schema_store() -> tempfile::TempDir {
+        use crate::session::{
+            CaptureOptions, ObservationAddOptions, capture_worktree_review, record_observation,
+        };
+
+        let repo = tempfile::tempdir().expect("temp repo");
+        let path = repo.path();
+
+        run_git(path, &["init"]);
+        run_git(path, &["config", "user.name", "Bench Fixture"]);
+        run_git(path, &["config", "user.email", "bench@example.com"]);
+        run_git(path, &["config", "commit.gpgsign", "false"]);
+
+        std::fs::write(path.join("lib.rs"), "pub fn v() -> u32 { 1 }\n").unwrap();
+        run_git(path, &["add", "--all"]);
+        run_git(path, &["commit", "-m", "base"]);
+
+        // An uncommitted change so the worktree capture has a diff to record.
+        std::fs::write(path.join("lib.rs"), "pub fn v() -> u32 { 2 }\n").unwrap();
+        let captured =
+            capture_worktree_review(CaptureOptions::new(path)).expect("capture worktree review");
+
+        record_observation(
+            ObservationAddOptions::new(path)
+                .with_revision_id(captured.revision_id)
+                .with_track("agent:bench")
+                .with_title("bench fixture note")
+                .with_body("A current-schema observation for the read-all fixture."),
+        )
+        .expect("record observation");
+
+        repo
+    }
+
+    fn run_git(dir: &std::path::Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {args:?} failed");
+    }
 }
