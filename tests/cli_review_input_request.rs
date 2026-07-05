@@ -637,7 +637,6 @@ fn input_request_open_observation_target_conflicts_with_file_and_lines() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let observation = shore([
-        "review",
         "observation",
         "add",
         "--repo",
@@ -794,7 +793,10 @@ fn legacy_intervention_command_is_not_registered() {
 
 #[test]
 fn other_unknown_review_subcommands_keep_clap_suggestions() {
-    let output = shore(["review", "observatin"]);
+    // Target a review subcommand that is still registered at this point in the
+    // flatten sequence (`revisions` is among the last to move, in the revision
+    // family); the typo should still draw clap's did-you-mean suggestion.
+    let output = shore(["review", "revisons"]);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -802,7 +804,7 @@ fn other_unknown_review_subcommands_keep_clap_suggestions() {
         stderr.contains("unrecognized subcommand"),
         "stderr:\n{stderr}"
     );
-    assert!(stderr.contains("observation"), "stderr:\n{stderr}");
+    assert!(stderr.contains("revisions"), "stderr:\n{stderr}");
     assert!(stderr.contains("Usage: shore review"), "stderr:\n{stderr}");
 }
 

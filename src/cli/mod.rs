@@ -20,6 +20,7 @@ mod inspect;
 mod json;
 mod keys;
 mod notes;
+mod observation;
 mod output;
 mod review;
 mod show;
@@ -62,6 +63,7 @@ enum Command {
     Keys(keys::KeysArgs),
     #[command(hide = true)]
     Notes(notes::NotesArgs),
+    Observation(Box<observation::ObservationArgs>),
     // Boxed because the review subcommands carry much larger argument structs
     // than the other top-level commands.
     Review(Box<review::ReviewArgs>),
@@ -160,6 +162,10 @@ const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
         "Use `shore history` instead of `shore review history`.",
     ),
     (
+        HintPredicate::AdjacentWindow(&["review", "observation"]),
+        "Use `shore observation` instead of `shore review observation`.",
+    ),
+    (
         HintPredicate::AdjacentWindow(&["review", "intervention"]),
         "Use `shore input-request` instead of `shore review intervention`.",
     ),
@@ -212,6 +218,7 @@ fn run_cli(
         Command::Inspect(args) => inspect::run(args, stdout),
         Command::Keys(args) => keys::run(args, stdout),
         Command::Notes(args) => notes::run(args, stdout),
+        Command::Observation(args) => observation::run(*args, stdout, stderr),
         Command::Review(args) => review::run(*args, stdout, stderr),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");

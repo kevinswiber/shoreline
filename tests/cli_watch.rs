@@ -124,7 +124,6 @@ fn watch_reprints_only_when_event_set_hash_changes() {
     // 3) A real change — one new observation event — triggers exactly one
     //    reprint.
     let output = shore([
-        "review",
         "observation",
         "add",
         "--repo",

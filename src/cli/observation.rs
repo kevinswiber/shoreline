@@ -172,7 +172,7 @@ fn review_observation_list(
     let pretty = args.pretty && !args.compact;
     let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
-    let result = list_observations(observation_list_options(args));
+    let result = list_observations(observation_list_options(args)?);
     let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     let document = observation_list_document(result?, delegation_map.as_ref());
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
@@ -183,6 +183,7 @@ fn observation_add_options(
     args: ObservationAddArgs,
     stderr: &mut dyn Write,
 ) -> Result<(ObservationAddOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
+    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
     let target = observation_target(&args);
     let body = read_body_input(
         args.body.as_deref(),
@@ -194,8 +195,8 @@ fn observation_add_options(
         .with_title(args.title)
         .with_target(target);
 
-    if let Some(revision) = args.revision {
-        options = options.with_revision_id(RevisionId::new(revision));
+    if let Some(revision) = &args.revision {
+        options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(body) = body {
         options = options.with_body(body);
@@ -207,11 +208,11 @@ fn observation_add_options(
     if let Some(confidence) = args.confidence {
         options = options.with_confidence(confidence.as_str());
     }
-    for supersedes in args.supersedes {
-        options = options.superseding(ObservationId::new(supersedes));
+    for supersedes in &args.supersedes {
+        options = options.superseding(ObservationId::new(ids.observation(supersedes)?));
     }
-    for responds_to in args.responds_to {
-        options = options.responding_to(ObservationId::new(responds_to));
+    for responds_to in &args.responds_to {
+        options = options.responding_to(ObservationId::new(ids.observation(responds_to)?));
     }
     if let Some(idempotency_key) = args.idempotency_key {
         options = options.with_idempotency_key(idempotency_key);
@@ -228,12 +229,15 @@ fn observation_add_options(
     Ok((options, skip))
 }
 
-fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions {
+fn observation_list_options(
+    args: ObservationListArgs,
+) -> Result<ObservationListOptions, Box<dyn std::error::Error>> {
     let mut options = ObservationListOptions::new(&args.repo)
         .with_include_body(args.include_body)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
-    if let Some(revision) = args.revision {
-        options = options.with_revision_id(RevisionId::new(revision));
+    if let Some(revision) = &args.revision {
+        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);
@@ -244,7 +248,7 @@ fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions
     for tag in args.tags {
         options = options.with_tag(tag);
     }
-    options
+    Ok(options)
 }
 
 fn observation_target(args: &ObservationAddArgs) -> ObservationTargetSelector {

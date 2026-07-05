@@ -602,7 +602,6 @@ fn assessment_show(repo: &GitRepo, args: &[&str]) -> Value {
 fn add_observation(repo: &GitRepo, title: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",

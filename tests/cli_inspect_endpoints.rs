@@ -955,7 +955,6 @@ fn inspector_serves_revision_and_history_over_a_swept_body() {
     let body = "x".repeat(5000);
     let observation = shore_env(
         [
-            "review",
             "observation",
             "add",
             "--repo",

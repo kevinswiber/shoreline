@@ -63,7 +63,7 @@ SSH key via `shore keys use-ssh` (agents still auto-keygen, unchanged).
 Read the reviewer's durable review facts:
 
 ```bash
-shore review observation list \
+shore observation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
@@ -170,13 +170,13 @@ Record responses on your author track. Reference the reviewer observation IDs, i
 and assessment ID in the body so a reader can connect the response to the review.
 
 ```bash
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$author_track" \
   --title "Response to reviewer parser follow-up" \
   --body "Responded to reviewer advisory request <input-request-id> from assessment <assessment-id>: accepted the follow-up but kept it out of this revision because the current assessment is accepted-with-follow-up and the cleanup would widen the reviewed change."
 
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$author_track" \
   --title "Addressed reviewer observation <observation-id>" \
@@ -227,7 +227,7 @@ Pick the landed commit deliberately:
 Optionally also record a human-readable companion for readers scanning observations:
 
 ```bash
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$author_track" \
   --tag state-change:landed \
@@ -249,7 +249,7 @@ is no single "canonical" scalar to set.
 Verify the author response with bounded read commands:
 
 ```bash
-shore review observation list \
+shore observation list \
   --revision "$revision_id" \
   --track "$author_track" \
   --include-body --pretty

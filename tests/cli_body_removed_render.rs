@@ -39,7 +39,6 @@ fn capture_with_externalized_observation_body(repo: &Path) -> (String, String) {
 
     let body = "x".repeat(5000);
     let observation = shore([
-        "review",
         "observation",
         "add",
         "--repo",
@@ -122,14 +121,7 @@ fn swept_body_renders_physically_removed_across_read_surfaces() {
     ));
 
     // observation list: same explained state on the leaf surface.
-    let list = shore([
-        "review",
-        "observation",
-        "list",
-        "--repo",
-        arg,
-        "--include-body",
-    ]);
+    let list = shore(["observation", "list", "--repo", arg, "--include-body"]);
     assert_success(&list, "observation list");
     let list = parse_json(&list.stdout);
     let listed = observation_entry(&list);
@@ -214,14 +206,7 @@ fn wire_stays_silent_without_removal() {
 
     let show = shore(["review", "show", "--repo", arg, "--include-body"]);
     assert_success(&show, "review show");
-    let list = shore([
-        "review",
-        "observation",
-        "list",
-        "--repo",
-        arg,
-        "--include-body",
-    ]);
+    let list = shore(["observation", "list", "--repo", arg, "--include-body"]);
     assert_success(&list, "observation list");
 
     for (name, output) in [("show", &show.stdout), ("list", &list.stdout)] {

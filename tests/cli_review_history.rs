@@ -151,7 +151,6 @@ fn review_history_summary_surfaces_responds_to() {
     let base = add_observation(&repo, "agent:codex", "Base");
     let base_id = base["observationId"].as_str().unwrap().to_owned();
     shore([
-        "review",
         "observation",
         "add",
         "--repo",
@@ -642,7 +641,6 @@ fn modified_repo() -> GitRepo {
 fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",
@@ -669,7 +667,6 @@ fn add_validation_check(repo: &GitRepo) {
 fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",
@@ -688,7 +685,6 @@ fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &st
 fn add_observation_with_key(repo: &GitRepo, key: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",

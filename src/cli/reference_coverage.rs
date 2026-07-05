@@ -24,7 +24,7 @@ const REQUIRED_FLAGS: &[&str] = &[
     "--integration-ref",
     "--worktree", // review revisions
     "--responds-to",
-    "--confidence", // review observation add
+    "--confidence", // observation add
 ];
 
 fn collect_leaf_paths(cmd: &clap::Command, prefix: &mut Vec<String>, out: &mut Vec<String>) {

@@ -50,7 +50,7 @@ shore review show --pretty
 Then record what you learn:
 
 ```bash
-shore review observation add --track human:local --title "Check error handling"
+shore observation add --track human:local --title "Check error handling"
 shore review input-request open --track human:local --title "Need decision" \
   --reason manual-decision-required --mode advisory
 shore review assessment add --track human:local --assessment needs-clarification \

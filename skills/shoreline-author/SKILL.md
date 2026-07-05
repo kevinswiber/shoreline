@@ -108,20 +108,20 @@ the reviewer should inspect first. Prefer file and line anchors when the observa
 specific part of the diff.
 
 ```bash
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Parser keeps the existing whitespace contract" \
   --file src/parser.rs --start-line 84 --end-line 123 \
   --body "The parser now accepts the new token form while preserving the old whitespace path. The branch stays local to parsing so callers do not need a compatibility shim."
 
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Targeted parser test was red first" \
@@ -215,7 +215,7 @@ are acting as the reviewer, not while authoring the handoff.
 Verify that the handoff is visible before you stop:
 
 ```bash
-shore review observation list --revision "$revision_id" --track "$track" --pretty
+shore observation list --revision "$revision_id" --track "$track" --pretty
 shore review validation list --revision "$revision_id" --track "$track" --include-body --pretty
 shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
@@ -229,7 +229,7 @@ Then stand down with a concise message:
 
 ```text
 Created the Shoreline handoff record on `<track>`. Read it with
-`shore review observation list --revision <id> --track <track> --include-body --pretty`
+`shore observation list --revision <id> --track <track> --include-body --pretty`
 and
 `shore review validation list --revision <id> --track <track> --include-body --pretty`
 and

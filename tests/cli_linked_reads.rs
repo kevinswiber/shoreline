@@ -73,7 +73,6 @@ impl LinkedFixture {
 
     fn observation_add(&self, worktree: &Path, revision_id: &str, body: &str) -> Value {
         run_shore_json(&[
-            "review",
             "observation",
             "add",
             "--repo",
@@ -270,7 +269,6 @@ fn deleted_worktree_observation_list_renders_with_hydrated_body() {
     let (fixture, _) = populated_fixture_with_deleted_seed(&body);
 
     let json = run_shore_json(&[
-        "review",
         "observation",
         "list",
         "--repo",
@@ -413,7 +411,6 @@ fn reader_capture_file_target_observation_resolves_artifact() {
     // A file-targeted observation against that captured unit resolves its bound
     // object artifact from the shared store and records the file target.
     let json = run_shore_json(&[
-        "review",
         "observation",
         "add",
         "--repo",
@@ -820,7 +817,6 @@ fn linked_fact_write_does_not_copy_object_artifacts_to_linked_store() {
     // worktree-local fallback path). The write must not push the snapshot
     // artifact to the linked store — only `store link` copies artifacts.
     run_shore_json(&[
-        "review",
         "observation",
         "add",
         "--repo",
@@ -921,7 +917,6 @@ fn file_targeted_cross_worktree_fact_is_immediately_readable() {
     let local_unit = capture["revision"]["id"].as_str().unwrap().to_owned();
     let body = "z".repeat(5000);
     run_shore_json(&[
-        "review",
         "observation",
         "add",
         "--repo",
@@ -941,7 +936,6 @@ fn file_targeted_cross_worktree_fact_is_immediately_readable() {
     // A sibling checkout reads the fact's body directly from the shared store,
     // with no `store link` step.
     let listed = run_shore_json(&[
-        "review",
         "observation",
         "list",
         "--repo",
@@ -955,7 +949,6 @@ fn file_targeted_cross_worktree_fact_is_immediately_readable() {
 
 fn observation_list_json(worktree: &Path, revision_id: &str) -> Value {
     run_shore_json(&[
-        "review",
         "observation",
         "list",
         "--repo",
@@ -1114,7 +1107,6 @@ fn linked_observation_list_resolves_linked_unit() {
     fixture.seed_full_facts(&body);
 
     let json = run_shore_json(&[
-        "review",
         "observation",
         "list",
         "--repo",

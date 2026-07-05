@@ -48,7 +48,7 @@ If the author track is not supplied, use the bounded read surfaces to find the t
 the authored handoff:
 
 ```bash
-shore review observation list --revision "$revision_id" --pretty
+shore observation list --revision "$revision_id" --pretty
 shore review validation list --revision "$revision_id" --include-body --pretty
 shore review input-request list --revision "$revision_id" --status open --pretty
 ```
@@ -58,7 +58,7 @@ shore review input-request list --revision "$revision_id" --status open --pretty
 Read only the author's track. Include bodies so you can see the substance of the handoff:
 
 ```bash
-shore review observation list \
+shore observation list \
   --revision "$revision_id" \
   --track "$author_track" \
   --include-body --pretty
@@ -137,14 +137,14 @@ file or range-specific findings, and review-wide observations for verification, 
 cross-cutting conclusions.
 
 ```bash
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --title "Parser test covers the new token path" \
   --file tests/parser.rs --start-line 42 --end-line 71 \
   --body "Verified the new regression test fails against the old parser behavior and passes with this change."
 
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --title "Verification reproduced the author's green checks" \
@@ -252,7 +252,7 @@ record clarifying facts as observations before the single assessment, or choose
 Verify the reviewer record with bounded read commands:
 
 ```bash
-shore review observation list \
+shore observation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty

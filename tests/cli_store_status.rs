@@ -87,7 +87,6 @@ fn store_status_includes_inventory_without_artifact_paths() {
     let body_file = body_dir.path().join("body.txt");
     fs::write(&body_file, "x".repeat(4097)).unwrap();
     shore([
-        "review",
         "observation",
         "add",
         "--repo",
@@ -251,7 +250,6 @@ fn text_store_digest_reports_counts_size_and_sensitivity() {
     let body_file = body_dir.path().join("body.txt");
     fs::write(&body_file, "x".repeat(4097)).unwrap();
     shore([
-        "review",
         "observation",
         "add",
         "--repo",

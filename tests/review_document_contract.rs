@@ -252,7 +252,6 @@ fn review_documents_are_byte_stable() {
     let observation_add = run_command(
         &repo,
         &[
-            "review",
             "observation",
             "add",
             "--repo",
@@ -271,7 +270,6 @@ fn review_documents_are_byte_stable() {
     let observation_list = run_command(
         &repo,
         &[
-            "review",
             "observation",
             "list",
             "--repo",

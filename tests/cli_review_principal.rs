@@ -25,7 +25,6 @@ fn repo_with_agent_observation() -> GitRepo {
     let revision_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     let out = shore_env(
         [
-            "review",
             "observation",
             "add",
             "--repo",

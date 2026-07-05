@@ -56,7 +56,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         "shore capture",
         "shore store status",
         "shore store migrate",
-        "shore review observation add",
+        "shore observation add",
         "shore review input-request open",
         "shore review assessment add",
         "shore history",
@@ -75,7 +75,7 @@ fn cli_reference_exists_and_covers_current_commands() {
 
     assert_markdown_section_contains(
         &cli,
-        "## `shore review observation`",
+        "## `shore observation`",
         &[
             "--revision <revision-id>",
             "--include-body",
@@ -158,7 +158,7 @@ fn getting_started_walks_through_first_review() {
         "cargo install shoreline",
         "shore capture",
         "shore review show",
-        "shore review observation add",
+        "shore observation add",
         "shore review input-request open",
         "shore review assessment add",
         ".git/shore",

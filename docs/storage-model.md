@@ -216,7 +216,7 @@ threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the `sh
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surface is `shore review observation list`, which replays events and can optionally
+The direct read surface is `shore observation list`, which replays events and can optionally
 hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are internal storage
 details, not command-output API. Native observations also appear in the composite
 `shore review show` projection, but they are not projected into `shore dump` or `shore show`.

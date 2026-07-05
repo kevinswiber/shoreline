@@ -479,7 +479,6 @@ fn record_review_facts(repo: &Path) {
     let repo_arg = repo.to_str().unwrap();
     for args in [
         vec![
-            "review",
             "observation",
             "add",
             "--repo",

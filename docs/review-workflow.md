@@ -151,7 +151,7 @@ separate lineage command or declared lineage id — the thread is the connected 
 the same predecessor, the resulting **competing heads** are surfaced as competing, never collapsed to
 a single winner.
 
-Write commands such as `shore review observation add`,
+Write commands such as `shore observation add`,
 `shore review input-request open`, and `shore review assessment add` accept
 `--revision <id>`. When more than one captured revision is current, pass
 the ID from capture output or `shore review revisions`; otherwise writes fail
@@ -262,28 +262,28 @@ older observation through `--supersedes`.
 
 ```bash
 # Review-wide observation
-shore review observation add \
+shore observation add \
   --track agent:codex \
   --title "Check error handling near IO boundary"
 
 # File-targeted observation
-shore review observation add \
+shore observation add \
   --track agent:codex \
   --title "Untrusted input flows here" \
   --file src/lib.rs
 
 # Range-targeted observation, with a body from a file
-shore review observation add \
+shore observation add \
   --track human:kevin \
   --title "Worth a unit test" \
   --file src/lib.rs --start-line 42 --end-line 58 \
   --body-file notes/lib-42.md
 
 # Replay observations for one track
-shore review observation list --track agent:codex --pretty
+shore observation list --track agent:codex --pretty
 
 # Include bodies on read
-shore review observation list --include-body
+shore observation list --include-body
 ```
 
 Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies
@@ -352,7 +352,7 @@ they do not mutate observations or close input requests (use
 
 State-change outcomes such as deferred, split-out, overridden, and superseded
 are recorded as observations tagged with `state-change:*`. Use
-`shore review assessment` for review calls and `shore review observation add`
+`shore review assessment` for review calls and `shore observation add`
 with a concrete tag such as `--tag state-change:deferred` for state-change
 evidence.
 
@@ -451,7 +451,7 @@ There are two overlapping read surfaces today:
   It is the older surface and is well-suited to import workflows and quick
   read-only viewing.
 - The **revision ledger** (`shore capture` plus the
-  `shore review observation`, `input-request`, `assessment`, `history`, and
+  `shore observation`, `input-request`, `assessment`, `history`, and
   `show` commands) operates on a frozen captured snapshot plus the
   durable event log. It is the surface for recording review facts.
 
@@ -525,18 +525,18 @@ shore capture | jq .
 shore review show --pretty | less
 
 # 3. Record observations as you read the diff.
-shore review observation add \
+shore observation add \
   --track agent:codex \
   --title "Check error handling near IO boundary" \
   --file src/io.rs --start-line 88 --end-line 104 \
   --body "The new branch swallows io::ErrorKind::Interrupted silently."
 
-shore review observation add \
+shore observation add \
   --track human:kevin \
   --title "Unit test for the new retry path" \
   --file src/io.rs --start-line 120 --end-line 135
 
-shore review observation list --pretty
+shore observation list --pretty
 
 # 4. Open an input request when you need a decision from someone else.
 shore review input-request open \

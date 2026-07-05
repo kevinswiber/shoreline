@@ -96,7 +96,7 @@ shore history --pretty
 Add an observation for something you noticed while reading the diff:
 
 ```bash
-shore review observation add \
+shore observation add \
   --track human:local \
   --title "Fallback name should be intentional" \
   --file src/example.rs \

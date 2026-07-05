@@ -220,7 +220,6 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
 
     let observation = shore_env(
         [
-            "review",
             "observation",
             "add",
             "--repo",
@@ -343,7 +342,6 @@ fn all_six_write_paths_accept_sign_key_flag() {
 
     let observation = shore_env(
         [
-            "review",
             "observation",
             "add",
             "--repo",

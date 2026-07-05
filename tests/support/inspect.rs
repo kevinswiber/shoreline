@@ -326,7 +326,6 @@ pub fn representative_store() -> RepresentativeStore {
 
     // Range-targeted observation on the agent track.
     run_shore(&[
-        "review",
         "observation",
         "add",
         "--repo",

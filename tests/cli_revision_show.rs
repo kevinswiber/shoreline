@@ -414,7 +414,6 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
     assert!(
         shore_env(
             [
-                "review",
                 "observation",
                 "add",
                 "--repo",
@@ -756,7 +755,6 @@ fn multi_file_repo() -> GitRepo {
 fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",
@@ -773,7 +771,6 @@ fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
 fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",

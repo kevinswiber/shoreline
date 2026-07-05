@@ -96,21 +96,21 @@ that has no other diff.
 can be filtered by track or tag on read.
 
 ```bash
-shore review observation add \
+shore observation add \
   --track agent:codex \
   --title "Check epsilon handling" \
   --tag correctness
 
-shore review observation add \
+shore observation add \
   --track human:kevin \
   --title "Worth a unit test" \
   --file src.txt --start-line 4 --end-line 4 \
   --body "epsilon line was added in this revision"
 
-shore review observation list --pretty
-shore review observation list --pretty --track agent:codex
-shore review observation list --pretty --tag correctness
-shore review observation list --pretty --include-body
+shore observation list --pretty
+shore observation list --pretty --track agent:codex
+shore observation list --pretty --tag correctness
+shore observation list --pretty --include-body
 ```
 
 **Expect.**
@@ -389,7 +389,7 @@ shore review show --pretty >/dev/null
 test -f .shore/data/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
 
 # A write command rebuilds the projection
-shore review observation add --track agent:codex --title "trigger rebuild" >/dev/null
+shore observation add --track agent:codex --title "trigger rebuild" >/dev/null
 jq '.eventCount, .eventSetHash' .shore/data/state.json
 ```
 

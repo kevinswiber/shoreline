@@ -117,14 +117,14 @@ agent_name="<agent-name>"
 run_id="<id>"
 track="agent:${agent_name}-${run_id}"
 
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Parser keeps the existing whitespace contract" \
   --file src/parser.rs --start-line 84 --end-line 123 \
   --body "The parser now accepts the new token form while preserving the old whitespace path. The branch stays local to parsing so callers do not need a compatibility shim."
 
-shore review observation add \
+shore observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Verification covered the changed parser and full suite" \
@@ -147,7 +147,7 @@ shore review input-request open \
   --mode advisory \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
-shore review observation list --revision "$revision_id" --track "$track" --pretty
+shore observation list --revision "$revision_id" --track "$track" --pretty
 shore review validation list --revision "$revision_id" --track "$track" --include-body --pretty
 shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
@@ -177,7 +177,7 @@ better as observations unless they require a decision.
 After the author stops, a reviewer can read the handoff with:
 
 ```bash
-shore review observation list --revision <revision-id> --track <track> --include-body --pretty
+shore observation list --revision <revision-id> --track <track> --include-body --pretty
 shore review validation list --revision <revision-id> --track <track> --include-body --pretty
 shore review input-request list --revision <revision-id> --track <track> --status open \
   --include-body --pretty
@@ -213,7 +213,7 @@ commit diverge, the reviewer records that divergence as an observation.
 Reviewer readback uses the same bounded surfaces as the author handoff:
 
 ```bash
-shore review observation list --revision <revision-id> --track <author-track> \
+shore observation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
 shore review validation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
@@ -268,7 +268,7 @@ reviewer's pass. It attaches to the existing revision with `--revision`; it does
 The author reads the reviewer track with bounded commands:
 
 ```bash
-shore review observation list --revision <revision-id> --track <reviewer-track> \
+shore observation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
 shore review validation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
@@ -326,7 +326,7 @@ born floating, so this is the event it was waiting for; a commit-range-captured 
 anchored at its captured target, so associate that same commit on a rebase or fast-forward — or,
 when a squash or merge produced a new commit, expect a `divergent_commit_association` diagnostic and
 keep or `withdraw-commit` the edge you do not want. Optionally add a human-readable companion with
-`shore review observation add --tag state-change:landed --title "landed as <sha>"`. Do not run
+`shore observation add --tag state-change:landed --title "landed as <sha>"`. Do not run
 `shore capture` again for the landing, and do not add or change the assessment — the resulting
 commit is an author fact, not a review call.
 

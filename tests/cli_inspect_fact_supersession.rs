@@ -110,7 +110,6 @@ fn superseded_observations_emit_a_tagged_fact_graph() {
 
     let first: Value = serde_json::from_slice(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",
@@ -131,7 +130,6 @@ fn superseded_observations_emit_a_tagged_fact_graph() {
         .to_owned();
     let second: Value = serde_json::from_slice(
         &shore([
-            "review",
             "observation",
             "add",
             "--repo",

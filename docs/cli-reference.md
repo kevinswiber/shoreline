@@ -92,12 +92,12 @@ naming who or what is doing the reviewing, such as `agent:codex` or a human revi
 identity. There is no fixed vocabulary or required shape; the label is opaque to Shoreline and
 exists so a revision's facts can be filtered and grouped by who recorded them.
 
-- On every write command that records a fact (`shore review observation add`,
+- On every write command that records a fact (`shore observation add`,
   `shore review assessment add`, `shore review validation add`,
   `shore review association associate-commit` / `associate-ref` / `withdraw-commit` /
   `withdraw-ref`, `shore review input-request open`), `--track <track-id>` is **required** and
   stamps the lane that owns the new fact.
-- On read/list commands (`shore review observation list`, `shore review input-request list`,
+- On read/list commands (`shore observation list`, `shore review input-request list`,
   `shore review validation list`, `shore review assessment show`, `shore history`,
   `shore review show`), `--track <track-id>` is **optional** and narrows the results to one
   lane; omitted, all lanes are returned.
@@ -318,7 +318,7 @@ immediately visible to `review revisions`, `review show`, and `history` from any
 `ephemeral` worktree instead captures into its own discardable `.shore/data/` store (see
 [`shore store`](#shore-store)).
 
-The native review write commands — `shore review observation add`, `shore review input-request open`
+The native review write commands — `shore observation add`, `shore review input-request open`
 and `respond`, `shore review assessment add`, and `shore review validation add` — behave the same
 way. They resolve the shared common-dir store, so you can record a
 fact against a revision (or related observation, assessment, or request) captured in a sibling
@@ -567,14 +567,14 @@ ordinary signed review writes listed above; `shore endorse` is the exception, wh
 unresolved signer is a hard error rather than an unsigned write. Only shipped subcommands are listed;
 `rotate` and `revoke` are named follow-ons, not yet available.
 
-## `shore review observation`
+## `shore observation`
 
 ```bash
-shore review observation add --track <track-id> --title <title> \
+shore observation add --track <track-id> --title <title> \
   [--revision <revision-id>] [target options] [--body-content-type text/plain|text/markdown] \
   [--tag <tag>]... [--confidence low|medium|high] [--supersedes <observation-id>]... \
   [--responds-to <observation-id>]...
-shore review observation list [--revision <revision-id>] [--track <track-id>] \
+shore observation list [--revision <revision-id>] [--track <track-id>] \
   [--file <path>] [--tag <tag>] [--include-body] [--pretty|--compact]
 ```
 

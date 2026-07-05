@@ -21,7 +21,6 @@ fn inspector_serves_markdown_body_content_type() {
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
     run_shore(&[
-        "review",
         "observation",
         "add",
         "--repo",
