@@ -35,7 +35,9 @@ export function shortId(id: unknown): string {
 /** Git-style short form keeping the kind prefix: `rev:sha256:1ace…` -> `rev:1ace028b`. */
 export function shortRef(id: unknown): string {
   const value = String(id);
-  let match = value.match(/^([a-z][a-z-]*):(?:git:)?sha256:([0-9a-f]{6,})$/i);
+  let match = value.match(
+    /^([a-z][a-z-]*):(?:git:|worktree:)?sha256:([0-9a-f]{6,})$/i,
+  );
   if (match) return `${match[1]}:${match[2].slice(0, 8)}`;
   match = value.match(/^sha256:([0-9a-f]{8,})$/i);
   if (match) return `sha256:${match[1].slice(0, 8)}`;
@@ -60,15 +62,30 @@ export function targetHeadBadge(td: TargetDisplay | null | undefined): string {
   return ` <span class="${CLASS.badge}">${inner}</span>`;
 }
 
+// Linkified content-id kinds with no `resolveRef` route: they render as a
+// non-clickable chip (styled + tooltip) rather than a dead `role="link"`. Keeps
+// linkification a display-only concern — no chip promises navigation it can't do.
+const NON_CLICKABLE_KINDS = new Set([
+  "validation",
+  "obj",
+  "engagement",
+  "checkpoint",
+  "task-attempt",
+  "assoc-commit",
+  "assoc-ref",
+  "withdraw-commit",
+  "withdraw-ref",
+]);
+
 /** Classify a token as a navigable ref, a non-navigable hash/commit, or a track. */
 export function refInfo(token: string): RefInfo | null {
-  // Validation check ids have no resolver, so they render as a non-clickable
-  // chip rather than dead navigation. Classify before the generic match.
-  if (/^validation:(?:git:)?sha256:[0-9a-f]+$/i.test(token)) {
-    return { kind: "validation", clickable: false };
+  const match = token.match(
+    /^([a-z][a-z-]*):(?:git:|worktree:)?sha256:[0-9a-f]+$/i,
+  );
+  if (match) {
+    const kind = match[1].toLowerCase();
+    return { kind, clickable: !NON_CLICKABLE_KINDS.has(kind) };
   }
-  const match = token.match(/^([a-z][a-z-]*):(?:git:)?sha256:[0-9a-f]+$/i);
-  if (match) return { kind: match[1].toLowerCase(), clickable: true };
   if (/^sha256:[0-9a-f]+$/i.test(token))
     return { kind: "hash", clickable: false };
   if (/^[0-9a-f]{40}$/i.test(token))
@@ -80,7 +97,7 @@ export function refInfo(token: string): RefInfo | null {
 }
 
 export const REF_RE = new RegExp(
-  `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:)?sha256:[0-9a-f]{6,}\\b` +
+  `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b` +
     "|\\bsha256:[0-9a-f]{16,}\\b" +
     "|\\b[0-9a-f]{40}\\b" +
     "|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",

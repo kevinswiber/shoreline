@@ -7,7 +7,8 @@ prefixes open), **ADR-0018** (event-borne supersession — the reshape that reti
 `review-unit` lineage vocabulary this ADR now records as legacy), `docs/store-migration.md`
 (what a content-id re-derivation costs; the reason renaming a prefix is a store break, not an
 edit), and the "IDs are opaque" section of `docs/review-workflow.md` (the external contract this
-ADR reaffirms). Grounding issue: **#162**. Display-membership follow-up: **#344**.
+ADR reaffirms). Grounding issue: **#162**. Display-membership follow-up: **#344** (resolved — see
+the *Linkification Membership Resolved* amendment below).
 
 ## Context
 
@@ -72,3 +73,34 @@ treat ids as opaque strings. This ADR is about internal consistency and discover
   reserved values rather than a prefix family, and a `const` cannot be built from a registry
   constant without moving it to runtime construction. They are documented in
   `docs/id-prefixes.md` instead.
+
+## Amendment: Linkification Membership Resolved (#344)
+
+**Status:** Accepted (owner-approved 2026-07-04). Resolves the display-membership follow-up this
+ADR deferred to #344. Display-layer only — no minted id, shape, or opacity-contract change.
+
+The base decision left *what* the inspector linkifies as an open display decision (decision point 4;
+the Consequences note "`review-unit` and `snap` remain linkified … until #344 decides otherwise").
+#344 decides it:
+
+- **Promote the production-minted content ids** `obj`, `engagement`, `checkpoint`, `task-attempt`,
+  `assoc-commit`, `assoc-ref`, `withdraw-commit`, `withdraw-ref` from `linkified: false` to
+  `linkified: true`. `obj` already reached `linkify()` on the revision detail "snapshot" row and
+  rendered as a broken partial-hash chip; the rest render coherently when embedded in a fact body.
+- **Render the promoted ids as non-clickable chips.** None has a `resolveRef` route, so they classify
+  `clickable: false` in `refInfo` (like `validation`) — a styled chip with a tooltip, never a
+  `role="link"` dead link. This keeps the change display-only: no new navigation behavior.
+- **Fix the `rev:worktree:sha256:<hex>` shape gap.** `REF_RE`/`refInfo`/`shortRef` widen the revision
+  infix from `(?:git:)?` to `(?:git:|worktree:)?` so worktree-capture revision ids linkify like the
+  plain and git-range forms.
+- **Retire the legacy `review-unit` and `snap` entries.** No production path has minted them since the
+  supersession reshape; they are removed from the registry and `REF_ID_PREFIXES`, so they render as
+  plain text. This supersedes the "remain linkified … until #344 decides" consequence and empties the
+  `minted: false` legacy set (the `no_legacy_unminted_entries_remain` test replaces
+  `legacy_entries_are_exactly_the_unminted_ones`). The separate `router.ts`/`navigation.ts` deep-link
+  compat that maps a stored `review-unit:` id to a revision selection is unaffected — it handles
+  durable stored ids, not linkified chips.
+
+Kept plain (unchanged): `subject` (reconstructed for display, not user-referenced) and the artifact
+references `object`/`body`/`note-body`/`file` (storage-transfer vocabulary with no review-narrative
+render surface). The Rust drift test still pins `REF_ID_PREFIXES` to the registry's `linkified` set.

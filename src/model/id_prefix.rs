@@ -108,8 +108,9 @@ pub(crate) struct IdPrefix {
 
 /// Every prefix Shoreline has ever put in front of an id, artifact reference,
 /// or reserved token — the single enumerable source. Content-id entries first,
-/// then structural, artifact references, tokens, and the legacy display
-/// entries last.
+/// then structural, artifact references, and tokens. The legacy `review-unit`
+/// and `snap` display entries were retired in #344 (no production path minted
+/// them and the inspector no longer linkifies them).
 #[cfg(test)]
 pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
     IdPrefix {
@@ -128,13 +129,13 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
         prefix: OBJECT,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: ENGAGEMENT,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: OBSERVATION,
@@ -170,37 +171,37 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
         prefix: COMMIT_ASSOCIATION,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: REF_ASSOCIATION,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: COMMIT_WITHDRAWAL,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: REF_WITHDRAWAL,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: TASK_ATTEMPT,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: CHECKPOINT,
         kind: PrefixKind::ContentId,
         minted: true,
-        linkified: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: SUBJECT,
@@ -267,18 +268,6 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
         kind: PrefixKind::Token,
         minted: true,
         linkified: false,
-    },
-    IdPrefix {
-        prefix: "review-unit",
-        kind: PrefixKind::ContentId,
-        minted: false,
-        linkified: true,
-    },
-    IdPrefix {
-        prefix: "snap",
-        kind: PrefixKind::ContentId,
-        minted: false,
-        linkified: true,
     },
 ];
 
@@ -384,8 +373,9 @@ mod tests {
             REDACTED_FILE,
             UNIX_MS,
         ];
-        // 26 minted constants + the 2 legacy display literals.
-        assert_eq!(ID_PREFIXES.len(), minted.len() + 2);
+        // Every registered prefix is now a production-minted constant (the legacy
+        // review-unit/snap display entries were retired in #344).
+        assert_eq!(ID_PREFIXES.len(), minted.len());
         for prefix in minted {
             let entry = ID_PREFIXES
                 .iter()
@@ -403,8 +393,8 @@ mod tests {
     #[test]
     fn registry_kind_partition_is_stable() {
         let count = |kind: PrefixKind| ID_PREFIXES.iter().filter(|e| e.kind == kind).count();
-        // 17 minted content-id prefixes + the 2 legacy display entries.
-        assert_eq!(count(PrefixKind::ContentId), 19);
+        // 17 minted content-id prefixes (the 2 legacy display entries were retired in #344).
+        assert_eq!(count(PrefixKind::ContentId), 17);
         assert_eq!(count(PrefixKind::StructuralId), 4);
         assert_eq!(count(PrefixKind::ArtifactRef), 4);
         assert_eq!(count(PrefixKind::Token), 1);
@@ -474,16 +464,40 @@ mod tests {
     }
 
     #[test]
-    fn legacy_entries_are_exactly_the_unminted_ones() {
+    fn no_legacy_unminted_entries_remain() {
+        // The retired review-unit/snap display entries were the only unminted rows;
+        // after #344 every registered prefix is production-minted.
         let legacy: Vec<&str> = ID_PREFIXES
             .iter()
             .filter(|e| !e.minted)
             .map(|e| e.prefix)
             .collect();
-        assert_eq!(
-            legacy,
-            ["review-unit", "snap"],
-            "minted: false is reserved for the legacy display entries"
+        assert!(
+            legacy.is_empty(),
+            "no unminted legacy display entries should remain: {legacy:?}"
         );
+    }
+
+    #[test]
+    fn promoted_content_ids_are_linkified() {
+        // The #344 promotion: these production-minted content ids now linkify (as
+        // non-clickable chips on the web side). Kept coherent with REF_ID_PREFIXES
+        // by `inspector_ref_prefixes_match_the_registry`.
+        for prefix in [
+            OBJECT,
+            ENGAGEMENT,
+            CHECKPOINT,
+            TASK_ATTEMPT,
+            COMMIT_ASSOCIATION,
+            REF_ASSOCIATION,
+            COMMIT_WITHDRAWAL,
+            REF_WITHDRAWAL,
+        ] {
+            let entry = ID_PREFIXES
+                .iter()
+                .find(|e| e.prefix == prefix)
+                .unwrap_or_else(|| panic!("{prefix} missing from the table"));
+            assert!(entry.linkified, "{prefix} should be linkified after #344");
+        }
     }
 }

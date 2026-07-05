@@ -210,16 +210,22 @@
     "unassessed"
   ];
   var REF_ID_PREFIXES = [
-    "review-unit",
     "input-request-response",
     "input-request",
     "obs",
     "assess",
-    "snap",
     "rev",
     "evt",
     "note",
-    "validation"
+    "validation",
+    "obj",
+    "engagement",
+    "checkpoint",
+    "task-attempt",
+    "assoc-commit",
+    "assoc-ref",
+    "withdraw-commit",
+    "withdraw-ref"
   ];
   var REF_KINDS = [
     ...REF_ID_PREFIXES,
@@ -308,7 +314,9 @@
   __name(shortId, "shortId");
   function shortRef(id) {
     const value = String(id);
-    let match = value.match(/^([a-z][a-z-]*):(?:git:)?sha256:([0-9a-f]{6,})$/i);
+    let match = value.match(
+      /^([a-z][a-z-]*):(?:git:|worktree:)?sha256:([0-9a-f]{6,})$/i
+    );
     if (match) return `${match[1]}:${match[2].slice(0, 8)}`;
     match = value.match(/^sha256:([0-9a-f]{8,})$/i);
     if (match) return `sha256:${match[1].slice(0, 8)}`;
@@ -329,12 +337,25 @@
     return ` <span class="${CLASS.badge}">${inner}</span>`;
   }
   __name(targetHeadBadge, "targetHeadBadge");
+  var NON_CLICKABLE_KINDS = /* @__PURE__ */ new Set([
+    "validation",
+    "obj",
+    "engagement",
+    "checkpoint",
+    "task-attempt",
+    "assoc-commit",
+    "assoc-ref",
+    "withdraw-commit",
+    "withdraw-ref"
+  ]);
   function refInfo(token) {
-    if (/^validation:(?:git:)?sha256:[0-9a-f]+$/i.test(token)) {
-      return { kind: "validation", clickable: false };
+    const match = token.match(
+      /^([a-z][a-z-]*):(?:git:|worktree:)?sha256:[0-9a-f]+$/i
+    );
+    if (match) {
+      const kind = match[1].toLowerCase();
+      return { kind, clickable: !NON_CLICKABLE_KINDS.has(kind) };
     }
-    const match = token.match(/^([a-z][a-z-]*):(?:git:)?sha256:[0-9a-f]+$/i);
-    if (match) return { kind: match[1].toLowerCase(), clickable: true };
     if (/^sha256:[0-9a-f]+$/i.test(token))
       return { kind: "hash", clickable: false };
     if (/^[0-9a-f]{40}$/i.test(token))
@@ -346,7 +367,7 @@
   }
   __name(refInfo, "refInfo");
   var REF_RE = new RegExp(
-    `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b`,
+    `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b`,
     "gi"
   );
   function linkifyEscaped(escaped) {

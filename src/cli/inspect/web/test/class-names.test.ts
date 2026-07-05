@@ -96,7 +96,7 @@ describe("dynamic helpers reproduce the exact legacy composition", () => {
 
   test("ref helper uses the short-prefix kinds (rev, not revision)", () => {
     expect(refClass("rev")).toBe("ref ref-rev");
-    expect(refClass("review-unit")).toBe("ref ref-review-unit");
+    expect(refClass("obj")).toBe("ref ref-obj");
     expect(refClass("commit")).toBe("ref ref-commit");
   });
 
@@ -182,16 +182,22 @@ describe("dynamic-family vocabulary arrays (derived from their producers)", () =
 
   test("REF_KINDS are the refInfo/REF_RE short prefixes", () => {
     expect([...REF_KINDS]).toEqual([
-      "review-unit",
       "input-request-response",
       "input-request",
       "obs",
       "assess",
-      "snap",
       "rev",
       "evt",
       "note",
       "validation",
+      "obj",
+      "engagement",
+      "checkpoint",
+      "task-attempt",
+      "assoc-commit",
+      "assoc-ref",
+      "withdraw-commit",
+      "withdraw-ref",
       "hash",
       "commit",
       "track",

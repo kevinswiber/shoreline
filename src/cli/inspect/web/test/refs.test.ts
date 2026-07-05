@@ -29,10 +29,10 @@ describe("shortId", () => {
 
 describe("shortRef", () => {
   it("keeps the kind prefix and shortens the hash to 8", () => {
-    expect(shortRef("review-unit:sha256:1ace028b9f00deadbeef")).toBe(
-      "review-unit:1ace028b",
-    );
+    expect(shortRef("obs:sha256:1ace028b9f00deadbeef")).toBe("obs:1ace028b");
     expect(shortRef("rev:git:sha256:abcdef012345")).toBe("rev:abcdef01");
+    // The worktree-capture revision shape shortens like the git/plain forms.
+    expect(shortRef("rev:worktree:sha256:abcdef012345")).toBe("rev:abcdef01");
   });
 
   it("shortens a bare sha256 hash and a 40-char git oid", () => {
@@ -55,13 +55,40 @@ describe("refInfo", () => {
     });
   });
 
-  it("classifies prefixed sha256 ids as clickable by their kind", () => {
+  it("classifies routable prefixed sha256 ids as clickable by their kind", () => {
     expect(refInfo("rev:sha256:abc123")).toEqual({
       kind: "rev",
       clickable: true,
     });
-    expect(refInfo("review-unit:sha256:abc123")).toEqual({
-      kind: "review-unit",
+    expect(refInfo("obs:sha256:abc123")).toEqual({
+      kind: "obs",
+      clickable: true,
+    });
+  });
+
+  it("classifies promoted content-id prefixes with no route as non-clickable", () => {
+    // #344 linkifies these for display, but they have no resolveRef route, so
+    // they must render as non-clickable chips (not dead links).
+    for (const kind of [
+      "obj",
+      "engagement",
+      "checkpoint",
+      "task-attempt",
+      "assoc-commit",
+      "assoc-ref",
+      "withdraw-commit",
+      "withdraw-ref",
+    ]) {
+      expect(refInfo(`${kind}:sha256:abc123`)).toEqual({
+        kind,
+        clickable: false,
+      });
+    }
+  });
+
+  it("classifies a worktree-capture revision id as a clickable rev", () => {
+    expect(refInfo("rev:worktree:sha256:abc123")).toEqual({
+      kind: "rev",
       clickable: true,
     });
   });
@@ -89,7 +116,7 @@ describe("REF_RE derivation", () => {
     // The alternation lock: change REF_ID_PREFIXES and this expected literal
     // together, deliberately — that is the display-membership decision.
     expect(REF_RE.source).toBe(
-      "\\b(?:review-unit|input-request-response|input-request|obs|assess|snap|rev|evt|note|validation):(?:git:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
+      "\\b(?:input-request-response|input-request|obs|assess|rev|evt|note|validation|obj|engagement|checkpoint|task-attempt|assoc-commit|assoc-ref|withdraw-commit|withdraw-ref):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
     );
     expect(REF_RE.flags).toBe("gi");
   });
@@ -135,6 +162,25 @@ describe("linkify / linkifyEscaped", () => {
     expect(span?.getAttribute("role")).toBeNull();
     expect(span?.classList.contains("ref-hash")).toBe(true);
     expect(span?.textContent).toBe("sha256:abcdef01");
+  });
+
+  it("linkifies a worktree-capture revision id as a clickable rev chip (#344 shape gap)", () => {
+    const id = "rev:worktree:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0";
+    const span = parse(linkify(`see ${id}`)).querySelector("span.ref");
+    expect(span?.getAttribute("data-ref-kind")).toBe("rev");
+    expect(span?.getAttribute("data-ref-id")).toBe(id);
+    expect(span?.textContent).toBe("rev:38a493d2");
+  });
+
+  it("linkifies a promoted content id (obj) as a non-clickable chip, not a dead link (#344)", () => {
+    const id =
+      "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d3";
+    const span = parse(linkify(`snapshot ${id}`)).querySelector("span.ref");
+    expect(span?.classList.contains("ref-obj")).toBe(true);
+    // Non-clickable: no link affordance, no click-delegate dataset.
+    expect(span?.getAttribute("role")).toBeNull();
+    expect(span?.getAttribute("data-ref-kind")).toBeNull();
+    expect(span?.getAttribute("title")).toBe(id);
   });
 
   it("renders validation ids as non-clickable chips", () => {

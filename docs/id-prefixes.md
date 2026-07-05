@@ -13,8 +13,8 @@ Ratified by [ADR-0028](./adr/adr-0028-id-prefix-convention.md):
   changes the ids newly minted for identical content and breaks cross-clone convergence with
   existing stores. The frozen-value test in `src/model/id_prefix.rs` is the tripwire.
 - **New prefixes are spelled-out, hyphenated, lowercase domain names** (`[a-z][a-z-]*`, no
-  trailing hyphen). The abbreviation set is closed: `evt`, `rev`, `obj`, `obs`, `assess` (and
-  legacy `snap`) are grandfathered, not precedent.
+  trailing hyphen). The abbreviation set is closed: `evt`, `rev`, `obj`, `obs`, `assess` are
+  grandfathered, not precedent (the legacy `snap` abbreviation was retired in #344).
 - **`src/model/id_prefix.rs` is the live source of truth.** Production code mints through its
   constants; the `cfg(test)` table beneath them is the enumerable contract the registry and
   drift tests check. The table below is a readable snapshot — on any disagreement, the
@@ -25,20 +25,20 @@ Ratified by [ADR-0028](./adr/adr-0028-id-prefix-convention.md):
 | prefix | kind | shape(s) | minted by | linkified |
 |---|---|---|---|---|
 | `evt` | content id | `evt:sha256:<hex>` | event envelope (`session/event`); re-derived by the event-store validation check | yes |
-| `rev` | content id | `rev:sha256:<hex>`, `rev:worktree:sha256:<hex>` | capture fingerprinting (`session/store/fingerprint`) | yes (plain form only) |
-| `obj` | content id | `obj:sha256:<hex>`, `obj:git:sha256:<hex>` | capture fingerprinting | no |
-| `engagement` | content id | `engagement:sha256:<hex>` | capture fingerprinting; Claude Code adapter | no |
+| `rev` | content id | `rev:sha256:<hex>`, `rev:worktree:sha256:<hex>` | capture fingerprinting (`session/store/fingerprint`) | yes (incl. `git:`/`worktree:` forms) |
+| `obj` | content id | `obj:sha256:<hex>`, `obj:git:sha256:<hex>` | capture fingerprinting | yes (non-clickable) |
+| `engagement` | content id | `engagement:sha256:<hex>` | capture fingerprinting; Claude Code adapter | yes (non-clickable) |
 | `obs` | content id | `obs:sha256:<hex>` | observation workflow; Claude Code adapter | yes |
 | `assess` | content id | `assess:sha256:<hex>` | assessment workflow | yes |
 | `validation` | content id | `validation:sha256:<hex>` | validation workflow | yes (non-clickable) |
 | `input-request` | content id | `input-request:sha256:<hex>` | input-request workflow | yes |
 | `input-request-response` | content id | `input-request-response:sha256:<hex>` | input-request workflow | yes |
-| `assoc-commit` | content id | `assoc-commit:sha256:<hex>` | association events (`session/event/association`) | no |
-| `assoc-ref` | content id | `assoc-ref:sha256:<hex>` | association events | no |
-| `withdraw-commit` | content id | `withdraw-commit:sha256:<hex>` | association events | no |
-| `withdraw-ref` | content id | `withdraw-ref:sha256:<hex>` | association events | no |
-| `task-attempt` | content id | `task-attempt:sha256:<hex>` | Claude Code adapter | no |
-| `checkpoint` | content id | `checkpoint:sha256:<hex>` | Claude Code adapter | no |
+| `assoc-commit` | content id | `assoc-commit:sha256:<hex>` | association events (`session/event/association`) | yes (non-clickable) |
+| `assoc-ref` | content id | `assoc-ref:sha256:<hex>` | association events | yes (non-clickable) |
+| `withdraw-commit` | content id | `withdraw-commit:sha256:<hex>` | association events | yes (non-clickable) |
+| `withdraw-ref` | content id | `withdraw-ref:sha256:<hex>` | association events | yes (non-clickable) |
+| `task-attempt` | content id | `task-attempt:sha256:<hex>` | Claude Code adapter | yes (non-clickable) |
+| `checkpoint` | content id | `checkpoint:sha256:<hex>` | Claude Code adapter | yes (non-clickable) |
 | `note` | content id | `note:sha256:<hex>`; `note:<explicit_id>`; `note:<file_index>:<note_index>` | note import; sidecar resolution | yes (`note:sha256:` form only) |
 | `journal` | structural | `journal:claude:<session_uuid>`; `journal:default` sentinel | Claude Code adapter; capture/removal/state defaults | no |
 | `review` | structural | `review:default` sentinel only | capture default | no |
@@ -49,13 +49,15 @@ Ratified by [ADR-0028](./adr/adr-0028-id-prefix-convention.md):
 | `note-body` | artifact ref | `note-body:sha256:<hex>` | export/inventory | no |
 | `file` | artifact ref | `file:sha256:<hex>` (hash of a redacted relative path) | sensitivity scan | no |
 | `unix-ms` | token | `unix-ms:<millis>` | event `occurredAt` clock | no |
-| `review-unit` | content id (legacy) | not minted; old stores' fact bodies may reference it | — | yes |
-| `snap` | content id (legacy) | not minted; old stores' fact bodies may reference it | — | yes |
 
-"Linkified" means the inspector's reference regex turns the token into a navigable chip; the
-list is derived from `REF_ID_PREFIXES` in `src/cli/inspect/web/src/classNames.ts` and mirrored
-by the registry's `linkified` flags under a drift test. Membership and shape gaps are tracked
-in [#344](https://github.com/kevinswiber/shoreline/issues/344).
+"Linkified" means the inspector's reference regex turns the token into a chip; a `(non-clickable)`
+note marks a chip that is styled with a tooltip but has no navigation route (it never renders a dead
+link). The list is derived from `REF_ID_PREFIXES` in `src/cli/inspect/web/src/classNames.ts` and
+mirrored by the registry's `linkified` flags under a drift test. Membership and the shape gaps were
+resolved in [#344](https://github.com/kevinswiber/shoreline/issues/344) (see the *Linkification
+Membership Resolved* amendment in ADR-0028): the eight production-minted content ids above linkify as
+non-clickable chips, the `rev:worktree:` shape now linkifies, and the legacy `review-unit`/`snap`
+display entries were retired.
 
 ## Shape notes
 

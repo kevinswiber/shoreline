@@ -240,16 +240,22 @@ export const FACT_STATUSES = [
 // keep the `REF_ID_PREFIXES = [` spelling. Membership changes are a display
 // decision; change the refs.test.ts alternation lock in the same edit.
 export const REF_ID_PREFIXES = [
-  "review-unit",
   "input-request-response",
   "input-request",
   "obs",
   "assess",
-  "snap",
   "rev",
   "evt",
   "note",
   "validation",
+  "obj",
+  "engagement",
+  "checkpoint",
+  "task-attempt",
+  "assoc-commit",
+  "assoc-ref",
+  "withdraw-commit",
+  "withdraw-ref",
 ] as const;
 
 // The prefixes plus the non-prefix classifier kinds — not the long
