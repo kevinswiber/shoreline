@@ -201,7 +201,7 @@ commit as a structural association on your author track — the first-class "the
 X" record (a `RevisionCommitAssociated` edge, ADR-0014):
 
 ```bash
-shore review association associate-commit \
+shore association record \
   --revision "$revision_id" \
   --track "$author_track" \
   --commit <landed-sha>
@@ -215,14 +215,14 @@ recapture (`shore capture` is not re-run for the landing).
 
 Pick the landed commit deliberately:
 
-- A **worktree-captured** unit is born floating (no commit OID); `associate-commit` is its canonical
-  landing record — the event the capture left it waiting for.
+- A **worktree-captured** unit is born floating (no commit OID); `association record --commit` is its
+  canonical landing record — the event the capture left it waiting for.
 - A **commit-range-captured** unit is already anchored at its captured target commit. If the work
   landed as that same commit (rebase or fast-forward), associate it — same OID, nothing diverges. If
   landing produced a **new** commit (a squash or merge commit), associating it adds a second current
   OID and the projection surfaces a `divergent_commit_association` diagnostic. That is correct — the
   reviewed content is at the captured target and the work also landed as the squash commit — so leave
-  both, or `withdraw-commit` whichever edge you do not want to keep current.
+  both, or `shore association withdraw` whichever edge you do not want to keep current.
 
 Optionally also record a human-readable companion for readers scanning observations:
 

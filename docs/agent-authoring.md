@@ -313,7 +313,7 @@ Record the landed commit as a structural association on the author track — the
 landed as commit X" record (a `RevisionCommitAssociated` edge, ADR-0014):
 
 ```bash
-shore review association associate-commit \
+shore association record \
   --revision <revision-id> \
   --track <author-track> \
   --commit <landed-sha>
@@ -325,7 +325,7 @@ reachability in `shore review show`, and `shore review revisions --ref <branch>`
 born floating, so this is the event it was waiting for; a commit-range-captured revision is already
 anchored at its captured target, so associate that same commit on a rebase or fast-forward — or,
 when a squash or merge produced a new commit, expect a `divergent_commit_association` diagnostic and
-keep or `withdraw-commit` the edge you do not want. Optionally add a human-readable companion with
+keep or `shore association withdraw` the edge you do not want. Optionally add a human-readable companion with
 `shore observation add --tag state-change:landed --title "landed as <sha>"`. Do not run
 `shore capture` again for the landing, and do not add or change the assessment — the resulting
 commit is an author fact, not a review call.

@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use crate::cli_tracing::TracingArgs;
 
 mod assessment;
+mod association;
 mod capture;
 pub(crate) mod common;
 mod diff;
@@ -56,6 +57,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Assessment(Box<assessment::AssessmentArgs>),
+    Association(Box<association::AssociationArgs>),
     Capture(capture::CaptureArgs),
     Diff(diff::DiffArgs),
     #[command(hide = true)]
@@ -159,6 +161,29 @@ const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
         HintPredicate::AdjacentWindow(&["review", "assessment"]),
         "Use `shore assessment` instead of `shore review assessment`.",
     ),
+    // The association compounds collapsed to `record`/`withdraw`; the four
+    // verb-specific triples must precede the family pair so they win first.
+    (
+        HintPredicate::AdjacentWindow(&["review", "association", "associate-commit"]),
+        "Use `shore association record --commit <oid>` (or `--ref <name> --head <oid>`).",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "association", "associate-ref"]),
+        "Use `shore association record --ref <name> --head <oid>` (or `--commit <oid>`).",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "association", "withdraw-commit"]),
+        "Use `shore association withdraw <ASSOCIATION_ID>`.",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "association", "withdraw-ref"]),
+        "Use `shore association withdraw <ASSOCIATION_ID>`.",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "association"]),
+        "The `association` family is now top-level; use \
+         `shore association record|withdraw|list`.",
+    ),
     (
         HintPredicate::AdjacentWindow(&["review", "capture"]),
         "Use `shore capture` instead of `shore review capture`.",
@@ -234,6 +259,7 @@ fn run_cli(
 
     match cli.command {
         Command::Assessment(args) => assessment::run(*args, stdout, stderr),
+        Command::Association(args) => association::run(*args, stdout, stderr),
         Command::Capture(args) => capture::run(args, &cli.tracing, stdout, stderr),
         Command::Diff(args) => diff::run(args, stdout),
         Command::Dump(args) => {

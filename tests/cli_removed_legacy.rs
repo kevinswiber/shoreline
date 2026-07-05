@@ -65,6 +65,28 @@ const REMOVED_PATHS: &[RemovedPath] = &[
         argv: &["review", "input-request", "open", "--help"],
         hint_contains: &["shore input-request"],
     },
+    // The association grammar rewrite: compounds point at the new verbs, and the
+    // family path points at the top-level family.
+    RemovedPath {
+        argv: &["review", "association", "associate-commit", "--help"],
+        hint_contains: &["shore association record"],
+    },
+    RemovedPath {
+        argv: &["review", "association", "associate-ref", "--help"],
+        hint_contains: &["shore association record --ref"],
+    },
+    RemovedPath {
+        argv: &["review", "association", "withdraw-commit", "--help"],
+        hint_contains: &["shore association withdraw"],
+    },
+    RemovedPath {
+        argv: &["review", "association", "withdraw-ref", "--help"],
+        hint_contains: &["shore association withdraw"],
+    },
+    RemovedPath {
+        argv: &["review", "association", "list", "--help"],
+        hint_contains: &["shore association record|withdraw|list"],
+    },
     // The old get-one verb `fetch` at the new top level points at `show`.
     RemovedPath {
         argv: &["input-request", "fetch", "--help"],

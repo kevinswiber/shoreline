@@ -1,4 +1,4 @@
-// Document builders for `shore review association` verbs.
+// Document builders for `shore association` verbs.
 use crate::documents::{DiagnosticDocument, EventWriteDocument};
 use crate::session::{
     AssociateCommitResult, AssociateRefResult, CurrentCommitAssociation, CurrentRefAssociation,

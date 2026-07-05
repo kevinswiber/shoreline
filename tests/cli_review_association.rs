@@ -40,11 +40,10 @@ fn committed_repo() -> GitRepo {
     repo
 }
 
-fn associate_commit(repo: &GitRepo, commit: &str) {
+fn record_commit(repo: &GitRepo, commit: &str) {
     let output = shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo.path().to_str().unwrap(),
         "--track",
@@ -54,7 +53,7 @@ fn associate_commit(repo: &GitRepo, commit: &str) {
     ]);
     assert!(
         output.status.success(),
-        "associate-commit {commit} failed: {}",
+        "association record --commit {commit} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
@@ -69,15 +68,14 @@ fn capture(repo: &GitRepo) {
 }
 
 #[test]
-fn associate_commit_records_then_reports_existing_on_rerun() {
+fn record_commit_writes_then_reports_existing_on_rerun() {
     let repo = modified_repo();
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
 
     let first = shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -99,9 +97,8 @@ fn associate_commit_records_then_reports_existing_on_rerun() {
     assert!(json["eventId"].as_str().unwrap().starts_with("evt:sha256:"));
 
     let again = shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -116,16 +113,15 @@ fn associate_commit_records_then_reports_existing_on_rerun() {
 }
 
 #[test]
-fn withdraw_commit_removes_from_current_list() {
+fn withdraw_removes_from_current_list() {
     let repo = modified_repo();
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
 
-    let associate = parse_json(
+    let recorded = parse_json(
         &shore([
-            "review",
             "association",
-            "associate-commit",
+            "record",
             "--repo",
             repo_path,
             "--track",
@@ -135,11 +131,10 @@ fn withdraw_commit_removes_from_current_list() {
         ])
         .stdout,
     );
-    let association_id = associate["commitAssociationId"].as_str().unwrap();
+    let association_id = recorded["commitAssociationId"].as_str().unwrap();
 
     let current_before = parse_json(
         &shore([
-            "review",
             "association",
             "list",
             "--repo",
@@ -156,15 +151,13 @@ fn withdraw_commit_removes_from_current_list() {
     );
 
     let withdraw = shore([
-        "review",
         "association",
-        "withdraw-commit",
+        "withdraw",
+        association_id,
         "--repo",
         repo_path,
         "--track",
         "agent:codex",
-        "--withdraws",
-        association_id,
     ]);
     assert!(
         withdraw.status.success(),
@@ -177,7 +170,6 @@ fn withdraw_commit_removes_from_current_list() {
 
     let current_after = parse_json(
         &shore([
-            "review",
             "association",
             "list",
             "--repo",
@@ -197,16 +189,15 @@ fn withdraw_commit_removes_from_current_list() {
 }
 
 #[test]
-fn associate_ref_stores_full_ref_and_head() {
+fn record_ref_stores_full_ref_and_head() {
     let repo = modified_repo();
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
     let head_oid = repo.git(["rev-parse", "HEAD"]).stdout.trim().to_owned();
 
     let output = shore([
-        "review",
         "association",
-        "associate-ref",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -234,16 +225,15 @@ fn associate_ref_stores_full_ref_and_head() {
 }
 
 #[test]
-fn associate_ref_normalizes_a_short_branch_name() {
+fn record_ref_normalizes_a_short_branch_name() {
     let repo = modified_repo();
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
 
     let json = parse_json(
         &shore([
-            "review",
             "association",
-            "associate-ref",
+            "record",
             "--repo",
             repo_path,
             "--track",
@@ -265,9 +255,8 @@ fn list_axis_commit_excludes_ref_associations() {
     let repo_path = repo.path().to_str().unwrap();
 
     shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -276,9 +265,8 @@ fn list_axis_commit_excludes_ref_associations() {
         "HEAD",
     ]);
     shore([
-        "review",
         "association",
-        "associate-ref",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -291,7 +279,6 @@ fn list_axis_commit_excludes_ref_associations() {
 
     let json = parse_json(
         &shore([
-            "review",
             "association",
             "list",
             "--repo",
@@ -311,9 +298,8 @@ fn history_filters_to_the_commit_associated_event_type() {
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
     shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -420,9 +406,8 @@ fn unit_show_includes_commit_range_and_liveness_block() {
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
     shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -445,12 +430,11 @@ fn unit_show_includes_commit_range_and_liveness_block() {
 fn text_association_digest_phrases_divergence() {
     let repo = divergent_repo();
     capture(&repo);
-    associate_commit(&repo, "HEAD");
-    associate_commit(&repo, "HEAD~1");
+    record_commit(&repo, "HEAD");
+    record_commit(&repo, "HEAD~1");
     let repo_path = repo.path().to_str().unwrap();
 
     let output = shore([
-        "review",
         "association",
         "list",
         "--repo",
@@ -491,13 +475,12 @@ fn text_association_digest_phrases_divergence() {
 fn text_association_digest_renders_clean_single_association() {
     let repo = modified_repo();
     capture(&repo);
-    associate_commit(&repo, "HEAD");
+    record_commit(&repo, "HEAD");
     let repo_path = repo.path().to_str().unwrap();
     let head_oid = repo.git(["rev-parse", "HEAD"]).stdout.trim().to_owned();
     shore([
-        "review",
         "association",
-        "associate-ref",
+        "record",
         "--repo",
         repo_path,
         "--track",
@@ -509,7 +492,6 @@ fn text_association_digest_renders_clean_single_association() {
     ]);
 
     let output = shore([
-        "review",
         "association",
         "list",
         "--repo",
@@ -549,10 +531,9 @@ fn text_association_digest_reports_landing_when_liveness_resolves() {
         "capture failed: {}",
         String::from_utf8_lossy(&capture.stderr)
     );
-    associate_commit(&repo, "HEAD");
+    record_commit(&repo, "HEAD");
 
     let output = shore([
-        "review",
         "association",
         "list",
         "--repo",
@@ -596,7 +577,6 @@ fn text_association_digest_reads_orphaned_anchor_as_orphaned() {
 
     // The current worktree no longer resolves this revision, so name it explicitly.
     let output = shore([
-        "review",
         "association",
         "list",
         "--repo",
@@ -618,15 +598,302 @@ fn text_association_digest_reads_orphaned_anchor_as_orphaned() {
 }
 
 #[test]
+fn association_record_commit_emits_frozen_schema() {
+    let repo = modified_repo();
+    capture(&repo);
+    let output = shore([
+        "association",
+        "record",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--commit",
+        "HEAD",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["schema"], "shore.review-association-commit");
+    let id = json["commitAssociationId"].as_str().unwrap();
+    assert!(id.starts_with("assoc-commit:"));
+}
+
+#[test]
+fn association_record_axis_is_exclusive_and_ref_requires_head() {
+    let repo = modified_repo();
+    capture(&repo);
+    let path = repo.path().to_str().unwrap();
+    let head = repo.git(["rev-parse", "HEAD"]).stdout.trim().to_owned();
+
+    // --commit alone: accepted.
+    assert!(
+        shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "t",
+            "--commit",
+            "HEAD",
+        ])
+        .status
+        .success()
+    );
+    // --ref + --head: accepted.
+    assert!(
+        shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "t",
+            "--ref",
+            "main",
+            "--head",
+            &head,
+        ])
+        .status
+        .success()
+    );
+    // --commit + --ref: rejected (exclusive group).
+    assert!(
+        !shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "t",
+            "--commit",
+            "HEAD",
+            "--ref",
+            "main",
+            "--head",
+            &head,
+        ])
+        .status
+        .success()
+    );
+    // --ref without --head: rejected (requires).
+    assert!(
+        !shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "t",
+            "--ref",
+            "main",
+        ])
+        .status
+        .success()
+    );
+}
+
+#[test]
+fn association_withdraw_takes_a_positional_prefixed_id() {
+    let repo = modified_repo();
+    capture(&repo);
+    let path = repo.path().to_str().unwrap();
+    let recorded = parse_json(
+        &shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "agent:codex",
+            "--commit",
+            "HEAD",
+        ])
+        .stdout,
+    );
+    let association_id = recorded["commitAssociationId"].as_str().unwrap();
+
+    let out = shore([
+        "association",
+        "withdraw",
+        association_id,
+        "--repo",
+        path,
+        "--track",
+        "agent:codex",
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        parse_json(&out.stdout)["schema"],
+        "shore.review-association-commit-withdrawn"
+    );
+}
+
+#[test]
+fn association_withdraw_resolves_a_prefixed_short_id_and_rejects_bare_fragments() {
+    let repo = modified_repo();
+    capture(&repo);
+    let path = repo.path().to_str().unwrap();
+    let recorded = parse_json(
+        &shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "agent:codex",
+            "--commit",
+            "HEAD",
+        ])
+        .stdout,
+    );
+    let association_id = recorded["commitAssociationId"].as_str().unwrap().to_owned();
+    // association_id = "assoc-commit:sha256:<hex>".
+    let digest = &association_id["assoc-commit:sha256:".len()..];
+    let prefixed_short = format!("assoc-commit:{}", &digest[..8]);
+
+    // Bare fragment: rejected — the positional accepts two kinds, so the prefix
+    // is required.
+    let bare = shore([
+        "association",
+        "withdraw",
+        &digest[..8],
+        "--repo",
+        path,
+        "--track",
+        "agent:codex",
+    ]);
+    assert!(!bare.status.success());
+    assert!(
+        String::from_utf8_lossy(&bare.stderr).contains("prefix"),
+        "the error names the prefixed form as the fix: {}",
+        String::from_utf8_lossy(&bare.stderr)
+    );
+
+    // Prefixed short form: resolves; the emitted document carries the FULL id,
+    // not the fragment.
+    let out = shore([
+        "association",
+        "withdraw",
+        &prefixed_short,
+        "--repo",
+        path,
+        "--track",
+        "agent:codex",
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(
+        doc.contains(&association_id),
+        "the withdrawal document references the resolved full association id: {doc}"
+    );
+    assert_eq!(
+        parse_json(&out.stdout)["schema"],
+        "shore.review-association-commit-withdrawn"
+    );
+}
+
+#[test]
+fn association_write_verbs_document_sign_key() {
+    for verb in ["record", "withdraw"] {
+        let help = String::from_utf8(shore(["association", verb, "--help"]).stdout).unwrap();
+        assert!(
+            help.contains("signing never"),
+            "{verb} --help omits the --sign-key doc:\n{help}"
+        );
+    }
+}
+
+#[test]
+fn association_documents_stay_per_axis() {
+    let repo = modified_repo();
+    capture(&repo);
+    let path = repo.path().to_str().unwrap();
+    let head = repo.git(["rev-parse", "HEAD"]).stdout.trim().to_owned();
+
+    // record --commit → today's associate-commit document, unchanged.
+    let commit = parse_json(
+        &shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "t",
+            "--commit",
+            "HEAD",
+        ])
+        .stdout,
+    );
+    assert_eq!(commit["schema"], "shore.review-association-commit");
+    // record --ref → today's associate-ref document, unchanged.
+    let ref_assoc = parse_json(
+        &shore([
+            "association",
+            "record",
+            "--repo",
+            path,
+            "--track",
+            "t",
+            "--ref",
+            "main",
+            "--head",
+            &head,
+        ])
+        .stdout,
+    );
+    assert_eq!(ref_assoc["schema"], "shore.review-association-ref");
+
+    // withdraw resolves the axis by prefix; each emits its own withdrawn document.
+    let wc = parse_json(
+        &shore([
+            "association",
+            "withdraw",
+            commit["commitAssociationId"].as_str().unwrap(),
+            "--repo",
+            path,
+            "--track",
+            "t",
+        ])
+        .stdout,
+    );
+    assert_eq!(wc["schema"], "shore.review-association-commit-withdrawn");
+    let wr = parse_json(
+        &shore([
+            "association",
+            "withdraw",
+            ref_assoc["refAssociationId"].as_str().unwrap(),
+            "--repo",
+            path,
+            "--track",
+            "t",
+        ])
+        .stdout,
+    );
+    assert_eq!(wr["schema"], "shore.review-association-ref-withdrawn");
+}
+
+#[test]
 fn association_verbs_reject_a_replaces_flag() {
     let repo = modified_repo();
     capture(&repo);
     let repo_path = repo.path().to_str().unwrap();
 
     let output = shore([
-        "review",
         "association",
-        "associate-commit",
+        "record",
         "--repo",
         repo_path,
         "--track",

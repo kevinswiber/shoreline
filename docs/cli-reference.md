@@ -94,8 +94,8 @@ exists so a revision's facts can be filtered and grouped by who recorded them.
 
 - On every write command that records a fact (`shore observation add`,
   `shore assessment add`, `shore validation add`,
-  `shore review association associate-commit` / `associate-ref` / `withdraw-commit` /
-  `withdraw-ref`, `shore input-request open`), `--track <track-id>` is **required** and
+  `shore association record` / `withdraw`, `shore input-request open`),
+  `--track <track-id>` is **required** and
   stamps the lane that owns the new fact.
 - On read/list commands (`shore observation list`, `shore input-request list`,
   `shore validation list`, `shore assessment show`, `shore history`,
@@ -556,7 +556,8 @@ keys are accepted; `ed25519-sk`/RSA/ECDSA are rejected with a clear error pointi
 every subcommand accepts `--pretty`. Enrollment never commits — the human's commit is the authorization.
 
 Each **write** subcommand (`capture`, `observation add`, `assessment add`,
-`validation add`, `input-request open`/`respond`) accepts `--sign-key <name|path>` to
+`validation add`, `association record`/`withdraw`, `input-request open`/`respond`)
+accepts `--sign-key <name|path>` to
 sign that write with a specific key (highest precedence; overrides `SHORE_SIGNING_KEY`). A key that
 cannot be loaded leaves the write unsigned at exit 0 with an advisory diagnostic — signing never
 blocks. An agent-backed key resolves through an identities-only ssh-agent pre-flight; if the agent is
@@ -753,34 +754,33 @@ writing identity), never the target's author.
 The endorsement record and its read-side classification are decided in
 [ADR-0013](./adr/adr-0013-endorsement-record-and-classification.md).
 
-## `shore review association`
+## `shore association`
 
 ```bash
-shore review association associate-commit --track <track-id> --commit <rev> \
+shore association record --track <track-id> (--commit <rev> | --ref <name> --head <oid>) \
   [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
-shore review association withdraw-commit --track <track-id> --withdraws <commit-association-id> \
+shore association withdraw <association-id> --track <track-id> \
   [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
-shore review association associate-ref --track <track-id> --ref <name> --head <oid> \
-  [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
-shore review association withdraw-ref --track <track-id> --withdraws <ref-association-id> \
-  [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
-shore review association list [--revision <revision-id>] [--axis commit|ref] [--current] \
+shore association list [--revision <revision-id>] [--axis commit|ref] [--current] \
   [--repo <path>] [--pretty | --compact]
 ```
 
-`shore review association` records and withdraws the commit-graph associations of a captured
+`shore association` records and withdraws the commit-graph associations of a captured
 revision as append-only associate/withdraw events on two axes — commit and ref. This is how a
 revision is tied to the commits and branches that carry it; recording a landed commit
-(`associate-commit`) is the association half of the ADR-0014 lifecycle
+(`record --commit`) is the association half of the ADR-0014 lifecycle
 ([ADR-0014](./adr/adr-0014-reviewunit-commit-range-lifecycle.md)).
 
-- **`associate-commit`** binds `--commit <rev>` (resolved to an OID) to the revision on the commit
-  axis. **`associate-ref`** binds `--ref <name>` (a short branch name is normalized to its full ref)
-  at the explicit `--head <oid>` (never inferred) on the ref axis.
-- **`withdraw-commit`** / **`withdraw-ref`** retract an earlier association by its id
-  (`--withdraws <id>`). Withdrawal is terminal: a later re-association of the same target does not
-  revive the withdrawn edge.
-- All four writes are signable — `--sign-key <name|path>` selects the signing key exactly as
+- **`record`** takes exactly one axis. `--commit <rev>` (resolved to an OID) binds the revision on
+  the commit axis; `--ref <name>` (a short branch name is normalized to its full ref) at the
+  explicit `--head <oid>` (never inferred) binds it on the ref axis. `--commit` and `--ref` are
+  mutually exclusive, and `--ref` requires `--head`.
+- **`withdraw <association-id>`** retracts an earlier association by its id. The id is positional
+  and must carry its prefix — `assoc-commit:…` or `assoc-ref:…` — because the prefix selects which
+  axis is withdrawn; a prefixed short form like `assoc-commit:<hex-fragment>` resolves against the
+  store. Withdrawal is terminal: a later re-association of the same target does not revive the
+  withdrawn edge.
+- Both writes are signable — `--sign-key <name|path>` selects the signing key exactly as
   `shore capture` does, and signing never gates the write.
 - `--revision <revision-id>` pins the target revision; without it the command defaults to the single
   captured revision and errors if multiple captured revisions exist.

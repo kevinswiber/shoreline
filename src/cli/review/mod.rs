@@ -2,7 +2,6 @@ use std::io::Write;
 
 use clap::{Args, Subcommand};
 
-pub(super) mod association;
 pub(super) mod revisions;
 pub(super) mod show;
 
@@ -14,7 +13,6 @@ pub(super) struct ReviewArgs {
 
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
-    Association(association::AssociationArgs),
     Revisions(revisions::RevisionsArgs),
     Show(show::ShowArgs),
 }
@@ -22,10 +20,9 @@ enum ReviewCommand {
 pub(super) fn run(
     args: ReviewArgs,
     stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
+    _stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
-        ReviewCommand::Association(args) => association::run(args, stdout, stderr),
         ReviewCommand::Revisions(args) => revisions::run(args, stdout),
         ReviewCommand::Show(args) => show::run(args, stdout),
     }

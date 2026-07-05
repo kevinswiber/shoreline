@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use shoreline::documents::{
     associate_commit_document, associate_ref_document, list_associations_document,
     withdraw_commit_document, withdraw_ref_document,
@@ -15,6 +15,7 @@ use shoreline::session::{
 };
 
 use crate::cli::common::{SignableOptions, SigningSkip};
+use crate::cli::id_resolver::{IdKind, IdResolver};
 use crate::cli::output;
 
 #[derive(Debug, Args)]
@@ -25,29 +26,36 @@ pub(super) struct AssociationArgs {
 
 #[derive(Debug, Subcommand)]
 enum AssociationCommand {
-    AssociateCommit(AssociateCommitArgs),
-    WithdrawCommit(WithdrawCommitArgs),
-    AssociateRef(AssociateRefArgs),
-    WithdrawRef(WithdrawRefArgs),
+    Record(AssociationRecordArgs),
+    Withdraw(AssociationWithdrawArgs),
     List(ListArgs),
 }
 
-/// Associate a revision with a commit.
+/// Record a commit or ref association for a revision.
 #[derive(Debug, Args)]
-struct AssociateCommitArgs {
+#[command(group(ArgGroup::new("axis").required(true).multiple(false)))]
+struct AssociationRecordArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
     #[arg(long)]
     revision: Option<String>,
 
-    /// Review lane that owns this commit association.
+    /// Review lane that owns this association.
     #[arg(long)]
     track: String,
 
     /// The commit rev to associate with this revision (resolved to an OID).
-    #[arg(long)]
-    commit: String,
+    #[arg(long, group = "axis")]
+    commit: Option<String>,
+
+    /// The ref to associate; a short branch name is normalized to its full ref.
+    #[arg(long = "ref", alias = "branch", group = "axis", requires = "head")]
+    ref_name: Option<String>,
+
+    /// The head OID the ref points at (explicit, never inferred).
+    #[arg(long, requires = "ref_name")]
+    head: Option<String>,
 
     /// Sign this write with a specific key: a keystore key name or a path to a
     /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
@@ -60,9 +68,15 @@ struct AssociateCommitArgs {
     format_args: output::FormatArgs,
 }
 
-/// Withdraw a commit association.
+/// Withdraw a commit or ref association by its id.
 #[derive(Debug, Args)]
-struct WithdrawCommitArgs {
+struct AssociationWithdrawArgs {
+    /// The association id to withdraw. Prefixed and required: `assoc-commit:…`
+    /// or `assoc-ref:…` (a short hex fragment must carry its prefix — the
+    /// prefix selects which axis is withdrawn).
+    #[arg(value_name = "ASSOCIATION_ID")]
+    association_id: String,
+
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
@@ -73,62 +87,10 @@ struct WithdrawCommitArgs {
     #[arg(long)]
     track: String,
 
-    /// The commit association id to withdraw.
-    #[arg(long)]
-    withdraws: String,
-
-    #[arg(long)]
-    sign_key: Option<String>,
-
-    #[command(flatten)]
-    format_args: output::FormatArgs,
-}
-
-/// Associate a revision with a ref.
-#[derive(Debug, Args)]
-struct AssociateRefArgs {
-    #[arg(long, default_value = ".")]
-    repo: PathBuf,
-
-    #[arg(long)]
-    revision: Option<String>,
-
-    /// Review lane that owns this ref association.
-    #[arg(long)]
-    track: String,
-
-    /// The ref to associate; a short branch name is normalized to its full ref.
-    #[arg(long = "ref", alias = "branch")]
-    ref_name: String,
-
-    /// The head OID the ref points at (explicit, never inferred).
-    #[arg(long)]
-    head: String,
-
-    #[arg(long)]
-    sign_key: Option<String>,
-
-    #[command(flatten)]
-    format_args: output::FormatArgs,
-}
-
-/// Withdraw a ref association.
-#[derive(Debug, Args)]
-struct WithdrawRefArgs {
-    #[arg(long, default_value = ".")]
-    repo: PathBuf,
-
-    #[arg(long)]
-    revision: Option<String>,
-
-    /// Review lane that owns this withdrawal.
-    #[arg(long)]
-    track: String,
-
-    /// The ref association id to withdraw.
-    #[arg(long)]
-    withdraws: String,
-
+    /// Sign this write with a specific key: a keystore key name or a path to a
+    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// the write unsigned (exit 0) with an advisory diagnostic — signing never
+    /// blocks.
     #[arg(long)]
     sign_key: Option<String>,
 
@@ -185,103 +147,130 @@ pub(super) fn run(
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
-        AssociationCommand::AssociateCommit(args) => {
-            let span = tracing::info_span!("shore.review.association.associate-commit");
+        AssociationCommand::Record(args) => {
+            let span = tracing::info_span!("shore.association.record");
             let _entered = span.enter();
-            associate_commit_run(args, stdout, stderr)
+            record_run(args, stdout, stderr)
         }
-        AssociationCommand::WithdrawCommit(args) => {
-            let span = tracing::info_span!("shore.review.association.withdraw-commit");
+        AssociationCommand::Withdraw(args) => {
+            let span = tracing::info_span!("shore.association.withdraw");
             let _entered = span.enter();
-            withdraw_commit_run(args, stdout, stderr)
-        }
-        AssociationCommand::AssociateRef(args) => {
-            let span = tracing::info_span!("shore.review.association.associate-ref");
-            let _entered = span.enter();
-            associate_ref_run(args, stdout, stderr)
-        }
-        AssociationCommand::WithdrawRef(args) => {
-            let span = tracing::info_span!("shore.review.association.withdraw-ref");
-            let _entered = span.enter();
-            withdraw_ref_run(args, stdout, stderr)
+            withdraw_run(args, stdout, stderr)
         }
         AssociationCommand::List(args) => {
-            let span = tracing::info_span!("shore.review.association.list");
+            let span = tracing::info_span!("shore.association.list");
             let _entered = span.enter();
             list_run(args, stdout)
         }
     }
 }
 
-fn associate_commit_run(
-    args: AssociateCommitArgs,
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = AssociateCommitOptions::new(&args.repo, args.commit).with_track(args.track);
-    options = with_selection(options, args.revision);
-    let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
-    let result = associate_commit(options)?;
-    crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let format =
-        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &associate_commit_document(result))
+/// The exclusive `record` axis, decoded from the clap group.
+enum RecordAxis {
+    Commit(String),
+    Ref { ref_name: String, head: String },
 }
 
-fn withdraw_commit_run(
-    args: WithdrawCommitArgs,
-    stdout: &mut dyn Write,
-    stderr: &mut dyn Write,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut options =
-        WithdrawCommitOptions::new(&args.repo, CommitAssociationId::new(args.withdraws))
-            .with_track(args.track);
-    options = with_selection(options, args.revision);
-    let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
-    let result = withdraw_commit(options)?;
-    crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let format =
-        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &withdraw_commit_document(result))
+/// Decode the clap axis group (exactly one of `--commit`/`--ref` is required)
+/// into the record axis. The clap `ArgGroup` and `requires` bindings enforce the
+/// shape; the trailing errors are a defensive fallback if that guarantee is ever
+/// bypassed.
+fn record_axis_from_args(
+    args: &AssociationRecordArgs,
+) -> Result<RecordAxis, Box<dyn std::error::Error>> {
+    if let Some(commit) = &args.commit {
+        Ok(RecordAxis::Commit(commit.clone()))
+    } else if let Some(ref_name) = &args.ref_name {
+        let head = args
+            .head
+            .clone()
+            .ok_or("`--head <oid>` is required with `--ref`")?;
+        Ok(RecordAxis::Ref {
+            ref_name: ref_name.clone(),
+            head,
+        })
+    } else {
+        Err("exactly one of --commit or --ref is required".into())
+    }
 }
 
-fn associate_ref_run(
-    args: AssociateRefArgs,
+fn record_run(
+    args: AssociationRecordArgs,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut options =
-        AssociateRefOptions::new(&args.repo, args.ref_name, args.head).with_track(args.track);
-    options = with_selection(options, args.revision);
-    let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
-    let result = associate_ref(options)?;
-    crate::cli::common::surface_best_effort_skip(&skip, stderr);
+    let ids = IdResolver::new(&args.repo);
+    let revision = match &args.revision {
+        Some(revision) => Some(ids.rev(revision)?),
+        None => None,
+    };
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &associate_ref_document(result))
+    match record_axis_from_args(&args)? {
+        RecordAxis::Commit(commit) => {
+            let mut options =
+                AssociateCommitOptions::new(&args.repo, commit).with_track(args.track);
+            options = with_selection(options, revision);
+            let (options, skip) =
+                apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
+            let result = associate_commit(options)?;
+            crate::cli::common::surface_best_effort_skip(&skip, stderr);
+            output::write_document_json_fallback(stdout, format, &associate_commit_document(result))
+        }
+        RecordAxis::Ref { ref_name, head } => {
+            let mut options =
+                AssociateRefOptions::new(&args.repo, ref_name, head).with_track(args.track);
+            options = with_selection(options, revision);
+            let (options, skip) =
+                apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
+            let result = associate_ref(options)?;
+            crate::cli::common::surface_best_effort_skip(&skip, stderr);
+            output::write_document_json_fallback(stdout, format, &associate_ref_document(result))
+        }
+    }
 }
 
-fn withdraw_ref_run(
-    args: WithdrawRefArgs,
+fn withdraw_run(
+    args: AssociationWithdrawArgs,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = WithdrawRefOptions::new(&args.repo, RefAssociationId::new(args.withdraws))
-        .with_track(args.track);
-    options = with_selection(options, args.revision);
-    let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
-    let result = withdraw_ref(options)?;
-    crate::cli::common::surface_best_effort_skip(&skip, stderr);
+    let ids = IdResolver::new(&args.repo);
+    let association_id = ids.association(&args.association_id)?;
+    let revision = match &args.revision {
+        Some(revision) => Some(ids.rev(revision)?),
+        None => None,
+    };
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &withdraw_ref_document(result))
+    // The resolved prefix selects which axis is withdrawn.
+    if association_id.starts_with(&format!("{}:", IdKind::CommitAssociation.prefix())) {
+        let mut options =
+            WithdrawCommitOptions::new(&args.repo, CommitAssociationId::new(association_id))
+                .with_track(args.track);
+        options = with_selection(options, revision);
+        let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
+        let result = withdraw_commit(options)?;
+        crate::cli::common::surface_best_effort_skip(&skip, stderr);
+        output::write_document_json_fallback(stdout, format, &withdraw_commit_document(result))
+    } else {
+        let mut options =
+            WithdrawRefOptions::new(&args.repo, RefAssociationId::new(association_id))
+                .with_track(args.track);
+        options = with_selection(options, revision);
+        let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
+        let result = withdraw_ref(options)?;
+        crate::cli::common::surface_best_effort_skip(&skip, stderr);
+        output::write_document_json_fallback(stdout, format, &withdraw_ref_document(result))
+    }
 }
 
 fn list_run(args: ListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let mut options = ListAssociationsOptions::new(&args.repo).current_only(args.current);
-    if let Some(revision) = args.revision {
-        options = options.with_revision_id(RevisionId::new(revision));
+    if let Some(revision) = &args.revision {
+        let ids = IdResolver::new(&args.repo);
+        options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(axis) = args.axis {
         options = options.with_axis(axis.into());
@@ -343,7 +332,7 @@ fn commit_range_view(result: &ListAssociationsResult) -> RevisionCommitRangeView
 /// re-exported), and the digest keys on the code, never the disposable message.
 const DIVERGENT_COMMIT_ASSOCIATION_CODE: &str = "divergent_commit_association";
 
-/// The text digest for `review association list`: the anchored state, current
+/// The text digest for `association list`: the anchored state, current
 /// commit/ref associations as short refs, withdrawn counts, a plain-language
 /// divergence line, and the best-effort landing headline. Reads only the public
 /// `ListAssociationsResult` (INV-12); ids truncate via `output::short_ref`
