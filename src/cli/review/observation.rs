@@ -33,6 +33,7 @@ struct ObservationAddArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this observation.
     #[arg(long)]
     track: String,
 
@@ -98,6 +99,7 @@ struct ObservationListArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Only list observations from this review lane.
     #[arg(long)]
     track: Option<String>,
 

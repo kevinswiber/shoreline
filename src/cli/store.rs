@@ -98,8 +98,10 @@ enum StoreModeAction {
     Show,
 }
 
-/// Exactly one selector is required; the content-targeted removal key is derived
-/// solely from the content hash, so there is deliberately no `--idempotency-key`.
+/// Records a removal claim against content-addressed artifacts, scoped by exactly
+/// one selector; it does not erase any bytes — run `shore store compact` (or its
+/// `gc` alias) to reclaim disk space afterward. The removal key is derived solely
+/// from the content hash, so there is deliberately no `--idempotency-key`.
 #[derive(Debug, Args)]
 #[command(group(ArgGroup::new("selector").required(true).multiple(false)))]
 struct StoreRemoveArgs {

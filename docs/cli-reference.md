@@ -84,6 +84,24 @@ signature *is* the endorsement's content. See
 [signing-ux.md](./signing-ux.md) for the human / agent / CI flows and the
 `unsigned → untrusted_key → valid` ladder.
 
+## Review Lanes
+
+Every recorded fact — an observation, an assessment, a validation check, an input request, a
+commit or ref association — is scoped to a **review lane**: a caller-chosen free-text label
+naming who or what is doing the reviewing, such as `agent:codex` or a human reviewer's own
+identity. There is no fixed vocabulary or required shape; the label is opaque to Shoreline and
+exists so a revision's facts can be filtered and grouped by who recorded them.
+
+- On every write command that records a fact (`shore review observation add`,
+  `shore review assessment add`, `shore review validation add`,
+  `shore review association associate-commit` / `associate-ref` / `withdraw-commit` /
+  `withdraw-ref`, `shore review input-request open`), `--track <track-id>` is **required** and
+  stamps the lane that owns the new fact.
+- On read/list commands (`shore review observation list`, `shore review input-request list`,
+  `shore review validation list`, `shore review assessment show`, `shore review history`,
+  `shore review show`), `--track <track-id>` is **optional** and narrows the results to one
+  lane; omitted, all lanes are returned.
+
 ## `shore diff`
 
 ```bash

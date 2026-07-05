@@ -23,6 +23,8 @@ mod store;
 #[cfg(test)]
 mod about_bleed_guard;
 #[cfg(test)]
+mod help_hygiene_guard;
+#[cfg(test)]
 mod help_vocab_guard;
 #[cfg(test)]
 mod reference_coverage;

@@ -32,6 +32,7 @@ struct ValidationAddArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this validation check.
     #[arg(long)]
     track: String,
 
@@ -97,6 +98,7 @@ struct ValidationListArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Only list validation checks from this review lane.
     #[arg(long)]
     track: Option<String>,
 

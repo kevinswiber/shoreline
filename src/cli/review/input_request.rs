@@ -43,6 +43,7 @@ struct InputRequestOpenArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this input request.
     #[arg(long)]
     track: String,
 
@@ -105,6 +106,7 @@ struct InputRequestListArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Only list input requests from this review lane.
     #[arg(long)]
     track: Option<String>,
 

@@ -41,6 +41,7 @@ struct AssociateCommitArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this commit association.
     #[arg(long)]
     track: String,
 
@@ -68,6 +69,7 @@ struct WithdrawCommitArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this withdrawal.
     #[arg(long)]
     track: String,
 
@@ -91,6 +93,7 @@ struct AssociateRefArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this ref association.
     #[arg(long)]
     track: String,
 
@@ -118,6 +121,7 @@ struct WithdrawRefArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Review lane that owns this withdrawal.
     #[arg(long)]
     track: String,
 
