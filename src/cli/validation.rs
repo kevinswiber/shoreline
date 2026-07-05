@@ -200,7 +200,7 @@ fn validation_add_options(
         .with_trigger(args.trigger.into());
 
     if let Some(revision) = &args.revision {
-        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(command) = args.command {
@@ -247,7 +247,7 @@ fn validation_list_options(
         .with_include_body(args.include_body)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = &args.revision {
-        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {

@@ -258,7 +258,7 @@ pub(super) fn assessment_add_options(
     args: AssessmentAddArgs,
     stderr: &mut dyn Write,
 ) -> Result<(AssessmentAddOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
-    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let observation = args
         .observation
         .as_deref()
@@ -333,7 +333,7 @@ pub(super) fn assessment_show_options(
         .with_include_summary(args.include_summary)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = &args.revision {
-        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {

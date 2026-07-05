@@ -75,7 +75,7 @@ pub(super) fn run(
 
     // Resolve the target only after the signer is in hand, so an invalid/ambiguous
     // fragment never masks the "no signer" hard error when both conditions hold.
-    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let target = ids.event(&args.target)?;
 
     // The producer is used AS-IS: the resolved boxed signer is the attesting signer

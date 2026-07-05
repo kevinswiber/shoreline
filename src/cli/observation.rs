@@ -183,7 +183,7 @@ fn observation_add_options(
     args: ObservationAddArgs,
     stderr: &mut dyn Write,
 ) -> Result<(ObservationAddOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
-    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let target = observation_target(&args);
     let body = read_body_input(
         args.body.as_deref(),
@@ -236,7 +236,7 @@ fn observation_list_options(
         .with_include_body(args.include_body)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = &args.revision {
-        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {

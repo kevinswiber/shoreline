@@ -147,7 +147,7 @@ fn capture_options(
         options = options.with_commit_range(range);
     }
     if !args.supersedes.is_empty() {
-        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         let mut supersedes = Vec::with_capacity(args.supersedes.len());
         for raw in &args.supersedes {
             supersedes.push(RevisionId::new(ids.rev(raw)?));

@@ -306,7 +306,7 @@ fn input_request_show(
     let pretty = args.pretty && !args.compact;
     let format_explicit = args.format_args.explicit(pretty);
     let delegation_map = crate::cli::common::discover_delegation_map(&args.repo);
-    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let input_request_id = ids.input_request(&args.input_request_id)?;
     let result = fetch_input_request(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(input_request_id))
@@ -397,7 +397,7 @@ fn input_request_open_options(
     stderr: &mut dyn Write,
 ) -> Result<(InputRequestOpenOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>>
 {
-    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let observation = match &args.observation {
         Some(raw) => Some(ids.observation(raw)?),
         None => None,
@@ -451,7 +451,7 @@ fn input_request_list_options(
         .with_include_body(args.include_body)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
     if let Some(revision) = &args.revision {
-        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {
@@ -476,7 +476,7 @@ fn input_request_respond_options(
         args.reason_file.as_deref(),
         args.reason_stdin,
     )?;
-    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let input_request_id = ids.input_request(&args.input_request_id)?;
     let mut options =
         InputRequestRespondOptions::new(&args.repo, InputRequestId::new(input_request_id))
