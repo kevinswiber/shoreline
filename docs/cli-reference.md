@@ -119,6 +119,10 @@ revision recorded; its subject is always the captured snapshot, never the live w
 
 ## `shore show`
 
+**Legacy — hidden pending redesign.** Unadvertised in `--help`
+(`#[command(hide = true)]`) but fully functional; see the
+[ADR-0030 Amendment](./adr/adr-0030-named-command-surface.md#amendment-legacy-working-tree-surfaces-hidden-pending-redesign-2026-07-05).
+
 ```bash
 shore show [--repo <path>] [--review-notes <path>]
 ```
@@ -140,6 +144,10 @@ Keybindings: `q`/Esc/Ctrl+C quits, `j`/`k` or Up/Down moves by row, `[` and `]` 
 sections, and `{` and `}` move through noted sections.
 
 ## `shore dump`
+
+**Legacy — hidden pending redesign.** Unadvertised in `--help`
+(`#[command(hide = true)]`) but fully functional; see the
+[ADR-0030 Amendment](./adr/adr-0030-named-command-surface.md#amendment-legacy-working-tree-surfaces-hidden-pending-redesign-2026-07-05).
 
 ```bash
 shore dump [--repo <path>] [--review-notes <path>] [--pretty | --compact]
@@ -922,6 +930,10 @@ event listing, while `shore review show` is the composite revision view for agen
 frontends.
 
 ## `shore notes apply`
+
+**Legacy — hidden pending redesign.** Unadvertised in `--help`
+(`#[command(hide = true)]`) but fully functional; see the
+[ADR-0030 Amendment](./adr/adr-0030-named-command-surface.md#amendment-legacy-working-tree-surfaces-hidden-pending-redesign-2026-07-05).
 
 ```bash
 shore notes apply --repo <path> --review-notes <path>

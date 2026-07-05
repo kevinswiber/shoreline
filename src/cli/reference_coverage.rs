@@ -30,7 +30,7 @@ const REQUIRED_FLAGS: &[&str] = &[
 fn collect_leaf_paths(cmd: &clap::Command, prefix: &mut Vec<String>, out: &mut Vec<String>) {
     let subs: Vec<&clap::Command> = cmd
         .get_subcommands()
-        .filter(|c| c.get_name() != "help" && !c.is_hide_set())
+        .filter(|c| c.get_name() != "help")
         .collect();
     if subs.is_empty() {
         if !prefix.is_empty() {
@@ -60,6 +60,18 @@ fn every_leaf_command_is_documented() {
         missing.is_empty(),
         "commands missing from docs/cli-reference.md:\n{}",
         missing.join("\n")
+    );
+}
+
+#[test]
+fn collect_leaf_paths_walks_hidden_leaves() {
+    let hidden_leaf = clap::Command::new("legacy").hide(true);
+    let root = clap::Command::new("shore").subcommand(hidden_leaf);
+    let mut paths = Vec::new();
+    collect_leaf_paths(&root, &mut Vec::new(), &mut paths);
+    assert!(
+        paths.contains(&"legacy".to_owned()),
+        "hidden leaves must still be walked so reference_coverage.rs keeps documenting them: {paths:?}"
     );
 }
 

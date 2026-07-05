@@ -190,3 +190,49 @@ lens the inspector already owns is out of scope by decision, not by omission.
   product case that names a job no existing surface serves.
 - **Notes-import workflow evolution** — if sidecar-note import stops being a supported path, the
   renamed TUI and `shore notes` family shrink accordingly.
+
+## Amendment: Legacy Working-Tree Surfaces Hidden Pending Redesign (2026-07-05)
+
+The original decisions stand: `shore dump` is retired as product surface (Decision 6), the TUI's
+job belongs under the notes family (Decision 3), and the TUI's ultimate fate is deferred with named
+inputs (Decision 6). What changes is the **interim implementation posture**. Neither the `dump`
+retirement nor the `show` → `notes show` rename has been executed — both commands are still
+shipped and advertised — and executing them piecemeal now would spend rename ceremony on a surface
+whose redesign may retire it anyway.
+
+**Decided instead:** `shore show`, `shore dump`, and the `shore notes` family are **hidden from
+`--help`** (`#[command(hide = true)]`) while remaining functional. All three are early product
+surface — the TUI was never fully fleshed out, and the notes-import workflow sits in the same
+bucket — and none of it should be advertised again until a deliberate design pass decides what (if
+anything) is promoted. The `show` → `notes show` rename is **deferred into that design pass**
+rather than performed now; if the pass retires the TUI, the rename never happens and the
+retirement ships with the standard removed-command hint instead.
+
+**Mechanics:**
+
+- Hiding is not removal: no removed-command hints fire, no behavior changes, and
+  `tests/cli_removed_legacy.rs` is untouched.
+- `src/cli/reference_coverage.rs` (every clap leaf must appear in `docs/cli-reference.md`) gains
+  an explicit policy for hidden leaves: they stay documented, marked **legacy — hidden pending
+  redesign**, so the guard keeps walking them.
+- Docs still carry substantial `shore dump` / top-level `shore show` example references; those
+  sweep toward `shore diff`, `shore inspect`, and the digests with this change or an immediate
+  follow-up.
+
+Decision 6's deferral inputs are unchanged; Decision 7 (terminal surfaces do not ASCII-clone the
+inspector) binds any future design pass. Bare top-level `show` remains unassigned per Decision 3.
+
+**Consequences.** Accepted: the advertised surface stops promising a legacy workflow; the redesign
+decision is not pre-empted; zero breakage (hidden ≠ removed). Cost: three functioning commands
+become undiscoverable except through docs — intentional, since discovery is what mis-sells them.
+Rejected: executing the rename/retirement now (spends a user-visible break on a surface whose fate
+is undecided); leaving the commands advertised (keeps mis-selling the pre-revision workflow the
+README no longer describes).
+
+**Revisit Trigger.** The deferred TUI/notes design pass (Decision 6's inputs: whether `shore diff`
++ the digests cover the terminal readback slice, and whether the imported-notes viewer job retains
+standalone value) — its outcome executes, renames, or retires each hidden surface explicitly.
+
+**Status:** Accepted (owner-approved 2026-07-05); lands with the review-surface reshape
+implementation work (issue #379). The original ADR-0030 text above and its top-level
+**Status: Accepted** are unchanged.

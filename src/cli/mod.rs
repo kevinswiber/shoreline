@@ -45,14 +45,17 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Diff(diff::DiffArgs),
+    #[command(hide = true)]
     Dump(dump::DumpArgs),
     Identity(identity::IdentityArgs),
     Inspect(inspect::InspectArgs),
     Keys(keys::KeysArgs),
+    #[command(hide = true)]
     Notes(notes::NotesArgs),
     // Boxed because the review subcommands carry much larger argument structs
     // than the other top-level commands.
     Review(Box<review::ReviewArgs>),
+    #[command(hide = true)]
     Show(show::ShowArgs),
     Store(store::StoreArgs),
 }
