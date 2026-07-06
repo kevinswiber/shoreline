@@ -3,11 +3,12 @@ import type { IdentityDoc } from "../src/store";
 import { mountInspectorDom, resetDom } from "./support/dom";
 import { installFetchMock, uninstallFetchMock } from "./support/fetch";
 
-// `renderIdentity` (inside the single `render()` subscriber) paints a compact
-// top-bar store chip — the repository name only — with the full identity (store
-// placement, family, worktree) in a hover/focus detail popover, and sets the
-// browser tab `<title>` (issue #391). Module singletons (store, render), so reset
-// and re-import before each test.
+// `renderIdentity` (inside the single `render()` subscriber) fills the static store
+// chip + detail popover (issue #391): the chip shows the repository name only, and
+// the popover holds the identity rows (renderIdentity), the store counts + hash
+// (renderStats, static spans), and the trust footnote (static). It also sets the
+// browser tab `<title>` and hides the chip until identity loads. Module singletons
+// (store, render), so reset and re-import before each test.
 type Store = typeof import("../src/store");
 type Render = typeof import("../src/render");
 let store: Store;
@@ -33,30 +34,33 @@ afterEach(() => {
   document.title = "shore inspector";
 });
 
-it("shows only the repository name in the chip and sets the tab title", () => {
+it("shows the repository in the chip, reveals it, and sets the tab title", () => {
   store.commit({ identity: CLONE });
   render.render();
-  const chip = document.querySelector("#store-identity .store-identity-chip");
-  expect(chip?.textContent).toContain("shoreline");
-  // The placement label is NOT in the always-visible chip.
-  expect(chip?.textContent).not.toContain("clone store");
+  const root = document.querySelector("#store-identity");
+  expect(root?.classList.contains("hidden")).toBe(false);
+  expect(document.querySelector("#store-chip-repo")?.textContent).toBe(
+    "shoreline",
+  );
   expect(document.title).toBe("shoreline · shore inspector");
 });
 
-it("puts repository and placement in the detail popover", () => {
+it("puts repository and placement in the detail rows", () => {
   store.commit({ identity: CLONE });
   render.render();
-  const detail = document.querySelector(".store-identity-detail");
-  expect(detail?.textContent).toContain("shoreline");
-  expect(detail?.textContent).toContain("clone store");
+  const rows = document.querySelector("#store-identity-rows");
+  expect(rows?.textContent).toContain("repository");
+  expect(rows?.textContent).toContain("shoreline");
+  expect(rows?.textContent).toContain("store");
+  expect(rows?.textContent).toContain("clone store");
 });
 
 it("omits family and worktree rows when absent", () => {
   store.commit({ identity: CLONE });
   render.render();
-  const detail = document.querySelector(".store-identity-detail");
-  expect(detail?.textContent).not.toContain("family");
-  expect(detail?.textContent).not.toContain("worktree");
+  const rows = document.querySelector("#store-identity-rows");
+  expect(rows?.textContent).not.toContain("family");
+  expect(rows?.textContent).not.toContain("worktree");
 });
 
 it("shows the family row under the user-level tier", () => {
@@ -68,9 +72,9 @@ it("shows the family row under the user-level tier", () => {
     },
   });
   render.render();
-  const detail = document.querySelector(".store-identity-detail");
-  expect(detail?.textContent).toContain("family");
-  expect(detail?.textContent).toContain("acme-web");
+  const rows = document.querySelector("#store-identity-rows");
+  expect(rows?.textContent).toContain("family");
+  expect(rows?.textContent).toContain("acme-web");
 });
 
 it("shows the worktree row when present", () => {
@@ -82,12 +86,12 @@ it("shows the worktree row when present", () => {
     },
   });
   render.render();
-  const detail = document.querySelector(".store-identity-detail");
-  expect(detail?.textContent).toContain("worktree");
-  expect(detail?.textContent).toContain("feat-foo");
+  const rows = document.querySelector("#store-identity-rows");
+  expect(rows?.textContent).toContain("worktree");
+  expect(rows?.textContent).toContain("feat-foo");
 });
 
-it("exposes the full identity as an accessible label on the chip", () => {
+it("exposes the full identity as the chip's accessible label", () => {
   store.commit({
     identity: {
       repository: "shoreline",
@@ -97,17 +101,29 @@ it("exposes the full identity as an accessible label on the chip", () => {
   });
   render.render();
   const label =
-    document
-      .querySelector(".store-identity-chip")
-      ?.getAttribute("aria-label") ?? "";
+    document.querySelector("#store-chip")?.getAttribute("aria-label") ?? "";
   expect(label).toContain("shoreline");
   expect(label).toContain("family store");
   expect(label).toContain("acme-web");
 });
 
-it("falls back to the default title when identity is null", () => {
+it("keeps the store counts and the trust footnote in the popover", () => {
+  store.commit({ identity: CLONE });
+  render.render();
+  // The stat spans (renderStats-owned) and the trust note are static popover markup.
+  expect(
+    document.querySelector(".store-identity-stats #stat-events"),
+  ).not.toBeNull();
+  const note = document.querySelector(".store-identity-note");
+  expect(note?.textContent).toContain("never gates writes");
+  expect(note?.textContent).toContain("reader-relative");
+});
+
+it("hides the chip and resets the title when identity is null", () => {
   store.commit({ identity: null });
   render.render();
   expect(document.title).toBe("shore inspector");
-  expect(document.querySelector("#store-identity")?.textContent).toBe("");
+  expect(
+    document.querySelector("#store-identity")?.classList.contains("hidden"),
+  ).toBe(true);
 });

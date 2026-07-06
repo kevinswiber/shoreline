@@ -51,17 +51,21 @@ let lastMasterLens: string | null = null;
  * empty (title reset to the default) until the one-shot identity fetch lands.
  */
 function renderIdentity(): void {
-  const el = $("#store-identity");
-  if (!el) return;
+  const root = $("#store-identity");
+  if (!root) return;
   const id = getState().identity;
   if (!id) {
-    el.innerHTML = "";
+    // Hide the store chip until the one-shot identity fetch lands.
+    root.classList.add("hidden");
     document.title = "shore inspector";
     return;
   }
-  // The always-visible chip is the repository name only; the store placement,
-  // family, and worktree live in a hover/focus detail popover so the top bar stays
-  // uncluttered. Repository + store are always shown; family/worktree only when set.
+  root.classList.remove("hidden");
+
+  // The detail popover's identity rows: repository + store always, family/worktree
+  // only when set. The stat rows and the trust note below them are static markup
+  // (renderStats owns #stat-*); this fills only the identity rows, the chip's repo
+  // label + accessible name, and the tab title.
   const rows: Array<[string, string]> = [
     ["repository", id.repository],
     ["store", id.placement.label],
@@ -69,19 +73,21 @@ function renderIdentity(): void {
   if (id.family) rows.push(["family", id.family.id]);
   if (id.worktree) rows.push(["worktree", id.worktree]);
 
-  const detailRows = rows
-    .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
-    .join("");
-  // The full identity as one phrase, so a screen reader gets everything from the
-  // chip without depending on the visual (aria-hidden) popover.
-  const ariaLabel = rows.map(([k, v]) => `${k} ${v}`).join(", ");
+  const rowsEl = $("#store-identity-rows");
+  if (rowsEl) {
+    rowsEl.innerHTML = rows
+      .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
+      .join("");
+  }
+  const repoEl = $("#store-chip-repo");
+  if (repoEl) repoEl.textContent = id.repository;
+  // The chip's accessible label carries the full identity, so a screen reader gets
+  // everything without depending on the visual (aria-hidden) popover.
+  $("#store-chip")?.setAttribute(
+    "aria-label",
+    rows.map(([k, v]) => `${k} ${v}`).join(", "),
+  );
 
-  el.innerHTML =
-    `<span class="${CLASS.storeIdentityChip}" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">` +
-    `<span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span>` +
-    `<span class="${CLASS.storeIdentityCaret}" aria-hidden="true">▾</span>` +
-    `</span>` +
-    `<div class="${CLASS.storeIdentityDetail}" aria-hidden="true"><dl>${detailRows}</dl></div>`;
   // Plain-text title (no HTML escaping needed for document.title).
   document.title = `${id.repository} · shore inspector`;
 }

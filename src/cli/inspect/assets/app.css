@@ -25,9 +25,9 @@ body { display: flex; flex-direction: column; }
 .brand span { color: var(--accent); margin-left: 4px; font-weight: 500; }
 
 /* The served repository / store identity (issue #391): a compact chip showing the
-   repository name only, with the full placement/family/worktree detail in a
-   hover/focus popover so the top bar stays uncluttered. Empty until the one-shot
-   identity fetch lands. */
+   repository name only, with the full detail — placement/family/worktree, the store
+   counts + fingerprint, and the trust note — in a hover/focus popover so the top bar
+   stays uncluttered. Hidden until the one-shot identity fetch lands. */
 .store-identity { position: relative; display: flex; align-items: center; }
 .store-identity-chip {
   display: inline-flex;
@@ -48,7 +48,7 @@ body { display: flex; flex-direction: column; }
   left: 0;
   z-index: 50;
   display: none;
-  min-width: 180px;
+  min-width: 210px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -65,6 +65,26 @@ body { display: flex; flex-direction: column; }
 }
 .store-identity-detail dt { color: var(--fg-dim); font-size: var(--fs-sm); }
 .store-identity-detail dd { margin: 0; color: var(--fg); font-size: var(--fs-sm); }
+/* The store counts + fingerprint, folded in from the old always-on stats row. The
+   spans keep their `.stat` styling; this just lays them out under a divider. */
+.store-identity-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+/* The trust-model footnote — replaces the persistent "read-only · advisory" badge. */
+.store-identity-note {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  max-width: 260px;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
 
 #lens-switcher { display: flex; flex-wrap: wrap; gap: 4px; }
 .lens-tab {
@@ -699,7 +719,6 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 /* Persistent advisory framing — the quietest tier (dim caption / dim chrome), never
    a banner or a second headline; the verdict stays a card. */
 .advisory-note, .reader-scope-note { font-size: var(--fs-xs); color: var(--fg-dim); margin: 4px 0 0; }
-.advisory-mode { color: var(--fg-dim); }
 .fact-rel { font-size: var(--fs-xs); color: var(--fg-dim); margin-top: 4px; }
 .fact-body-removed { font-size: var(--fs-xs); color: var(--fg-dim); font-style: italic; margin-top: 4px; }
 .fact-responses { margin-top: 6px; padding-left: 10px; border-left: 1px solid var(--border); }

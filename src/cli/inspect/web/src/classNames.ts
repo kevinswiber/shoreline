@@ -38,12 +38,10 @@ export const CLASS = {
   ghost: "ghost",
   actions: "actions",
 
-  // App-shell store identity: a compact repo chip with a hover/focus detail popover
-  // (issue #391). The detail rows are a <dl>, styled via element selectors.
-  storeIdentityChip: "store-identity-chip",
-  storeIdentityRepo: "store-identity-repo",
-  storeIdentityCaret: "store-identity-caret",
-  storeIdentityDetail: "store-identity-detail",
+  // (The app-shell store-identity chip + detail popover is static markup in
+  // index.html — `store-identity*` classes live there and in app.css, not here —
+  // and its rows are `renderIdentity`-filled <dt>/<dd> styled via element selectors.
+  // Issue #391.)
 
   // Fact cards (observation / input-request / assessment / validation / note).
   annoGroup: "anno-group",

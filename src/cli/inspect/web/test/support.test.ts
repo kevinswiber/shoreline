@@ -17,13 +17,16 @@ afterEach(() => {
 // grows as new controls are wired; a missing id is a harness gap, not a module bug.
 const FIXED_IDS = [
   "topbar",
+  "store-identity",
+  "store-chip",
+  "store-chip-repo",
+  "store-identity-rows",
   "lens-switcher",
   "stat-events",
   "stat-units",
   "stat-threads",
   "stat-hash",
   "refresh",
-  "advisory-mode",
   "theme-toggle",
   "density-toggle",
   "diagnostics",

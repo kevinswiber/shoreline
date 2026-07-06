@@ -54,12 +54,10 @@
     kv: "kv",
     ghost: "ghost",
     actions: "actions",
-    // App-shell store identity: a compact repo chip with a hover/focus detail popover
-    // (issue #391). The detail rows are a <dl>, styled via element selectors.
-    storeIdentityChip: "store-identity-chip",
-    storeIdentityRepo: "store-identity-repo",
-    storeIdentityCaret: "store-identity-caret",
-    storeIdentityDetail: "store-identity-detail",
+    // (The app-shell store-identity chip + detail popover is static markup in
+    // index.html — `store-identity*` classes live there and in app.css, not here —
+    // and its rows are `renderIdentity`-filled <dt>/<dd> styled via element selectors.
+    // Issue #391.)
     // Fact cards (observation / input-request / assessment / validation / note).
     annoGroup: "anno-group",
     annoHead: "anno-head",
@@ -3731,23 +3729,31 @@ click to open the revision page">
   // src/render.ts
   var lastMasterLens = null;
   function renderIdentity() {
-    const el = $("#store-identity");
-    if (!el) return;
+    const root = $("#store-identity");
+    if (!root) return;
     const id = getState().identity;
     if (!id) {
-      el.innerHTML = "";
+      root.classList.add("hidden");
       document.title = "shore inspector";
       return;
     }
+    root.classList.remove("hidden");
     const rows = [
       ["repository", id.repository],
       ["store", id.placement.label]
     ];
     if (id.family) rows.push(["family", id.family.id]);
     if (id.worktree) rows.push(["worktree", id.worktree]);
-    const detailRows = rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
-    const ariaLabel = rows.map(([k, v]) => `${k} ${v}`).join(", ");
-    el.innerHTML = `<span class="${CLASS.storeIdentityChip}" tabindex="0" aria-label="${escapeHtml(ariaLabel)}"><span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span><span class="${CLASS.storeIdentityCaret}" aria-hidden="true">▾</span></span><div class="${CLASS.storeIdentityDetail}" aria-hidden="true"><dl>${detailRows}</dl></div>`;
+    const rowsEl = $("#store-identity-rows");
+    if (rowsEl) {
+      rowsEl.innerHTML = rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
+    }
+    const repoEl = $("#store-chip-repo");
+    if (repoEl) repoEl.textContent = id.repository;
+    $("#store-chip")?.setAttribute(
+      "aria-label",
+      rows.map(([k, v]) => `${k} ${v}`).join(", ")
+    );
     document.title = `${id.repository} · shore inspector`;
   }
   __name(renderIdentity, "renderIdentity");

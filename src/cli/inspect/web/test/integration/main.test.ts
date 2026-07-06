@@ -165,9 +165,11 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
 describe("advisory framing (rendered DOM, reader-relative, never a gate)", () => {
   it("surfaces the read-only / advisory posture and exposes no gate affordance", async () => {
     await main.main();
-    const advisory = document.querySelector("#advisory-mode");
-    expect(advisory?.textContent).toContain("read-only · advisory");
-    expect(advisory?.getAttribute("title")).toContain("never gates a write");
+    // The advisory posture now lives as a footnote in the store-identity popover
+    // (the persistent "read-only · advisory" badge was retired for a quieter bar).
+    const note = document.querySelector(".store-identity-note");
+    expect(note?.textContent).toContain("never gates writes");
+    expect(note?.textContent).toContain("reader-relative");
     // No approve / merge / gate control anywhere in the rendered chrome.
     const buttons = Array.from(document.querySelectorAll("button")).map(
       (b) => b.textContent ?? "",
