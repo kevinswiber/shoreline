@@ -661,14 +661,11 @@ fn positive_advisory_states_use_text_not_checkmark_glyphs() {
         // The signature readback is the one positive state that leads with a
         // marker: a neutral middot (never a checkmark, guarded above) so a valid
         // timeline row still carries a status mark alongside the non-positive
-        // glyphs. Shipped in the served inspector; the gallery mirror is
-        // unconstrained here (text-only today, may gain the dot on a later sync).
-        if label == "app" {
-            assert!(
-                css.contains(".verify-valid::before") && css.contains("content: \"·\""),
-                "app signature readback leads valid rows with a neutral middot, not a checkmark"
-            );
-        }
+        // glyphs. The served inspector and the gallery mirror stay in sync on it.
+        assert!(
+            css.contains(".verify-valid::before") && css.contains("content: \"·\""),
+            "{label} signature readback leads valid rows with a neutral middot, not a checkmark"
+        );
         for glyph in [
             "content: \"✕\"",
             "content: \"!\"",

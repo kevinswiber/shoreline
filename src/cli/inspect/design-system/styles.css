@@ -166,21 +166,29 @@ body {
 }
 .toolbar input[type="search"] { flex: 1; min-width: 180px; }
 .toolbar input[type="search"]::placeholder { color: var(--fg-dim); opacity: 1; }
-.ghost { background: transparent; color: var(--fg-dim); border: 1px solid var(--border); border-radius: var(--r-md); padding: 5px 10px; cursor: pointer; font: inherit; }
+/* Quiet secondary controls: borderless at rest so they read as chrome, not
+   buttons; a hover/focus wash carries the affordance. */
+.ghost { background: transparent; color: var(--fg-dim); border: none; border-radius: var(--r-md); padding: 5px 10px; cursor: pointer; font: inherit; }
+.ghost:hover { background: var(--bg-row); color: var(--fg); }
+.ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .type-toggles { display: flex; gap: 4px; flex-wrap: wrap; }
+/* The type filters read as scan tokens, not buttons: dot + mono label + count,
+   no resting border or fill; a quiet hover/focus wash keeps the affordance. */
 .type-toggle {
   font-size: 11px;
   font-family: var(--mono);
-  border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-  padding: 3px 9px;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 3px 5px;
   cursor: pointer;
-  background: var(--bg-row);
+  background: transparent;
   color: var(--fg-dim);
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
+.type-toggle:hover { background: var(--bg-row); }
+.type-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .type-toggle .dot { width: 8px; height: 8px; border-radius: 50%; }
 .type-toggle.off { opacity: 0.4; }
 
@@ -565,8 +573,9 @@ body {
 
 /* ---- Endorsements / verify ------------------------------------------- */
 .verify { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: var(--r-sm); background: var(--bg-row); color: var(--fg-dim); white-space: nowrap; }
-/* On a selected row the chip re-seats on --bg so its tint text clears AA. */
-[aria-selected="true"] .verify { background: var(--bg); }
+/* In the timeline meta the signature readback de-chromes to inline glyph+text
+   (the detail-pane readback keeps its chip). */
+.event .meta .verify { background: transparent; padding: 0; border-radius: 0; }
 .verify-valid { color: var(--success); }
 .verify-invalid { color: var(--danger); }
 .verify-untrusted_key { color: var(--warning); }
@@ -586,12 +595,19 @@ body {
 /* Non-color status redundancy for non-positive states via ::before so meaning
    never rides on hue alone. Positive advisory states stay text-only to avoid
    implying a gate; their labels already say accepted, passed, valid, or current.
+   The one exception is the signature readback (.verify-valid, below): it leads
+   with a neutral dot so every timeline row carries a consistent status mark.
    Unicode only; no icon font, no build. The glyphs inherit the text tint, so
    they read in both themes. */
 .fact-status::before,
 .verify::before,
 .verdict .verdict-value::before,
 .dstatus::before { margin-right: 4px; font-weight: 600; }
+
+/* Signature-valid: a neutral, dimmed dot (deliberately NOT a check, which would
+   read as a gate-pass on an advisory readback) so a valid row still leads with a
+   mark alongside the non-positive states. */
+.verify-valid::before { content: "·"; color: var(--fg-dim); }
 
 /* failed / invalid / changes-requested */
 .fact-status.failed::before,
