@@ -45,7 +45,10 @@ body { display: flex; flex-direction: column; }
 .store-identity-detail {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  /* The chip sits in the right-hand cluster, so anchor the popover to its right
+     edge and let it open leftward — it never overruns the viewport's right edge. */
+  right: 0;
+  left: auto;
   z-index: 50;
   display: none;
   min-width: 210px;

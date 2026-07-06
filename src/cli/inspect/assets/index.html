@@ -11,28 +11,28 @@
   <body>
     <header id="topbar">
       <div class="brand">shore<span>inspector</span></div>
-      <div id="store-identity" class="store-identity hidden">
-        <span id="store-chip" class="store-identity-chip" tabindex="0" aria-label="">
-          <span id="store-chip-repo" class="store-identity-repo"></span>
-          <span class="store-identity-caret" aria-hidden="true">▾</span>
-        </span>
-        <div class="store-identity-detail" aria-hidden="true">
-          <dl id="store-identity-rows"></dl>
-          <div class="store-identity-stats">
-            <span id="stat-events" class="stat" title="durable events in the store">— events</span>
-            <span id="stat-units" class="stat" title="captured revisions">— units</span>
-            <span id="stat-threads" class="stat" title="supersession threads">— threads</span>
-            <span id="stat-hash" class="stat mono" title="eventSetHash">—</span>
-          </div>
-          <p class="store-identity-note">Recorded state only — never gates writes; signature checks are reader-relative to your committed allow-list.</p>
-        </div>
-      </div>
       <nav id="lens-switcher" aria-label="master pane lens">
         <button class="lens-tab" type="button" data-lens="timeline" aria-pressed="true">Timeline</button>
         <button class="lens-tab" type="button" data-lens="list" aria-pressed="false">Revisions</button>
         <button class="lens-tab" type="button" data-lens="threads" aria-pressed="false">Threads</button>
       </nav>
       <div class="stats">
+        <div id="store-identity" class="store-identity hidden">
+          <span id="store-chip" class="store-identity-chip" tabindex="0" aria-label="">
+            <span id="store-chip-repo" class="store-identity-repo"></span>
+            <span class="store-identity-caret" aria-hidden="true">▾</span>
+          </span>
+          <div class="store-identity-detail" aria-hidden="true">
+            <dl id="store-identity-rows"></dl>
+            <div class="store-identity-stats">
+              <span id="stat-events" class="stat" title="durable events in the store">— events</span>
+              <span id="stat-units" class="stat" title="captured revisions">— units</span>
+              <span id="stat-threads" class="stat" title="supersession threads">— threads</span>
+              <span id="stat-hash" class="stat mono" title="eventSetHash">—</span>
+            </div>
+            <p class="store-identity-note">Recorded state only — never gates writes; signature checks are reader-relative to your committed allow-list.</p>
+          </div>
+        </div>
         <span id="refresh" class="stat" title="auto-refresh status">idle</span>
         <button id="theme-toggle" class="ghost" aria-label="Toggle color theme" title="Toggle light/dark theme">theme</button>
         <button id="density-toggle" class="ghost" aria-label="Toggle density" title="Toggle comfortable/compact density">density</button>
