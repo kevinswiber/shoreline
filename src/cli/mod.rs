@@ -28,6 +28,7 @@ mod output;
 mod revision;
 mod show;
 mod store;
+mod theme;
 mod validation;
 
 #[cfg(test)]
