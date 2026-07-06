@@ -21,6 +21,7 @@ import {
   commit,
   getState,
   type HistoryDoc,
+  type IdentityDoc,
   type RevisionsDoc,
   type State,
   type ThreadsDoc,
@@ -106,6 +107,20 @@ export async function load(): Promise<void> {
     });
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Fetch the static per-session repo/store identity once and commit it. Best-effort
+ * chrome (issue #391): a failure leaves `identity` null and is swallowed — it must
+ * not surface in `#error` or block the app. Never called on the reload path.
+ */
+export async function loadIdentity(): Promise<void> {
+  try {
+    const doc = (await fetchJSON("/api/identity")) as IdentityDoc;
+    commit({ identity: doc });
+  } catch {
+    // Non-fatal: the identity cue is optional; leave `identity` null.
   }
 }
 

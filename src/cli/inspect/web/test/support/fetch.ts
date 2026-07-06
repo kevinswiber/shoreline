@@ -5,6 +5,7 @@
 // in the path under test. Append-only shared surface: extend with new routes here.
 
 import historyJson from "../fixtures/history.json";
+import identityJson from "../fixtures/identity.json";
 import revisionJson from "../fixtures/revision.json";
 import revisionsJson from "../fixtures/revisions.json";
 import snapshotJson from "../fixtures/snapshot.json";
@@ -17,6 +18,7 @@ import threadsJson from "../fixtures/threads.json";
 const FIXTURES: Record<string, unknown> = {
   "/api/revisions": revisionsJson,
   "/api/threads": threadsJson,
+  "/api/identity": identityJson,
 };
 
 // `/api/history` is now query-parameterized (page/facets/matchCount) but the mock

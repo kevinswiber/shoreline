@@ -13,6 +13,7 @@
 const INDEX_BODY = `
 <header id="topbar">
   <div class="brand">shore<span>inspector</span></div>
+  <div id="store-identity" class="store-identity" aria-label="repository and store this inspector is serving"></div>
   <nav id="lens-switcher" aria-label="master pane lens">
     <button class="lens-tab" type="button" data-lens="timeline" aria-pressed="true">Timeline</button>
     <button class="lens-tab" type="button" data-lens="list" aria-pressed="false">Revisions</button>

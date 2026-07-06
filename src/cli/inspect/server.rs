@@ -225,6 +225,7 @@ fn route(state: &InspectState, method: &str, path: &str, query: Option<&str>) ->
         "/api/revisions" => api_response(api::revisions_json(repo)),
         "/api/threads" => api_response(api::threads_json(repo)),
         "/api/freshness" => api_response(api::freshness_json(repo)),
+        "/api/identity" => api_response(api::identity_json(repo)),
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
         _ => route_member(state, path, query),
     }
@@ -496,6 +497,16 @@ mod tests {
             route_for("GET", "/app.js").content_type,
             "application/javascript; charset=utf-8"
         );
+    }
+
+    #[test]
+    fn identity_route_is_registered() {
+        // The path is routed to the identity builder (not a 404). Against the unused
+        // test path the store resolve fails, so it is a JSON 500 — but crucially NOT
+        // "404 Not Found", which is what an unrouted path returns.
+        let response = route_for("GET", "/api/identity");
+        assert_ne!(response.status, "404 Not Found");
+        assert!(response.content_type.starts_with("application/json"));
     }
 
     #[test]

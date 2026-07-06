@@ -38,6 +38,12 @@ export const CLASS = {
   ghost: "ghost",
   actions: "actions",
 
+  // App-shell store identity chips (issue #391).
+  storeIdentityRepo: "store-identity-repo",
+  storeIdentityPlacement: "store-identity-placement",
+  storeIdentityFamily: "store-identity-family",
+  storeIdentityWorktree: "store-identity-worktree",
+
   // Fact cards (observation / input-request / assessment / validation / note).
   annoGroup: "anno-group",
   annoHead: "anno-head",

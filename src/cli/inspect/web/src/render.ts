@@ -45,6 +45,39 @@ let lastMasterLens: string | null = null;
 // Data-driven surfaces (stats, diagnostics, type facets)
 // ---------------------------------------------------------------------------
 
+/**
+ * Paint the top-bar repo/store identity and the browser tab `<title>` (issue #391).
+ * Static per session; the sole writer of `#store-identity` and `document.title`. Left
+ * empty (title reset to the default) until the one-shot identity fetch lands.
+ */
+function renderIdentity(): void {
+  const el = $("#store-identity");
+  if (!el) return;
+  const id = getState().identity;
+  if (!id) {
+    el.innerHTML = "";
+    document.title = "shore inspector";
+    return;
+  }
+  const parts = [
+    `<span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span>`,
+    `<span class="${CLASS.storeIdentityPlacement}">${escapeHtml(id.placement.label)}</span>`,
+  ];
+  if (id.family) {
+    parts.push(
+      `<span class="${CLASS.storeIdentityFamily}">${escapeHtml(id.family.id)}</span>`,
+    );
+  }
+  if (id.worktree) {
+    parts.push(
+      `<span class="${CLASS.storeIdentityWorktree}">${escapeHtml(id.worktree)}</span>`,
+    );
+  }
+  el.innerHTML = parts.join("");
+  // Plain-text title (no HTML escaping needed for document.title).
+  document.title = `${id.repository} · shore inspector`;
+}
+
 /** Paint the topbar stat row from the loaded document counts and the history event-set hash. */
 function renderStats(): void {
   const h = getState().history;
@@ -210,6 +243,7 @@ function scrollSelectionIntoView(): void {
  * reconciler and ignores its returned promise (app.js parity).
  */
 export function render(): void {
+  renderIdentity();
   renderStats();
   renderDiagnostics();
   renderLensSwitcher();

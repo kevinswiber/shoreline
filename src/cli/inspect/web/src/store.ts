@@ -56,6 +56,18 @@ export interface RevisionsDoc {
   revisionCount?: number;
 }
 
+/**
+ * The `/api/identity` document (issue #391): the path-private repo/store identity the
+ * app chrome renders — the served repository, store placement, family, and worktree.
+ * Static per inspector session (fetched once at bootstrap, never on the reload path).
+ */
+export interface IdentityDoc {
+  repository: string;
+  worktree?: string;
+  placement: { tier: string; label: string };
+  family?: { id: string };
+}
+
 /** The `/api/threads` document: the laid-out threads plus the supersession map. */
 export interface ThreadsDoc {
   threads: unknown[];
@@ -84,6 +96,9 @@ export interface State {
   history: HistoryDoc | null;
   revisions: RevisionsDoc | null;
   threads: ThreadsDoc | null;
+  // The served repo/store identity (issue #391); null until the one-shot bootstrap
+  // fetch lands, and left null on a fetch failure (best-effort chrome cue).
+  identity: IdentityDoc | null;
   // The master-pane projection, serialized into the URL fragment by the router.
   lens: string;
   selected: Selection;
@@ -111,6 +126,7 @@ const state: State = {
   history: null,
   revisions: null,
   threads: null,
+  identity: null,
   lens: "timeline",
   selected: { kind: null, id: null },
   enabledTypes: new Set(TYPES.map((t) => t.id)),

@@ -23,9 +23,10 @@ use shoreline::session::{
     ObservationStatus, ObservationView, ProjectionDiagnostic, ReviewHistoryEntry,
     RevisionCommitRangeView, RevisionListEntry, RevisionListOptions, RevisionOverview,
     RevisionOverviewsOptions, RevisionProjectionSummary, RevisionShowOptions, RevisionShowResult,
-    SessionState, SupersessionView, apply_history_query, enrich_liveness, event_log_head_marker,
-    history_base_projection, list_revisions, read_bound_object_artifact, read_events_for_display,
-    read_object_artifact, show_revision, show_revision_overviews,
+    SessionState, StoreIdentity, StoreIdentityOptions, SupersessionView, apply_history_query,
+    enrich_liveness, event_log_head_marker, history_base_projection, list_revisions,
+    read_bound_object_artifact, read_events_for_display, read_object_artifact, show_revision,
+    show_revision_overviews, store_identity,
 };
 
 use super::server::HighlightCache;
@@ -1264,6 +1265,30 @@ pub(super) fn freshness_json(repo: &Path) -> Result<String, String> {
     let payload = FreshnessPayload {
         schema: "shore.inspect-freshness",
         event_count,
+    };
+    serde_json::to_string(&payload).map_err(|error| error.to_string())
+}
+
+/// The schema-tagged wire wrapper for the repo/store identity document. The
+/// `StoreIdentity` fields are flattened alongside the `schema` tag, matching the
+/// other `shore.inspect-*` payload shapes.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentityPayload {
+    schema: &'static str,
+    #[serde(flatten)]
+    identity: StoreIdentity,
+}
+
+/// The path-private repo/store identity the inspector chrome renders (issue #391):
+/// the served repository, store placement, family, and current worktree. Derived
+/// through the shared `store_identity` workflow, so it never leaks absolute paths.
+pub(super) fn identity_json(repo: &Path) -> Result<String, String> {
+    let identity =
+        store_identity(StoreIdentityOptions::new(repo)).map_err(|error| error.to_string())?;
+    let payload = IdentityPayload {
+        schema: "shore.inspect-identity",
+        identity,
     };
     serde_json::to_string(&payload).map_err(|error| error.to_string())
 }

@@ -24,6 +24,22 @@ body { display: flex; flex-direction: column; }
 .brand { font-weight: 700; letter-spacing: 0.3px; }
 .brand span { color: var(--accent); margin-left: 4px; font-weight: 500; }
 
+/* The served repository / store identity (issue #391): a compact chip row in the
+   top bar. Empty until the one-shot identity fetch lands. */
+.store-identity { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.store-identity-repo { font-weight: 600; color: var(--fg); }
+.store-identity-repo:empty { display: none; }
+.store-identity-placement,
+.store-identity-family,
+.store-identity-worktree {
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 1px 8px;
+}
+.store-identity-family { color: var(--accent); }
+
 #lens-switcher { display: flex; flex-wrap: wrap; gap: 4px; }
 .lens-tab {
   background: transparent;

@@ -11,7 +11,7 @@
 // emit flip) invokes `main()` and ignores the return — the port stays parallel and
 // unserved here, so nothing calls `main()` automatically yet.
 
-import { load, maybeReloadForQuery, pollFreshness } from "./data";
+import { load, loadIdentity, maybeReloadForQuery, pollFreshness } from "./data";
 import { initControls as initDetail } from "./detail";
 import { initControls as initDiff } from "./diff/controller";
 import { $ } from "./dom";
@@ -82,7 +82,9 @@ export function main(): Promise<void> {
   document.addEventListener("click", onDocumentClick);
   window.addEventListener("popstate", applyHash);
   window.addEventListener("hashchange", applyHash);
-  return load().then(() => {
+  // Identity is static per session — fetch it once here, in parallel with the first
+  // data load, never on the freshness reload path.
+  return Promise.all([load(), loadIdentity()]).then(() => {
     applyHash();
     const refresh = $("#refresh");
     if (refresh) refresh.textContent = "watching";

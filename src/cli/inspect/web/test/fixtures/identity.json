@@ -1,0 +1,5 @@
+{
+  "schema": "shore.inspect-identity",
+  "repository": "shoreline",
+  "placement": { "tier": "clone", "label": "clone store" }
+}

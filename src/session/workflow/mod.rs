@@ -10,6 +10,7 @@ mod ingest;
 mod revision_list;
 mod revision_projection;
 mod store_family;
+mod store_identity;
 mod store_link;
 mod store_migrate_common_dir;
 mod store_status;
@@ -83,6 +84,9 @@ pub use revision_projection::{
 pub use store_family::{
     StoreForgetOptions, StoreForgetResult, StoreListEntry, StoreListResult, forget_family_store,
     list_family_stores,
+};
+pub use store_identity::{
+    StoreFamily, StoreIdentity, StoreIdentityOptions, StorePlacement, store_identity,
 };
 pub use store_link::{
     StoreLinkOptions, StoreLinkResult, StoreUnlinkOptions, StoreUnlinkResult, link_store_to_family,

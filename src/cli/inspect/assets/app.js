@@ -54,6 +54,11 @@
     kv: "kv",
     ghost: "ghost",
     actions: "actions",
+    // App-shell store identity chips (issue #391).
+    storeIdentityRepo: "store-identity-repo",
+    storeIdentityPlacement: "store-identity-placement",
+    storeIdentityFamily: "store-identity-family",
+    storeIdentityWorktree: "store-identity-worktree",
     // Fact cards (observation / input-request / assessment / validation / note).
     annoGroup: "anno-group",
     annoHead: "anno-head",
@@ -765,6 +770,7 @@
     history: null,
     revisions: null,
     threads: null,
+    identity: null,
     lens: "timeline",
     selected: { kind: null, id: null },
     enabledTypes: new Set(TYPES.map((t) => t.id)),
@@ -1136,6 +1142,14 @@
     }
   }
   __name(load, "load");
+  async function loadIdentity() {
+    try {
+      const doc = await fetchJSON("/api/identity");
+      commit({ identity: doc });
+    } catch {
+    }
+  }
+  __name(loadIdentity, "loadIdentity");
   var reloading = false;
   function maybeReloadForQuery() {
     const s = getState();
@@ -3715,6 +3729,33 @@ click to open the revision page">
 
   // src/render.ts
   var lastMasterLens = null;
+  function renderIdentity() {
+    const el = $("#store-identity");
+    if (!el) return;
+    const id = getState().identity;
+    if (!id) {
+      el.innerHTML = "";
+      document.title = "shore inspector";
+      return;
+    }
+    const parts = [
+      `<span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span>`,
+      `<span class="${CLASS.storeIdentityPlacement}">${escapeHtml(id.placement.label)}</span>`
+    ];
+    if (id.family) {
+      parts.push(
+        `<span class="${CLASS.storeIdentityFamily}">${escapeHtml(id.family.id)}</span>`
+      );
+    }
+    if (id.worktree) {
+      parts.push(
+        `<span class="${CLASS.storeIdentityWorktree}">${escapeHtml(id.worktree)}</span>`
+      );
+    }
+    el.innerHTML = parts.join("");
+    document.title = `${id.repository} · shore inspector`;
+  }
+  __name(renderIdentity, "renderIdentity");
   function renderStats() {
     const h = getState().history;
     const r = getState().revisions;
@@ -3830,6 +3871,7 @@ click to open the revision page">
   }
   __name(scrollSelectionIntoView, "scrollSelectionIntoView");
   function render() {
+    renderIdentity();
     renderStats();
     renderDiagnostics();
     renderLensSwitcher();
@@ -3935,7 +3977,7 @@ click to open the revision page">
     document.addEventListener("click", onDocumentClick);
     window.addEventListener("popstate", applyHash);
     window.addEventListener("hashchange", applyHash);
-    return load().then(() => {
+    return Promise.all([load(), loadIdentity()]).then(() => {
       applyHash();
       const refresh = $("#refresh");
       if (refresh) refresh.textContent = "watching";
