@@ -195,6 +195,18 @@ impl DiffPalette {
     }
 }
 
+/// Terminal gate: the terminal may be queried for its background only when
+/// ANSI color is actually being emitted, stdout is a real TTY (piped output
+/// must stay deterministic and non-interactive), and the truecolor lane is
+/// active (the named-16 lane has nothing to select). Deliberately stricter
+/// than bat, which queries even when `NO_COLOR` has turned colors off. The
+/// caller additionally requires the resolved preference to be `Auto` — an
+/// explicit mode or theme-name choice never queries, while an explicitly
+/// requested `auto` detects like the default (bat semantics).
+pub(super) fn detection_allowed(colored: bool, stdout_is_tty: bool, truecolor: bool) -> bool {
+    colored && stdout_is_tty && truecolor
+}
+
 /// Look up an embedded theme by its bat-compatible name (case-sensitive).
 /// The single two-face read site. `EmbeddedLazyThemeSet::get` takes the
 /// `EmbeddedThemeName` enum, so by-name lookup goes through the inner
@@ -360,6 +372,21 @@ mod tests {
         let mut theme = syntect::highlighting::Theme::default();
         theme.settings.background = bg;
         theme
+    }
+
+    #[test]
+    fn detection_requires_color_on_tty_and_truecolor() {
+        // The one allowed combination.
+        assert!(detection_allowed(true, true, true));
+        // Colors off (NO_COLOR / --color never / auto+piped) → never query.
+        assert!(!detection_allowed(false, true, true));
+        // Piped stdout (even --color always / CLICOLOR_FORCE) → never query:
+        // piped output stays deterministic and non-interactive.
+        assert!(!detection_allowed(true, false, true));
+        // Named-16 terminal → nothing to select; never query.
+        assert!(!detection_allowed(true, true, false));
+        // All off.
+        assert!(!detection_allowed(false, false, false));
     }
 
     #[test]
