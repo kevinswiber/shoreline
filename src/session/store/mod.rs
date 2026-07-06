@@ -11,6 +11,7 @@ pub(in crate::session) mod sensitivity;
 pub(in crate::session) mod sensitivity_config;
 pub(in crate::session) mod store_config;
 pub(in crate::session) mod store_init;
+pub(in crate::session) mod user_level;
 
 pub use event_store::EventWriteOutcome;
 pub(crate) use event_store::{EventStore, SkippedEvent};

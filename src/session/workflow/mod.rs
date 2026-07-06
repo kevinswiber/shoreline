@@ -9,6 +9,8 @@ mod history;
 mod ingest;
 mod revision_list;
 mod revision_projection;
+mod store_family;
+mod store_link;
 mod store_migrate_common_dir;
 mod store_status;
 pub(in crate::session) mod util;
@@ -77,6 +79,14 @@ pub use revision_projection::{
     RevisionProjectionRow, RevisionProjectionSummary, RevisionShowFilters, RevisionShowOptions,
     RevisionShowResult, SnapshotContentState, SnapshotOrder, show_revision,
     show_revision_overviews,
+};
+pub use store_family::{
+    StoreForgetOptions, StoreForgetResult, StoreListEntry, StoreListResult, forget_family_store,
+    list_family_stores,
+};
+pub use store_link::{
+    StoreLinkOptions, StoreLinkResult, StoreUnlinkOptions, StoreUnlinkResult, link_store_to_family,
+    unlink_store_from_family,
 };
 pub use store_migrate_common_dir::{
     MigrateToCommonDirOptions, MigrateToCommonDirResult, migrate_store_to_common_dir,

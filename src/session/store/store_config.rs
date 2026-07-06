@@ -56,6 +56,14 @@ pub(crate) struct StoreConfig {
     schema: String,
     version: u32,
     mode: StoreMode,
+    /// Opt-in family binding — honored ONLY from the git-excluded
+    /// `.shore/store.local.json`. `None` on the committed document by contract,
+    /// enforced by `resolve_family_binding` (serde cannot reject it — the struct
+    /// has no `deny_unknown_fields`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    family_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    clone_ref: Option<String>,
 }
 
 impl StoreConfig {
@@ -64,6 +72,20 @@ impl StoreConfig {
             schema: STORE_CONFIG_SCHEMA.to_owned(),
             version: STORE_CONFIG_VERSION,
             mode,
+            family_ref: None,
+            clone_ref: None,
+        }
+    }
+
+    /// A local-only binding document: `mode` plus the family binding. Written only
+    /// to `.shore/store.local.json` by `set_family_binding_for_repo`.
+    fn with_binding(mode: StoreMode, family_ref: String, clone_ref: String) -> Self {
+        Self {
+            schema: STORE_CONFIG_SCHEMA.to_owned(),
+            version: STORE_CONFIG_VERSION,
+            mode,
+            family_ref: Some(family_ref),
+            clone_ref: Some(clone_ref),
         }
     }
 
@@ -105,6 +127,54 @@ pub(crate) fn resolve_store_mode(worktree_root: &Path) -> Result<StoreMode> {
         .unwrap_or_default())
 }
 
+/// A resolved local-only family binding: this clone is promoted to the user-level
+/// family tier. Read ONLY from the git-excluded `.shore/store.local.json`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FamilyBinding {
+    pub family_ref: String,
+    pub clone_ref: String,
+}
+
+/// Resolve the local-only family binding under `<worktree-root>/.shore/`.
+/// `Ok(None)` when no binding is present. Two hard errors guard the local-only
+/// opt-in: a binding in the committed `.shore/store.json` (a pulled commit must
+/// never activate the tier), and a half-binding (one of `familyRef`/`cloneRef`
+/// without the other) in the local file. Both messages name the offending file
+/// and the fix.
+pub(crate) fn resolve_family_binding(worktree_root: &Path) -> Result<Option<FamilyBinding>> {
+    // The committed document may never carry a binding. serde cannot reject it
+    // (no deny_unknown_fields), so check the loaded config explicitly.
+    let committed_path = worktree_root.join(STORE_CONFIG_REL_PATH);
+    if let Some(committed) = load_store_config(&committed_path)?
+        && (committed.family_ref.is_some() || committed.clone_ref.is_some())
+    {
+        return Err(ShoreError::Message(format!(
+            "committed store config {} carries a family binding (familyRef/cloneRef), but the \
+             user-level family tier is opt-in per clone and must never be committed. Remove those \
+             fields from {STORE_CONFIG_REL_PATH} and run `shore store link <slug>` locally instead.",
+            committed_path.display(),
+        )));
+    }
+
+    let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
+    let Some(local) = load_store_config(&local_path)? else {
+        return Ok(None);
+    };
+    match (local.family_ref, local.clone_ref) {
+        (Some(family_ref), Some(clone_ref)) => Ok(Some(FamilyBinding {
+            family_ref,
+            clone_ref,
+        })),
+        (None, None) => Ok(None),
+        _ => Err(ShoreError::Message(format!(
+            "local store config {} carries only one of familyRef/cloneRef; a family binding needs \
+             both. Re-run `shore store link <slug>` to rewrite it, or `shore store unlink` to \
+             clear it.",
+            local_path.display(),
+        ))),
+    }
+}
+
 /// Load and validate a store-config file if present; absent → `None`.
 fn load_store_config(path: &Path) -> Result<Option<StoreConfig>> {
     let bytes = match std::fs::read(path) {
@@ -137,15 +207,23 @@ fn load_store_config(path: &Path) -> Result<Option<StoreConfig>> {
 /// Pretty-printed with a trailing newline, like `write_delegates`, so a committed
 /// config diffs cleanly. The CLI is the only caller; resolution never writes.
 pub(crate) fn write_store_config(worktree_root: &Path, mode: StoreMode) -> Result<()> {
-    let path = worktree_root.join(STORE_CONFIG_REL_PATH);
+    write_store_config_document(
+        &worktree_root.join(STORE_CONFIG_REL_PATH),
+        &StoreConfig::new(mode),
+    )
+}
+
+/// Persist a store-config document to `path`, pretty-printed with a trailing
+/// newline (so a committed config diffs cleanly), creating the parent as needed.
+fn write_store_config_document(path: &Path, config: &StoreConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| {
             ShoreError::Message(format!("create {}: {error}", parent.display()))
         })?;
     }
-    let mut bytes = serde_json::to_vec_pretty(&StoreConfig::new(mode))?;
+    let mut bytes = serde_json::to_vec_pretty(config)?;
     bytes.push(b'\n');
-    std::fs::write(&path, &bytes)
+    std::fs::write(path, &bytes)
         .map_err(|error| ShoreError::Message(format!("write {}: {error}", path.display())))
 }
 
@@ -204,6 +282,47 @@ pub fn set_store_mode_for_repo(repo: &Path, mode: StoreMode) -> Result<()> {
     write_store_config(&worktree_root, mode)
 }
 
+/// Promote `repo`'s clone into the user-level family tier by writing the
+/// `familyRef`/`cloneRef` binding into the git-excluded `.shore/store.local.json`.
+/// The slug is validated first; any existing local `mode` is preserved; and the
+/// committed `.shore/.gitignore` is ensured so the local file (covered by the
+/// `*.local.json` spec) is excluded before its first write — mirroring
+/// `set_store_mode_for_repo`'s gitignore step. The committed `.shore/store.json`
+/// is never touched. Called by the `link` workflow.
+pub(crate) fn set_family_binding_for_repo(repo: &Path, slug: &str, clone_ref: &str) -> Result<()> {
+    crate::session::store::user_level::validate_family_slug(slug)?;
+    let worktree_root = git_worktree_root(repo)?;
+    crate::session::store::store_init::ensure_shore_gitignore(&worktree_root)?;
+    let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
+    let mode = load_store_config(&local_path)?
+        .map(|config| config.mode)
+        .unwrap_or_default();
+    write_store_config_document(
+        &local_path,
+        &StoreConfig::with_binding(mode, slug.to_owned(), clone_ref.to_owned()),
+    )
+}
+
+/// Detach `repo`'s clone from the family tier by clearing the binding from
+/// `.shore/store.local.json`. A non-default `mode` is preserved (the file stays,
+/// binding-free); when only a default-mode document would remain, the local file
+/// is removed rather than left inert. A no-op when no local file exists. Called by
+/// the `unlink` workflow.
+pub(crate) fn clear_family_binding_for_repo(repo: &Path) -> Result<()> {
+    let worktree_root = git_worktree_root(repo)?;
+    let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
+    let Some(existing) = load_store_config(&local_path)? else {
+        return Ok(());
+    };
+    if existing.mode == StoreMode::default() {
+        std::fs::remove_file(&local_path).map_err(|error| {
+            ShoreError::Message(format!("remove {}: {error}", local_path.display()))
+        })?;
+        return Ok(());
+    }
+    write_store_config_document(&local_path, &StoreConfig::new(existing.mode))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +331,17 @@ mod tests {
         let path = root.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, contents).unwrap();
+    }
+
+    fn git_repo() -> tempfile::TempDir {
+        let repo = tempfile::tempdir().expect("create temp git repository directory");
+        let output = std::process::Command::new("git")
+            .arg("init")
+            .current_dir(repo.path())
+            .output()
+            .expect("run git init");
+        assert!(output.status.success(), "git init failed");
+        repo
     }
 
     #[test]
@@ -315,6 +445,153 @@ mod tests {
         assert!(
             err.contains("shared") && err.contains("ephemeral"),
             "names the valid modes: {err}"
+        );
+    }
+
+    const LOCAL_BINDING_DOC: &str = r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#;
+
+    #[test]
+    fn a_full_local_binding_resolves() {
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), ".shore/store.local.json", LOCAL_BINDING_DOC);
+        let binding = resolve_family_binding(root.path())
+            .unwrap()
+            .expect("a full binding resolves");
+        assert_eq!(binding.family_ref, "acme-web");
+        assert_eq!(binding.clone_ref, "0123abcd4567ef89");
+    }
+
+    #[test]
+    fn a_committed_binding_is_a_hard_error() {
+        // INV-1: the committed store.json must never carry a binding — a pulled
+        // commit could otherwise silently promote every clone.
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), ".shore/store.json", LOCAL_BINDING_DOC);
+        let err = resolve_family_binding(root.path())
+            .expect_err("a committed binding is rejected")
+            .to_string();
+        assert!(
+            err.contains("store.json"),
+            "names the committed file: {err}"
+        );
+        assert!(
+            err.contains("store link") || err.contains("opt-in"),
+            "explains the local-only opt-in: {err}"
+        );
+    }
+
+    #[test]
+    fn a_half_binding_in_the_local_file_is_a_hard_error() {
+        let root = tempfile::tempdir().unwrap();
+        write(
+            root.path(),
+            ".shore/store.local.json",
+            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web"}"#,
+        );
+        let err = resolve_family_binding(root.path())
+            .expect_err("familyRef without cloneRef is rejected")
+            .to_string();
+        assert!(
+            err.contains("store.local.json"),
+            "names the local file: {err}"
+        );
+        assert!(
+            err.contains("both") || err.contains("cloneRef"),
+            "explains both fields are required: {err}"
+        );
+    }
+
+    #[test]
+    fn no_binding_resolves_to_none() {
+        // Absent local file, or a mode-only local file, is not a binding.
+        let root = tempfile::tempdir().unwrap();
+        assert!(resolve_family_binding(root.path()).unwrap().is_none());
+        write(root.path(), ".shore/store.local.json", EPHEMERAL_DOC);
+        assert!(resolve_family_binding(root.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_mode_only_local_file_still_resolves_its_mode_with_a_binding_present_field_absent() {
+        // Regression: adding the optional binding fields must not change how a
+        // mode-only local file resolves its mode.
+        let root = tempfile::tempdir().unwrap();
+        write(root.path(), ".shore/store.local.json", EPHEMERAL_DOC);
+        assert_eq!(
+            resolve_store_mode(root.path()).unwrap(),
+            StoreMode::Ephemeral
+        );
+        assert!(resolve_family_binding(root.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn set_family_binding_writes_the_local_file_and_preserves_mode() {
+        let repo = git_repo();
+        // Seed a local ephemeral mode to prove the binding write preserves it.
+        write(repo.path(), ".shore/store.local.json", EPHEMERAL_DOC);
+        set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
+
+        let binding = resolve_family_binding(repo.path())
+            .unwrap()
+            .expect("binding written");
+        assert_eq!(binding.family_ref, "acme-web");
+        assert_eq!(binding.clone_ref, "0123abcd4567ef89");
+        assert_eq!(
+            resolve_store_mode(repo.path()).unwrap(),
+            StoreMode::Ephemeral
+        );
+    }
+
+    #[test]
+    fn set_family_binding_leaves_the_committed_file_untouched() {
+        let repo = git_repo();
+        write(repo.path(), ".shore/store.json", SHARED_DOC);
+        set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
+        // The committed document is byte-for-byte unchanged (no binding leaks in).
+        let committed = std::fs::read_to_string(repo.path().join(".shore/store.json")).unwrap();
+        assert_eq!(committed, SHARED_DOC);
+        assert!(resolve_family_binding(repo.path()).unwrap().is_some());
+    }
+
+    #[test]
+    fn clear_family_binding_removes_the_binding_and_preserves_a_non_default_mode() {
+        let repo = git_repo();
+        write(repo.path(), ".shore/store.local.json", EPHEMERAL_DOC);
+        set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
+        clear_family_binding_for_repo(repo.path()).unwrap();
+
+        assert!(resolve_family_binding(repo.path()).unwrap().is_none());
+        // The ephemeral mode survives; the local file stays, binding-free.
+        assert_eq!(
+            resolve_store_mode(repo.path()).unwrap(),
+            StoreMode::Ephemeral
+        );
+        assert!(repo.path().join(".shore/store.local.json").is_file());
+    }
+
+    #[test]
+    fn clear_family_binding_removes_an_inert_local_file() {
+        let repo = git_repo();
+        // No seeded mode: `set` writes a default-mode local file carrying only the
+        // binding. Clearing it leaves nothing meaningful, so the file is removed.
+        set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
+        assert!(repo.path().join(".shore/store.local.json").is_file());
+        clear_family_binding_for_repo(repo.path()).unwrap();
+        assert!(!repo.path().join(".shore/store.local.json").exists());
+        assert!(resolve_family_binding(repo.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn set_family_binding_validates_the_slug_before_writing() {
+        let repo = git_repo();
+        let err = set_family_binding_for_repo(repo.path(), "Bad Slug", "0123abcd4567ef89")
+            .expect_err("an invalid slug is rejected before any write");
+        assert!(
+            err.to_string().contains("slug"),
+            "names the slug problem: {err}"
+        );
+        assert!(
+            !repo.path().join(".shore/store.local.json").exists(),
+            "no local file is written when the slug is invalid"
         );
     }
 

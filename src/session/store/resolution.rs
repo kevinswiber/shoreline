@@ -7,10 +7,11 @@ use crate::git::git_common_dir;
 use crate::session::event::ShoreEvent;
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::event_store::EventStore;
-use crate::session::store::store_config::{StoreMode, resolve_store_mode};
+use crate::session::store::store_config::{StoreMode, resolve_family_binding, resolve_store_mode};
 use crate::session::store::store_init::{
     ShoreStorePaths, prepare_store_writer_at, worktree_local_store_is_populated,
 };
+use crate::session::store::user_level::{read_family_manifest, user_level_store_dir};
 use crate::storage::LocalStorage;
 
 /// A domain-named, path-free label for the single resolved store, reported by
@@ -18,12 +19,28 @@ use crate::storage::LocalStorage;
 /// derive opaque clone/family refs from, so those are absent.
 const STORE_REF_LOCAL: &str = "local";
 
+/// The resolved store tier, threaded through [`store_resolution_for`] so
+/// `command_view()` reports the real tier rather than a hardcoded mode.
+#[derive(Clone, Debug)]
+pub(crate) enum ResolvedTier {
+    /// Discardable worktree-local `.shore/data` (the Ephemeral opt-out).
+    Ephemeral,
+    /// The clone-local common-dir store (`.git/shore`) — the default.
+    CloneLocal,
+    /// A user-level family store; carries the opaque refs the wire reports.
+    UserLevel {
+        family_ref: String,
+        clone_ref: String,
+    },
+}
+
 // No `Eq`/`PartialEq`: no resolution is compared whole (tests compare
 // `.store_dir()`), and the `StoreBackend` handle is intentionally not comparable.
 #[derive(Clone, Debug)]
 pub(crate) struct StoreResolution {
     store_dir: PathBuf,
     backend: StoreBackend,
+    resolved_tier: ResolvedTier,
 }
 
 impl StoreResolution {
@@ -39,11 +56,28 @@ impl StoreResolution {
     }
 
     pub(crate) fn command_view(&self) -> StoreResolutionView {
-        StoreResolutionView {
-            mode: "local",
-            store_ref: STORE_REF_LOCAL.to_owned(),
-            clone_ref: None,
-            repository_family_ref: None,
+        match &self.resolved_tier {
+            ResolvedTier::CloneLocal => StoreResolutionView {
+                mode: "local",
+                store_ref: STORE_REF_LOCAL.to_owned(),
+                clone_ref: None,
+                repository_family_ref: None,
+            },
+            ResolvedTier::Ephemeral => StoreResolutionView {
+                mode: "ephemeral",
+                store_ref: STORE_REF_LOCAL.to_owned(),
+                clone_ref: None,
+                repository_family_ref: None,
+            },
+            ResolvedTier::UserLevel {
+                family_ref,
+                clone_ref,
+            } => StoreResolutionView {
+                mode: "user-level",
+                store_ref: family_ref.clone(),
+                clone_ref: Some(clone_ref.clone()),
+                repository_family_ref: Some(family_ref.clone()),
+            },
         }
     }
 }
@@ -81,7 +115,11 @@ impl ReadStore {
     #[cfg(test)]
     pub(crate) fn for_test(store_dir: PathBuf, backend: StoreBackend) -> Self {
         ReadStore {
-            resolution: StoreResolution { store_dir, backend },
+            resolution: StoreResolution {
+                store_dir,
+                backend,
+                resolved_tier: ResolvedTier::CloneLocal,
+            },
         }
     }
 }
@@ -191,12 +229,18 @@ pub(crate) fn prepare_write_landing(
 pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
 
-    // The single gate: an Ephemeral worktree pins the discardable worktree-local
-    // store; every other worktree (Shared default, including absent-config) uses
-    // the common-dir store shared across the clone. The opt-in registration is
-    // retired — sharing is the default, with no `shore store link`.
+    // Binding-configuration validation is UNCONDITIONAL: a committed or half
+    // binding is a hard error even when ephemeral mode or the legacy guard outranks
+    // the user-level arm below. The resolved binding is only *used* by the
+    // user-level arm. `resolve_family_binding` reads the same two config documents
+    // `resolve_store_mode` reads — no `shore_home` access here.
+    let binding = resolve_family_binding(paths.worktree_root())?;
+
+    // Precedence (top-to-bottom decision table): ephemeral opt-out pins the
+    // discardable worktree-local store; then the legacy-populated guard; then the
+    // user-level family opt-in; then the clone-local common-dir default.
     if resolve_store_mode(paths.worktree_root())? == StoreMode::Ephemeral {
-        return store_resolution_for(paths.store_dir().to_path_buf());
+        return store_resolution_for(paths.store_dir().to_path_buf(), ResolvedTier::Ephemeral);
     }
 
     // A non-ephemeral worktree that still carries a populated worktree-local
@@ -223,17 +267,50 @@ pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
         ));
     }
 
+    // User-level opt-in: a local-only family binding promotes this clone to the
+    // family tier. A binding whose family store was forgotten (`shore store forget`,
+    // or the dir hand-deleted) resolves to no manifest — a hard, actionable error,
+    // never a silent re-create or clone-local fallback.
+    if let Some(binding) = binding {
+        let family_dir = user_level_store_dir(&binding.family_ref)?;
+        if read_family_manifest(&family_dir)?.is_none() {
+            return Err(ShoreError::Message(format!(
+                "this clone is linked to the user-level family store `{}`, but that store no longer \
+                 exists at {} (it was forgotten, or the directory was removed). Re-create and \
+                 re-link it with `shore store link {}`, or detach this clone with \
+                 `shore store unlink`.",
+                binding.family_ref,
+                family_dir.display(),
+                binding.family_ref,
+            )));
+        }
+        return store_resolution_for(
+            family_dir,
+            ResolvedTier::UserLevel {
+                family_ref: binding.family_ref,
+                clone_ref: binding.clone_ref,
+            },
+        );
+    }
+
     // The common-dir store is the default; its layout is created on first write,
     // so a read before any write resolves the dir without requiring it to exist.
-    store_resolution_for(clone_local_store_dir(paths.worktree_root())?)
+    store_resolution_for(
+        clone_local_store_dir(paths.worktree_root())?,
+        ResolvedTier::CloneLocal,
+    )
 }
 
-/// Pair a resolved store directory with the selected backend handle. Both
-/// `resolve_store` return paths route through here so the `SHORE_BACKEND`
+/// Pair a resolved store directory with the selected backend handle and its tier.
+/// Both `resolve_store` return paths route through here so the `SHORE_BACKEND`
 /// selection is applied in exactly one place.
-fn store_resolution_for(store_dir: PathBuf) -> Result<StoreResolution> {
+fn store_resolution_for(store_dir: PathBuf, tier: ResolvedTier) -> Result<StoreResolution> {
     let backend = select_backend(store_dir.clone())?;
-    Ok(StoreResolution { store_dir, backend })
+    Ok(StoreResolution {
+        store_dir,
+        backend,
+        resolved_tier: tier,
+    })
 }
 
 /// Environment variable that selects the durable-storage backend. Unset is the
@@ -503,6 +580,174 @@ mod tests {
         let write = resolve_write_store(repo.path()).unwrap();
         let read = resolve_read_store(repo.path()).unwrap();
         assert_eq!(write.store_dir(), read.store_dir());
+    }
+
+    #[test]
+    fn command_view_maps_clone_local_tier_to_local_mode() {
+        // The existing wire shape is unchanged: mode "local", store_ref "local",
+        // no clone/family refs.
+        let resolution =
+            store_resolution_for(PathBuf::from("/tmp/cl"), ResolvedTier::CloneLocal).unwrap();
+        let view = resolution.command_view();
+        assert_eq!(view.mode, "local");
+        assert_eq!(view.store_ref, "local");
+        assert!(view.clone_ref.is_none());
+        assert!(view.repository_family_ref.is_none());
+    }
+
+    #[test]
+    fn command_view_maps_ephemeral_tier_to_ephemeral_mode() {
+        // Behavior change: an ephemeral resolution now reports "ephemeral", not the
+        // old hardcoded "local".
+        let resolution =
+            store_resolution_for(PathBuf::from("/tmp/eph"), ResolvedTier::Ephemeral).unwrap();
+        let view = resolution.command_view();
+        assert_eq!(view.mode, "ephemeral");
+        assert_eq!(view.store_ref, "local");
+        assert!(view.clone_ref.is_none());
+        assert!(view.repository_family_ref.is_none());
+    }
+
+    #[test]
+    fn command_view_maps_user_level_tier_to_family_refs() {
+        let resolution = store_resolution_for(
+            PathBuf::from("/tmp/fam"),
+            ResolvedTier::UserLevel {
+                family_ref: "acme-web".to_owned(),
+                clone_ref: "0123abcd4567ef89".to_owned(),
+            },
+        )
+        .unwrap();
+        let view = resolution.command_view();
+        assert_eq!(view.mode, "user-level");
+        assert_eq!(view.store_ref, "acme-web");
+        assert_eq!(view.repository_family_ref.as_deref(), Some("acme-web"));
+        assert_eq!(view.clone_ref.as_deref(), Some("0123abcd4567ef89"));
+    }
+
+    #[test]
+    fn user_level_binding_write_and_read_resolve_the_same_family_store() {
+        use crate::session::store::store_config::set_family_binding_for_repo;
+        use crate::session::store::user_level::{
+            ensure_family_store_scaffold, user_level_store_dir,
+        };
+
+        let repo = GitRepo::new();
+        let home = TempDir::new().unwrap();
+        // SAFETY: single-threaded test; nextest isolates each test in its own
+        // process, and SHORE_HOME is the documented hermetic seam (keys/home.rs).
+        unsafe {
+            std::env::set_var("SHORE_HOME", home.path());
+        }
+
+        let slug = "acme-web";
+        let family_dir = user_level_store_dir(slug).unwrap();
+        ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
+        set_family_binding_for_repo(repo.path(), slug, "0123abcd4567ef89").unwrap();
+
+        let write = resolve_write_store(repo.path()).unwrap();
+        let read = resolve_read_store(repo.path()).unwrap();
+        unsafe {
+            std::env::remove_var("SHORE_HOME");
+        }
+
+        assert_eq!(write.store_dir(), read.store_dir());
+        assert_existing_paths_eq(write.store_dir(), &family_dir);
+    }
+
+    #[test]
+    fn ephemeral_mode_outranks_a_family_binding() {
+        // A local file carrying BOTH the ephemeral opt-out and a (valid, local)
+        // binding resolves ephemeral: the binding is *validated* unconditionally
+        // but only *used* by the user-level arm, which the ephemeral arm outranks —
+        // so `shore_home` is never consulted here.
+        let repo = GitRepo::new();
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/store.local.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        )
+        .unwrap();
+        let resolution = resolve_store(repo.path()).unwrap();
+        assert_eq!(path_file_name(resolution.store_dir()), "data");
+    }
+
+    #[test]
+    fn a_committed_family_binding_hard_errors_even_under_ephemeral_mode() {
+        // Binding validation is unconditional. A committed binding must fail loudly
+        // even when the ephemeral arm would otherwise short-circuit resolution before
+        // the user-level arm — the error exists to stop the binding being committed
+        // at all, not merely to stop it resolving.
+        let repo = GitRepo::new();
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/store.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        )
+        .unwrap();
+        fs::write(
+            repo.path().join(".shore/store.local.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral"}"#,
+        )
+        .unwrap();
+        let err = resolve_store(repo.path())
+            .expect_err("a committed binding is a hard error regardless of mode");
+        assert!(
+            err.to_string().contains("store.json"),
+            "names the committed file: {err}"
+        );
+    }
+
+    #[test]
+    fn legacy_populated_store_outranks_a_family_binding() {
+        // A populated worktree-local .shore/data AND a binding: the legacy migrate
+        // guard fires before the user-level arm.
+        let repo = GitRepo::new();
+        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
+        fs::write(repo.path().join(".shore/data/events/aaaa.json"), "{}").unwrap();
+        fs::write(
+            repo.path().join(".shore/store.local.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        )
+        .unwrap();
+        let err = resolve_store(repo.path())
+            .expect_err("the legacy guard fires before the user-level arm");
+        assert!(err.to_string().contains("store migrate"), "got: {err}");
+    }
+
+    #[test]
+    fn a_dangling_family_binding_is_a_hard_error_naming_both_fixes() {
+        let repo = GitRepo::new();
+        let home = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("SHORE_HOME", home.path());
+        }
+        // Bind the clone but never scaffold the family store (no family.json).
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/store.local.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        )
+        .unwrap();
+        let result = resolve_store(repo.path());
+        unsafe {
+            std::env::remove_var("SHORE_HOME");
+        }
+        let message = result
+            .expect_err("a dangling family_ref is a hard error")
+            .to_string();
+        assert!(
+            message.contains("shore store link"),
+            "names the re-link fix: {message}"
+        );
+        assert!(
+            message.contains("unlink"),
+            "names the unlink fix: {message}"
+        );
+        assert!(
+            message.contains("acme-web"),
+            "names the forgotten family: {message}"
+        );
     }
 
     #[test]

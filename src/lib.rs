@@ -9,6 +9,7 @@ pub mod perf;
 pub mod session;
 
 mod canonical_hash;
+mod shore_home;
 mod storage;
 
 // Developer-run measurement support for the durable store's file backend. Behind

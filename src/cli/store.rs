@@ -183,6 +183,12 @@ struct StoreStatusBody {
     clone_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     repository_family_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    live_clone_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    orphaned: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_write: Option<String>,
     inventory: StoreStatusInventory,
     sensitivity: StoreStatusSensitivity,
 }
@@ -559,6 +565,9 @@ impl From<StoreStatusResult> for StoreStatusBody {
             store_ref: result.store_ref,
             clone_ref: result.clone_ref,
             repository_family_ref: result.repository_family_ref,
+            live_clone_count: result.live_clone_count,
+            orphaned: result.orphaned,
+            last_write: result.last_write,
             inventory: result.inventory,
             sensitivity: result.sensitivity,
         }

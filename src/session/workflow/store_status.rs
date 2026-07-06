@@ -34,6 +34,12 @@ pub struct StoreStatusResult {
     pub clone_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_family_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_clone_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_write: Option<String>,
     pub inventory: StoreStatusInventory,
     pub sensitivity: StoreStatusSensitivity,
 }
@@ -105,13 +111,41 @@ pub fn store_status(options: StoreStatusOptions) -> Result<StoreStatusResult> {
     let inventory = scan_store_inventory(resolution.store_dir(), Some(&worktree_root))?;
     let sensitivity = scan_worktree_sensitivity(&worktree_root)?;
     let view = resolution.command_view();
+    let lifecycle = match view.repository_family_ref.as_deref() {
+        Some(family_ref) => Some(family_lifecycle_fields(resolution.store_dir(), family_ref)?),
+        None => None,
+    };
     Ok(StoreStatusResult {
         mode: view.mode.to_owned(),
         store_ref: view.store_ref,
         clone_ref: view.clone_ref,
         repository_family_ref: view.repository_family_ref,
+        live_clone_count: lifecycle.as_ref().map(|fields| fields.live_clone_count),
+        orphaned: lifecycle.as_ref().map(|fields| fields.orphaned),
+        last_write: lifecycle.and_then(|fields| fields.last_write),
         inventory: StoreStatusInventory::from(inventory),
         sensitivity: StoreStatusSensitivity::from(sensitivity),
+    })
+}
+
+struct FamilyLifecycleFields {
+    live_clone_count: usize,
+    orphaned: bool,
+    last_write: Option<String>,
+}
+
+/// Populated only when the resolution tier is `UserLevel` — branching on
+/// `repository_family_ref.is_some()` rather than a raw tier accessor, since that
+/// field is `Some` iff the tier is `UserLevel` per `command_view`'s mapping.
+fn family_lifecycle_fields(family_dir: &Path, family_ref: &str) -> Result<FamilyLifecycleFields> {
+    use crate::session::store::user_level::{family_last_write, family_liveness};
+
+    let liveness = family_liveness(family_dir, family_ref)?;
+    let last_write = family_last_write(family_dir)?;
+    Ok(FamilyLifecycleFields {
+        live_clone_count: liveness.live_clone_count,
+        orphaned: liveness.orphaned,
+        last_write,
     })
 }
 
@@ -190,5 +224,129 @@ impl From<SensitivityFinding> for StoreStatusSensitivityFinding {
             policy_outcome: finding.policy_outcome,
             references: finding.references,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+    use std::path::Path;
+    use std::process::Command;
+
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::session::{
+        CaptureOptions, StoreLinkOptions, capture_worktree_review, link_store_to_family,
+    };
+
+    struct TestRepo {
+        root: TempDir,
+    }
+
+    impl TestRepo {
+        fn new() -> Self {
+            let root = TempDir::new().expect("create temp git repository directory");
+            let repo = Self { root };
+            repo.git(["init"]);
+            repo.git(["config", "user.name", "Shore Tests"]);
+            repo.git(["config", "user.email", "shore-tests@example.com"]);
+            repo.git(["config", "commit.gpgsign", "false"]);
+            repo
+        }
+        fn path(&self) -> &Path {
+            self.root.path()
+        }
+        fn write(&self, path: &str, contents: &str) {
+            let path = self.root.path().join(path);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(path, contents).unwrap();
+        }
+        fn commit_all(&self, message: &str) {
+            self.git(["add", "--all"]);
+            self.git(["commit", "-m", message]);
+        }
+        fn git<I, S>(&self, args: I)
+        where
+            I: IntoIterator<Item = S>,
+            S: AsRef<OsStr>,
+        {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(self.root.path())
+                .output()
+                .expect("run git");
+            assert!(output.status.success());
+        }
+    }
+
+    /// Set `SHORE_HOME` for the duration of `f`. nextest's process-per-test keeps the
+    /// mutation contained (the `keys/home.rs` seam). SAFETY: single-threaded test
+    /// process.
+    fn with_shore_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+        unsafe {
+            std::env::set_var("SHORE_HOME", home);
+        }
+        let out = f();
+        unsafe {
+            std::env::remove_var("SHORE_HOME");
+        }
+        out
+    }
+
+    #[test]
+    fn clone_local_status_omits_all_three_lifecycle_fields() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "base\n");
+        repo.commit_all("base");
+
+        let result = store_status(StoreStatusOptions::new(repo.path())).unwrap();
+
+        assert!(result.live_clone_count.is_none());
+        assert!(result.orphaned.is_none());
+        assert!(result.last_write.is_none());
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(
+            json.get("liveCloneCount").is_none(),
+            "serde skip verified: {json}"
+        );
+        assert!(
+            json.get("orphaned").is_none(),
+            "serde skip verified: {json}"
+        );
+        assert!(
+            json.get("lastWrite").is_none(),
+            "serde skip verified: {json}"
+        );
+    }
+
+    #[test]
+    fn linked_repo_status_carries_all_five_family_fields() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "base\n");
+        repo.commit_all("base");
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let home = tempfile::tempdir().unwrap();
+        // The scoped, single-threaded SHORE_HOME seam (nextest's process-per-test
+        // contains the mutation). This is the one phase-7 test that needs it — the
+        // positive user-level case cannot be reached purely before the CLI link
+        // subcommand exists.
+        let result = with_shore_home(home.path(), || {
+            link_store_to_family(StoreLinkOptions::new(repo.path(), Some("acme".to_owned())))
+                .expect("link succeeds against a clean, non-ephemeral, non-sensitive worktree");
+            store_status(StoreStatusOptions::new(repo.path()))
+        })
+        .unwrap();
+
+        assert_eq!(result.mode, "user-level");
+        assert_eq!(result.repository_family_ref.as_deref(), Some("acme"));
+        assert!(result.clone_ref.is_some());
+        assert!(result.live_clone_count.is_some());
+        assert!(result.orphaned.is_some());
+        // last_write may be None immediately after link if nothing has written to the
+        // family store yet; assert presence only via the Option type.
     }
 }
