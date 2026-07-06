@@ -657,7 +657,7 @@
   __name(attentionCues, "attentionCues");
   function overviewStats(overview) {
     const counts = overview?.counts || {};
-    const facts = (counts.observations || 0) + (counts.inputRequests || 0) + (counts.assessments || 0) + (counts.validationChecks || 0) + (counts.adapterNotes || 0);
+    const facts = (counts.observations || 0) + (counts.inputRequests || 0) + (counts.assessments || 0) + (counts.validationChecks || 0);
     const stat = /* @__PURE__ */ __name((label, value) => `<span class="${CLASS.overviewStat}"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`, "stat");
     return `<div class="${CLASS.overviewStats}">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
   }
@@ -1622,18 +1622,6 @@
     });
   }
   __name(renderValidationCheckCard, "renderValidationCheckCard");
-  function renderAdapterNoteCard(n) {
-    return factCard("observation", {
-      track: n.author || "imported",
-      title: n.title,
-      status: n.status,
-      target: n.filePath ? escapeHtml(n.filePath) : "",
-      body: n.body,
-      bodyContentState: n.bodyContentState,
-      createdAt: n.createdAt
-    });
-  }
-  __name(renderAdapterNoteCard, "renderAdapterNoteCard");
   function factSection(title, items, render2, context = "") {
     const list = items ?? [];
     const body = list.length ? list.map(render2).join("") : `<p class="${CLASS.upEmpty}">none</p>`;
@@ -2706,7 +2694,7 @@
       `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`
     );
     sections.push(`<section><h2>Summary</h2><div class="${CLASS.upStats}">
-    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}${stat("adapter notes", s.adapterNoteCount)}
+    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}
   </div>
   <div style="margin-top:10px">
     <button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
@@ -2741,11 +2729,6 @@
     sections.push(
       `<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`
     );
-    if ((d.adapterNotes ?? []).length) {
-      sections.push(
-        factSection("Adapter notes", d.adapterNotes, renderAdapterNoteCard)
-      );
-    }
     const el = $("#detail");
     if (el)
       el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;

@@ -33,14 +33,11 @@ use crate::session::{
     SupersessionView, TrustSet, verify_event_signature,
 };
 
-mod adapter_notes;
 mod identity;
 mod resolving;
 mod rows;
 mod snapshot;
 
-use self::adapter_notes::project_adapter_notes;
-pub use self::adapter_notes::{AdapterNoteStatus, AdapterNoteView};
 use self::identity::principal_diagnostics;
 pub use self::identity::{
     MemberReadback, RevisionProjectionIdentity, RevisionProjectionSummary, RevisionShowFilters,
@@ -49,8 +46,8 @@ pub use self::identity::{
 use self::resolving::{enumerate_revision_identities, selected_revision_capture};
 pub use self::rows::{RevisionProjectionRow, SnapshotOrder};
 use self::rows::{
-    build_adapter_note_rows, build_assessment_rows, build_input_request_rows,
-    build_observation_rows, build_snapshot_rows, build_validation_rows, renumber_projection_rows,
+    build_assessment_rows, build_input_request_rows, build_observation_rows, build_snapshot_rows,
+    build_validation_rows, renumber_projection_rows,
 };
 use self::snapshot::{SnapshotContent, resolve_snapshot_content};
 use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
@@ -209,13 +206,6 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     // to itself and stays empty. Built from the events already read above — no second store read.
     let supersession = SupersessionView::from_events(&events)?;
     annotate_validation_supersession(&mut validation_checks, &supersession);
-    let adapter_notes = project_adapter_notes(
-        &events,
-        read_store.backend(),
-        &snapshot,
-        options.include_body,
-        &body_removal_lens,
-    )?;
     let (snapshot_rows, mut summary) = if removed_snapshot_content_hash.is_some() {
         // Removed content has no snapshot rows; the explained absence is carried
         // by the result field and the diagnostic below, not a misleading
@@ -237,9 +227,6 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     let validation_rows = build_validation_rows(&validation_checks);
     summary.validation_check_count = validation_checks.len();
     narrative_rows.extend(validation_rows);
-    let adapter_note_rows = build_adapter_note_rows(&adapter_notes, &revision.id);
-    summary.adapter_note_count = adapter_notes.len();
-    narrative_rows.extend(adapter_note_rows);
     summary.narrative_row_count = narrative_rows.len();
     summary.row_count = summary.narrative_row_count + summary.snapshot_remainder_row_count;
     let mut rows = narrative_rows;
@@ -299,11 +286,6 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
             validation_checks
                 .iter()
                 .map(|v| (v.summary_content_state, v.summary_content_hash.as_deref())),
-        )
-        .chain(
-            adapter_notes
-                .iter()
-                .map(|n| (n.body_content_state, n.removed_body_content_hash.as_deref())),
         );
     diagnostics.extend(body_content_diagnostics(body_states));
 
@@ -466,7 +448,6 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         input_requests,
         assessments,
         validation_checks,
-        adapter_notes,
         rows,
         commit_range,
         member_readbacks,
@@ -538,7 +519,7 @@ impl RevisionOverviewsOptions {
 /// The lean per-revision overview the inspector's `/api/revisions` cards read:
 /// exactly the projection slice `revision_overview_document` consumes (the
 /// summary counts, the current assessment, and the observation / input-request /
-/// assessment / validation / adapter-note views that drive the attention counts
+/// assessment / validation views that drive the attention counts
 /// and latest-activity). It carries none of `show_revision`'s member readbacks,
 /// rows, commit range, or diagnostics — the batch never builds them.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -549,7 +530,6 @@ pub struct RevisionOverview {
     pub input_requests: Vec<InputRequestView>,
     pub assessments: Vec<AssessmentView>,
     pub validation_checks: Vec<ValidationCheckView>,
-    pub adapter_notes: Vec<AdapterNoteView>,
     /// Advisory: the revisions that directly supersede *this* revision. Empty ⇒ head. Not serialized
     /// directly; the inspector derives its stale-fact count from it.
     pub superseded_by: BTreeSet<RevisionId>,
@@ -719,11 +699,9 @@ fn build_revision_overview(
         include_body: false,
         removal_lens: &body_removal_lens,
     })?;
-    let adapter_notes =
-        project_adapter_notes(events, backend, &snapshot, false, &body_removal_lens)?;
 
     // Recompute the summary exactly as `show_revision` does: the snapshot rows seed
-    // `file_count` + `snapshot_remainder_row_count`, the five narrative builders
+    // `file_count` + `snapshot_remainder_row_count`, the narrative builders
     // seed `narrative_row_count`, and `row_count` is their sum. The built rows are
     // only counted here (the overview keeps no rows), so they are discarded.
     let (_snapshot_rows, mut summary) = if removed_snapshot_content_hash.is_some() {
@@ -740,8 +718,6 @@ fn build_revision_overview(
     summary.assessment_count = assessments.len();
     narrative_rows.extend(build_validation_rows(&validation_checks));
     summary.validation_check_count = validation_checks.len();
-    narrative_rows.extend(build_adapter_note_rows(&adapter_notes, &revision.id));
-    summary.adapter_note_count = adapter_notes.len();
     summary.narrative_row_count = narrative_rows.len();
     summary.row_count = summary.narrative_row_count + summary.snapshot_remainder_row_count;
 
@@ -752,7 +728,6 @@ fn build_revision_overview(
         input_requests,
         assessments,
         validation_checks,
-        adapter_notes,
         superseded_by: supersession.stale_by_superseding_revision(&resolved.revision_id),
     })
 }
@@ -785,13 +760,13 @@ mod tests {
     use crate::session::store::backend::{InMemoryStore, StoreBackend};
     use crate::session::{
         AssessmentAddOptions, AssessmentShowOptions, BodyContentState, CaptureOptions,
-        CaptureResult, CurrentAssessmentStatus, EventStore, ImportNotesOptions,
-        InputRequestFetchOptions, InputRequestListOptions, InputRequestOpenOptions,
-        InputRequestRespondOptions, InputRequestStatus, InputRequestStatusFilter,
-        ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, RemovalPolicy,
-        RevisionListOptions, capture_worktree_review, fetch_input_request, import_notes,
-        list_input_requests, list_observations, list_revisions, open_input_request,
-        record_assessment, record_observation, respond_input_request, show_assessments,
+        CaptureResult, CurrentAssessmentStatus, EventStore, InputRequestFetchOptions,
+        InputRequestListOptions, InputRequestOpenOptions, InputRequestRespondOptions,
+        InputRequestStatus, InputRequestStatusFilter, ObservationAddOptions,
+        ObservationListOptions, ObservationTargetSelector, RemovalPolicy, RevisionListOptions,
+        capture_worktree_review, fetch_input_request, list_input_requests, list_observations,
+        list_revisions, open_input_request, record_assessment, record_observation,
+        respond_input_request, show_assessments,
     };
 
     // ---- Overview batch: golden-equality + single-read invariants ----
@@ -1068,7 +1043,6 @@ mod tests {
             input_requests: result.input_requests,
             assessments: result.assessments,
             validation_checks: result.validation_checks,
-            adapter_notes: result.adapter_notes,
             superseded_by: BTreeSet::new(),
         }
     }
@@ -1709,96 +1683,6 @@ mod tests {
     }
 
     #[test]
-    fn show_revision_includes_imported_adapter_notes() {
-        let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let notes_path = repo.write_fixture("review-notes.json", native_review_notes_json());
-        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(notes_path)).unwrap();
-
-        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
-
-        assert_eq!(result.adapter_notes.len(), 1);
-        assert_eq!(result.adapter_notes[0].title, "Imported note");
-        assert_eq!(result.summary.adapter_note_count, 1);
-        assert!(
-            result
-                .rows
-                .iter()
-                .any(|row| row.kind.as_str() == "adapter_note")
-        );
-    }
-
-    #[test]
-    fn show_revision_adapter_notes_hydrate_body_only_when_requested() {
-        let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        import_large_review_note_body(&repo);
-
-        let compact = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
-        let hydrated =
-            show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true)).unwrap();
-
-        assert_eq!(compact.adapter_notes[0].body, None);
-        assert_eq!(
-            hydrated.adapter_notes[0].body.as_deref(),
-            Some("large imported body")
-        );
-        assert!(!format!("{hydrated:?}").contains("artifacts/notes/"));
-    }
-
-    #[test]
-    fn show_revision_adapter_notes_surface_stale_and_orphan_status() {
-        let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        import_stale_and_orphan_review_notes(&repo);
-
-        let result = show_revision(RevisionShowOptions::new(repo.path())).unwrap();
-
-        assert!(
-            result
-                .adapter_notes
-                .iter()
-                .any(|note| note.status.as_str() == "stale")
-        );
-        assert!(
-            result
-                .adapter_notes
-                .iter()
-                .any(|note| note.status.as_str() == "orphaned")
-        );
-    }
-
-    #[test]
-    fn adapter_note_status_preserves_resolution_detail() {
-        use super::adapter_notes::adapter_note_status;
-        use crate::model::ResolutionStatus;
-        assert_eq!(
-            adapter_note_status(&ResolutionStatus::Exact).as_str(),
-            "exact"
-        );
-        assert_eq!(
-            adapter_note_status(&ResolutionStatus::Relocated).as_str(),
-            "relocated"
-        );
-        assert_eq!(
-            adapter_note_status(&ResolutionStatus::FileLevel).as_str(),
-            "file_level"
-        );
-        assert_eq!(
-            adapter_note_status(&ResolutionStatus::Stale).as_str(),
-            "stale"
-        );
-        assert_eq!(
-            adapter_note_status(&ResolutionStatus::Orphaned).as_str(),
-            "orphaned"
-        );
-        assert_eq!(
-            adapter_note_status(&ResolutionStatus::Unresolved).as_str(),
-            "unresolved"
-        );
-    }
-
-    #[test]
     fn show_revision_places_reviewed_material_before_snapshot_remainder() {
         let repo = multi_hunk_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -2147,112 +2031,6 @@ mod tests {
         .unwrap();
     }
 
-    fn import_large_review_note_body(repo: &TestRepo) {
-        let path = repo.write_fixture(
-            "large-review-notes.json",
-            review_notes_json_with_notes(
-                "src/lib.rs",
-                vec![review_note_json(
-                    "large",
-                    "Large imported note",
-                    "large imported body",
-                    "new",
-                    1,
-                    1,
-                )],
-            ),
-        );
-        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(path)).unwrap();
-    }
-
-    fn import_stale_and_orphan_review_notes(repo: &TestRepo) {
-        let path = repo.write_fixture(
-            "stale-orphan-review-notes.json",
-            format!(
-                r#"{{
-  "schema": "shore.review-notes",
-  "version": 1,
-  "files": [
-    {{
-      "path": "src/lib.rs",
-      "notes": [
-        {}
-      ]
-    }},
-    {{
-      "path": "src/gone.rs",
-      "notes": [
-        {}
-      ]
-    }}
-  ]
-}}"#,
-                review_note_json("stale", "Stale imported note", "stale", "new", 99, 99),
-                review_note_json("orphan", "Orphan imported note", "orphan", "new", 1, 1)
-            ),
-        );
-        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(path)).unwrap();
-    }
-
-    fn native_review_notes_json() -> String {
-        review_notes_json_with_notes(
-            "src/lib.rs",
-            vec![review_note_json(
-                "imported",
-                "Imported note",
-                "Imported body",
-                "new",
-                1,
-                1,
-            )],
-        )
-    }
-
-    fn review_notes_json_with_notes(path: &str, notes: Vec<String>) -> String {
-        format!(
-            r#"{{
-  "schema": "shore.review-notes",
-  "version": 1,
-  "files": [
-    {{
-      "path": "{path}",
-      "notes": [
-        {}
-      ]
-    }}
-  ]
-}}"#,
-            notes.join(",\n        ")
-        )
-    }
-
-    fn review_note_json(
-        id: &str,
-        title: &str,
-        body: &str,
-        side: &str,
-        start_line: u32,
-        end_line: u32,
-    ) -> String {
-        format!(
-            r#"{{
-          "id": "{id}",
-          "title": "{title}",
-          "body": "{body}",
-          "target": {{
-            "side": "{side}",
-            "startLine": {start_line},
-            "endLine": {end_line}
-          }},
-          "tags": ["fixture"],
-          "confidence": "high",
-          "source": "review-notes.json",
-          "author": "codex",
-          "createdAt": "2026-05-13T00:00:00Z"
-        }}"#
-        )
-    }
-
     struct TestRepo {
         root: tempfile::TempDir,
     }
@@ -2280,15 +2058,6 @@ mod tests {
                 fs::create_dir_all(parent).expect("create parent directories");
             }
             fs::write(path, contents).expect("write test repository file");
-        }
-
-        fn write_fixture(&self, path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> PathBuf {
-            let path = self.root.path().join(path);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).expect("create parent directories");
-            }
-            fs::write(&path, contents).expect("write test fixture");
-            path
         }
 
         fn commit_all(&self, message: &str) {
@@ -2838,90 +2607,6 @@ mod tests {
         assert!(result.diagnostics.iter().any(
             |d| d.code == "body_content_physically_removed" && d.message.contains(&reason_hash)
         ));
-    }
-
-    /// Import one review note with an externalized (> 4096-byte) body; returns
-    /// the body's normalized content hash (the removal key).
-    fn import_removable_review_note_body(repo: &TestRepo) -> String {
-        let body = "n".repeat(5000);
-        let path = repo.write_fixture(
-            "removable-review-notes.json",
-            review_notes_json_with_notes(
-                "src/lib.rs",
-                vec![review_note_json(
-                    "removable",
-                    "Removable imported note",
-                    &body,
-                    "new",
-                    1,
-                    1,
-                )],
-            ),
-        );
-        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(path)).unwrap();
-        format!(
-            "sha256:{}",
-            crate::canonical_hash::sha256_bytes_hex(body.as_bytes())
-        )
-    }
-
-    #[test]
-    fn removed_and_swept_adapter_note_body_renders_physically_removed() {
-        let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let body_hash = import_removable_review_note_body(&repo);
-        record_artifact_removed(repo.path(), &body_hash);
-        delete_note_body_blob(repo.path(), &body_hash);
-
-        let result = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
-            .expect("swept adapter-note body must not hard-error");
-
-        let note = &result.adapter_notes[0];
-        assert_eq!(note.body, None);
-        assert_eq!(note.body_content_state, BodyContentState::PhysicallyRemoved);
-        assert_eq!(
-            note.removed_body_content_hash.as_deref(),
-            Some(body_hash.as_str())
-        );
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|d| d.code == "body_content_physically_removed"
-                    && d.message.contains(&body_hash))
-        );
-    }
-
-    #[test]
-    fn removed_unswept_adapter_note_body_is_suppressed_present() {
-        let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let body_hash = import_removable_review_note_body(&repo);
-        record_artifact_removed(repo.path(), &body_hash);
-
-        let result = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
-            .expect("suppressed adapter-note body renders");
-
-        let note = &result.adapter_notes[0];
-        assert_eq!(note.body, None);
-        assert_eq!(note.body_content_state, BodyContentState::SuppressedPresent);
-        assert_eq!(
-            note.removed_body_content_hash.as_deref(),
-            Some(body_hash.as_str())
-        );
-    }
-
-    #[test]
-    fn missing_unremoved_adapter_note_body_still_errors() {
-        let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let body_hash = import_removable_review_note_body(&repo);
-        delete_note_body_blob(repo.path(), &body_hash);
-
-        let err = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
-            .expect_err("absent note bytes without an operative removal keep the hard error");
-
-        assert!(err.to_string().contains("import referenced artifacts"));
     }
 
     #[test]

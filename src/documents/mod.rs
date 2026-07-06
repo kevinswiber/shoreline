@@ -88,9 +88,21 @@ pub struct EventWriteDocument<T> {
 impl<T> DiagnosticDocument<T> {
     /// Wrap `body` in the diagnostic envelope under `schema` at version 1.
     pub fn new(schema: &'static str, body: T, diagnostics: Vec<ProjectionDiagnostic>) -> Self {
+        Self::with_version(schema, 1, body, diagnostics)
+    }
+
+    /// Wrap `body` under `schema` at an explicit document `version` — for read
+    /// documents that have shed or reshaped soft-shell fields (ADR-0029
+    /// Decision 7 rides field removals on a version bump).
+    pub fn with_version(
+        schema: &'static str,
+        version: u32,
+        body: T,
+        diagnostics: Vec<ProjectionDiagnostic>,
+    ) -> Self {
         Self {
             schema,
-            version: 1,
+            version,
             body,
             diagnostics,
         }

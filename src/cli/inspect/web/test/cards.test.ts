@@ -7,7 +7,6 @@ import {
   type InputRequest,
   type Observation,
   type RevisionDetail,
-  renderAdapterNoteCard,
   renderAssessmentCard,
   renderFactSupersessionBlock,
   renderInputRequestCard,
@@ -341,28 +340,6 @@ describe("renderValidationCheckCard", () => {
     expect(doc.querySelector(".fact-rel")?.textContent).toContain(
       "cargo clippy -- -D warnings",
     );
-  });
-});
-
-describe("renderAdapterNoteCard", () => {
-  it("renders an imported note with its author and file target", () => {
-    const doc = parse(
-      renderAdapterNoteCard({
-        title: "imported note",
-        filePath: "src/lib.rs",
-        body: "from another tool",
-      }),
-    );
-    expect(doc.querySelector(".anno-observation")).not.toBeNull();
-    expect(doc.querySelector(".anno-track")?.textContent).toBe("imported");
-    expect(doc.querySelector(".anno-loc")?.textContent).toBe("src/lib.rs");
-  });
-
-  it("uses the note author as the track when present", () => {
-    const doc = parse(
-      renderAdapterNoteCard({ title: "n", author: "linter-bot" }),
-    );
-    expect(doc.querySelector(".anno-track")?.textContent).toBe("linter-bot");
   });
 });
 

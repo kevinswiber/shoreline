@@ -214,10 +214,6 @@ fn api_units_include_additive_overview_summary() {
         counts["validationChecks"],
         revision["summary"]["validationCheckCount"]
     );
-    assert_eq!(
-        counts["adapterNotes"],
-        revision["summary"]["adapterNoteCount"]
-    );
 
     let latest_activity = &overview["latestActivity"];
     if !latest_activity.is_null() {

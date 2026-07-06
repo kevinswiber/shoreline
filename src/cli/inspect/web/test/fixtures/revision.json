@@ -1,5 +1,4 @@
 {
-  "adapterNotes": [],
   "assessments": [
     {
       "assessment": "needs_changes",
@@ -478,7 +477,6 @@
   ],
   "schema": "shore.review-revision",
   "summary": {
-    "adapterNoteCount": 0,
     "assessmentCount": 2,
     "fileCount": 1,
     "inputRequestCount": 1,
@@ -537,5 +535,5 @@
       }
     }
   ],
-  "version": 1
+  "version": 2
 }

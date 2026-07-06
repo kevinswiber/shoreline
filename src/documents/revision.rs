@@ -5,13 +5,12 @@ use crate::documents::{
     AssessmentViewDocument, CurrentAssessmentDocument, DiagnosticDocument,
     InputRequestViewDocument, ObservationViewDocument, ValidationCheckViewDocument,
 };
-use crate::model::{EventId, ReviewTargetRef, Side};
+use crate::model::{EventId, ReviewTargetRef};
 use crate::session::{
-    AdapterNoteView, BodyContentState, CurrentCommitAssociation, CurrentRefAssociation,
-    EndorsementReadback, EventVerificationStatus, MemberReadback, RevisionCommitRangeView,
-    RevisionListEntry, RevisionListResult, RevisionProjectionIdentity, RevisionProjectionRow,
-    RevisionProjectionSummary, RevisionShowFilters, RevisionShowResult, WithdrawnCommitAssociation,
-    WithdrawnRefAssociation,
+    CurrentCommitAssociation, CurrentRefAssociation, EndorsementReadback, EventVerificationStatus,
+    MemberReadback, RevisionCommitRangeView, RevisionListEntry, RevisionListResult,
+    RevisionProjectionIdentity, RevisionProjectionRow, RevisionProjectionSummary,
+    RevisionShowFilters, RevisionShowResult, WithdrawnCommitAssociation, WithdrawnRefAssociation,
 };
 
 /// Documented body for `shore.review-revision`.
@@ -28,7 +27,6 @@ pub struct RevisionShowBody {
     input_requests: Vec<InputRequestViewDocument>,
     assessments: Vec<AssessmentViewDocument>,
     validation_checks: Vec<ValidationCheckViewDocument>,
-    adapter_notes: Vec<AdapterNoteDocument>,
     rows: Vec<RevisionProjectionRowDocument>,
     commit_range: CommitRangeDocument,
 }
@@ -85,47 +83,6 @@ struct RevisionShowSummaryDocument {
     input_request_count: usize,
     assessment_count: usize,
     validation_check_count: usize,
-    adapter_note_count: usize,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AdapterNoteDocument {
-    id: String,
-    title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<String>,
-    #[serde(skip_serializing_if = "BodyContentState::is_present")]
-    body_content_state: BodyContentState,
-    /// The removal key when the body is removed: the imported-note payload
-    /// carries no body content hash, so this is the surface's twin of the
-    /// snapshot result's removed-content-hash field; absent while present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    removed_body_content_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<AdapterNoteTargetDocument>,
-    status: &'static str,
-    file_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file_old_path: Option<String>,
-    tags: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    confidence: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    external_source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    author: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    created_at: Option<String>,
-    sidecar_content_hash: String,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AdapterNoteTargetDocument {
-    side: Side,
-    start_line: u32,
-    end_line: u32,
 }
 
 #[derive(serde::Serialize)]
@@ -196,8 +153,11 @@ pub fn revision_show_document(
     // the capture identity at the document layer. Take it out before the by-value
     // moves below.
     let readbacks = std::mem::take(&mut result.member_readbacks);
-    DiagnosticDocument::new(
+    // Version 2: the adapterNotes/adapterNoteCount fields left the document when
+    // the imported-notes pipeline retired (soft-shell removal, ADR-0029 D7).
+    DiagnosticDocument::with_version(
         "shore.review-revision",
+        2,
         RevisionShowBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,
@@ -224,11 +184,6 @@ pub fn revision_show_document(
                 .validation_checks
                 .into_iter()
                 .map(|view| ValidationCheckViewDocument::from(view).with_readback(&readbacks))
-                .collect(),
-            adapter_notes: result
-                .adapter_notes
-                .into_iter()
-                .map(AdapterNoteDocument::from)
                 .collect(),
             rows: result
                 .rows
@@ -309,39 +264,6 @@ impl From<RevisionProjectionSummary> for RevisionShowSummaryDocument {
             input_request_count: summary.input_request_count,
             assessment_count: summary.assessment_count,
             validation_check_count: summary.validation_check_count,
-            adapter_note_count: summary.adapter_note_count,
-        }
-    }
-}
-
-impl From<AdapterNoteView> for AdapterNoteDocument {
-    fn from(view: AdapterNoteView) -> Self {
-        Self {
-            id: view.id,
-            title: view.title,
-            body: view.body,
-            body_content_state: view.body_content_state,
-            removed_body_content_hash: view.removed_body_content_hash,
-            target: view.target.map(AdapterNoteTargetDocument::from),
-            status: view.status.as_str(),
-            file_path: view.file_path,
-            file_old_path: view.file_old_path,
-            tags: view.tags,
-            confidence: view.confidence,
-            external_source: view.external_source,
-            author: view.author,
-            created_at: view.created_at,
-            sidecar_content_hash: view.sidecar_content_hash,
-        }
-    }
-}
-
-impl From<crate::session::event::ImportedNoteTarget> for AdapterNoteTargetDocument {
-    fn from(target: crate::session::event::ImportedNoteTarget) -> Self {
-        Self {
-            side: target.side,
-            start_line: target.start_line,
-            end_line: target.end_line,
         }
     }
 }
@@ -390,61 +312,5 @@ impl From<crate::session::SnapshotOrder> for SnapshotOrderDocument {
             hunk_index: order.hunk_index,
             row_index: order.row_index,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::session::AdapterNoteStatus;
-
-    fn adapter_note_view(
-        body: Option<String>,
-        state: BodyContentState,
-        removed_hash: Option<String>,
-    ) -> AdapterNoteView {
-        AdapterNoteView {
-            id: "note:one".to_owned(),
-            title: "t".to_owned(),
-            body,
-            body_content_state: state,
-            removed_body_content_hash: removed_hash,
-            target: None,
-            status: AdapterNoteStatus::Exact,
-            file_path: "src/lib.rs".to_owned(),
-            file_old_path: None,
-            tags: vec![],
-            confidence: None,
-            external_source: None,
-            author: None,
-            created_at: None,
-            sidecar_content_hash: "sha256:sidecar".to_owned(),
-        }
-    }
-
-    #[test]
-    fn removed_adapter_note_document_carries_state_and_removed_hash() {
-        let view = adapter_note_view(
-            None,
-            BodyContentState::PhysicallyRemoved,
-            Some("sha256:x".to_owned()),
-        );
-
-        let json = serde_json::to_value(AdapterNoteDocument::from(view)).unwrap();
-
-        assert_eq!(json["bodyContentState"], "physically_removed");
-        assert_eq!(json["removedBodyContentHash"], "sha256:x");
-        assert!(json.get("body").is_none());
-    }
-
-    #[test]
-    fn present_adapter_note_document_omits_removal_fields() {
-        let view = adapter_note_view(Some("b".to_owned()), BodyContentState::Present, None);
-
-        let json = serde_json::to_value(AdapterNoteDocument::from(view)).unwrap();
-
-        assert!(json.get("bodyContentState").is_none());
-        assert!(json.get("removedBodyContentHash").is_none());
-        assert_eq!(json["body"], "b");
     }
 }

@@ -1,5 +1,4 @@
 use super::RevisionProjectionSummary;
-use super::adapter_notes::AdapterNoteView;
 use crate::model::{
     AssessmentId, DiffFile, DiffSnapshot, InputRequestId, ObservationId, ReviewTargetRef,
     RevisionId, RowId, ValidationCheckId, ValidationTarget, id_prefix,
@@ -36,7 +35,6 @@ pub enum RevisionProjectionRowKind {
     InputRequest,
     Assessment,
     ValidationEvidence,
-    AdapterNote,
     EmptyState,
 }
 
@@ -51,7 +49,6 @@ impl RevisionProjectionRowKind {
             Self::InputRequest => "input_request",
             Self::Assessment => "assessment",
             Self::ValidationEvidence => "validation_evidence",
-            Self::AdapterNote => "adapter_note",
             Self::EmptyState => "empty_state",
         }
     }
@@ -302,40 +299,6 @@ pub(super) fn build_validation_rows(
                 related_input_request_ids: Vec::new(),
                 related_assessment_ids: Vec::new(),
                 related_validation_check_ids: vec![validation.id.clone()],
-            }
-        })
-        .collect()
-}
-
-pub(super) fn build_adapter_note_rows(
-    adapter_notes: &[AdapterNoteView],
-    revision_id: &RevisionId,
-) -> Vec<RevisionProjectionRow> {
-    adapter_notes
-        .iter()
-        .enumerate()
-        .map(|(index, note)| {
-            let target = note.target.as_ref().map(|target| ReviewTargetRef::Range {
-                revision_id: revision_id.clone(),
-                file_path: note.file_path.clone(),
-                side: target.side,
-                start_line: target.start_line,
-                end_line: target.end_line,
-            });
-            RevisionProjectionRow {
-                id: RowId::new(format!("{}:{index:06}", id_prefix::ROW)),
-                kind: RevisionProjectionRowKind::AdapterNote,
-                projection_phase: ProjectionPhase::Narrative,
-                projection_order: index,
-                snapshot_order: None,
-                coverage: ProjectionCoverage::Reviewed,
-                target,
-                file_path: Some(note.file_path.clone()),
-                old_path: note.file_old_path.clone(),
-                related_observation_ids: Vec::new(),
-                related_input_request_ids: Vec::new(),
-                related_assessment_ids: Vec::new(),
-                related_validation_check_ids: Vec::new(),
             }
         })
         .collect()

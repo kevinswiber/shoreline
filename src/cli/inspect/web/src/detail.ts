@@ -19,14 +19,12 @@
 //     detail → diff/controller, never the reverse).
 
 import {
-  type AdapterNote,
   currentAssessmentSummary,
   type FactSupersession,
   factSection,
   type InputRequest,
   type Observation,
   type RevisionDetail,
-  renderAdapterNoteCard,
   renderAssessmentCard,
   renderFactSupersessionBlock,
   renderInputRequestCard,
@@ -92,7 +90,6 @@ interface RevisionPageSummary {
   inputRequestCount?: number;
   assessmentCount?: number;
   validationCheckCount?: number;
-  adapterNoteCount?: number;
 }
 
 /** The `/api/revisions/{id}` composite document the revision page projects. */
@@ -102,7 +99,6 @@ interface RevisionPageDoc extends RevisionDetail {
   observations?: Observation[];
   inputRequests?: InputRequest[];
   validationChecks?: ValidationCheck[];
-  adapterNotes?: AdapterNote[];
   factSupersession?: FactSupersession;
 }
 
@@ -254,7 +250,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   // delegate opens it); the "show in timeline" affordance carries a
   // data-reveal-revision dataset the navigation delegate resolves.
   sections.push(`<section><h2>Summary</h2><div class="${CLASS.upStats}">
-    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}${stat("adapter notes", s.adapterNoteCount)}
+    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}
   </div>
   <div style="margin-top:10px">
     <button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
@@ -296,12 +292,6 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   sections.push(
     `<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`,
   );
-
-  if ((d.adapterNotes ?? []).length) {
-    sections.push(
-      factSection("Adapter notes", d.adapterNotes, renderAdapterNoteCard),
-    );
-  }
 
   const el = $("#detail");
   if (el)

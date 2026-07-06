@@ -276,8 +276,7 @@ export function overviewStats(overview?: Overview | null): string {
     (counts.observations || 0) +
     (counts.inputRequests || 0) +
     (counts.assessments || 0) +
-    (counts.validationChecks || 0) +
-    (counts.adapterNotes || 0);
+    (counts.validationChecks || 0);
   const stat = (label: string, value?: number): string =>
     `<span class="${CLASS.overviewStat}"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`;
   return `<div class="${CLASS.overviewStats}">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;

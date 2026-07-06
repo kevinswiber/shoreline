@@ -247,7 +247,6 @@ export interface OverviewCounts {
   inputRequests?: number;
   assessments?: number;
   validationChecks?: number;
-  adapterNotes?: number;
 }
 
 /** The most recent activity recorded against a revision. */

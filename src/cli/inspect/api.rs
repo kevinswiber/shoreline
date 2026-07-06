@@ -256,7 +256,6 @@ struct RevisionOverviewCounts {
     input_requests: usize,
     assessments: usize,
     validation_checks: usize,
-    adapter_notes: usize,
 }
 
 #[derive(Clone, Serialize)]
@@ -537,7 +536,6 @@ fn revision_overview_document(
             input_requests: summary.input_request_count,
             assessments: summary.assessment_count,
             validation_checks: summary.validation_check_count,
-            adapter_notes: summary.adapter_note_count,
         },
         latest_activity: latest_revision_activity(result, captured_at),
     }
@@ -618,17 +616,6 @@ fn latest_revision_activity(
             .unwrap_or_else(|| check.created_at.clone());
         set_latest_activity(&mut latest, "validation", check.check_name.clone(), at);
     }
-    for note in &result.adapter_notes {
-        if let Some(created_at) = &note.created_at {
-            set_latest_activity(
-                &mut latest,
-                "adapter_note",
-                note.title.clone(),
-                created_at.clone(),
-            );
-        }
-    }
-
     latest
 }
 
@@ -1301,11 +1288,10 @@ mod tests {
             input_request_count: 1,
             assessment_count: 1,
             validation_check_count: 3,
-            adapter_note_count: 5, // excluded — not a review fact
             ..Default::default()
         };
 
-        // Superseded ⇒ the four review families (2 + 1 + 1 + 3 = 7); adapter notes excluded.
+        // Superseded ⇒ the four review families (2 + 1 + 1 + 3 = 7).
         let superseded: BTreeSet<RevisionId> = [RevisionId::new("rev:sha256:successor")]
             .into_iter()
             .collect();
@@ -1931,7 +1917,6 @@ mod tests {
                 input_requests: 0,
                 assessments: 1,
                 validation_checks: 0,
-                adapter_notes: 0,
             },
             latest_activity: None,
         }

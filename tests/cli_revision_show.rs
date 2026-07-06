@@ -61,7 +61,7 @@ fn revision_show_positional_resolves_a_prefixed_short_id() {
 }
 
 #[test]
-fn revision_show_emits_v1_json() {
+fn revision_show_emits_v2_json() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
@@ -75,7 +75,9 @@ fn revision_show_emits_v1_json() {
     let json = parse_json(&output.stdout);
 
     assert_eq!(json["schema"], "shore.review-revision");
-    assert_eq!(json["version"], 1);
+    assert_eq!(json["version"], 2);
+    assert!(json.get("adapterNotes").is_none());
+    assert!(json["summary"].get("adapterNoteCount").is_none());
     assert!(
         json["eventSetHash"]
             .as_str()

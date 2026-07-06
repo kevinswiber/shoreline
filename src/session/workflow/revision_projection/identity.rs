@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::{AdapterNoteView, RevisionProjectionRow};
+use super::RevisionProjectionRow;
 use crate::model::{
     ActorId, DiffSnapshot, EventId, JournalId, ObjectId, ReviewEndpoint, RevisionId,
     RevisionSource, TrackId,
@@ -207,7 +207,6 @@ pub struct RevisionShowResult {
     pub input_requests: Vec<InputRequestView>,
     pub assessments: Vec<AssessmentView>,
     pub validation_checks: Vec<ValidationCheckView>,
-    pub adapter_notes: Vec<AdapterNoteView>,
     pub rows: Vec<RevisionProjectionRow>,
     /// Commit-range lifecycle view (floating/anchored, current and withdrawn
     /// commit/ref associations) derived git-free from the event set. Liveness
@@ -262,5 +261,4 @@ pub struct RevisionProjectionSummary {
     pub input_request_count: usize,
     pub assessment_count: usize,
     pub validation_check_count: usize,
-    pub adapter_note_count: usize,
 }

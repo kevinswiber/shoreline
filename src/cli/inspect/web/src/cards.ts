@@ -1,5 +1,5 @@
 // Pure fact-card renderers: the observation/input-request/assessment/validation/
-// adapter-note cards, the verdict badge/summary, the target label, and the
+// the verdict badge/summary, the target label, and the
 // generic fact section. Ported from the served app.js card cluster. Every
 // function is an argument-driven HTML emitter (no DOM, no state). The DOM
 // orchestrators that mount these (renderDetail/renderUnitPage/openUnit) and the
@@ -136,17 +136,6 @@ export interface ValidationCheck {
   endorsements?: Endorsement[];
   command?: string;
   logArtifactContentHashes?: string[];
-}
-
-/** A note imported from another tool via an adapter. */
-export interface AdapterNote {
-  author?: string;
-  title?: string;
-  status?: string;
-  filePath?: string;
-  body?: string;
-  bodyContentState?: string;
-  createdAt?: string;
 }
 
 /** The fields the verdict badge/summary read off the `/api/revisions/{id}` payload. */
@@ -384,19 +373,6 @@ export function renderValidationCheckCard(v: ValidationCheck): string {
     extra: rel.length
       ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>`
       : "",
-  });
-}
-
-/** An imported adapter note, rendered as an observation-shaped card. */
-export function renderAdapterNoteCard(n: AdapterNote): string {
-  return factCard("observation", {
-    track: n.author || "imported",
-    title: n.title,
-    status: n.status,
-    target: n.filePath ? escapeHtml(n.filePath) : "",
-    body: n.body,
-    bodyContentState: n.bodyContentState,
-    createdAt: n.createdAt,
   });
 }
 
