@@ -20,6 +20,8 @@ use shoreline::session::{
     show_revision,
 };
 
+use super::theme::DiffPalette;
+
 /// Print a captured revision's diff (base to target) as a text unified diff.
 #[derive(Debug, clap::Args)]
 pub(super) struct DiffArgs {
@@ -137,7 +139,14 @@ fn render_output(args: &DiffArgs, result: &RevisionShowResult) -> String {
     let mut out = render_diffstat(&result.snapshot.files);
     out.push('\n');
     out.push_str(&if resolve_color(args.color) {
-        render_unified_diff_colored(&result.snapshot)
+        // Interim lane construction: today's dark palette on truecolor. The
+        // theme selection/detection wiring replaces this with the resolved
+        // lane threaded in from `run()`.
+        let lane = match color_depth() {
+            ColorDepth::Truecolor => ColorLane::Truecolor(Box::new(DiffPalette::builtin_dark())),
+            ColorDepth::Named => ColorLane::Named,
+        };
+        render_unified_diff_colored(&result.snapshot, &lane)
     } else {
         render_unified_diff(&result.snapshot)
     });
@@ -230,38 +239,34 @@ fn color_depth() -> ColorDepth {
     }
 }
 
-/// `TokenKind` → ANSI SGR foreground. The color *policy* mirrors the TUI palette
-/// (`token_fg`, `src/tui/render.rs`); only the *encoding* is new — raw SGR strings,
-/// no ratatui and no styling dependency (INV-E: a new emit surface, not a parallel
-/// highlighter). `Plain` carries no color.
-fn sgr_for_kind(kind: TokenKind, depth: ColorDepth) -> &'static str {
-    match depth {
-        ColorDepth::Truecolor => match kind {
-            TokenKind::Keyword => "\x1b[38;2;179;136;255m",
-            TokenKind::String => "\x1b[38;2;109;210;138m",
-            TokenKind::Comment => "\x1b[38;2;154;165;179m",
-            TokenKind::Number => "\x1b[38;2;79;208;192m",
-            TokenKind::Type => "\x1b[38;2;138;180;248m",
-            TokenKind::Function => "\x1b[38;2;90;169;230m",
-            TokenKind::Constant => "\x1b[38;2;240;183;90m",
-            TokenKind::Operator => "\x1b[38;2;215;221;229m",
-            TokenKind::Punctuation => "\x1b[38;2;154;165;179m",
-            TokenKind::Variable => "\x1b[38;2;215;221;229m",
-            TokenKind::Plain => "",
-        },
-        ColorDepth::Named => match kind {
-            TokenKind::Keyword => "\x1b[35m",     // magenta
-            TokenKind::String => "\x1b[32m",      // green
-            TokenKind::Comment => "\x1b[90m",     // dark gray
-            TokenKind::Number => "\x1b[36m",      // cyan
-            TokenKind::Type => "\x1b[33m",        // yellow
-            TokenKind::Function => "\x1b[34m",    // blue
-            TokenKind::Constant => "\x1b[93m",    // light yellow
-            TokenKind::Operator => "\x1b[97m",    // white
-            TokenKind::Punctuation => "\x1b[37m", // gray
-            TokenKind::Variable => "\x1b[97m",    // white
-            TokenKind::Plain => "",
-        },
+/// Which colored lane the render uses: the named-ANSI table (the terminal's
+/// own theme colors it, byte-frozen) or a truecolor palette (theme-aware —
+/// built-in light/dark or derived from an embedded theme).
+pub(super) enum ColorLane {
+    Named,
+    // Boxed: the palette is ~12 Cow fields and the lane is built once per
+    // run, so the indirection is free and keeps the enum small (clippy).
+    Truecolor(Box<DiffPalette>),
+}
+
+/// `TokenKind` → named-ANSI SGR foreground, the 16-color lane's frozen table.
+/// The color *policy* mirrors the TUI palette (`token_fg`, `src/tui/render.rs`);
+/// only the *encoding* is new — raw SGR strings, no ratatui and no styling
+/// dependency (INV-E: a new emit surface, not a parallel highlighter). The
+/// truecolor tables live on [`DiffPalette`]. `Plain` carries no color.
+fn named_sgr_for_kind(kind: TokenKind) -> &'static str {
+    match kind {
+        TokenKind::Keyword => "\x1b[35m",     // magenta
+        TokenKind::String => "\x1b[32m",      // green
+        TokenKind::Comment => "\x1b[90m",     // dark gray
+        TokenKind::Number => "\x1b[36m",      // cyan
+        TokenKind::Type => "\x1b[33m",        // yellow
+        TokenKind::Function => "\x1b[34m",    // blue
+        TokenKind::Constant => "\x1b[93m",    // light yellow
+        TokenKind::Operator => "\x1b[97m",    // white
+        TokenKind::Punctuation => "\x1b[37m", // gray
+        TokenKind::Variable => "\x1b[97m",    // white
+        TokenKind::Plain => "",
     }
 }
 
@@ -269,27 +274,44 @@ fn sgr_for_kind(kind: TokenKind, depth: ColorDepth) -> &'static str {
 /// stripped at ingestion); the `+`/`-`/` ` gutter is emitted here from `kind`,
 /// OUTSIDE any colored segment. Code segments come from
 /// `attributed_segments(text, tokens, emphasis)` (offsets into the bare text), each
-/// wrapped in its `sgr_for_kind` foreground and underlined when emphasized. Empty
-/// `tokens`/`emphasis` leaves the bare text after the gutter, so stripping the SGR
-/// reproduces the plain row exactly (INV-D).
+/// wrapped in its lane's foreground. Intraline emphasis renders per lane: the
+/// named lane underlines; the truecolor lane paints the palette's add/del
+/// background tint by row kind (context rows never carry emphasis — the
+/// intraline pass pairs removed/added blocks only — so they defensively get no
+/// tint). Empty `tokens`/`emphasis` leaves the bare text after the gutter, so
+/// stripping the SGR reproduces the plain row exactly (INV-D).
 fn render_row_ansi(
     text: &str,
     kind: DiffRowKind,
     tokens: &[TokenSpan],
     emphasis: &[EmphSpan],
-    depth: ColorDepth,
+    lane: &ColorLane,
 ) -> String {
+    let emph_sgr = match lane {
+        ColorLane::Named => SGR_UNDERLINE,
+        ColorLane::Truecolor(palette) => match kind {
+            DiffRowKind::Added => palette.emph_add_bg.as_ref(),
+            DiffRowKind::Removed => palette.emph_del_bg.as_ref(),
+            DiffRowKind::Context => "",
+        },
+    };
     let mut out = String::new();
     out.push(marker(&kind));
     for seg in attributed_segments(text, tokens, emphasis) {
         let slice = &text[seg.start..seg.end];
-        let fg = seg.kind.map(|k| sgr_for_kind(k, depth)).unwrap_or("");
-        let underline = if seg.emphasized { SGR_UNDERLINE } else { "" };
-        if fg.is_empty() && underline.is_empty() {
+        let fg = seg
+            .kind
+            .map(|k| match lane {
+                ColorLane::Named => named_sgr_for_kind(k),
+                ColorLane::Truecolor(palette) => palette.sgr_for(k),
+            })
+            .unwrap_or("");
+        let emph = if seg.emphasized { emph_sgr } else { "" };
+        if fg.is_empty() && emph.is_empty() {
             out.push_str(slice);
         } else {
             out.push_str(fg);
-            out.push_str(underline);
+            out.push_str(emph);
             out.push_str(slice);
             out.push_str(SGR_RESET);
         }
@@ -303,8 +325,7 @@ fn render_row_ansi(
 /// so `strip_ansi(colored) == render_unified_diff` — color is pure presentation over
 /// identical text (INV-D). Highlighting is best-effort (INV-E): a file over the row
 /// cap or of an unknown language has empty span maps and renders plain.
-pub(super) fn render_unified_diff_colored(snapshot: &DiffSnapshot) -> String {
-    let depth = color_depth();
+pub(super) fn render_unified_diff_colored(snapshot: &DiffSnapshot, lane: &ColorLane) -> String {
     let mut out = String::new();
     for file in &snapshot.files {
         render_file_header(&mut out, file);
@@ -331,7 +352,7 @@ pub(super) fn render_unified_diff_colored(snapshot: &DiffSnapshot) -> String {
                     row.kind.clone(),
                     tokens,
                     emphasis,
-                    depth,
+                    lane,
                 ));
             }
         }
@@ -698,10 +719,97 @@ mod tests {
         assert!(!resolve_color_core(ColorChoice::Auto, false, false, false));
     }
 
+    /// Strip ANSI SGR sequences (`ESC [ … m`); test-local sibling of the
+    /// integration harness's copy (`tests/cli_diff.rs`).
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                let mut lookahead = chars.clone();
+                if lookahead.next() == Some('[') {
+                    chars = lookahead;
+                    for cc in chars.by_ref() {
+                        if cc == 'm' {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+            }
+            out.push(c);
+        }
+        out
+    }
+
     #[test]
     fn token_kind_maps_to_an_ansi_sgr_sequence() {
-        let seq = sgr_for_kind(TokenKind::Keyword, ColorDepth::Named);
+        let seq = named_sgr_for_kind(TokenKind::Keyword);
         assert!(seq.starts_with("\x1b[")); // CSI
+    }
+
+    #[test]
+    fn truecolor_emphasis_paints_background_by_row_kind() {
+        let palette = Box::new(DiffPalette::builtin_dark());
+        let emphasis = vec![EmphSpan { start: 0, end: 3 }];
+        let added = render_row_ansi(
+            "let x",
+            DiffRowKind::Added,
+            &[],
+            &emphasis,
+            &ColorLane::Truecolor(Box::new(DiffPalette::builtin_dark())),
+        );
+        assert!(added.contains("\x1b[48;2;0;96;0m")); // dark add tint
+        assert!(!added.contains("\x1b[4m")); // underline retired on truecolor
+        let removed = render_row_ansi(
+            "let x",
+            DiffRowKind::Removed,
+            &[],
+            &emphasis,
+            &ColorLane::Truecolor(palette),
+        );
+        assert!(removed.contains("\x1b[48;2;144;16;17m")); // dark del tint
+    }
+
+    #[test]
+    fn named_lane_keeps_underline_emphasis_and_named_fg() {
+        let tokens = vec![TokenSpan {
+            start: 0,
+            end: 3,
+            kind: TokenKind::Keyword,
+        }];
+        let emphasis = vec![EmphSpan { start: 0, end: 3 }];
+        let out = render_row_ansi(
+            "let x",
+            DiffRowKind::Added,
+            &tokens,
+            &emphasis,
+            &ColorLane::Named,
+        );
+        assert!(out.contains("\x1b[35m")); // named keyword magenta, unchanged
+        assert!(out.contains("\x1b[4m")); // underline emphasis, unchanged
+        assert!(!out.contains("48;2")); // no background on the named lane
+    }
+
+    #[test]
+    fn truecolor_colored_render_strips_to_the_plain_render() {
+        // Presentation purity with emphasis present: background SGR strips
+        // like any SGR (INV-D).
+        let snapshot = snapshot_with(vec![modified_file(
+            "src/lib.rs",
+            vec![hunk(
+                "@@ -1 +1 @@",
+                vec![
+                    row(DiffRowKind::Removed, "let x = 1;"),
+                    row(DiffRowKind::Added, "let x = 2;"),
+                ],
+            )],
+        )]);
+        let colored = render_unified_diff_colored(
+            &snapshot,
+            &ColorLane::Truecolor(Box::new(DiffPalette::builtin_light())),
+        );
+        assert_eq!(strip_ansi(&colored), render_unified_diff(&snapshot));
     }
 
     #[test]
@@ -713,7 +821,7 @@ mod tests {
             end: 3,
             kind: TokenKind::Keyword,
         }];
-        let out = render_row_ansi("let x", DiffRowKind::Added, &tokens, &[], ColorDepth::Named);
+        let out = render_row_ansi("let x", DiffRowKind::Added, &tokens, &[], &ColorLane::Named);
         assert!(out.starts_with('+')); // gutter from the kind, outside any colored segment
         assert!(out.contains("\x1b[")); // an SGR wraps the keyword
         assert!(out.contains("\x1b[0m")); // reset
