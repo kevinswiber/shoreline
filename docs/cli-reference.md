@@ -105,7 +105,7 @@ exists so a revision's facts can be filtered and grouped by who recorded them.
 ## `shore diff`
 
 ```bash
-shore diff [--repo <path>] [--revision <id>] [--stat] [--color <auto|always|never>]
+shore diff [--repo <path>] [--revision <id>] [--stat] [--color <auto|always|never>] [--theme <theme>]
 ```
 
 `shore diff` prints a captured revision's diff — base to target, from the **frozen captured
@@ -122,6 +122,17 @@ revision recorded; its subject is always the captured snapshot, never the live w
   colorizes only when stdout is a TTY, honoring `NO_COLOR` and `CLICOLOR_FORCE` (precedence: `--color`
   > `NO_COLOR` > `CLICOLOR_FORCE` > isatty); piped or redirected output stays plain. Color is pure
   presentation — stripping the ANSI reproduces the plain diff exactly.
+- `--theme <theme>` picks the truecolor palette: `auto` (the default) detects the terminal
+  background — light or dark — and selects the matching built-in palette; `light` / `dark` force a
+  built-in; any other value names a bundled syntax theme (bat's vocabulary, e.g.
+  `"Monokai Extended"`, `"OneHalfLight"`, `"Nord"`). Environment fallbacks: `SHORE_THEME`, then
+  bat's `BAT_THEME` (precedence: `--theme` > `SHORE_THEME` > `BAT_THEME` > detection > dark). An
+  unknown name from `--theme`/`SHORE_THEME` is an error listing the valid vocabulary; an unknown
+  inherited `BAT_THEME` warns on stderr and falls back. The terminal is queried only when colors
+  are on, stdout is a direct truecolor TTY, and the preference is `auto` — piped output never
+  probes and stays deterministic. Themes apply on truecolor terminals (`COLORTERM=truecolor`); the
+  16-color palette always follows the terminal's own theme. Intraline (changed sub-word) emphasis
+  renders as an add/del background tint on truecolor and as an underline on 16-color terminals.
 - `shore diff` is a **filter, not a pager**: it writes plain git-diff to any pipe or redirect and
   colorizes only when writing directly to a terminal, so it composes with the tools you already use —
   `shore diff | less -R` to page, `shore diff | delta` (or another diff renderer) to reformat,
