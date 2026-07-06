@@ -28,6 +28,10 @@ where
         // color tests select the lane explicitly with `--color`.
         .env_remove("NO_COLOR")
         .env_remove("CLICOLOR_FORCE")
+        // Isolate theme-asserting tests from a developer's ambient theme
+        // selection; theme tests set these explicitly via shore_env.
+        .env_remove("SHORE_THEME")
+        .env_remove("BAT_THEME")
         .output()
         .expect("run shore binary")
 }
@@ -45,9 +49,11 @@ where
         .args(args)
         .env_remove("SHORE_LOG")
         .env_remove("RUST_LOG")
-        // Clear an ambient output-lane selector first; a caller that passes
-        // SHORE_FORMAT in `env` re-sets it below and still wins.
-        .env_remove("SHORE_FORMAT");
+        // Clear ambient selectors first; a caller that passes SHORE_FORMAT or
+        // a theme variable in `env` re-sets it below and still wins.
+        .env_remove("SHORE_FORMAT")
+        .env_remove("SHORE_THEME")
+        .env_remove("BAT_THEME");
     for (key, value) in env {
         command.env(key, value);
     }

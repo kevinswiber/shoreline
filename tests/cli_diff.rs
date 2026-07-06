@@ -263,3 +263,233 @@ fn diff_revision_flag_resolves_short_ids() {
     );
     assert_eq!(out_text(&bare_out), out_text(&full_out));
 }
+
+// --- Theme surface: --theme flag, SHORE_THEME / BAT_THEME env, detection gating ---
+
+/// Byte pins for the two built-in palettes and the intraline emphasis tints.
+const DARK_KEYWORD: &str = "\x1b[38;2;179;136;255m";
+const LIGHT_KEYWORD: &str = "\x1b[38;2;122;68;212m";
+const DARK_ADD_TINT: &str = "\x1b[48;2;0;96;0m";
+const LIGHT_ADD_TINT: &str = "\x1b[48;2;160;239;160m";
+
+/// Run `shore diff --color always` against `path` with extra args and env.
+/// Every caller pins `COLORTERM` explicitly (CI environments differ).
+fn diff_env(path: &Path, extra_args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let mut args = vec![
+        "diff",
+        "--repo",
+        path.to_str().unwrap(),
+        "--color",
+        "always",
+    ];
+    args.extend_from_slice(extra_args);
+    shore_env(args, envs)
+}
+
+#[test]
+fn shore_diff_truecolor_default_keeps_the_dark_palette() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(repo.path(), &[], &[("COLORTERM", "truecolor")]);
+    assert!(out.status.success(), "{}", err_text(&out));
+    let text = out_text(&out);
+    // Today's dark keyword bytes are the compatibility-frozen default.
+    assert!(text.contains(DARK_KEYWORD));
+    // Intraline emphasis is a background tint on the added row, not underline.
+    assert!(text.contains(DARK_ADD_TINT));
+    assert!(!text.contains("\x1b[4m"));
+}
+
+#[test]
+fn shore_diff_theme_flag_selects_the_light_palette() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &["--theme", "light"],
+        &[("COLORTERM", "truecolor")],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+    let text = out_text(&out);
+    assert!(text.contains(LIGHT_KEYWORD));
+    assert!(text.contains(LIGHT_ADD_TINT));
+}
+
+#[test]
+fn shore_diff_shore_theme_env_selects_light() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &[],
+        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "light")],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+    assert!(out_text(&out).contains(LIGHT_KEYWORD));
+}
+
+#[test]
+fn shore_diff_theme_flag_beats_shore_theme_env() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &["--theme", "dark"],
+        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "light")],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+    assert!(out_text(&out).contains(DARK_KEYWORD));
+}
+
+#[test]
+fn shore_diff_shore_theme_beats_bat_theme() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &[],
+        &[
+            ("COLORTERM", "truecolor"),
+            ("SHORE_THEME", "dark"),
+            ("BAT_THEME", "light"),
+        ],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+    assert!(out_text(&out).contains(DARK_KEYWORD));
+}
+
+#[test]
+fn shore_diff_bat_theme_is_inherited_when_shore_theme_unset() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &[],
+        &[("COLORTERM", "truecolor"), ("BAT_THEME", "light")],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+    assert!(out_text(&out).contains(LIGHT_KEYWORD));
+}
+
+#[test]
+fn shore_diff_named_theme_recolors_tokens() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &["--theme", "Monokai Extended"],
+        &[("COLORTERM", "truecolor")],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+    let text = out_text(&out);
+    // Theme-derived truecolor foregrounds, not the built-in dark keyword hue.
+    assert!(text.contains("\x1b[38;2;"));
+    assert!(!text.contains(DARK_KEYWORD));
+}
+
+#[test]
+fn shore_diff_unknown_explicit_theme_fails_with_the_valid_list() {
+    let repo = modified_repo();
+    capture(repo.path());
+    // Validation only happens when the truecolor lane is built, so the setup
+    // pins COLORTERM and --color always (diff_env).
+    let flag = diff_env(
+        repo.path(),
+        &["--theme", "no-such-theme"],
+        &[("COLORTERM", "truecolor")],
+    );
+    assert!(!flag.status.success());
+    let stderr = err_text(&flag);
+    assert!(stderr.contains("no-such-theme"));
+    assert!(stderr.contains("Monokai Extended"));
+
+    // SHORE_THEME is the same explicit posture.
+    let env = diff_env(
+        repo.path(),
+        &[],
+        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "no-such-theme")],
+    );
+    assert!(!env.status.success());
+    assert!(err_text(&env).contains("no-such-theme"));
+}
+
+#[test]
+fn shore_diff_unknown_bat_theme_warns_and_falls_back() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let out = diff_env(
+        repo.path(),
+        &[],
+        &[("COLORTERM", "truecolor"), ("BAT_THEME", "no-such-theme")],
+    );
+    // Inherited source: warn and fall back, never fail.
+    assert!(out.status.success(), "{}", err_text(&out));
+    let stderr = err_text(&out);
+    assert!(stderr.contains("BAT_THEME"));
+    assert!(stderr.contains("no-such-theme"));
+    // Piped stdout means no detection, so auto falls back to the dark built-in.
+    assert!(out_text(&out).contains(DARK_KEYWORD));
+}
+
+#[test]
+fn shore_diff_named16_lane_ignores_theme_selection() {
+    let repo = modified_repo();
+    capture(repo.path());
+    // Empty COLORTERM is not truecolor/24bit, forcing the named lane even
+    // when the CI ambience sets it.
+    let with_theme = diff_env(repo.path(), &["--theme", "light"], &[("COLORTERM", "")]);
+    let without = diff_env(repo.path(), &[], &[("COLORTERM", "")]);
+    assert!(with_theme.status.success() && without.status.success());
+    let text = out_text(&with_theme);
+    assert_eq!(text, out_text(&without));
+    assert!(text.contains("\x1b[35m")); // named keyword magenta, unchanged
+    assert!(!text.contains("38;2")); // no truecolor on the named lane
+    // No validation off the truecolor lane: a bogus name is inert here.
+    let bogus = diff_env(
+        repo.path(),
+        &["--theme", "no-such-theme"],
+        &[("COLORTERM", "")],
+    );
+    assert!(bogus.status.success());
+}
+
+#[test]
+fn shore_diff_stat_never_resolves_themes() {
+    let repo = modified_repo();
+    capture(repo.path());
+    // Exactly the explicit unknown-name failure setup plus --stat: lane
+    // construction, and with it validation, is skipped under --stat.
+    let out = diff_env(
+        repo.path(),
+        &["--stat"],
+        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "no-such-theme")],
+    );
+    assert!(out.status.success(), "{}", err_text(&out));
+}
+
+#[test]
+fn shore_diff_light_and_named_colored_output_strips_to_plain() {
+    let repo = modified_repo();
+    capture(repo.path());
+    let plain = shore([
+        "diff",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--color",
+        "never",
+    ]);
+    assert!(plain.status.success());
+    for theme in ["light", "Monokai Extended"] {
+        let colored = diff_env(
+            repo.path(),
+            &["--theme", theme],
+            &[("COLORTERM", "truecolor")],
+        );
+        assert!(colored.status.success(), "{}", err_text(&colored));
+        assert_eq!(
+            strip_ansi(&out_text(&colored)),
+            out_text(&plain),
+            "presentation purity for theme {theme:?}"
+        );
+    }
+}
