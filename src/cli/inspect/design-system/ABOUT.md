@@ -1,15 +1,14 @@
-# About Shoreline / shore inspect — context for this design system
+# About Pointbreak Review / shore inspect — context for this design system
 
 Read this before generating or reviewing designs with these tokens. It
-explains what the product is, which of the two synced projects you are in,
-and the vocabulary the UI speaks.
+explains what the product is and the vocabulary the UI speaks.
 
 ## The product
 
-**Shoreline** is a durable, local-first **review record** for code changes
+**Pointbreak Review** is a durable, local-first **review record** for code changes
 that humans and coding agents build together — used in the inner dev loop,
 long before a pull request opens. Coding agents generate more activity than
-anyone can read; instead of storing transcripts, Shoreline keeps only the
+anyone can read; instead of storing transcripts, Pointbreak Review keeps only the
 facts that move a review forward — what changed and why, the open questions,
 each assessment — as an append-only log. Every fact is attributed to the
 actor that asserted it (human or agent) and can be signed (Ed25519): a
@@ -20,21 +19,8 @@ that record: a filterable event timeline with per-actor tracks, revision
 pages, annotated diffs, and signature-trust badges. Dense, terminal-adjacent,
 information-first — the product shows facts with attribution, not chatter.
 
-**Transition note:** Shoreline is being consolidated under the **Pointbreak**
-brand and this name is retiring (trademark conflict; "Pointbreak Review" is a
-candidate sub-brand). The inspector's tokens have now adopted the unified
-Pointbreak palette — "harbor" ocean-navy surfaces, the sky accent, and the
-logo's wave ramp — keeping Shoreline's token names and architecture; only the
-values carry the brand. These projects mirror that shipped inspector and will
-retire with the name. The full unified system (which also serves the marketing
-site) lives in the `pointbreak-ds-exploration` project (`unified/` namespace).
-
-## The two synced projects
-
-- **`shore-inspector-ds`** — the pure mirror of the shipped inspector.
-- **`shore-inspector-ds-exploration`** — the sandbox; additionally holds
-  `scraps/` (one-off comparison explorations). New exploration energy should
-  generally go to `pointbreak-ds-exploration` instead, given the merge.
+Pointbreak is the overall product brand. The Review qualifier matters in this
+surface because Pointbreak also covers debugging collaboration tools.
 
 ## Design language
 

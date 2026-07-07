@@ -142,7 +142,7 @@ pub(super) fn serve(
     let bound = listener.local_addr().unwrap_or(addr);
     let url = format!("http://{bound}/");
 
-    writeln!(stdout, "shore inspector")?;
+    writeln!(stdout, "Pointbreak Review inspector")?;
     writeln!(stdout, "  store: {}", repo.display())?;
     writeln!(stdout, "  url:   {url}")?;
     writeln!(stdout, "  stop:  Ctrl-C")?;

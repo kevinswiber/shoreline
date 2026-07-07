@@ -262,6 +262,26 @@ fn release_docs_are_current_after_v0_1_publish() {
     assert!(releasing.contains("Release Plan"));
     assert!(releasing.contains("Release"));
     assert!(releasing.contains("Apache-2.0"));
+    assert!(releasing.contains("NOTICE"));
+    assert!(releasing.contains("TRADEMARKS.md"));
+}
+
+#[test]
+fn license_and_trademark_notices_are_documented() {
+    let readme = std::fs::read_to_string("README.md").expect("read README");
+    let notice = std::fs::read_to_string("NOTICE").expect("read NOTICE");
+    let trademarks = std::fs::read_to_string("TRADEMARKS.md").expect("read trademark policy");
+
+    assert!(readme.contains("Apache-2.0"));
+    assert!(readme.contains("NOTICE"));
+    assert!(readme.contains("TRADEMARKS.md"));
+    assert!(notice.contains("Pointbreak"));
+    assert!(notice.contains("Apache License, Version 2.0"));
+    assert!(notice.contains("does not grant permission"));
+    assert!(notice.contains("trademarks"));
+    assert!(trademarks.contains("Pointbreak Review"));
+    assert!(trademarks.contains("modified distribution"));
+    assert!(trademarks.contains("logo"));
 }
 
 #[test]

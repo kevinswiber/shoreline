@@ -1,9 +1,9 @@
 /*
- * shore inspector — design tokens (the single source of truth), now skinned to
+ * Pointbreak Review inspector — design tokens (the single source of truth), now skinned to
  * the unified Pointbreak palette: "harbor" ocean-navy surfaces, the sky accent,
- * and the logo's wave ramp. The token NAMES and architecture are Shoreline's,
- * kept verbatim so the inspector's component CSS re-skins with a value swap and
- * no rewrite; only the values carry the Pointbreak identity.
+ * and the logo's wave ramp. The token names and architecture stay stable so the
+ * inspector's component CSS re-skins with a value swap and no rewrite; the
+ * values carry the Pointbreak identity.
  *
  * Every design token lives here: the brand ramps, surface/text colors, the
  * semantic status palette, event-type + syntax + diff tokens, the radii scale,
@@ -18,7 +18,7 @@
  * contrast-check.mjs is the audit of record): every text pair clears AA (4.5:1)
  * in both themes, including the composited diff/emphasis rows. Borders sit below
  * the 3:1 non-text bar by design — a perception-grade boundary that surfaces and
- * spacing reinforce, matching Shoreline's own values.
+ * spacing reinforce, matching the inspector's established values.
  */
 
 :root,
@@ -45,10 +45,10 @@
   --ocean-foam: #f0f9ff;
   --sand: #fef3c7;
 
-  /* Surfaces — "harbor": Shoreline's lightness ladder re-hued to the ocean
+  /* Surfaces — "harbor": the inspector's lightness ladder re-hued to the ocean
      navy (hue ~207°). --bg is the marketing chrome canvas exactly, so the
      product and the site's terminal/debugger mockups share a floor. --border
-     keeps Shoreline's perception-grade-boundary lesson: clearly visible
+     keeps the prior perception-grade-boundary lesson: clearly visible
      against every surface it separates. */
   --bg: #0a1929;
   --bg-elev: #0e2233;
@@ -56,7 +56,7 @@
   --bg-row-sel: #1c3b5a;
   --border: #33506c;
   --fg: #d9e8f5;
-  --fg-dim: #9db1c4;   /* 5.22:1 on --bg-row-sel — raised from #96aabc (4.81) for the margin Shoreline keeps (5.32) */
+  --fg-dim: #9db1c4;   /* 5.22:1 on --bg-row-sel — raised from #96aabc (4.81) for the established margin (5.32) */
 
   /* Header chrome — a dedicated deeper tone so the topbar reads as a distinct
      band over the page (page/topbar/field sat within ~1.06 when the topbar
@@ -84,7 +84,7 @@
   --accent-strong: #0ea5e9;
   --on-accent: #0a1929;
 
-  /* Semantic status — Shoreline's AA-tuned set, verbatim. One source of truth
+  /* Semantic status — the inspector's AA-tuned set, verbatim. One source of truth
      for every state tint; these carry the inspector's meaning and are the
      most-checked values in either system. */
   --success: #6dd28a;        /* head · passed · accepted · added */
@@ -149,7 +149,7 @@
   --error-bg: #3a1416;
   --error-border: #5a2226;
 
-  /* Radii — one px ladder (Shoreline's product scale plus the site's softest
+  /* Radii — one px ladder (the inspector's product scale plus the site's softest
      step), with the marketing --radius-* names kept as aliases so the site's
      component CSS keeps resolving during migration. */
   --r-sm: 4px;
@@ -218,12 +218,12 @@
 }
 
 /*
- * Light theme — a semantic-alias override (Shoreline's mechanism), skinned to
+ * Light theme — a semantic-alias override, skinned to
  * the ocean brand: the elevated surface is ocean-foam, the selection is a
  * mist-family blue, and the accent re-points to ocean-primary (the site's
  * light-theme primary), which clears AA on white where the cyan accents cannot.
  * Components never change; only the alias→value mapping flips. Status hues keep
- * Shoreline's light values — darkened so chip text (which sits on --bg-row)
+ * the inspector's light values — darkened so chip text (which sits on --bg-row)
  * clears WCAG AA on the pale row surfaces. The radii, type, and --mono/--sans
  * stacks are theme-agnostic and inherit from :root.
  */

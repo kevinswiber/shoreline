@@ -21,7 +21,7 @@ body { display: flex; flex-direction: column; }
   flex: 0 0 auto;
 }
 
-.brand { font-weight: 700; letter-spacing: 0.3px; }
+.brand { font-weight: 700; letter-spacing: 0; }
 .brand span { color: var(--accent); margin-left: 4px; font-weight: 500; }
 
 /* The served repository / store identity (issue #391): a compact chip showing the

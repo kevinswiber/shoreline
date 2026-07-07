@@ -44,7 +44,7 @@ body {
   background: var(--bg-topbar);
   border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; letter-spacing: 0.3px; }
+.brand { font-weight: 700; letter-spacing: 0; }
 .brand span { color: var(--accent); margin-left: 4px; font-weight: 500; }
 #lens-switcher,
 .tabs { display: flex; gap: 4px; }

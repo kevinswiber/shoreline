@@ -15,7 +15,7 @@ let store: Store;
 let render: Render;
 
 const CLONE: IdentityDoc = {
-  repository: "shoreline",
+  repository: "pointbreak",
   placement: { tier: "clone", label: "clone store" },
 };
 
@@ -31,7 +31,7 @@ beforeEach(async () => {
 afterEach(() => {
   uninstallFetchMock();
   resetDom();
-  document.title = "shore inspector";
+  document.title = "Pointbreak Review";
 });
 
 it("shows the repository in the chip, reveals it, and sets the tab title", () => {
@@ -40,9 +40,9 @@ it("shows the repository in the chip, reveals it, and sets the tab title", () =>
   const root = document.querySelector("#store-identity");
   expect(root?.classList.contains("hidden")).toBe(false);
   expect(document.querySelector("#store-chip-repo")?.textContent).toBe(
-    "shoreline",
+    "pointbreak",
   );
-  expect(document.title).toBe("shoreline · shore inspector");
+  expect(document.title).toBe("pointbreak · Pointbreak Review");
 });
 
 it("puts repository and placement in the detail rows", () => {
@@ -50,7 +50,7 @@ it("puts repository and placement in the detail rows", () => {
   render.render();
   const rows = document.querySelector("#store-identity-rows");
   expect(rows?.textContent).toContain("repository");
-  expect(rows?.textContent).toContain("shoreline");
+  expect(rows?.textContent).toContain("pointbreak");
   expect(rows?.textContent).toContain("store");
   expect(rows?.textContent).toContain("clone store");
 });
@@ -66,7 +66,7 @@ it("omits family and worktree rows when absent", () => {
 it("shows the family row under the user-level tier", () => {
   store.commit({
     identity: {
-      repository: "shoreline",
+      repository: "pointbreak",
       placement: { tier: "family", label: "family store" },
       family: { id: "acme-web" },
     },
@@ -80,7 +80,7 @@ it("shows the family row under the user-level tier", () => {
 it("shows the worktree row when present", () => {
   store.commit({
     identity: {
-      repository: "shoreline",
+      repository: "pointbreak",
       worktree: "feat-foo",
       placement: { tier: "clone", label: "clone store" },
     },
@@ -94,7 +94,7 @@ it("shows the worktree row when present", () => {
 it("exposes the full identity as the chip's accessible label", () => {
   store.commit({
     identity: {
-      repository: "shoreline",
+      repository: "pointbreak",
       placement: { tier: "family", label: "family store" },
       family: { id: "acme-web" },
     },
@@ -102,7 +102,7 @@ it("exposes the full identity as the chip's accessible label", () => {
   render.render();
   const label =
     document.querySelector("#store-chip")?.getAttribute("aria-label") ?? "";
-  expect(label).toContain("shoreline");
+  expect(label).toContain("pointbreak");
   expect(label).toContain("family store");
   expect(label).toContain("acme-web");
 });
@@ -122,7 +122,7 @@ it("keeps the store counts and the trust footnote in the popover", () => {
 it("hides the chip and resets the title when identity is null", () => {
   store.commit({ identity: null });
   render.render();
-  expect(document.title).toBe("shore inspector");
+  expect(document.title).toBe("Pointbreak Review");
   expect(
     document.querySelector("#store-identity")?.classList.contains("hidden"),
   ).toBe(true);

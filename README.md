@@ -21,10 +21,10 @@ a reader can tell whether each fact is merely signed or bound to a trusted ident
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png">
-  <img alt="The shore inspect web UI: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png" width="800">
+  <img alt="The Pointbreak Review inspector: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png" width="800">
 </picture>
 
-*Watching a review in `shore inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
+*Watching a review in the Pointbreak Review inspector opened by `shore inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
 
 Install the `pointbreak` crate; it provides the `shore` command:
 
@@ -110,6 +110,7 @@ For contributors and maintainers:
 - [CONTRIBUTING.md](CONTRIBUTING.md) - setup, hooks, branch names, commits, tests, and PR flow.
 - [docs/releasing.md](docs/releasing.md) - release planning and publish automation.
 - [docs/manual-testing.md](docs/manual-testing.md) - maintainer spot-check recipes.
+- [TRADEMARKS.md](TRADEMARKS.md) - trademark use for names and logos.
 
 Architecture and model notes:
 
@@ -143,3 +144,12 @@ just check
 ```
 
 Security-sensitive reports should follow [SECURITY.md](SECURITY.md), not public issues.
+
+## License And Trademarks
+
+This repository's source code is licensed under Apache-2.0. See [LICENSE](LICENSE).
+
+Pointbreak, Pointbreak Review, and the Pointbreak logo are trademarks of Kevin Swiber.
+Trademark rights are reserved; see [NOTICE](NOTICE) and [TRADEMARKS.md](TRADEMARKS.md).
+The private Pointbreak debugger codebase is not part of this Apache-2.0 repository unless
+it is separately published under its own license.

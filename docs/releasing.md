@@ -2,8 +2,9 @@
 
 Pointbreak releases are driven from GitHub Actions through Cocogitto.
 
-The published crate is `pointbreak`; it installs the `shore` command. The crate is licensed
-Apache-2.0 through `Cargo.toml` and the repository `LICENSE` file.
+The published crate is `pointbreak`; it installs the `shore` command. The crate source is
+licensed Apache-2.0 through `Cargo.toml` and the repository `LICENSE` file. Preserve `NOTICE`
+and `TRADEMARKS.md` so release artifacts keep the Pointbreak trademark reservation visible.
 
 Use the **Release Plan** workflow in `plan` mode first. It reports the current commit, recent CI
 status, the version Cocogitto will publish, and a changelog preview. For an exact release, set the

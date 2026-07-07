@@ -29,6 +29,8 @@ import { navigate } from "./router";
 import { commit, getState } from "./store";
 import { typeColor, typeLabel } from "./types";
 
+const INSPECTOR_TITLE = "Pointbreak Review";
+
 // One load diagnostic (the narrowed shape the diagnostics list reads off the
 // `unknown[]` the store holds).
 interface Diagnostic {
@@ -57,7 +59,7 @@ function renderIdentity(): void {
   if (!id) {
     // Hide the store chip until the one-shot identity fetch lands.
     root.classList.add("hidden");
-    document.title = "shore inspector";
+    document.title = INSPECTOR_TITLE;
     return;
   }
   root.classList.remove("hidden");
@@ -89,7 +91,7 @@ function renderIdentity(): void {
   );
 
   // Plain-text title (no HTML escaping needed for document.title).
-  document.title = `${id.repository} · shore inspector`;
+  document.title = `${id.repository} · ${INSPECTOR_TITLE}`;
 }
 
 /** Paint the topbar stat row from the loaded document counts and the history event-set hash. */

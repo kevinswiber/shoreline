@@ -4031,6 +4031,7 @@ click to open the revision page">
   __name(wireDagInteractions, "wireDagInteractions");
 
   // src/render.ts
+  var INSPECTOR_TITLE = "Pointbreak Review";
   var lastMasterLens = null;
   function renderIdentity() {
     const root = $("#store-identity");
@@ -4038,7 +4039,7 @@ click to open the revision page">
     const id = getState().identity;
     if (!id) {
       root.classList.add("hidden");
-      document.title = "shore inspector";
+      document.title = INSPECTOR_TITLE;
       return;
     }
     root.classList.remove("hidden");
@@ -4058,7 +4059,7 @@ click to open the revision page">
       "aria-label",
       rows.map(([k, v]) => `${k} ${v}`).join(", ")
     );
-    document.title = `${id.repository} · shore inspector`;
+    document.title = `${id.repository} · ${INSPECTOR_TITLE}`;
   }
   __name(renderIdentity, "renderIdentity");
   function renderStats() {

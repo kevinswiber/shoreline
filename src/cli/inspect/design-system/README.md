@@ -1,6 +1,6 @@
-# shore inspector — design system
+# Pointbreak Review inspector — design system
 
-Source for the `shore-inspector-ds` [Claude Design](https://claude.ai/design) gallery and
+Source for the `pointbreak-review-inspector-ds` [Claude Design](https://claude.ai/design) gallery and
 the tokenized status palette consumed by the inspector's `../assets/app.css`.
 
 The gallery is a shared tokens component/state preview for critical inspector surfaces; it is not a full live-app mirror.
@@ -12,7 +12,7 @@ stays in the live inspector.
 
 | Path | Role |
 | --- | --- |
-| `ABOUT.md` | Product context for Claude Design (what Shoreline/`shore inspect` is, the design language, UI vocabulary). Synced to both projects alongside the cards. |
+| `ABOUT.md` | Product context for Claude Design (what Pointbreak Review/`shore inspect` is, the design language, UI vocabulary). Synced to both projects alongside the cards. |
 | `../assets/tokens.css` | The single source of truth for the palette (the only `:root`). |
 | `styles.css` | Component rules only — references the tokens via `var(--…)`. |
 | `_bodies/*.body.html` | Per-card markup fragments (the authored content of each card). |
@@ -34,7 +34,7 @@ reads the inlined token values via `getComputedStyle`.
    bash _bodies/bake.sh
    ```
 3. Sync to claude.ai/design via the DesignSync tool / `/design-sync` skill
-   (project `shore-inspector-ds`): `list_files` → `finalize_plan` → `write_files`.
+   (project `pointbreak-review-inspector-ds`): `list_files` → `finalize_plan` → `write_files`.
 
 The palette is single-sourced in `../assets/tokens.css` (the served frontend's
 only `:root`); `bake.sh` inlines that same file into every card, so the gallery
