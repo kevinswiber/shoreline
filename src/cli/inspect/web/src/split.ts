@@ -7,7 +7,7 @@
 
 import { $ } from "./dom";
 import { applySplit, preferredSplit } from "./prefs";
-import { commit } from "./store";
+import { commit, getState } from "./store";
 
 // The master pane's percent range. These bound the drag/step math; range
 // enforcement itself lives inside applySplit (which clamps every write).
@@ -94,4 +94,44 @@ export function initControls(): void {
       setPct(divider, null);
     }
   });
+}
+
+/**
+ * Nudge the split one divider-increment in `dir` from anywhere — the keyboard twin
+ * of the divider's ArrowLeft/Right (bound to `h`/`l` by the global key layer),
+ * minus the requirement to focus the separator first. It reuses the divider's step
+ * math and the single `applySplit` writer and keeps `aria-valuenow` in sync, so the
+ * focused divider and the `h`/`l` keys can never disagree.
+ *
+ * `dir < 0` shrinks the timeline pane; past the floor it snaps into reading mode
+ * (the ArrowLeft drag/step twin), leaving the stored width intact so a restore
+ * returns to the last good ratio. `dir > 0` grows it; from reading mode it instead
+ * restores the split — the affordance the divider itself can't offer, since it is
+ * collapsed and unreachable while reading.
+ *
+ * Returns whether it acted, so the key layer preventDefaults only a keystroke it
+ * consumed: a no-op while the detail pane is closed (no visible split to size) or
+ * while shrinking is already at the reading rail.
+ */
+export function stepSplit(dir: number): boolean {
+  // No split to size while the detail pane is closed (single column): leave the
+  // stored ratio untouched so h/l never make an invisible change.
+  if (!getState().open) return false;
+  const split = $<HTMLElement>(".split");
+  const divider = $<HTMLElement>(".divider");
+  if (!split || !divider) return false;
+  const reading = getState().reading;
+  if (dir < 0) {
+    if (reading) return false; // already collapsed at the reading rail
+    const next = currentPct(divider) - stepPct(split);
+    if (next < MIN_PCT) commit({ reading: true });
+    else setPct(divider, next);
+    return true;
+  }
+  if (reading) {
+    commit({ reading: false });
+    return true;
+  }
+  setPct(divider, currentPct(divider) + stepPct(split));
+  return true;
 }

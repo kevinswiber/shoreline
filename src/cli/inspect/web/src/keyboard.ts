@@ -27,6 +27,7 @@ import {
 import { toggle as togglePalette } from "./palette";
 import { entryRevisionId } from "./projection";
 import { navigate } from "./router";
+import { stepSplit } from "./split";
 import { commit, getState } from "./store";
 
 // A short-lived two-key chord (g-then-…), cleared after ~1s. Transient view-cache,
@@ -266,6 +267,16 @@ export function onKey(ev: KeyboardEvent): void {
     case "ArrowUp":
       ev.preventDefault();
       stepSelection(-1);
+      return;
+    // h/l resize the split from anywhere (the divider's ArrowLeft/Right without
+    // focusing it): h shrinks the timeline pane, l grows it. preventDefault only a
+    // keystroke stepSplit consumed — so an inert h/l (pane closed, or h already at
+    // the reading rail) still lets the browser's own type-ahead find fire.
+    case "h":
+      if (stepSplit(-1)) ev.preventDefault();
+      return;
+    case "l":
+      if (stepSplit(1)) ev.preventDefault();
       return;
     case "Enter": {
       // Native interactive targets keep their native Enter (a focused header

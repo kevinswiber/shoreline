@@ -115,6 +115,7 @@ const INDEX_BODY = `
       <dt><kbd>Cmd</kbd> / <kbd>Ctrl</kbd> + <kbd>K</kbd></dt><dd>open the command palette</dd>
       <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></dt><dd>open the command palette</dd>
       <dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>move the selection down / up in the active lens</dd>
+      <dt><kbd>h</kbd> / <kbd>l</kbd></dt><dd>resize the split: shrink / grow the timeline pane</dd>
       <dt><kbd>Enter</kbd></dt><dd>open the cursor's detail, then its snapshot diff</dd>
       <dt><kbd>n</kbd> / <kbd>p</kbd></dt><dd>jump to the next / previous review fact in the diff</dd>
       <dt><kbd>]</kbd> / <kbd>[</kbd></dt><dd>jump to the next / previous change in the diff</dd>

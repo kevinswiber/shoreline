@@ -186,3 +186,74 @@ describe("the divider controller (drag / reset / keys)", () => {
     document.removeEventListener("keydown", keyboard.onKey);
   });
 });
+
+describe("stepSplit — the from-anywhere resize entry point (h / l)", () => {
+  it("grows the timeline pane one step and syncs the pref, grid, and aria-valuenow", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    // happy-dom yields a zero-width rect, so stepPct uses its 3% fallback.
+    expect(split.stepSplit(1)).toBe(true);
+    expect(
+      document.documentElement.style.getPropertyValue("--split-master"),
+    ).toBe("53%");
+    expect(localStorage.getItem(SPLIT_KEY)).toBe("53");
+    expect(divider().getAttribute("aria-valuenow")).toBe("53");
+  });
+
+  it("shrinks the timeline pane one step", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    expect(split.stepSplit(-1)).toBe(true);
+    expect(
+      document.documentElement.style.getPropertyValue("--split-master"),
+    ).toBe("47%");
+    expect(divider().getAttribute("aria-valuenow")).toBe("47");
+  });
+
+  it("shrinking past the floor snaps into reading mode, leaving the stored ratio intact", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    const el = divider();
+    el.setAttribute("aria-valuenow", "25"); // at the floor
+    localStorage.setItem(SPLIT_KEY, "25");
+    document.documentElement.style.setProperty("--split-master", "25%");
+    expect(split.stepSplit(-1)).toBe(true);
+    expect(store.getState().reading).toBe(true);
+    // the width is untouched, so a later restore returns to the last good ratio
+    expect(localStorage.getItem(SPLIT_KEY)).toBe("25");
+    expect(el.getAttribute("aria-valuenow")).toBe("25");
+  });
+
+  it("growing from reading mode restores the split without stepping the width", () => {
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: true,
+      reading: true,
+    });
+    const el = divider();
+    el.setAttribute("aria-valuenow", "40");
+    localStorage.setItem(SPLIT_KEY, "40");
+    document.documentElement.style.setProperty("--split-master", "40%");
+    expect(split.stepSplit(1)).toBe(true);
+    expect(store.getState().reading).toBe(false);
+    expect(localStorage.getItem(SPLIT_KEY)).toBe("40"); // last good ratio preserved
+    expect(el.getAttribute("aria-valuenow")).toBe("40");
+  });
+
+  it("does nothing further when shrinking while already at the reading rail", () => {
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: true,
+      reading: true,
+    });
+    expect(split.stepSplit(-1)).toBe(false);
+    expect(store.getState().reading).toBe(true);
+  });
+
+  it("is inert while the detail pane is closed (no visible split to size)", () => {
+    store.commit({ open: false });
+    localStorage.setItem(SPLIT_KEY, "40");
+    document.documentElement.style.setProperty("--split-master", "40%");
+    expect(split.stepSplit(1)).toBe(false);
+    expect(split.stepSplit(-1)).toBe(false);
+    expect(localStorage.getItem(SPLIT_KEY)).toBe("40"); // untouched
+    expect(store.getState().reading).toBe(false);
+  });
+});

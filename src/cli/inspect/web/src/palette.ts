@@ -33,6 +33,7 @@ import {
 } from "./projection";
 import { shortId, shortRef } from "./refs";
 import { navigate, serializeState } from "./router";
+import { stepSplit } from "./split";
 import { getState } from "./store";
 import { typeLabel } from "./types";
 
@@ -216,6 +217,24 @@ function buildCommands(): Command[] {
         { order: getState().order === "desc" ? "asc" : "desc" },
         { replace: true },
       ),
+  });
+  // The split-resize twins of the h/l keys: one divider-step per run (a no-op while
+  // the detail pane is closed), routed through the same stepSplit writer.
+  cmds.push({
+    kind: "Actions",
+    label: "Shrink timeline pane",
+    hint: "split",
+    run: () => {
+      stepSplit(-1);
+    },
+  });
+  cmds.push({
+    kind: "Actions",
+    label: "Grow timeline pane",
+    hint: "split",
+    run: () => {
+      stepSplit(1);
+    },
   });
   cmds.push({
     kind: "Actions",

@@ -92,6 +92,27 @@ describe("buildCommands (actions + contextual jumps over the loaded state)", () 
     expect(text).toContain("Revisions");
     expect(text).toContain("Events");
   });
+
+  it("surfaces split-resize actions that nudge the divider", () => {
+    // The split only exists with a detail open, which the store gates on a
+    // selection (store invariant: no selection ⇒ open is forced false).
+    store.commit({
+      selected: {
+        kind: "revision",
+        id: "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd",
+      },
+      open: true,
+    });
+    palette.open();
+    const text = results()?.textContent ?? "";
+    expect(text).toContain("Grow timeline pane");
+    expect(text).toContain("Shrink timeline pane");
+    palette.filterPalette("Grow timeline pane");
+    palette.run();
+    expect(
+      document.documentElement.style.getPropertyValue("--split-master"),
+    ).toBe("53%");
+  });
 });
 
 describe("filter / move / run", () => {

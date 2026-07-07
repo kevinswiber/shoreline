@@ -228,6 +228,75 @@ describe("Space scrolls the open detail pane", () => {
   });
 });
 
+describe("h / l resize the split from anywhere", () => {
+  function splitMaster(): string {
+    return document.documentElement.style.getPropertyValue("--split-master");
+  }
+  function divider(): HTMLElement {
+    const el = document.querySelector<HTMLElement>(".divider");
+    if (!el) throw new Error(".divider not mounted");
+    return el;
+  }
+
+  it("l grows the timeline pane without focusing the divider", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    key({ key: "l" });
+    expect(splitMaster()).toBe("53%");
+    expect(divider().getAttribute("aria-valuenow")).toBe("53");
+  });
+
+  it("h shrinks the timeline pane without focusing the divider", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    key({ key: "h" });
+    expect(splitMaster()).toBe("47%");
+  });
+
+  it("h past the floor snaps into reading mode (the divider ArrowLeft twin)", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    divider().setAttribute("aria-valuenow", "25"); // at the floor
+    key({ key: "h" });
+    expect(store.getState().reading).toBe(true);
+  });
+
+  it("l from reading mode restores the split", () => {
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: true,
+      reading: true,
+    });
+    key({ key: "l" });
+    expect(store.getState().reading).toBe(false);
+  });
+
+  it("bare l resizes and does not switch lenses (only g-then-l does)", () => {
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: true,
+      lens: "timeline",
+    });
+    key({ key: "l" });
+    expect(store.getState().lens).toBe("timeline");
+    expect(splitMaster()).toBe("53%");
+  });
+
+  it("h / l are inert while a text field is focused", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    const box = document.querySelector<HTMLInputElement>("#filter-text");
+    box?.focus();
+    key({ key: "l" }, box ?? document);
+    key({ key: "h" }, box ?? document);
+    expect(splitMaster()).toBe("");
+  });
+
+  it("h / l are inert while the detail pane is closed", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: false });
+    key({ key: "l" });
+    key({ key: "h" });
+    expect(splitMaster()).toBe("");
+    expect(store.getState().reading).toBe(false);
+  });
+});
+
 // The design's behavioral invariants as standing guards: a red here is a bug in
 // the production code, never a reason to weaken a guard.
 describe("split-view invariants (plan 0122, I4)", () => {

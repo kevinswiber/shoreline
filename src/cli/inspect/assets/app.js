@@ -3064,6 +3064,177 @@
   }
   __name(onDocumentClick, "onDocumentClick");
 
+  // src/prefs.ts
+  var THEME_KEY = "shore-inspect-theme";
+  var DENSITY_KEY = "shore-inspect-density";
+  var SPLIT_KEY = "shore-inspect-split";
+  var SPLIT_MIN = 25;
+  var SPLIT_MAX = 75;
+  var liveMediaQueries = [];
+  function hasPinnedTheme() {
+    const stored = localStorage.getItem(THEME_KEY);
+    return stored === "light" || stored === "dark";
+  }
+  __name(hasPinnedTheme, "hasPinnedTheme");
+  function preferredTheme() {
+    if (hasPinnedTheme()) return localStorage.getItem(THEME_KEY);
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  __name(preferredTheme, "preferredTheme");
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  __name(applyTheme, "applyTheme");
+  function toggleTheme() {
+    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+  }
+  __name(toggleTheme, "toggleTheme");
+  function preferredDensity() {
+    return localStorage.getItem(DENSITY_KEY) || "comfortable";
+  }
+  __name(preferredDensity, "preferredDensity");
+  function applyDensity(mode) {
+    document.documentElement.classList.toggle("compact", mode === "compact");
+  }
+  __name(applyDensity, "applyDensity");
+  function toggleDensity() {
+    const next = document.documentElement.classList.contains("compact") ? "comfortable" : "compact";
+    localStorage.setItem(DENSITY_KEY, next);
+    applyDensity(next);
+  }
+  __name(toggleDensity, "toggleDensity");
+  function preferredSplit() {
+    const raw = localStorage.getItem(SPLIT_KEY);
+    const n = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+    return Number.isInteger(n) && n >= SPLIT_MIN && n <= SPLIT_MAX ? n : null;
+  }
+  __name(preferredSplit, "preferredSplit");
+  function applySplit(pct) {
+    if (pct === null) {
+      document.documentElement.style.removeProperty("--split-master");
+      localStorage.removeItem(SPLIT_KEY);
+      return;
+    }
+    const clamped = Math.round(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)));
+    document.documentElement.style.setProperty("--split-master", `${clamped}%`);
+    localStorage.setItem(SPLIT_KEY, String(clamped));
+  }
+  __name(applySplit, "applySplit");
+  function applyPrefs() {
+    applyTheme(preferredTheme());
+    applyDensity(preferredDensity());
+    const split = preferredSplit();
+    if (split !== null) applySplit(split);
+  }
+  __name(applyPrefs, "applyPrefs");
+  function watchColorScheme() {
+    const query = window.matchMedia("(prefers-color-scheme: light)");
+    liveMediaQueries.push(query);
+    query.addEventListener("change", () => {
+      if (hasPinnedTheme()) return;
+      applyTheme(preferredTheme());
+    });
+  }
+  __name(watchColorScheme, "watchColorScheme");
+  function initControls4() {
+    $("#theme-toggle")?.addEventListener("click", toggleTheme);
+    $("#density-toggle")?.addEventListener("click", toggleDensity);
+    watchColorScheme();
+  }
+  __name(initControls4, "initControls");
+
+  // src/split.ts
+  var MIN_PCT = 25;
+  var MAX_PCT = 75;
+  function currentPct(divider) {
+    const aria = Number(divider.getAttribute("aria-valuenow"));
+    if (Number.isFinite(aria) && aria >= MIN_PCT && aria <= MAX_PCT) return aria;
+    return preferredSplit() ?? 50;
+  }
+  __name(currentPct, "currentPct");
+  function setPct(divider, pct) {
+    const clamped = pct === null ? null : Math.round(Math.min(MAX_PCT, Math.max(MIN_PCT, pct)));
+    applySplit(clamped);
+    divider.setAttribute("aria-valuenow", String(clamped ?? 50));
+  }
+  __name(setPct, "setPct");
+  function stepPct(split) {
+    const w = split.getBoundingClientRect().width;
+    return w > 0 ? 24 / w * 100 : 3;
+  }
+  __name(stepPct, "stepPct");
+  function initControls5() {
+    const split = $(".split");
+    const divider = $(".divider");
+    if (!split || !divider) return;
+    divider.setAttribute("aria-valuenow", String(preferredSplit() ?? 50));
+    divider.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      divider.focus();
+      divider.setPointerCapture?.(ev.pointerId);
+      divider.classList.add("dragging");
+    });
+    divider.addEventListener("pointermove", (ev) => {
+      if (!divider.classList.contains("dragging")) return;
+      const r = split.getBoundingClientRect();
+      if (r.width <= 0) return;
+      const pct = (ev.clientX - r.left) / r.width * 100;
+      if (pct < MIN_PCT * 0.6) {
+        divider.classList.remove("dragging");
+        divider.releasePointerCapture?.(ev.pointerId);
+        commit({ reading: true });
+        return;
+      }
+      setPct(divider, pct);
+    });
+    divider.addEventListener("pointerup", (ev) => {
+      divider.classList.remove("dragging");
+      divider.releasePointerCapture?.(ev.pointerId);
+    });
+    divider.addEventListener("dblclick", () => setPct(divider, null));
+    divider.addEventListener("keydown", (ev) => {
+      if (ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const next = currentPct(divider) - stepPct(split);
+        if (next < MIN_PCT) commit({ reading: true });
+        else setPct(divider, next);
+      } else if (ev.key === "ArrowRight") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setPct(divider, currentPct(divider) + stepPct(split));
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setPct(divider, null);
+      }
+    });
+  }
+  __name(initControls5, "initControls");
+  function stepSplit(dir) {
+    if (!getState().open) return false;
+    const split = $(".split");
+    const divider = $(".divider");
+    if (!split || !divider) return false;
+    const reading = getState().reading;
+    if (dir < 0) {
+      if (reading) return false;
+      const next = currentPct(divider) - stepPct(split);
+      if (next < MIN_PCT) commit({ reading: true });
+      else setPct(divider, next);
+      return true;
+    }
+    if (reading) {
+      commit({ reading: false });
+      return true;
+    }
+    setPct(divider, currentPct(divider) + stepPct(split));
+    return true;
+  }
+  __name(stepSplit, "stepSplit");
+
   // src/palette.ts
   var cmdItems = [];
   var cmdFiltered = [];
@@ -3213,6 +3384,22 @@
     });
     cmds.push({
       kind: "Actions",
+      label: "Shrink timeline pane",
+      hint: "split",
+      run: /* @__PURE__ */ __name(() => {
+        stepSplit(-1);
+      }, "run")
+    });
+    cmds.push({
+      kind: "Actions",
+      label: "Grow timeline pane",
+      hint: "split",
+      run: /* @__PURE__ */ __name(() => {
+        stepSplit(1);
+      }, "run")
+    });
+    cmds.push({
+      kind: "Actions",
       label: "Copy selected id",
       hint: "clipboard",
       run: /* @__PURE__ */ __name(() => {
@@ -3338,7 +3525,7 @@
     if (cmd) cmd.run();
   }
   __name(run, "run");
-  function initControls4() {
+  function initControls6() {
     const node = $("#cmd-palette");
     if (node)
       register("palette", {
@@ -3375,7 +3562,7 @@
       }
     });
   }
-  __name(initControls4, "initControls");
+  __name(initControls6, "initControls");
 
   // src/keyboard.ts
   var pendingChord = null;
@@ -3573,6 +3760,16 @@
         ev.preventDefault();
         stepSelection(-1);
         return;
+      // h/l resize the split from anywhere (the divider's ArrowLeft/Right without
+      // focusing it): h shrinks the timeline pane, l grows it. preventDefault only a
+      // keystroke stepSplit consumed — so an inert h/l (pane closed, or h already at
+      // the reading rail) still lets the browser's own type-ahead find fire.
+      case "h":
+        if (stepSplit(-1)) ev.preventDefault();
+        return;
+      case "l":
+        if (stepSplit(1)) ev.preventDefault();
+        return;
       case "Enter": {
         const t = ev.target;
         if (t instanceof Element && t.closest("a[href], button")) return;
@@ -3600,87 +3797,6 @@
     }
   }
   __name(onKey, "onKey");
-
-  // src/prefs.ts
-  var THEME_KEY = "shore-inspect-theme";
-  var DENSITY_KEY = "shore-inspect-density";
-  var SPLIT_KEY = "shore-inspect-split";
-  var SPLIT_MIN = 25;
-  var SPLIT_MAX = 75;
-  var liveMediaQueries = [];
-  function hasPinnedTheme() {
-    const stored = localStorage.getItem(THEME_KEY);
-    return stored === "light" || stored === "dark";
-  }
-  __name(hasPinnedTheme, "hasPinnedTheme");
-  function preferredTheme() {
-    if (hasPinnedTheme()) return localStorage.getItem(THEME_KEY);
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  }
-  __name(preferredTheme, "preferredTheme");
-  function applyTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-  }
-  __name(applyTheme, "applyTheme");
-  function toggleTheme() {
-    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-    localStorage.setItem(THEME_KEY, next);
-    applyTheme(next);
-  }
-  __name(toggleTheme, "toggleTheme");
-  function preferredDensity() {
-    return localStorage.getItem(DENSITY_KEY) || "comfortable";
-  }
-  __name(preferredDensity, "preferredDensity");
-  function applyDensity(mode) {
-    document.documentElement.classList.toggle("compact", mode === "compact");
-  }
-  __name(applyDensity, "applyDensity");
-  function toggleDensity() {
-    const next = document.documentElement.classList.contains("compact") ? "comfortable" : "compact";
-    localStorage.setItem(DENSITY_KEY, next);
-    applyDensity(next);
-  }
-  __name(toggleDensity, "toggleDensity");
-  function preferredSplit() {
-    const raw = localStorage.getItem(SPLIT_KEY);
-    const n = raw === null ? Number.NaN : Number.parseInt(raw, 10);
-    return Number.isInteger(n) && n >= SPLIT_MIN && n <= SPLIT_MAX ? n : null;
-  }
-  __name(preferredSplit, "preferredSplit");
-  function applySplit(pct) {
-    if (pct === null) {
-      document.documentElement.style.removeProperty("--split-master");
-      localStorage.removeItem(SPLIT_KEY);
-      return;
-    }
-    const clamped = Math.round(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)));
-    document.documentElement.style.setProperty("--split-master", `${clamped}%`);
-    localStorage.setItem(SPLIT_KEY, String(clamped));
-  }
-  __name(applySplit, "applySplit");
-  function applyPrefs() {
-    applyTheme(preferredTheme());
-    applyDensity(preferredDensity());
-    const split = preferredSplit();
-    if (split !== null) applySplit(split);
-  }
-  __name(applyPrefs, "applyPrefs");
-  function watchColorScheme() {
-    const query = window.matchMedia("(prefers-color-scheme: light)");
-    liveMediaQueries.push(query);
-    query.addEventListener("change", () => {
-      if (hasPinnedTheme()) return;
-      applyTheme(preferredTheme());
-    });
-  }
-  __name(watchColorScheme, "watchColorScheme");
-  function initControls5() {
-    $("#theme-toggle")?.addEventListener("click", toggleTheme);
-    $("#density-toggle")?.addEventListener("click", toggleDensity);
-    watchColorScheme();
-  }
-  __name(initControls5, "initControls");
 
   // src/lenses/revisions.ts
   function renderRevisionList() {
@@ -4044,7 +4160,7 @@ click to open the revision page">
     }
   }
   __name(onMasterClick, "onMasterClick");
-  function initControls6() {
+  function initControls7() {
     $("#master")?.addEventListener("click", onMasterClick);
     $("#filter-types")?.addEventListener("click", onTypeToggleClick);
     $("#detail-close")?.addEventListener(
@@ -4063,75 +4179,6 @@ click to open the revision page">
       "click",
       () => commit({ reading: false })
     );
-  }
-  __name(initControls6, "initControls");
-
-  // src/split.ts
-  var MIN_PCT = 25;
-  var MAX_PCT = 75;
-  function currentPct(divider) {
-    const aria = Number(divider.getAttribute("aria-valuenow"));
-    if (Number.isFinite(aria) && aria >= MIN_PCT && aria <= MAX_PCT) return aria;
-    return preferredSplit() ?? 50;
-  }
-  __name(currentPct, "currentPct");
-  function setPct(divider, pct) {
-    const clamped = pct === null ? null : Math.round(Math.min(MAX_PCT, Math.max(MIN_PCT, pct)));
-    applySplit(clamped);
-    divider.setAttribute("aria-valuenow", String(clamped ?? 50));
-  }
-  __name(setPct, "setPct");
-  function stepPct(split) {
-    const w = split.getBoundingClientRect().width;
-    return w > 0 ? 24 / w * 100 : 3;
-  }
-  __name(stepPct, "stepPct");
-  function initControls7() {
-    const split = $(".split");
-    const divider = $(".divider");
-    if (!split || !divider) return;
-    divider.setAttribute("aria-valuenow", String(preferredSplit() ?? 50));
-    divider.addEventListener("pointerdown", (ev) => {
-      ev.preventDefault();
-      divider.focus();
-      divider.setPointerCapture?.(ev.pointerId);
-      divider.classList.add("dragging");
-    });
-    divider.addEventListener("pointermove", (ev) => {
-      if (!divider.classList.contains("dragging")) return;
-      const r = split.getBoundingClientRect();
-      if (r.width <= 0) return;
-      const pct = (ev.clientX - r.left) / r.width * 100;
-      if (pct < MIN_PCT * 0.6) {
-        divider.classList.remove("dragging");
-        divider.releasePointerCapture?.(ev.pointerId);
-        commit({ reading: true });
-        return;
-      }
-      setPct(divider, pct);
-    });
-    divider.addEventListener("pointerup", (ev) => {
-      divider.classList.remove("dragging");
-      divider.releasePointerCapture?.(ev.pointerId);
-    });
-    divider.addEventListener("dblclick", () => setPct(divider, null));
-    divider.addEventListener("keydown", (ev) => {
-      if (ev.key === "ArrowLeft") {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const next = currentPct(divider) - stepPct(split);
-        if (next < MIN_PCT) commit({ reading: true });
-        else setPct(divider, next);
-      } else if (ev.key === "ArrowRight") {
-        ev.preventDefault();
-        ev.stopPropagation();
-        setPct(divider, currentPct(divider) + stepPct(split));
-      } else if (ev.key === "Enter") {
-        ev.preventDefault();
-        ev.stopPropagation();
-        setPct(divider, null);
-      }
-    });
   }
   __name(initControls7, "initControls");
 
@@ -4170,13 +4217,13 @@ click to open the revision page">
     applyPrefs();
     subscribe(render);
     subscribe(maybeReloadForQuery);
-    initControls5();
-    initControls();
     initControls4();
-    initControls3();
+    initControls();
     initControls6();
-    initControls2();
+    initControls3();
     initControls7();
+    initControls2();
+    initControls5();
     wireToolbar();
     document.addEventListener("keydown", onKey);
     document.addEventListener("click", onDocumentClick);
