@@ -11,11 +11,13 @@
       <div class="stats">
         <span class="store-identity" style="position:static">
           <span class="store-identity-chip" tabindex="0">
+            <span class="store-live" data-state="watching"></span>
             <span class="store-identity-repo">shoreline</span>
             <span class="store-identity-caret" aria-hidden="true">▾</span>
           </span>
         </span>
-        <span class="stat refresh live">updated</span>
+        <button class="ghost">◐ dark</button>
+        <button class="ghost">≡ comfortable</button>
       </div>
     </header>
   </div>
@@ -24,6 +26,7 @@
     <p class="ds-label">Store identity — chip &amp; detail popover</p>
     <div class="store-identity" style="position:static">
       <span class="store-identity-chip" tabindex="0">
+        <span class="store-live" data-state="watching"></span>
         <span class="store-identity-repo">shoreline</span>
         <span class="store-identity-caret" aria-hidden="true">▾</span>
       </span>
@@ -39,6 +42,7 @@
           <span class="stat">38 threads</span>
           <span class="stat mono">cd9181a6</span>
         </div>
+        <p class="store-live-row">status <span class="store-live-status" data-state="watching">watching</span></p>
         <p class="store-identity-note">Recorded state only — never gates writes; signature checks are reader-relative to your committed allow-list.</p>
       </div>
     </div>
@@ -54,10 +58,12 @@
   </div>
 
   <div class="ds-group">
-    <p class="ds-label">Connectivity status (idle / live)</p>
-    <div class="stats" style="margin-left:0">
-      <span class="stat">idle</span>
-      <span class="stat refresh live">updated</span>
+    <p class="ds-label">Auto-refresh liveness — chip dot states</p>
+    <div class="stats" style="margin-left:0; gap:16px; flex-wrap:wrap">
+      <span class="store-identity-chip" tabindex="0"><span class="store-live" data-state="idle"></span><span class="store-identity-repo">idle</span></span>
+      <span class="store-identity-chip" tabindex="0"><span class="store-live" data-state="watching"></span><span class="store-identity-repo">watching</span></span>
+      <span class="store-identity-chip" tabindex="0"><span class="store-live" data-state="updated"></span><span class="store-identity-repo">updated</span></span>
+      <span class="store-identity-chip" tabindex="0"><span class="store-live" data-state="stalled"></span><span class="store-identity-repo">stalled</span></span>
     </div>
   </div>
 
