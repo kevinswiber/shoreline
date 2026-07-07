@@ -27,7 +27,7 @@ import {
 import { toggle as togglePalette } from "./palette";
 import { entryRevisionId } from "./projection";
 import { navigate } from "./router";
-import { getState } from "./store";
+import { commit, getState } from "./store";
 
 // A short-lived two-key chord (g-then-…), cleared after ~1s. Transient view-cache,
 // never on the store.
@@ -146,8 +146,8 @@ function toggleHelp(): void {
 
 // Layered Escape — one precedence chain, each press ascends one rung: close the
 // active overlay (diff / palette / help — mutually exclusive), then blur a
-// field, then close the detail pane (the cursor stays parked), then clear the
-// cursor, then clear the query.
+// field, then restore the split from reading mode, then close the detail pane
+// (the cursor stays parked), then clear the cursor, then clear the query.
 function handleEscape(): void {
   if (activeName()) {
     closeActive();
@@ -156,6 +156,11 @@ function handleEscape(): void {
   const active = document.activeElement;
   if (isTypingTarget(active)) {
     if (active instanceof HTMLElement) active.blur();
+    return;
+  }
+  if (getState().reading) {
+    // Reading mode is session-only state: restore through commit, not navigate.
+    commit({ reading: false });
     return;
   }
   if (getState().open) {

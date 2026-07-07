@@ -7,6 +7,7 @@
 
 import { $ } from "./dom";
 import { applySplit, preferredSplit } from "./prefs";
+import { commit } from "./store";
 
 // The master pane's percent range. These bound the drag/step math; range
 // enforcement itself lives inside applySplit (which clamps every write).
@@ -55,7 +56,17 @@ export function initControls(): void {
     if (!divider.classList.contains("dragging")) return;
     const r = split.getBoundingClientRect();
     if (r.width <= 0) return;
-    setPct(divider, ((ev.clientX - r.left) / r.width) * 100);
+    const pct = ((ev.clientX - r.left) / r.width) * 100;
+    // Past the master floor the pane snaps into reading mode instead of
+    // squishing: end the drag and collapse the master behind the rail. The
+    // stored width is untouched, so restoring returns to the last good ratio.
+    if (pct < MIN_PCT * 0.6) {
+      divider.classList.remove("dragging");
+      divider.releasePointerCapture?.(ev.pointerId);
+      commit({ reading: true });
+      return;
+    }
+    setPct(divider, pct);
   });
   divider.addEventListener("pointerup", (ev) => {
     divider.classList.remove("dragging");
@@ -66,7 +77,10 @@ export function initControls(): void {
     if (ev.key === "ArrowLeft") {
       ev.preventDefault();
       ev.stopPropagation();
-      setPct(divider, currentPct(divider) - stepPct(split));
+      const next = currentPct(divider) - stepPct(split);
+      // Stepping past the floor enters reading mode (the drag-snap's keyboard twin).
+      if (next < MIN_PCT) commit({ reading: true });
+      else setPct(divider, next);
     } else if (ev.key === "ArrowRight") {
       ev.preventDefault();
       ev.stopPropagation();

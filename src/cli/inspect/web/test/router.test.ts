@@ -334,6 +334,18 @@ describe("serializeState", () => {
     ).toBe(`#/list?sel=${encodeURIComponent(REV)}`);
   });
 
+  it("never serializes the reading flag — session-only, byte-identical URLs", () => {
+    const base = snap({ selected: { kind: "event", id: EVT }, open: true });
+    const withReading = {
+      ...base,
+      reading: true,
+    } as SerializeSnapshot & { reading: boolean };
+    expect(router.serializeState(withReading, PT)).toBe(
+      router.serializeState(base, PT),
+    );
+    expect("reading" in router.parseHash(`#/event/${EVT}`, PT)).toBe(false);
+  });
+
   it("serializes an open selection entity-primary", () => {
     expect(
       router.serializeState(

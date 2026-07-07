@@ -33,6 +33,7 @@ describe("getState defaults", () => {
     expect(s.focus).toBeNull();
     expect(s.lastEventCount).toBeNull();
     expect(s.open).toBe(false);
+    expect(s.reading).toBe(false);
   });
 
   it("seeds enabledTypes and seenTypes from every known event type", () => {

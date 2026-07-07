@@ -773,6 +773,7 @@
     lens: "timeline",
     selected: { kind: null, id: null },
     open: false,
+    reading: false,
     enabledTypes: new Set(TYPES.map((t) => t.id)),
     seenTypes: new Set(TYPES.map((t) => t.id)),
     filterText: "",
@@ -3439,6 +3440,10 @@
       if (active instanceof HTMLElement) active.blur();
       return;
     }
+    if (getState().reading) {
+      commit({ reading: false });
+      return;
+    }
     if (getState().open) {
       navigate({ open: false });
       return;
@@ -3899,7 +3904,17 @@ click to open the revision page">
   function applySplitMode() {
     const split = $(".split");
     if (!split) return;
-    split.classList.toggle("split-closed", !getState().open);
+    const s = getState();
+    split.classList.toggle("split-closed", !s.open);
+    const reading = s.reading && s.open;
+    split.classList.toggle("reading", reading);
+    const readBtn = $("#detail-read");
+    if (readBtn) {
+      readBtn.textContent = reading ? "⤡" : "⤢";
+      const label = reading ? "Restore split" : "Reading mode";
+      readBtn.setAttribute("aria-label", label);
+      readBtn.setAttribute("title", label);
+    }
   }
   __name(applySplitMode, "applySplitMode");
   function renderSelected() {
@@ -3985,6 +4000,14 @@ click to open the revision page">
       "click",
       () => navigate({ open: false })
     );
+    $("#detail-read")?.addEventListener(
+      "click",
+      () => commit({ reading: !getState().reading })
+    );
+    $("#master-rail")?.addEventListener(
+      "click",
+      () => commit({ reading: false })
+    );
   }
   __name(initControls6, "initControls");
 
@@ -4022,7 +4045,14 @@ click to open the revision page">
       if (!divider.classList.contains("dragging")) return;
       const r = split.getBoundingClientRect();
       if (r.width <= 0) return;
-      setPct(divider, (ev.clientX - r.left) / r.width * 100);
+      const pct = (ev.clientX - r.left) / r.width * 100;
+      if (pct < MIN_PCT * 0.6) {
+        divider.classList.remove("dragging");
+        divider.releasePointerCapture?.(ev.pointerId);
+        commit({ reading: true });
+        return;
+      }
+      setPct(divider, pct);
     });
     divider.addEventListener("pointerup", (ev) => {
       divider.classList.remove("dragging");
@@ -4033,7 +4063,9 @@ click to open the revision page">
       if (ev.key === "ArrowLeft") {
         ev.preventDefault();
         ev.stopPropagation();
-        setPct(divider, currentPct(divider) - stepPct(split));
+        const next = currentPct(divider) - stepPct(split);
+        if (next < MIN_PCT) commit({ reading: true });
+        else setPct(divider, next);
       } else if (ev.key === "ArrowRight") {
         ev.preventDefault();
         ev.stopPropagation();

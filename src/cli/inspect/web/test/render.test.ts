@@ -208,6 +208,39 @@ describe("renderSelected (delegates to detail)", () => {
     expect($(".split")?.classList.contains("split-closed")).toBe(false);
   });
 
+  it("projects reading mode as a class on the split — only while open", () => {
+    store.commit({
+      selected: { kind: "event", id: OBS_EVENT },
+      open: true,
+      reading: true,
+    });
+    render.render();
+    expect($(".split")?.classList.contains("reading")).toBe(true);
+    store.commit({ open: false });
+    render.render();
+    expect($(".split")?.classList.contains("reading")).toBe(false);
+  });
+
+  it("the reading toggle enters reading mode and the rail leaves it", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    render.render();
+    ($("#detail-read") as HTMLElement).click();
+    expect(store.getState().reading).toBe(true);
+    ($("#master-rail") as HTMLElement).click();
+    expect(store.getState().reading).toBe(false);
+  });
+
+  it("the reading toggle's glyph and label flip with the mode", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    render.render();
+    const btn = $("#detail-read") as HTMLElement;
+    expect(btn.textContent).toBe("⤢");
+    store.commit({ reading: true });
+    render.render();
+    expect(btn.textContent).toBe("⤡");
+    expect(btn.getAttribute("aria-label")).toBe("Restore split");
+  });
+
   it("the close button closes the detail keeping the cursor", () => {
     store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
     render.render();

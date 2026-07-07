@@ -106,6 +106,12 @@ export interface State {
   // `open: false` (lens-primary `?sel=` URL form); `open: true` is the
   // entity-primary form. The router derives and re-emits it (I1).
   open: boolean;
+  // Reading mode: the master pane collapses to a rail and the detail takes the
+  // split. Session-only — never serialized to the URL (the router ignores it)
+  // and never persisted; a fresh load always opens in the split. Toggled via
+  // `commit` directly (a navigate would push a history entry for a non-URL
+  // change).
+  reading: boolean;
   enabledTypes: Set<string>;
   seenTypes: Set<string>;
   // The structured query string (serialized as q=): free-text terms plus
@@ -134,6 +140,7 @@ const state: State = {
   lens: "timeline",
   selected: { kind: null, id: null },
   open: false,
+  reading: false,
   enabledTypes: new Set(TYPES.map((t) => t.id)),
   seenTypes: new Set(TYPES.map((t) => t.id)),
   filterText: "",

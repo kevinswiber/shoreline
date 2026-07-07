@@ -162,6 +162,20 @@ describe("overlays via the keyboard", () => {
     expect(store.getState().filterText).toBe("");
   });
 
+  it("Escape restores the split before closing the pane (reading rung)", () => {
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: true,
+      reading: true,
+    });
+    key({ key: "Escape" });
+    expect(store.getState().reading).toBe(false);
+    expect(store.getState().open).toBe(true);
+    key({ key: "Escape" });
+    expect(store.getState().open).toBe(false);
+    expect(store.getState().selected.id).toBe(REV);
+  });
+
   it("Escape closes an open detail keeping the cursor, then clears the cursor, then the query", () => {
     store.commit({
       selected: { kind: "revision", id: REV },
@@ -177,6 +191,84 @@ describe("overlays via the keyboard", () => {
     expect(store.getState().filterText).toBe("sig");
     key({ key: "Escape" });
     expect(store.getState().filterText).toBe("");
+  });
+});
+
+// The design's behavioral invariants as standing guards: a red here is a bug in
+// the production code, never a reason to weaken a guard.
+describe("split-view invariants (plan 0122, I4)", () => {
+  function flush(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it("j/k repaints the detail with the master pane hidden (reading mode)", async () => {
+    const render = await import("../src/render");
+    store.subscribe(render.render);
+    key({ key: "j" });
+    await flush();
+    const first = store.getState().selected.id;
+    expect(first).not.toBeNull();
+    store.commit({ open: true, reading: true });
+    const before = document.querySelector("#detail-body")?.innerHTML;
+    key({ key: "j" });
+    await flush();
+    expect(store.getState().selected.id).not.toBe(first);
+    expect(
+      document.querySelector(".split")?.classList.contains("reading"),
+    ).toBe(true);
+    expect(document.querySelector("#detail-body")?.innerHTML).not.toBe(before);
+  });
+
+  it("a step that pages the timeline still works while reading", async () => {
+    const render = await import("../src/render");
+    store.subscribe(render.render);
+    const doc = historyJson as unknown as HistoryDoc;
+    const entries = doc.entries;
+    const last = entries[entries.length - 1];
+    const nextPageEntry = {
+      ...entries[0],
+      eventId: "evt:sha256:next-page-entry",
+    };
+    store.commit({
+      history: { ...doc, offset: 0, matchCount: entries.length + 1 },
+      selected: { kind: "event", id: last.eventId ?? null },
+      open: true,
+      reading: true,
+    });
+    setHistoryResponse({
+      entries: [nextPageEntry],
+      diagnostics: [],
+      offset: entries.length,
+      matchCount: entries.length + 1,
+      facets: {},
+    });
+    const before = document.querySelector("#detail-body")?.innerHTML;
+    key({ key: "j" });
+    await flush();
+    await flush();
+    expect(store.getState().selected.id).toBe("evt:sha256:next-page-entry");
+    expect(store.getState().open).toBe(true); // the form survives the page fetch
+    expect(document.querySelector("#detail-body")?.innerHTML).not.toBe(before);
+  });
+
+  it("closing the detail never moves the cursor", async () => {
+    const router = await import("../src/router");
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    router.navigate({ open: false });
+    expect(store.getState().selected).toEqual({ kind: "revision", id: REV });
+  });
+
+  it("keyboard stepping preserves the URL form", async () => {
+    key({ key: "j" });
+    await flush();
+    expect(store.getState().open).toBe(false); // parked stays parked
+    key({ key: "j" });
+    await flush();
+    expect(store.getState().open).toBe(false);
+    store.commit({ open: true });
+    key({ key: "j" });
+    await flush();
+    expect(store.getState().open).toBe(true); // open stays open
   });
 });
 

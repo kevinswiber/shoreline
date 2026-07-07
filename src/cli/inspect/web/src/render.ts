@@ -26,7 +26,7 @@ import {
 import { presentTypes } from "./model";
 import { shortId } from "./refs";
 import { navigate } from "./router";
-import { getState } from "./store";
+import { commit, getState } from "./store";
 import { typeColor, typeLabel } from "./types";
 
 // One load diagnostic (the narrowed shape the diagnostics list reads off the
@@ -219,11 +219,22 @@ function renderMaster(): void {
 // Project the open state onto the split grid: `split-closed` is a string-literal
 // state class (the `hidden` precedent, not a CLASS entry) the stylesheet keys the
 // single-column collapse — and, at narrow widths, the slide-over sheet — off.
-/** Toggle the split grid's mode classes from the open state. */
+/** Toggle the split grid's mode classes from the open/reading state. */
 function applySplitMode(): void {
   const split = $(".split");
   if (!split) return;
-  split.classList.toggle("split-closed", !getState().open);
+  const s = getState();
+  split.classList.toggle("split-closed", !s.open);
+  const reading = s.reading && s.open;
+  split.classList.toggle("reading", reading);
+  // The reading toggle presents its own state: ⤢ enters, ⤡ restores.
+  const readBtn = $("#detail-read");
+  if (readBtn) {
+    readBtn.textContent = reading ? "⤡" : "⤢";
+    const label = reading ? "Restore split" : "Reading mode";
+    readBtn.setAttribute("aria-label", label);
+    readBtn.setAttribute("title", label);
+  }
 }
 
 // Detail pane: a pure projection of the single selection — the event detail or
@@ -351,5 +362,13 @@ export function initControls(): void {
   // cursor — the selection survives so Enter/j/k resume from it.
   $<HTMLElement>("#detail-close")?.addEventListener("click", () =>
     navigate({ open: false }),
+  );
+  // Reading mode toggles through commit, never navigate — it is session-only
+  // state (not URL), and a navigate would push a junk history entry.
+  $<HTMLElement>("#detail-read")?.addEventListener("click", () =>
+    commit({ reading: !getState().reading }),
+  );
+  $<HTMLElement>("#master-rail")?.addEventListener("click", () =>
+    commit({ reading: false }),
   );
 }

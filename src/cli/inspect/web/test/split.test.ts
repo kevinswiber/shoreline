@@ -122,6 +122,47 @@ describe("the divider controller (drag / reset / keys)", () => {
     expect(Number(el.getAttribute("aria-valuenow"))).toBe(50);
   });
 
+  it("ArrowLeft past the floor snaps into reading mode instead of clamping", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    split.initControls();
+    const el = divider();
+    el.setAttribute("aria-valuenow", "25"); // at the floor
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+    );
+    expect(store.getState().reading).toBe(true);
+  });
+
+  it("dragging past the floor snaps into reading mode and ends the drag", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    split.initControls();
+    const el = divider();
+    const splitEl = document.querySelector(".split") as HTMLElement;
+    vi.spyOn(splitEl, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      width: 1000,
+      top: 0,
+      height: 300,
+      right: 1000,
+      bottom: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    el.dispatchEvent(
+      new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }),
+    );
+    el.dispatchEvent(
+      new PointerEvent("pointermove", {
+        pointerId: 1,
+        clientX: 40, // 4% — far past the 25% floor
+        bubbles: true,
+      }),
+    );
+    expect(store.getState().reading).toBe(true);
+    expect(el.classList.contains("dragging")).toBe(false);
+  });
+
   it("divider keys never leak to the global keyboard handler", () => {
     document.addEventListener("keydown", keyboard.onKey);
     store.commit({ selected: { kind: "revision", id: REV }, open: false });

@@ -192,6 +192,32 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .split.split-closed { grid-template-columns: minmax(0, 1fr); }
 .split.split-closed #detail, .split.split-closed .divider { display: none; }
 
+/* Reading mode: the master pane collapses behind a thin reopen rail and the
+   detail takes the split — the divider's left extreme, not a separate layout.
+   j/k stepping still works (selection stepping is model-driven, never needs
+   the master pane visible). */
+.split.reading { grid-template-columns: 28px minmax(0, 1fr); }
+.split.reading #master, .split.reading .divider { display: none; }
+
+/* The reopen rail reading mode collapses the master pane behind: hidden in the
+   normal split (display:none keeps it out of the grid), the 28px first column
+   while reading. It is the way back — never a dead end. */
+.master-rail {
+  display: none;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+  color: var(--accent);
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.master-rail:hover { background: var(--bg-row); }
+.master-rail:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.split.reading .master-rail { display: block; }
+
 /* The divider: at rest it renders exactly the seam #master's border-right used
    to draw; the 3px handle pill appears on hover/drag/focus only. */
 .divider { cursor: col-resize; position: relative; touch-action: none; }
