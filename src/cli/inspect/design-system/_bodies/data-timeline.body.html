@@ -1,74 +1,81 @@
 <div class="ds-page">
   <div class="ds-group">
-    <p class="ds-label">Timeline — event rows &amp; detail pane</p>
-    <div style="display:grid;grid-template-columns:minmax(360px,1fr) minmax(320px,1fr);gap:14px;align-items:start">
-      <ol class="timeline" aria-label="event timeline">
-        <li class="event" aria-selected="true">
-          <span class="time"><span class="event-date">6/23/2026</span><span>18:20:59.643</span></span>
-          <span class="rail" style="background:var(--evt-observation)"></span>
-          <span class="body">
-            <span class="title">Addressed reviewer finding: replay re-checks the digest <span class="badge">handoff</span></span>
-            <span class="meta">
-              <span class="type" style="color:var(--evt-observation)">observation</span>
-              <span>agent:claude-code-0080</span>
-              <span>revision 58fe0c5f</span>
+    <p class="ds-label">Split shell — timeline · resizable divider · detail pane</p>
+    <div class="split">
+      <button class="master-rail" type="button" aria-label="Show timeline" title="Show timeline">›</button>
+      <section class="master" aria-label="master pane">
+        <ol class="timeline" aria-label="event timeline">
+          <li class="event" aria-selected="true">
+            <span class="time"><span class="event-date">6/23/2026</span><span>18:20:59.643</span></span>
+            <span class="rail" style="background:var(--evt-observation)"></span>
+            <span class="body">
+              <span class="title">Addressed reviewer finding: replay re-checks the digest <span class="badge">handoff</span></span>
+              <span class="meta">
+                <span class="type" style="color:var(--evt-observation)">observation</span>
+                <span>agent:claude-code-0080</span>
+                <span>revision 58fe0c5f</span>
+              </span>
             </span>
-          </span>
-        </li>
-        <li class="event">
-          <span class="time"><span class="event-date">6/23/2026</span><span>18:04:36.675</span></span>
-          <span class="rail" style="background:var(--evt-assessment)"></span>
-          <span class="body">
-            <span class="title">needs-changes</span>
-            <span class="meta">
-              <span class="type" style="color:var(--evt-assessment)">assessment</span>
-              <span>agent:codex-storage</span>
-              <span>revision 58fe0c5f</span>
+          </li>
+          <li class="event">
+            <span class="time"><span class="event-date">6/23/2026</span><span>18:04:36.675</span></span>
+            <span class="rail" style="background:var(--evt-assessment)"></span>
+            <span class="body">
+              <span class="title">needs-changes</span>
+              <span class="meta">
+                <span class="type" style="color:var(--evt-assessment)">assessment</span>
+                <span>agent:codex-storage</span>
+                <span>revision 58fe0c5f</span>
+              </span>
             </span>
-          </span>
-        </li>
-        <li class="event">
-          <span class="time"><span class="event-date">6/23/2026</span><span>18:04:30.587</span></span>
-          <span class="rail" style="background:var(--evt-validation)"></span>
-          <span class="body">
-            <span class="title">just check · passed</span>
-            <span class="meta">
-              <span class="type" style="color:var(--evt-validation)">validation</span>
-              <span>agent:codex-storage</span>
+          </li>
+          <li class="event">
+            <span class="time"><span class="event-date">6/23/2026</span><span>18:04:30.587</span></span>
+            <span class="rail" style="background:var(--evt-validation)"></span>
+            <span class="body">
+              <span class="title">just check · passed</span>
+              <span class="meta">
+                <span class="type" style="color:var(--evt-validation)">validation</span>
+                <span>agent:codex-storage</span>
+              </span>
             </span>
-          </span>
-        </li>
-        <li class="event">
-          <span class="time"><span class="event-date">6/23/2026</span><span>17:57:53.219</span></span>
-          <span class="rail" style="background:var(--evt-capture)"></span>
-          <span class="body">
-            <span class="title">New pins lock the order/round-trip invariants <span class="badge head">current in thread</span></span>
-            <span class="meta">
-              <span class="type" style="color:var(--evt-capture)">capture</span>
-              <span>agent:claude-code-0080</span>
+          </li>
+          <li class="event">
+            <span class="time"><span class="event-date">6/23/2026</span><span>17:57:53.219</span></span>
+            <span class="rail" style="background:var(--evt-capture)"></span>
+            <span class="body">
+              <span class="title">New pins lock the order/round-trip invariants <span class="badge head">current in thread</span></span>
+              <span class="meta">
+                <span class="type" style="color:var(--evt-capture)">capture</span>
+                <span>agent:claude-code-0080</span>
+              </span>
             </span>
-          </span>
-        </li>
-        <li class="event">
-          <span class="time"><span class="event-date">6/22/2026</span><span>17:51:02.004</span></span>
-          <span class="rail" style="background:var(--evt-note)"></span>
-          <span class="body">
-            <span class="title">Earlier revision <span class="badge stale">superseded by <span class="ref" data-ref-kind="rev">rev:58fe0c5f</span></span></span>
-            <span class="meta">
-              <span class="type" style="color:var(--evt-note)">revision_superseded</span>
-              <span>agent:claude-code-0080</span>
+          </li>
+          <li class="event">
+            <span class="time"><span class="event-date">6/22/2026</span><span>17:51:02.004</span></span>
+            <span class="rail" style="background:var(--evt-note)"></span>
+            <span class="body">
+              <span class="title">Earlier revision <span class="badge stale">superseded by <span class="ref" data-ref-kind="rev">rev:58fe0c5f</span></span></span>
+              <span class="meta">
+                <span class="type" style="color:var(--evt-note)">revision_superseded</span>
+                <span>agent:claude-code-0080</span>
+              </span>
             </span>
-          </span>
-        </li>
-      </ol>
-
+          </li>
+        </ol>
+      </section>
+      <div class="divider is-active" role="separator" aria-orientation="vertical" aria-valuenow="50" aria-valuemin="25" aria-valuemax="75" tabindex="0" aria-label="Resize panes — arrow keys adjust, Enter resets"></div>
       <aside class="detail">
-        <h2>Addressed reviewer finding: replay re-checks the digest</h2>
+        <header class="detail-head">
+          <button class="ghost" type="button" aria-label="Reading mode" title="Reading mode">⤢</button>
+          <button class="ghost" type="button" aria-label="Close detail" title="Close detail (Esc)">✕</button>
+        </header>
+        <h2><a href="#">Addressed reviewer finding: replay re-checks the digest</a></h2>
         <dl class="kv">
           <dt>type</dt><dd>observation</dd>
           <dt>occurredAt</dt><dd>6/23/2026, 18:20:59</dd>
           <dt>eventId</dt><dd><span class="ref ref-hash">evt:cb7e7875</span></dd>
-          <dt>revision</dt><dd><span class="ref" data-ref-kind="rev">rev:58fe0c5f</span></dd>
+          <dt>revision</dt><dd><a href="#">rev:58fe0c5f</a></dd>
           <dt>track</dt><dd>agent:claude-code-0080</dd>
           <dt>writer</dt><dd>human:kevin</dd>
         </dl>
@@ -85,6 +92,79 @@
   }
 }</pre>
       </aside>
+    </div>
+  </div>
+
+  <div class="ds-group">
+    <p class="ds-label">Reading mode — the master folds behind the reopen rail (h past the floor; ⤡ or l restores)</p>
+    <div class="split reading">
+      <button class="master-rail" type="button" aria-label="Show timeline" title="Show timeline">›</button>
+      <section class="master" aria-label="master pane">
+        <ol class="timeline" aria-label="event timeline">
+          <li class="event" aria-selected="true">
+            <span class="time"><span class="event-date">6/23/2026</span><span>18:20:59.643</span></span>
+            <span class="rail" style="background:var(--evt-observation)"></span>
+            <span class="body"><span class="title">Addressed reviewer finding</span></span>
+          </li>
+        </ol>
+      </section>
+      <div class="divider" role="separator" aria-orientation="vertical" tabindex="0"></div>
+      <aside class="detail">
+        <header class="detail-head">
+          <button class="ghost" type="button" aria-label="Restore split" title="Restore split">⤡</button>
+          <button class="ghost" type="button" aria-label="Close detail" title="Close detail (Esc)">✕</button>
+        </header>
+        <h2><a href="#">Addressed reviewer finding: replay re-checks the digest</a></h2>
+        <dl class="kv">
+          <dt>type</dt><dd>observation</dd>
+          <dt>occurredAt</dt><dd>6/23/2026, 18:20:59</dd>
+          <dt>eventId</dt><dd><span class="ref ref-hash">evt:cb7e7875</span></dd>
+          <dt>revision</dt><dd><a href="#">rev:58fe0c5f</a></dd>
+        </dl>
+        <span class="verify verify-valid">signature valid</span>
+        <pre>{
+  "kind": "review_observation_recorded",
+  "revisionId": "rev:sha256:58fe0c5f…",
+  "subject": { "title": "Addressed reviewer finding" }
+}</pre>
+      </aside>
+    </div>
+  </div>
+
+  <div class="ds-group">
+    <p class="ds-label">Narrow viewport — the detail rides in as a slide-over sheet (‹ timeline returns)</p>
+    <div class="ds-sheet-frame">
+      <div class="split">
+        <section class="master" aria-label="master pane">
+          <ol class="timeline" aria-label="event timeline">
+            <li class="event" aria-selected="true">
+              <span class="time"><span class="event-date">6/23/2026</span><span>18:20:59</span></span>
+              <span class="rail" style="background:var(--evt-observation)"></span>
+              <span class="body"><span class="title">Addressed reviewer finding</span></span>
+            </li>
+            <li class="event">
+              <span class="time"><span class="event-date">6/23/2026</span><span>18:04:36</span></span>
+              <span class="rail" style="background:var(--evt-assessment)"></span>
+              <span class="body"><span class="title">needs-changes</span></span>
+            </li>
+          </ol>
+        </section>
+        <aside class="detail">
+          <header class="detail-head">
+            <button class="ghost detail-back" type="button" aria-label="Back to timeline">‹ timeline</button>
+            <button class="ghost" type="button" aria-label="Reading mode" title="Reading mode">⤢</button>
+            <button class="ghost" type="button" aria-label="Close detail" title="Close detail (Esc)">✕</button>
+          </header>
+          <h2><a href="#">Addressed reviewer finding</a></h2>
+          <dl class="kv">
+            <dt>type</dt><dd>observation</dd>
+            <dt>occurredAt</dt><dd>6/23/2026, 18:20:59</dd>
+            <dt>revision</dt><dd><a href="#">rev:58fe0c5f</a></dd>
+            <dt>writer</dt><dd>human:kevin</dd>
+          </dl>
+          <span class="verify verify-valid">signature valid</span>
+        </aside>
+      </div>
     </div>
   </div>
 </div>
