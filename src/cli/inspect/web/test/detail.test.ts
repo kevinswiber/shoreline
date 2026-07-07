@@ -184,6 +184,54 @@ describe("renderDetail (event detail / empty prompt)", () => {
   });
 });
 
+describe("detail-pane scroll memory (reset on change, restore on revisit)", () => {
+  function pane(): HTMLElement {
+    const el = document.querySelector<HTMLElement>("#detail");
+    if (!el) throw new Error("#detail not mounted");
+    return el;
+  }
+  function secondEvent(): string {
+    const entries = (historyJson as unknown as HistoryDoc).entries;
+    const other = entries.find((e) => e.eventId && e.eventId !== OBS_EVENT);
+    if (!other?.eventId) throw new Error("fixture needs a second event");
+    return other.eventId;
+  }
+
+  it("resets the pane scroll to the top when the selection changes", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    pane().scrollTop = 300;
+    store.commit({
+      selected: { kind: "event", id: secondEvent() },
+      open: true,
+    });
+    detail.renderDetail();
+    expect(pane().scrollTop).toBe(0);
+  });
+
+  it("restores the reading position when returning to an entry", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    pane().scrollTop = 300;
+    store.commit({
+      selected: { kind: "event", id: secondEvent() },
+      open: true,
+    });
+    detail.renderDetail();
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    expect(pane().scrollTop).toBe(300);
+  });
+
+  it("a same-selection repaint leaves the reader's scroll alone", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    pane().scrollTop = 120;
+    detail.renderDetail();
+    expect(pane().scrollTop).toBe(120);
+  });
+});
+
 describe("the #detail open-diff delegate (installed once, delegates to diff/controller)", () => {
   it("opens the diff overlay route when the detail diff button is clicked", () => {
     store.commit({ selected: { kind: "event", id: OBS_EVENT } });

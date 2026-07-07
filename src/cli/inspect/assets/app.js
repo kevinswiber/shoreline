@@ -2610,6 +2610,30 @@
 
   // src/detail.ts
   var shownCompositeId = null;
+  var SCROLL_MEMORY_CAP = 50;
+  var scrollMemory = /* @__PURE__ */ new Map();
+  var shownDetailKey = null;
+  function rememberScroll() {
+    const pane = $("#detail");
+    if (!pane || shownDetailKey === null) return;
+    scrollMemory.set(shownDetailKey, pane.scrollTop);
+    if (scrollMemory.size > SCROLL_MEMORY_CAP) {
+      const oldest = scrollMemory.keys().next().value;
+      if (oldest !== void 0) scrollMemory.delete(oldest);
+    }
+  }
+  __name(rememberScroll, "rememberScroll");
+  function projectScroll(newKey) {
+    const pane = $("#detail");
+    if (!pane) {
+      shownDetailKey = newKey;
+      return;
+    }
+    if (shownDetailKey === newKey) return;
+    pane.scrollTop = (newKey ? scrollMemory.get(newKey) : void 0) ?? 0;
+    shownDetailKey = newKey;
+  }
+  __name(projectScroll, "projectScroll");
   function entityAnchor(kind, id, label) {
     return `<a href="#/${kind}/${encodeURIComponent(id)}" title="${escapeHtml(id)}">${escapeHtml(label ?? shortRef(id))}</a>`;
   }
@@ -2626,10 +2650,12 @@
     shownCompositeId = null;
     const el = $("#detail-body");
     if (!el) return;
+    rememberScroll();
     const entries = getState().history?.entries ?? [];
     const e = entries.find((x) => x.eventId === selectedEventId());
     if (!e) {
       el.innerHTML = `<p class="${CLASS.empty}">Select an event or revision to inspect.</p>`;
+      projectScroll(null);
       return;
     }
     const revisionId = entryRevisionId(e);
@@ -2687,6 +2713,7 @@
     ${diffButton}
     ${bodyBlock}
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
+    projectScroll(e.eventId ?? null);
   }
   __name(renderDetail, "renderDetail");
   function staleFactSectionContext(revisionId) {
@@ -2761,10 +2788,12 @@
     const el = $("#detail-body");
     if (el)
       el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;
+    projectScroll(revisionId || null);
   }
   __name(renderRevisionPage, "renderRevisionPage");
   async function openRevision(revisionId) {
     const el = $("#detail-body");
+    rememberScroll();
     if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
     try {
       const d = await fetchJSON(

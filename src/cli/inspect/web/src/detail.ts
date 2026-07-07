@@ -110,6 +110,40 @@ interface RevisionPageDoc extends RevisionDetail {
 // the store.
 let shownCompositeId: string | null = null;
 
+// Reading-position memory for the detail pane, keyed by the painted entity
+// (event or revision id). Session-only transient view-cache, like
+// `shownCompositeId`: a NEW entity starts at the top (the offset is applied in
+// the same synchronous task as the content swap — one paint, no flash), a
+// REVISITED entity restores the reader's place, and a same-entity repaint
+// (freshness poll, filter toggle) never touches the scroll at all. Capped so a
+// long session cannot grow it unbounded.
+const SCROLL_MEMORY_CAP = 50;
+const scrollMemory = new Map<string, number>();
+let shownDetailKey: string | null = null;
+
+/** Save the outgoing entity's offset — call BEFORE the content swap (clamping). */
+function rememberScroll(): void {
+  const pane = $("#detail");
+  if (!pane || shownDetailKey === null) return;
+  scrollMemory.set(shownDetailKey, pane.scrollTop);
+  if (scrollMemory.size > SCROLL_MEMORY_CAP) {
+    const oldest = scrollMemory.keys().next().value;
+    if (oldest !== undefined) scrollMemory.delete(oldest);
+  }
+}
+
+/** Apply the incoming entity's offset — call AFTER the content swap. */
+function projectScroll(newKey: string | null): void {
+  const pane = $("#detail");
+  if (!pane) {
+    shownDetailKey = newKey;
+    return;
+  }
+  if (shownDetailKey === newKey) return; // same entity: leave the reader alone
+  pane.scrollTop = (newKey ? scrollMemory.get(newKey) : undefined) ?? 0;
+  shownDetailKey = newKey;
+}
+
 // ---------------------------------------------------------------------------
 // Event detail
 // ---------------------------------------------------------------------------
@@ -147,10 +181,12 @@ export function renderDetail(): void {
   shownCompositeId = null;
   const el = $("#detail-body");
   if (!el) return;
+  rememberScroll();
   const entries = getState().history?.entries ?? [];
   const e = entries.find((x) => x.eventId === selectedEventId());
   if (!e) {
     el.innerHTML = `<p class="${CLASS.empty}">Select an event or revision to inspect.</p>`;
+    projectScroll(null);
     return;
   }
   const revisionId = entryRevisionId(e);
@@ -225,6 +261,7 @@ export function renderDetail(): void {
     ${diffButton}
     ${bodyBlock}
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
+  projectScroll(e.eventId ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -327,11 +364,13 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   const el = $("#detail-body");
   if (el)
     el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;
+  projectScroll(revisionId || null);
 }
 
 /** Fetch a revision's composite document and paint it, guarding a superseding selection. */
 export async function openRevision(revisionId: string): Promise<void> {
   const el = $("#detail-body");
+  rememberScroll();
   if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
   try {
     const d = await fetchJSON(
