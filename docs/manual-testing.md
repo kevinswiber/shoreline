@@ -443,8 +443,9 @@ When refactoring storage, projections, or CLI surfaces, also look at:
   separate `observation add` calls.
 - **Exit codes**: piping `shore revision show` or `shore history` through
   `jq -e 'has("schema")'` should always exit 0 for successful runs.
-- **Tracing**: passing `--log info --log-file /tmp/shore.log` to any command should write to that
-  file and not corrupt the JSON on stdout.
+- **Tracing**: passing `--log debug --log-file /tmp/shore.log` to any command should write spans to
+  that file and not corrupt the JSON on stdout. (`--log info` emits no spans, so the file stays
+  empty; use `debug` or `trace` to exercise this path.)
 
 ## What this playbook does not cover
 
