@@ -96,9 +96,9 @@ pub fn discover_enrollment_candidates(repo: &Path) -> EnrollmentDiscovery {
 
     let mut discovery = EnrollmentDiscovery::default();
     let gpg_format = crate::git::git_config_get(&worktree_root, GPG_FORMAT_CONFIG);
-    let user_signing_key = crate::git::git_config_get(&worktree_root, USER_SIGNING_KEY_CONFIG);
+    let user_signing_key = crate::git::git_config_path_get(&worktree_root, USER_SIGNING_KEY_CONFIG);
     let allowed_signers_file =
-        crate::git::git_config_get(&worktree_root, ALLOWED_SIGNERS_FILE_CONFIG);
+        crate::git::git_config_path_get(&worktree_root, ALLOWED_SIGNERS_FILE_CONFIG);
 
     if !gpg_format
         .as_deref()

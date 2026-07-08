@@ -891,6 +891,88 @@ fn key_discover_reports_allowed_signers_candidate_with_key_literal_argument() {
 }
 
 #[test]
+fn key_discover_expands_tilde_user_signing_key_path() {
+    let home = tempfile::tempdir().expect("create isolated home");
+    let ssh_dir = home.path().join(".ssh");
+    std::fs::create_dir_all(&ssh_dir).unwrap();
+    let private_path = ssh_dir.join("id_ed25519");
+    let public_path = ssh_dir.join("id_ed25519.pub");
+    std::fs::write(&private_path, "private key material is never read").unwrap();
+    std::fs::write(&public_path, SSH_ED25519_PUBKEY).unwrap();
+
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    repo.git(["config", "gpg.format", "ssh"]);
+    repo.git(["config", "user.signingKey", "~/.ssh/id_ed25519"]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[("HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let candidates = doc["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 1, "{doc:#}");
+    assert_eq!(candidates[0]["keyArgument"], public_path.to_str().unwrap());
+}
+
+#[test]
+fn key_discover_expands_tilde_allowed_signers_file_path() {
+    let home = tempfile::tempdir().expect("create isolated home");
+    let ssh_dir = home.path().join(".ssh");
+    std::fs::create_dir_all(&ssh_dir).unwrap();
+    let allowed_signers_path = ssh_dir.join("allowed_signers");
+    std::fs::write(
+        &allowed_signers_path,
+        format!("alice@example.com {SSH_ED25519_PUBKEY}\n"),
+    )
+    .unwrap();
+
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    repo.git([
+        "config",
+        "gpg.ssh.allowedSignersFile",
+        "~/.ssh/allowed_signers",
+    ]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[("HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let candidates = doc["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 1, "{doc:#}");
+    assert_eq!(
+        candidates[0]["source"]["path"],
+        allowed_signers_path.to_str().unwrap()
+    );
+}
+
+#[test]
 fn key_discover_is_read_only() {
     let home = tempfile::tempdir().expect("create empty keystore home");
     let repo = support::git_repo::GitRepo::new();

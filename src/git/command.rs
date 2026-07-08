@@ -256,6 +256,19 @@ pub(crate) fn git_config_get(repo: &Path, key: &str) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
+/// Read one Git config value using Git's path expansion rules. Missing keys,
+/// empty values, non-zero Git status, and spawn failures all mean "no value".
+pub(crate) fn git_config_path_get(repo: &Path, key: &str) -> Option<String> {
+    let (code, stdout) =
+        run_git_status(repo, ["config", "--type=path", "--get", key], &[0, 1]).ok()?;
+    if code != 0 {
+        return None;
+    }
+
+    let value = String::from_utf8_lossy(&stdout).trim().to_owned();
+    (!value.is_empty()).then_some(value)
+}
+
 pub(crate) fn git_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
     git_ls_files_inventory(
         repo,
