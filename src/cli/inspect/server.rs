@@ -89,6 +89,8 @@ const APP_CSS: &str = include_str!("assets/app.css");
 const APP_JS: &str = include_str!("assets/app.js");
 const POINTBREAK_LOGO_MONO_SVG: &[u8] = include_bytes!("assets/pointbreak-logo-mono.svg");
 const FAVICON_SVG: &[u8] = include_bytes!("assets/favicon.svg");
+const FAVICON_PNG: &[u8] = include_bytes!("assets/favicon.png");
+const FAVICON_DARK_PNG: &[u8] = include_bytes!("assets/favicon-dark.png");
 
 struct Response {
     status: &'static str,
@@ -223,6 +225,8 @@ fn route(state: &InspectState, method: &str, path: &str, query: Option<&str>) ->
             Response::asset_bytes("image/svg+xml; charset=utf-8", POINTBREAK_LOGO_MONO_SVG)
         }
         "/favicon.svg" => Response::asset_bytes("image/svg+xml; charset=utf-8", FAVICON_SVG),
+        "/favicon.png" => Response::asset_bytes("image/png", FAVICON_PNG),
+        "/favicon-dark.png" => Response::asset_bytes("image/png", FAVICON_DARK_PNG),
         "/api/history" => match history_query(query) {
             Ok(request) => api_response(api::history_json(
                 repo,

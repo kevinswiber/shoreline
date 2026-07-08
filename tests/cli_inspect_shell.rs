@@ -75,18 +75,20 @@ fn served_shell_exposes_the_pointbreak_favicon() {
     let inspector = Inspector::spawn(store.repo.path());
     let html = inspector.get_text("/");
     assert!(
-        html.contains(
-            r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />"#
-        ),
-        "the served shell should declare the SVG Pointbreak favicon"
+        html.contains(r#"<link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />"#)
+            && html.contains(r#"<link rel="icon" href="/favicon-dark.png" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)" />"#)
+            && !html.contains(r#"rel="icon" href="/favicon.svg""#),
+        "the served shell should declare transparent PNG favicons instead of the Safari-problematic SVG favicon"
     );
 
-    let favicon = inspector.get_text("/favicon.svg");
+    let (light_status, light_favicon) = inspector.raw_get("/favicon.png");
+    let (dark_status, dark_favicon) = inspector.raw_get("/favicon-dark.png");
     assert!(
-        favicon.contains("prefers-color-scheme: dark")
-            && favicon.contains("#0369a1")
-            && favicon.contains("#38bdf8"),
-        "the served favicon should carry explicit light/dark Pointbreak colors"
+        light_status.contains("200 OK")
+            && dark_status.contains("200 OK")
+            && light_favicon.contains("PNG")
+            && dark_favicon.contains("PNG"),
+        "the served favicon routes should return PNG image bodies"
     );
 }
 
