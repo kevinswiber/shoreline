@@ -34,6 +34,14 @@ impl TrustSet {
             .any(|signers| signers.contains(signer))
     }
 
+    /// The actors that explicitly enroll `signer` in the allowed-signers file.
+    ///
+    /// This is actor-specific inventory only: it does not apply the self-certifying
+    /// `did:key` shortcut from [`Self::authorizes`].
+    pub fn actors_for_signer(&self, signer: &SignerId) -> BTreeSet<ActorId> {
+        self.reverse_resolve(signer)
+    }
+
     /// Borrow the actor → signers map (read-only). Used by the enrollment writer
     /// to serialize the set back to the on-disk JSON shape and to compute the
     /// added/already-present diff via explicit membership.

@@ -620,10 +620,13 @@ agent-backed `default` signer: it accepts a `*.pub` path or a `key::ssh-ed25519 
 --did` prints) plus an enrollment hint, and (like `init`) refuses to overwrite. Only plain `ssh-ed25519`
 keys are accepted; `ed25519-sk`/RSA/ECDSA are rejected with a clear error pointing at `shore key init`.
 `discover` reads local Git/OpenSSH signing evidence and emits a `pointbreak.key-discover` document:
-`candidates[]` includes `source`, `signerId`, `keyArgument`, `suggestedName`, `actorHints`, and
+`candidates[]` includes `source`, `signerId`, `keyArgument`, `suggestedName`, `actorHints`,
+matching `localKeys`, matching `enrolledActors`, the `resolvedActor` used for suggestions, and
 advisory `commands`; `diagnostics[]` reports non-fatal missing or unsupported evidence with source
-details. This discovery does not authorize keys, does not write the key home, and does not stage
-`.shore/allowed-signers.json`. Review a candidate, optionally adopt public key custody with
+details. Suggested commands describe unmet setup only: an already adopted signer is not offered a
+duplicate `use-ssh` alias, and an already authorized actor/signer pair is not offered a redundant
+`enroll` command. This discovery does not authorize keys, does not write the key home, and does not
+stage `.shore/allowed-signers.json`. Review a candidate, optionally adopt public key custody with
 `shore key use-ssh`, then stage reviewed trust with `shore key enroll --signer <did:key> --actor
 <actor> --repo .`.
 

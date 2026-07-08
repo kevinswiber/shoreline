@@ -842,6 +842,120 @@ fn key_discover_reports_git_user_signing_key_candidate() {
 }
 
 #[test]
+fn key_discover_marks_known_local_and_enrolled_signer_without_duplicate_commands() {
+    let home = tempfile::tempdir().expect("create isolated key home");
+    let home_str = home.path().to_str().unwrap();
+    let literal = ssh_ed25519_key_literal();
+    let signer_id = pointbreak::keys::parse_ssh_ed25519_public_key(&literal)
+        .unwrap()
+        .as_str()
+        .to_owned();
+    let adopt = shore_env(
+        ["key", "use-ssh", &literal, "--name", "kevin"],
+        &[("SHORE_HOME", home_str)],
+    );
+    assert!(
+        adopt.status.success(),
+        "adopt stderr:\n{}",
+        String::from_utf8_lossy(&adopt.stderr)
+    );
+
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    repo.git(["config", "gpg.format", "ssh"]);
+    repo.git(["config", "user.signingKey", &literal]);
+    repo.write(
+        ".shore/allowed-signers.json",
+        format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{signer_id}"]}}}}"#),
+    );
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[
+            ("SHORE_HOME", home_str),
+            ("SHORE_ACTOR_ID", "actor:git-email:dev@example.com"),
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let candidate = &doc["candidates"].as_array().unwrap()[0];
+    assert_eq!(candidate["signerId"], signer_id);
+    assert_eq!(
+        candidate["resolvedActor"],
+        "actor:git-email:dev@example.com"
+    );
+    assert_eq!(
+        candidate["enrolledActors"],
+        serde_json::json!(["actor:git-email:dev@example.com"])
+    );
+    let local_keys = candidate["localKeys"].as_array().unwrap();
+    assert_eq!(local_keys.len(), 1, "{candidate:#}");
+    assert_eq!(local_keys[0]["name"], "kevin");
+    assert_eq!(local_keys[0]["custody"], "agent");
+    assert_eq!(
+        candidate["commands"].as_array().unwrap().len(),
+        0,
+        "no duplicate use-ssh or redundant enroll command: {candidate:#}"
+    );
+}
+
+#[test]
+fn key_discover_suppresses_option_line_diagnostic_when_user_signing_key_succeeds() {
+    let home = tempfile::tempdir().expect("create isolated key home");
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    let literal = ssh_ed25519_key_literal();
+    let allowed_signers_path = repo.path().join("allowed_signers");
+    std::fs::write(
+        &allowed_signers_path,
+        format!("alice@example.com namespaces=\"git\" {SSH_ED25519_PUBKEY}\n"),
+    )
+    .unwrap();
+    repo.git(["config", "gpg.format", "ssh"]);
+    repo.git(["config", "user.signingKey", &literal]);
+    repo.git([
+        "config",
+        "gpg.ssh.allowedSignersFile",
+        allowed_signers_path.to_str().unwrap(),
+    ]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["candidates"].as_array().unwrap().len(), 1, "{doc:#}");
+    assert_eq!(
+        doc["diagnostics"].as_array().unwrap().len(),
+        0,
+        "the option-bearing OpenSSH line is redundant ignored evidence: {doc:#}"
+    );
+}
+
+#[test]
 fn key_discover_reports_allowed_signers_candidate_with_key_literal_argument() {
     let repo = support::git_repo::GitRepo::new();
     mask_git_signing_config(&repo);
