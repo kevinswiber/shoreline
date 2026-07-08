@@ -22,9 +22,12 @@ pub(super) struct EnrollArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    /// Local key name to enroll. Defaults to `default`.
-    #[arg(default_value = "default")]
-    name: String,
+    /// Local key name to enroll. Defaults to `default` when `--signer` is absent.
+    name: Option<String>,
+
+    /// Explicit did:key signer id to enroll without reading the local keystore.
+    #[arg(long, conflicts_with = "name")]
+    signer: Option<String>,
 
     /// Actor id to bind the key to. Defaults to the resolved writing actor
     /// (`SHORE_ACTOR_ID` or the local Git identity).
@@ -52,10 +55,7 @@ pub(super) fn run(
     args: EnrollArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Resolve the key's did:key from public material, so an agent-backed reference
-    // (which has no private key on disk) enrolls offline — no agent, no seed. A seed
-    // key resolves to the same did:key its loaded signer would.
-    let signer_id: SignerId = load_signer_id(&args.name)?;
+    let signer_id = resolve_enrollment_signer(&args)?;
 
     // Resolve the actor: explicit `--actor` must be valid, else the standard
     // writer resolution (`SHORE_ACTOR_ID` then Git identity).
@@ -83,6 +83,19 @@ pub(super) fn run(
         output::OutputFormat::Json,
     )?;
     output::write_document_json_fallback(stdout, format, &document)
+}
+
+/// Resolve the signer to enroll. A direct `--signer` is already public trust
+/// material; otherwise load the local key name's did:key from public material,
+/// so agent-backed references enroll offline with no agent and no seed.
+fn resolve_enrollment_signer(args: &EnrollArgs) -> ShoreResult<SignerId> {
+    if let Some(raw_signer) = args.signer.as_deref() {
+        return SignerId::parse(raw_signer).map_err(|error| ShoreError::WorkflowInputInvalid {
+            reason: format!("--signer {raw_signer:?} is not a valid signer id: {error}"),
+        });
+    }
+
+    load_signer_id(args.name.as_deref().unwrap_or("default"))
 }
 
 /// Resolve the actor to bind: `--actor` is a strict command input, while a

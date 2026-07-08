@@ -13,6 +13,8 @@ fn encode_pubkey(bytes: &[u8]) -> String {
     BASE64.encode(bytes)
 }
 
+const EXPLICIT_SIGNER_DID: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
+
 #[test]
 fn keys_init_writes_key_and_emits_did_key_document() {
     let home = tempfile::tempdir().expect("create keystore home");
@@ -276,7 +278,7 @@ fn keys_show_missing_name_is_a_clean_error_not_a_panic() {
 }
 
 #[test]
-fn keys_enroll_stages_working_tree_file_and_reports_actor_and_did() {
+fn keys_enroll_defaults_to_default_key_name_without_signer() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
     let init = shore_env(
@@ -314,6 +316,86 @@ fn keys_enroll_stages_working_tree_file_and_reports_actor_and_did() {
     let actor = pointbreak::model::ActorId::new("actor:agent:claude-code");
     let signer = pointbreak::crypto::SignerId::parse(&did).unwrap();
     assert!(trust.authorizes(&actor, &signer, "2026-06-16T00:00:00Z"));
+}
+
+#[test]
+fn keys_enroll_accepts_explicit_signer_without_local_key() {
+    let home = tempfile::tempdir().expect("create empty keystore home");
+    let home_str = home.path().to_str().unwrap();
+    let repo = support::git_repo::GitRepo::new();
+
+    let out = shore_env(
+        [
+            "key",
+            "enroll",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--signer",
+            EXPLICIT_SIGNER_DID,
+            "--actor",
+            "actor:git-email:dev@example.com",
+        ],
+        &[("SHORE_HOME", home_str)],
+    );
+    assert!(
+        out.status.success(),
+        "explicit signer enroll stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["schema"], "pointbreak.key-enroll");
+    assert_eq!(doc["actorId"], "actor:git-email:dev@example.com");
+    assert_eq!(doc["signerId"], EXPLICIT_SIGNER_DID);
+    assert_eq!(doc["added"], true);
+
+    let path = repo.path().join(".shore/allowed-signers.json");
+    let trust = pointbreak::session::TrustSet::from_allowed_signers_file(&path).unwrap();
+    let actor = pointbreak::model::ActorId::new("actor:git-email:dev@example.com");
+    let signer = pointbreak::crypto::SignerId::parse(EXPLICIT_SIGNER_DID).unwrap();
+    assert!(trust.authorizes(&actor, &signer, "2026-06-16T00:00:00Z"));
+}
+
+#[test]
+fn keys_enroll_rejects_invalid_explicit_signer_without_fallback() {
+    let home = tempfile::tempdir().expect("create empty keystore home");
+    let home_str = home.path().to_str().unwrap();
+    let repo = support::git_repo::GitRepo::new();
+
+    let out = shore_env(
+        [
+            "key",
+            "enroll",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--signer",
+            "not-a-did-key",
+            "--actor",
+            "actor:git-email:dev@example.com",
+        ],
+        &[("SHORE_HOME", home_str)],
+    );
+
+    assert!(
+        !out.status.success(),
+        "malformed explicit signer must fail instead of falling back"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "clean error, not a panic: {stderr}"
+    );
+    assert!(
+        stderr.contains(r#"--signer "not-a-did-key" is not a valid signer id"#),
+        "stderr should explain the bad signer id: {stderr}"
+    );
+    assert!(
+        stderr.contains("invalid Ed25519 did:key"),
+        "stderr should include did:key validation detail: {stderr}"
+    );
+    assert!(
+        !repo.path().join(".shore/allowed-signers.json").exists(),
+        "invalid explicit signer must not stage trust through a fallback key"
+    );
 }
 
 #[test]
