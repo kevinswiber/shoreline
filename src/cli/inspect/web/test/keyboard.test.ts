@@ -13,12 +13,12 @@ import {
 } from "./support/fetch";
 
 // `keyboard.ts` is the global keydown layer: selection stepping, activation, search
-// focus, two-key chords, the layered Escape, and the diff-local jump keys. It is
+// focus, lens switching, the layered Escape, and the diff-local jump keys. It is
 // top-of-graph — nothing imports it — and it routes every state change through
-// `router.navigate` (commit → the subscriber repaints), never render. `pendingChord`
-// / `chordTimer` stay module-local. The store, the keyboard module, the overlay
-// manager, and the diff controller are singletons, so reset + re-import before each
-// test, and wire `onKey` to `document` the way the composition root will.
+// `router.navigate` (commit → the subscriber repaints), never render. The store,
+// the keyboard module, the overlay manager, and the diff controller are singletons,
+// so reset + re-import before each test, and wire `onKey` to `document` the way the
+// composition root will.
 type Store = typeof import("../src/store");
 type Overlay = typeof import("../src/overlay");
 type Controller = typeof import("../src/diff/controller");
@@ -41,6 +41,22 @@ function key(init: KeyboardEventInit, target: EventTarget = document): void {
   target.dispatchEvent(
     new KeyboardEvent("keydown", { bubbles: true, ...init }),
   );
+}
+
+function settleKeyboard(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function mountTimelineViewport(visibleRows: number): void {
+  const master = document.querySelector<HTMLElement>("#master");
+  if (!master) throw new Error("#master not mounted");
+  master.innerHTML = `<ol id="timeline" class="timeline" aria-label="event timeline" tabindex="0"></ol>`;
+  const timeline = document.querySelector<HTMLElement>("#timeline");
+  if (!timeline) throw new Error("#timeline not mounted");
+  Object.defineProperty(timeline, "clientHeight", {
+    configurable: true,
+    value: visibleRows * 52,
+  });
 }
 
 beforeEach(async () => {
@@ -143,17 +159,26 @@ describe("selection stepping / activation / search", () => {
   });
 });
 
-describe("two-key chords", () => {
-  it("g then l switches to the list lens", () => {
-    key({ key: "g" });
-    key({ key: "l" });
+describe("lens switching shortcuts", () => {
+  it("1/2/3 switch lenses in tab order", () => {
+    store.commit({ lens: "threads" });
+    key({ key: "1" });
+    expect(store.getState().lens).toBe("timeline");
+    key({ key: "2" });
     expect(store.getState().lens).toBe("list");
+    key({ key: "3" });
+    expect(store.getState().lens).toBe("threads");
   });
 
-  it("g then r switches to the threads lens", () => {
+  it("g no longer starts a lens chord", () => {
+    store.commit({ lens: "timeline" });
+    key({ key: "g" });
+    key({ key: "2" });
+    expect(store.getState().lens).toBe("list");
+    store.commit({ lens: "timeline" });
     key({ key: "g" });
     key({ key: "r" });
-    expect(store.getState().lens).toBe("threads");
+    expect(store.getState().lens).toBe("timeline");
   });
 });
 
@@ -280,7 +305,7 @@ describe("h / l resize the split from anywhere", () => {
     expect(store.getState().reading).toBe(false);
   });
 
-  it("bare l resizes and does not switch lenses (only g-then-l does)", () => {
+  it("bare l resizes and does not switch lenses", () => {
     store.commit({
       selected: { kind: "revision", id: REV },
       open: true,
@@ -640,5 +665,102 @@ describe("keyboard stepping pages past the loaded timeline window", () => {
     }
     expect(fetched).toBe(false);
     expect(store.getState().selected.id).toBe("e6");
+  });
+});
+
+describe("less-style timeline keyboard navigation", () => {
+  it("g and G jump to the loaded timeline bounds", async () => {
+    seedTimelineWindow(pageEntries(0, 20), 0, 20);
+    store.commit({ selected: { kind: "event", id: "e10" } });
+    key({ key: "g" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e0");
+    key({ key: "G" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e19");
+  });
+
+  it("g loads the top page when newer rows are outside the loaded window", async () => {
+    seedTimelineWindow(pageEntries(100, 120), 100, 500);
+    store.commit({ selected: { kind: "event", id: "e110" } });
+    setHistoryResponse({
+      entries: pageEntries(0, 100),
+      diagnostics: [],
+      offset: 0,
+      matchCount: 500,
+      facets: {},
+    });
+    key({ key: "g" });
+    await settleKeyboard();
+    await settleKeyboard();
+    expect(store.getState().history?.offset).toBe(0);
+    expect(store.getState().selected.id).toBe("e0");
+  });
+
+  it("G loads the final page when older rows are outside the loaded window", async () => {
+    seedTimelineWindow(pageEntries(0, 100), 0, 250);
+    store.commit({ selected: { kind: "event", id: "e10" } });
+    setHistoryResponse({
+      entries: pageEntries(200, 250),
+      diagnostics: [],
+      offset: 200,
+      matchCount: 250,
+      facets: {},
+    });
+    key({ key: "G" });
+    await settleKeyboard();
+    await settleKeyboard();
+    expect(store.getState().history?.offset).toBe(200);
+    expect(store.getState().selected.id).toBe("e249");
+  });
+
+  it("f/b page by the visible timeline row count and u/d by half that count", async () => {
+    mountTimelineViewport(4);
+    seedTimelineWindow(pageEntries(0, 20), 0, 20);
+    store.commit({ selected: { kind: "event", id: "e5" } });
+    key({ key: "f" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e9");
+    key({ key: "b" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e5");
+    key({ key: "d" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e7");
+    key({ key: "u" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e5");
+  });
+
+  it("f can page across the loaded window edge", async () => {
+    mountTimelineViewport(4);
+    seedTimelineWindow(pageEntries(0, 100), 0, 250);
+    store.commit({ selected: { kind: "event", id: "e98" } });
+    setHistoryResponse({
+      entries: pageEntries(100, 200),
+      diagnostics: [],
+      offset: 100,
+      matchCount: 250,
+      facets: {},
+    });
+    key({ key: "f" });
+    await settleKeyboard();
+    await settleKeyboard();
+    expect(store.getState().history?.entries.length).toBe(200);
+    expect(store.getState().selected.id).toBe("e102");
+  });
+
+  it("timeline paging continues to work while reading mode hides the master pane", async () => {
+    seedTimelineWindow(pageEntries(0, 100), 0, 250);
+    store.commit({
+      selected: { kind: "event", id: "e10" },
+      open: true,
+      reading: true,
+    });
+    key({ key: "f" });
+    await settleKeyboard();
+    expect(store.getState().selected.id).toBe("e20");
+    expect(store.getState().open).toBe(true);
+    expect(store.getState().reading).toBe(true);
   });
 });

@@ -2882,6 +2882,10 @@
   // src/lenses/timeline.ts
   var ROW_H = 52;
   var rowH = ROW_H;
+  function timelineRowHeight() {
+    return rowH;
+  }
+  __name(timelineRowHeight, "timelineRowHeight");
   var OVERSCAN = 8;
   var REMEASURE_SETTLE_MS = 150;
   var remeasureTimer;
@@ -3669,16 +3673,7 @@
   __name(initControls6, "initControls");
 
   // src/keyboard.ts
-  var pendingChord = null;
-  var chordTimer = null;
-  function setChord(keyName) {
-    pendingChord = keyName;
-    if (chordTimer) clearTimeout(chordTimer);
-    chordTimer = setTimeout(() => {
-      pendingChord = null;
-    }, 1e3);
-  }
-  __name(setChord, "setChord");
+  var lastTimelineViewportRows = 10;
   function isTypingTarget(el) {
     if (!el) return false;
     return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el instanceof HTMLElement && el.isContentEditable;
@@ -3694,6 +3689,26 @@
     $("#timeline")?.focus({ preventScroll: true });
   }
   __name(focusTimelineTabStop, "focusTimelineTabStop");
+  function timelineIsActive() {
+    return getState().lens === "timeline";
+  }
+  __name(timelineIsActive, "timelineIsActive");
+  function timelineViewportRows() {
+    const list = $("#timeline");
+    const viewportH = list?.clientHeight ?? 0;
+    const rowH2 = timelineRowHeight();
+    const measured = viewportH > 0 && rowH2 > 0 ? Math.floor(viewportH / rowH2) : 0;
+    if (measured > 0) {
+      lastTimelineViewportRows = Math.max(1, measured);
+      return lastTimelineViewportRows;
+    }
+    const { count } = loadedWindow(getState());
+    return Math.max(
+      1,
+      Math.min(count || lastTimelineViewportRows, lastTimelineViewportRows)
+    );
+  }
+  __name(timelineViewportRows, "timelineViewportRows");
   function stepList(delta) {
     const ids = lensEntryIds();
     if (!ids.length) return;
@@ -3737,6 +3752,48 @@
     }
   }
   __name(stepTimeline, "stepTimeline");
+  function pageOffsetContaining(target) {
+    return Math.floor(target / HISTORY_PAGE) * HISTORY_PAGE;
+  }
+  __name(pageOffsetContaining, "pageOffsetContaining");
+  async function selectTimelineIndex(targetIndex) {
+    const state2 = getState();
+    const { offset, count, matchCount } = loadedWindow(state2);
+    const ids = lensEntryIds();
+    if (!ids.length || matchCount === 0) return;
+    const target = Math.max(0, Math.min(matchCount - 1, targetIndex));
+    if (target >= offset && target < offset + count) {
+      navigate({ selected: ids[target - offset] }, { replace: true });
+      focusTimelineTabStop();
+      return;
+    }
+    await fetchHistoryPage({ offset: pageOffsetContaining(target) });
+    const w = loadedWindow(getState());
+    const loaded = lensEntryIds();
+    const localAfter = target - w.offset;
+    if (localAfter >= 0 && localAfter < loaded.length) {
+      navigate({ selected: loaded[localAfter] }, { replace: true });
+      focusTimelineTabStop();
+    }
+  }
+  __name(selectTimelineIndex, "selectTimelineIndex");
+  async function jumpTimelineBoundary(target) {
+    const { matchCount } = loadedWindow(getState());
+    if (matchCount === 0) return;
+    await selectTimelineIndex(target === "first" ? 0 : matchCount - 1);
+  }
+  __name(jumpTimelineBoundary, "jumpTimelineBoundary");
+  async function pageTimeline(deltaRows) {
+    const state2 = getState();
+    const { offset, matchCount } = loadedWindow(state2);
+    if (matchCount === 0) return;
+    const ids = lensEntryIds();
+    if (!ids.length) return;
+    const local = ids.findIndex((x) => x.id === state2.selected.id);
+    const cur = local < 0 ? offset : offset + local;
+    await selectTimelineIndex(cur + deltaRows);
+  }
+  __name(pageTimeline, "pageTimeline");
   async function stepSelectionAsync(delta) {
     if (getState().lens === "timeline") {
       await stepTimeline(delta);
@@ -3846,28 +3903,58 @@
         return;
       }
     }
-    if (pendingChord === "g") {
-      pendingChord = null;
-      if (ev.key === "t") {
+    switch (ev.key) {
+      case "1":
+        ev.preventDefault();
         navigate({ lens: "timeline" });
         return;
-      }
-      if (ev.key === "l") {
+      case "2":
+        ev.preventDefault();
         navigate({ lens: "list" });
         return;
-      }
-      if (ev.key === "r") {
+      case "3":
+        ev.preventDefault();
         navigate({ lens: "threads" });
         return;
-      }
-    }
-    switch (ev.key) {
       case "g":
-        setChord("g");
+        if (timelineIsActive()) {
+          ev.preventDefault();
+          void jumpTimelineBoundary("first");
+        }
+        return;
+      case "G":
+        if (timelineIsActive()) {
+          ev.preventDefault();
+          void jumpTimelineBoundary("last");
+        }
         return;
       case "/":
         ev.preventDefault();
         focusSearch();
+        return;
+      case "f":
+        if (timelineIsActive()) {
+          ev.preventDefault();
+          void pageTimeline(timelineViewportRows());
+        }
+        return;
+      case "b":
+        if (timelineIsActive()) {
+          ev.preventDefault();
+          void pageTimeline(-timelineViewportRows());
+        }
+        return;
+      case "d":
+        if (timelineIsActive()) {
+          ev.preventDefault();
+          void pageTimeline(Math.max(1, Math.floor(timelineViewportRows() / 2)));
+        }
+        return;
+      case "u":
+        if (timelineIsActive()) {
+          ev.preventDefault();
+          void pageTimeline(-Math.max(1, Math.floor(timelineViewportRows() / 2)));
+        }
         return;
       case "j":
       case "ArrowDown":

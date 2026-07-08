@@ -120,13 +120,16 @@ const INDEX_BODY = `
       <dt><kbd>Cmd</kbd> / <kbd>Ctrl</kbd> + <kbd>K</kbd></dt><dd>open the command palette</dd>
       <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></dt><dd>open the command palette</dd>
       <dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>move the selection down / up in the active lens</dd>
+      <dt><kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd></dt><dd>jump to the timeline / revisions / threads lens</dd>
+      <dt><kbd>g</kbd> / <kbd>G</kbd></dt><dd>jump to the top / bottom of the timeline</dd>
+      <dt><kbd>f</kbd> / <kbd>b</kbd></dt><dd>page forward / backward through visible timeline entries</dd>
+      <dt><kbd>d</kbd> / <kbd>u</kbd></dt><dd>move half a page down / up through visible timeline entries</dd>
       <dt><kbd>h</kbd> / <kbd>l</kbd></dt><dd>resize the split: shrink / grow the timeline pane</dd>
       <dt><kbd>Enter</kbd></dt><dd>open the cursor's detail, then its snapshot diff</dd>
       <dt><kbd>n</kbd> / <kbd>p</kbd></dt><dd>jump to the next / previous review fact in the diff</dd>
       <dt><kbd>]</kbd> / <kbd>[</kbd></dt><dd>jump to the next / previous change in the diff</dd>
       <dt><kbd>/</kbd></dt><dd>focus the search box</dd>
       <dt><kbd>Space</kbd> / <kbd>Shift</kbd>+<kbd>Space</kbd></dt><dd>scroll the open detail pane</dd>
-      <dt><kbd>g</kbd> then <kbd>t</kbd> / <kbd>l</kbd> / <kbd>r</kbd></dt><dd>jump to the timeline / list / threads lens</dd>
       <dt><kbd>Esc</kbd></dt><dd>close overlays, restore the split, close the detail, clear the cursor, then the query</dd>
       <dt><kbd>?</kbd></dt><dd>toggle this cheat sheet</dd>
     </dl>

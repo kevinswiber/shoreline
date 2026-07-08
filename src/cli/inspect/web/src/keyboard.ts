@@ -1,8 +1,7 @@
-// The global keydown layer: selection stepping, activation, search focus, two-key
-// chords, the layered Escape, and the diff-local jump keys. Ported from the served
+// The global keydown layer: selection stepping, activation, search focus,
+// lens switching, the layered Escape, and the diff-local jump keys. Ported from the served
 // app.js keyboard cluster (`onKey` / `handleEscape` / `stepSelection` /
-// `activateSelection` / `focusSearch` / `setChord` / `isTypingTarget` +
-// `pendingChord` / `chordTimer`).
+// `activateSelection` / `focusSearch` / `isTypingTarget`).
 //
 // `keyboard` is top-of-graph — nothing imports it; the composition root wires
 // `onKey` to `document.keydown`. Every state change routes through `router.navigate`
@@ -10,12 +9,11 @@
 // goes through the manager: `handleEscape` closes whichever overlay is active
 // (palette / diff / help are mutually exclusive), and the help toggle opens/closes
 // `help` through the manager — so keyboard imports no sibling overlay module.
-// `pendingChord` / `chordTimer` stay module-local.
 
 import { fetchHistoryPage, HISTORY_PAGE } from "./data";
 import { jumpChange, jumpFact, openRevisionDiff } from "./diff/controller";
 import { $ } from "./dom";
-import { loadedWindow } from "./lenses/timeline";
+import { loadedWindow, timelineRowHeight } from "./lenses/timeline";
 import { lensEntryIds } from "./model";
 import { resolveRef } from "./navigation";
 import {
@@ -30,18 +28,7 @@ import { navigate } from "./router";
 import { stepSplit } from "./split";
 import { commit, getState } from "./store";
 
-// A short-lived two-key chord (g-then-…), cleared after ~1s. Transient view-cache,
-// never on the store.
-let pendingChord: string | null = null;
-let chordTimer: ReturnType<typeof setTimeout> | null = null;
-
-function setChord(keyName: string): void {
-  pendingChord = keyName;
-  if (chordTimer) clearTimeout(chordTimer);
-  chordTimer = setTimeout(() => {
-    pendingChord = null;
-  }, 1000);
-}
+let lastTimelineViewportRows = 10;
 
 /** Whether the element is a text-input context that should swallow shortcuts. */
 function isTypingTarget(el: Element | null): boolean {
@@ -64,6 +51,26 @@ function focusTimelineTabStop(): void {
   const state = getState();
   if (state.lens !== "timeline" || state.reading) return;
   $<HTMLElement>("#timeline")?.focus({ preventScroll: true });
+}
+
+function timelineIsActive(): boolean {
+  return getState().lens === "timeline";
+}
+
+function timelineViewportRows(): number {
+  const list = $<HTMLElement>("#timeline");
+  const viewportH = list?.clientHeight ?? 0;
+  const rowH = timelineRowHeight();
+  const measured = viewportH > 0 && rowH > 0 ? Math.floor(viewportH / rowH) : 0;
+  if (measured > 0) {
+    lastTimelineViewportRows = Math.max(1, measured);
+    return lastTimelineViewportRows;
+  }
+  const { count } = loadedWindow(getState());
+  return Math.max(
+    1,
+    Math.min(count || lastTimelineViewportRows, lastTimelineViewportRows),
+  );
 }
 
 // Step the fully-loaded revisions/threads lenses over their in-memory entries.
@@ -115,6 +122,48 @@ async function stepTimeline(delta: number): Promise<void> {
     navigate({ selected: loaded[localAfter] }, { replace: true });
     focusTimelineTabStop();
   }
+}
+
+function pageOffsetContaining(target: number): number {
+  return Math.floor(target / HISTORY_PAGE) * HISTORY_PAGE;
+}
+
+async function selectTimelineIndex(targetIndex: number): Promise<void> {
+  const state = getState();
+  const { offset, count, matchCount } = loadedWindow(state);
+  const ids = lensEntryIds();
+  if (!ids.length || matchCount === 0) return;
+  const target = Math.max(0, Math.min(matchCount - 1, targetIndex));
+  if (target >= offset && target < offset + count) {
+    navigate({ selected: ids[target - offset] }, { replace: true });
+    focusTimelineTabStop();
+    return;
+  }
+  await fetchHistoryPage({ offset: pageOffsetContaining(target) });
+  const w = loadedWindow(getState());
+  const loaded = lensEntryIds();
+  const localAfter = target - w.offset;
+  if (localAfter >= 0 && localAfter < loaded.length) {
+    navigate({ selected: loaded[localAfter] }, { replace: true });
+    focusTimelineTabStop();
+  }
+}
+
+async function jumpTimelineBoundary(target: "first" | "last"): Promise<void> {
+  const { matchCount } = loadedWindow(getState());
+  if (matchCount === 0) return;
+  await selectTimelineIndex(target === "first" ? 0 : matchCount - 1);
+}
+
+async function pageTimeline(deltaRows: number): Promise<void> {
+  const state = getState();
+  const { offset, matchCount } = loadedWindow(state);
+  if (matchCount === 0) return;
+  const ids = lensEntryIds();
+  if (!ids.length) return;
+  const local = ids.findIndex((x) => x.id === state.selected.id);
+  const cur = local < 0 ? offset : offset + local;
+  await selectTimelineIndex(cur + deltaRows);
 }
 
 /** Step the selection by delta, paging the timeline past its loaded edges. */
@@ -249,29 +298,58 @@ export function onKey(ev: KeyboardEvent): void {
     }
   }
 
-  if (pendingChord === "g") {
-    pendingChord = null;
-    if (ev.key === "t") {
+  switch (ev.key) {
+    case "1":
+      ev.preventDefault();
       navigate({ lens: "timeline" });
       return;
-    }
-    if (ev.key === "l") {
+    case "2":
+      ev.preventDefault();
       navigate({ lens: "list" });
       return;
-    }
-    if (ev.key === "r") {
+    case "3":
+      ev.preventDefault();
       navigate({ lens: "threads" });
       return;
-    }
-  }
-
-  switch (ev.key) {
     case "g":
-      setChord("g");
+      if (timelineIsActive()) {
+        ev.preventDefault();
+        void jumpTimelineBoundary("first");
+      }
+      return;
+    case "G":
+      if (timelineIsActive()) {
+        ev.preventDefault();
+        void jumpTimelineBoundary("last");
+      }
       return;
     case "/":
       ev.preventDefault();
       focusSearch();
+      return;
+    case "f":
+      if (timelineIsActive()) {
+        ev.preventDefault();
+        void pageTimeline(timelineViewportRows());
+      }
+      return;
+    case "b":
+      if (timelineIsActive()) {
+        ev.preventDefault();
+        void pageTimeline(-timelineViewportRows());
+      }
+      return;
+    case "d":
+      if (timelineIsActive()) {
+        ev.preventDefault();
+        void pageTimeline(Math.max(1, Math.floor(timelineViewportRows() / 2)));
+      }
+      return;
+    case "u":
+      if (timelineIsActive()) {
+        ev.preventDefault();
+        void pageTimeline(-Math.max(1, Math.floor(timelineViewportRows() / 2)));
+      }
       return;
     case "j":
     case "ArrowDown":
