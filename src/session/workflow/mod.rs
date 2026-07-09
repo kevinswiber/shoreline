@@ -2,6 +2,7 @@ mod artifact_removal;
 mod artifact_transfer;
 pub(in crate::session) mod assessment;
 mod association;
+pub(in crate::session) mod attention;
 mod capture;
 mod commit_range_liveness;
 mod event_signature;
@@ -38,6 +39,11 @@ pub use association::{
     AssociationAxis, ListAssociationsOptions, ListAssociationsResult, WithdrawCommitOptions,
     WithdrawCommitResult, WithdrawRefOptions, WithdrawRefResult, associate_commit, associate_ref,
     list_associations, withdraw_commit, withdraw_ref,
+};
+pub use attention::{
+    AttentionAssessmentRecord, AttentionDetail, AttentionFreshness, AttentionFreshnessState,
+    AttentionItem, AttentionListOptions, AttentionListResult, AttentionProjection, AttentionTier,
+    list_attention,
 };
 pub use capture::{
     CaptureDiffstat, CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec, StagedSpec,

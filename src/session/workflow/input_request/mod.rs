@@ -16,10 +16,11 @@ pub use self::respond::{
 };
 pub use self::target::InputRequestTargetSelector;
 #[cfg(test)]
-use self::view::collect_input_request_projection_records;
-#[cfg(test)]
 use self::view::sort_input_request_views;
-pub(crate) use self::view::{InputRequestProjectionOptions, project_input_requests};
+pub(crate) use self::view::{
+    InputRequestProjectionOptions, InputRequestProjectionRecords,
+    collect_input_request_projection_records, project_input_requests,
+};
 pub use self::view::{
     InputRequestResponseView, InputRequestStatus, InputRequestStatusFilter, InputRequestView,
 };

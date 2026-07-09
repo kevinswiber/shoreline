@@ -10,7 +10,9 @@ pub use self::show::{
     AssessmentShowFilters, AssessmentShowOptions, AssessmentShowResult, show_assessments,
 };
 pub use self::target::AssessmentTargetSelector;
-pub(crate) use self::view::{AssessmentProjectionOptions, project_assessments};
+pub(crate) use self::view::{
+    AssessmentProjectionOptions, collect_assessment_records_by_revision, project_assessments,
+};
 pub use self::view::{
     AssessmentRecordStatus, AssessmentView, CurrentAssessmentStatus, CurrentAssessmentView,
 };

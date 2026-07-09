@@ -174,27 +174,27 @@ pub(crate) fn project_input_requests(
     Ok(input_requests)
 }
 
-pub(super) struct InputRequestOpenRecord<'a> {
-    pub(super) event: &'a ShoreEvent,
-    pub(super) payload: InputRequestOpenedPayload,
-    pub(super) track_id: TrackId,
+pub(crate) struct InputRequestOpenRecord<'a> {
+    pub(crate) event: &'a ShoreEvent,
+    pub(crate) payload: InputRequestOpenedPayload,
+    pub(crate) track_id: TrackId,
 }
 
-pub(super) struct InputRequestResponseRecord<'a> {
+pub(crate) struct InputRequestResponseRecord<'a> {
     pub(super) event: &'a ShoreEvent,
     pub(super) payload: InputRequestRespondedPayload,
 }
 
-pub(super) struct InputRequestProjectionRecords<'a> {
-    pub(super) request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>>,
-    pub(super) responses: BTreeMap<InputRequestId, Vec<InputRequestResponseRecord<'a>>>,
+pub(crate) struct InputRequestProjectionRecords<'a> {
+    pub(crate) request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>>,
+    pub(crate) responses: BTreeMap<InputRequestId, Vec<InputRequestResponseRecord<'a>>>,
 }
 
 // A pure record pass: no store reads and no removal-lens consultation happen
 // here. Response reasons resolve later, per request a surface actually
 // returns (`response_views_from_records`), so a missing artifact on a request
 // a caller filters out can never fail that caller's read.
-pub(super) fn collect_input_request_projection_records<'a>(
+pub(crate) fn collect_input_request_projection_records<'a>(
     events: &'a [ShoreEvent],
 ) -> Result<InputRequestProjectionRecords<'a>> {
     let mut request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>> = BTreeMap::new();

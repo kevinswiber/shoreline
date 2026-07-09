@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AssessmentId, EventId, InputRequestId, ObservationId, ReviewTargetRef, TrackId,
+    AssessmentId, EventId, InputRequestId, ObservationId, ReviewTargetRef, RevisionId, TrackId,
 };
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
@@ -149,24 +149,29 @@ pub(crate) fn project_assessments(
     ))
 }
 
-struct AssessmentEventRecord<'a> {
-    event: &'a ShoreEvent,
-    payload: ReviewAssessmentRecordedPayload,
-    track_id: TrackId,
+pub(crate) struct AssessmentEventRecord<'a> {
+    pub(crate) event: &'a ShoreEvent,
+    pub(crate) payload: ReviewAssessmentRecordedPayload,
+    pub(crate) track_id: TrackId,
 }
 
-fn collect_assessment_records<'a>(
-    events: &'a [ShoreEvent],
-    resolved: &ResolvedRevision,
-) -> Result<BTreeMap<AssessmentId, AssessmentEventRecord<'a>>> {
-    let mut records: BTreeMap<AssessmentId, AssessmentEventRecord<'a>> = BTreeMap::new();
+/// Store-wide assessment records, grouped by their subject revision and deduped
+/// per assessment id by the lowest-event-id representative. The current/replaced
+/// rule lives on top of this in exactly one place, so surfaces cannot drift: the
+/// per-revision `project_assessments` path filters one revision out of this map,
+/// and the attention projection reads it store-wide.
+pub(crate) fn collect_assessment_records_by_revision(
+    events: &[ShoreEvent],
+) -> Result<BTreeMap<RevisionId, BTreeMap<AssessmentId, AssessmentEventRecord<'_>>>> {
+    let mut by_revision: BTreeMap<RevisionId, BTreeMap<AssessmentId, AssessmentEventRecord<'_>>> =
+        BTreeMap::new();
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if event.subject_revision_id()?.as_ref() != Some(&resolved.revision_id) {
+        let Some(revision_id) = event.subject_revision_id()? else {
             continue;
-        }
+        };
 
         let payload: ReviewAssessmentRecordedPayload =
             serde_json::from_value(event.payload.clone())?;
@@ -175,6 +180,7 @@ fn collect_assessment_records<'a>(
                 ShoreError::Message("assessment event missing track id".to_owned())
             })?;
         let assessment_id = payload.assessment_id.clone();
+        let records = by_revision.entry(revision_id).or_default();
         let replace_record = records
             .get(&assessment_id)
             .is_none_or(|record| event.event_id.as_str() < record.event.event_id.as_str());
@@ -190,7 +196,16 @@ fn collect_assessment_records<'a>(
         }
     }
 
-    Ok(records)
+    Ok(by_revision)
+}
+
+fn collect_assessment_records<'a>(
+    events: &'a [ShoreEvent],
+    resolved: &ResolvedRevision,
+) -> Result<BTreeMap<AssessmentId, AssessmentEventRecord<'a>>> {
+    Ok(collect_assessment_records_by_revision(events)?
+        .remove(&resolved.revision_id)
+        .unwrap_or_default())
 }
 
 fn assessment_view_from_event(
