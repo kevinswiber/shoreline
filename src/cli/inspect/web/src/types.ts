@@ -146,6 +146,7 @@ export interface Endorsement {
 
 /** The typed, type-specific detail of a history entry. */
 export interface EntrySummary {
+  kind?: string;
   title?: string;
   body?: string;
   summary?: string;
@@ -153,21 +154,39 @@ export interface EntrySummary {
   outcome?: string;
   reasonCode?: string;
   base?: EntryBase;
+  source?: EntrySource;
+  target?: EntryTarget;
   checkName?: string;
   command?: string;
   status?: string;
   tags?: string[];
-  target?: FactTarget;
+  confidence?: string;
+  revisionId?: string;
+  objectId?: string;
+  engagementId?: string;
+  objectArtifactContentHash?: string;
   observationId?: string;
   assessmentId?: string;
   inputRequestId?: string;
+  inputRequestResponseId?: string;
   validationCheckId?: string;
+  refAssociationId?: string;
+  refWithdrawalId?: string;
+  commitAssociationId?: string;
+  commitWithdrawalId?: string;
+  refName?: string;
+  headOid?: string;
+  commitOid?: string;
+  treeOid?: string;
   // Event-authored fact-level supersession forward pointers, already on the
   // /api/history wire (skipped when empty): the observation ids this observation
   // supersedes, and the assessment ids this assessment replaces. Consumed by the
   // client-side fact-status reverse index (model.ts) for the advisory timeline pill.
   supersedes?: string[];
+  respondsTo?: string[];
   replaces?: string[];
+  relatedObservations?: string[];
+  relatedInputRequests?: string[];
   // The content type and request mode the annotation gatherer reads when it
   // folds a fact into the review-annotation list.
   bodyContentType?: string;
@@ -182,6 +201,41 @@ export interface EntrySummary {
   exitCode?: number;
   reason?: string;
   reasonContentType?: string;
+  bodyByteSize?: number;
+  bodyContentHash?: string;
+  bodyContentState?: string;
+  summaryByteSize?: number;
+  summaryContentHash?: string;
+  summaryContentState?: string;
+  reasonByteSize?: number;
+  reasonContentHash?: string;
+  reasonContentState?: string;
+  sourceFingerprint?: string;
+  startedAt?: string;
+  completedAt?: string;
+  logArtifactContentHashes?: string[];
+}
+
+/** The capture source selector in a revision-captured history summary. */
+export interface EntrySource {
+  kind?: string;
+  mode?: string;
+  includeUntracked?: boolean;
+  pathspecs?: string[];
+}
+
+/** A review endpoint or review/validation target in a history summary. */
+export interface EntryTarget extends FactTarget {
+  kind?: string;
+  revisionId?: string;
+  side?: string;
+  observationId?: string;
+  inputRequestId?: string;
+  assessmentId?: string;
+  eventId?: string;
+  commitOid?: string;
+  treeOid?: string;
+  worktreeRoot?: string;
 }
 
 /** The actor (and producer) that wrote a history entry. */

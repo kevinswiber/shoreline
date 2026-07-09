@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
 import historyJson from "./fixtures/history.json";
 import revisionJson from "./fixtures/revision.json";
@@ -29,6 +29,8 @@ let detail: Detail;
 
 const OBS_EVENT =
   "evt:sha256:8ac34bc85b48ed6623660a174b024bd9099edd09877180bfa87101cc76ac6058";
+const REF_EVENT =
+  "evt:sha256:fdcfefd1251ddb5fcf0740317c46a2f3197ae8908e6760a625800fd5167db8aa";
 const OBS_ID =
   "obs:sha256:752a5b0ab30cfa3aa062bcf6f11b4c6ee3dcfd055207b6a995b91bf81ffec8d9";
 const REV =
@@ -44,6 +46,13 @@ function detailEl(): HTMLElement {
   const el = document.querySelector<HTMLElement>("#detail");
   if (!el) throw new Error("#detail not mounted");
   return el;
+}
+
+function kvValue(label: string): string {
+  const dt = Array.from(
+    document.querySelectorAll<HTMLElement>("#detail dl.kv dt"),
+  ).find((node) => node.textContent === label);
+  return dt?.nextElementSibling?.textContent ?? "";
 }
 
 beforeEach(async () => {
@@ -135,12 +144,48 @@ describe("renderDetail (event detail / empty prompt)", () => {
     expect(el.innerHTML).toContain(OBS_EVENT);
     // The observation body renders.
     expect(el.textContent).toContain("the return value changed");
-    // The raw event JSON is dumped for inspection.
-    expect(el.querySelector("pre")?.textContent).toContain(
+    // The raw event JSON is available behind the collapsed debugging disclosure.
+    const raw = el.querySelector<HTMLDetailsElement>("details.raw-event");
+    expect(raw).not.toBeNull();
+    expect(raw?.open).toBe(false);
+    expect(raw?.querySelector("pre")?.textContent).toContain(
       "review_observation",
     );
     // Embedded ids linkify into navigable ref chips (the navigation delegate resolves them).
     expect(el.querySelector("[data-ref-kind]")).not.toBeNull();
+  });
+
+  it("renders type-specific summary rows for revision ref association events", () => {
+    store.commit({ selected: { kind: "event", id: REF_EVENT } });
+    detail.renderDetail();
+    expect(kvValue("refAssociationId")).toContain("assoc-ref:8cf5b7c2");
+    expect(kvValue("refName")).toBe("refs/heads/main");
+    expect(kvValue("headOid")).toBe("ffc93defe1");
+  });
+
+  it("renders observation metadata as HTML instead of relying on raw JSON", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT } });
+    detail.renderDetail();
+    expect(kvValue("observationId")).toContain("obs:752a5b0a");
+    expect(kvValue("target")).toContain("src/lib.rs:2-2");
+    expect(kvValue("bodyHash")).toContain("sha256:24c2131b");
+    expect(kvValue("bodyBytes")).toBe("24");
+  });
+
+  it("copies raw event JSON from the collapsed debug block", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    store.commit({ selected: { kind: "event", id: OBS_EVENT } });
+    detail.renderDetail();
+    document
+      .querySelector<HTMLElement>("[data-copy-raw-event]")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining(OBS_EVENT));
   });
 
   it("renders the diff affordance with the open-diff / hash / focus datasets", () => {

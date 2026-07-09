@@ -63,6 +63,8 @@ export const CLASS = {
   readback: "readback",
   readbackRow: "readback-row",
   readerScopeNote: "reader-scope-note",
+  rawEvent: "raw-event",
+  rawEventActions: "raw-event-actions",
 
   // The current-assessment verdict block.
   verdictStatus: "verdict-status",

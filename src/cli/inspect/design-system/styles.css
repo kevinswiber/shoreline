@@ -409,9 +409,15 @@ body {
 /* ---- Detail pane ------------------------------------------------------ */
 .detail .empty { color: var(--fg-dim); }
 .detail h2 { font-size: var(--fs-lg); margin: 0 0 4px; }
-.detail .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 10px; font-size: 12px; margin-bottom: 12px; }
-.detail .kv dt { color: var(--fg-dim); font-family: var(--mono); }
-.detail .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+.detail .kv { display: grid; grid-template-columns: minmax(130px, max-content) minmax(0, 1fr); gap: 4px 10px; font-size: 12px; margin-bottom: 12px; }
+.detail .kv dt { color: var(--fg-dim); font-family: var(--mono); white-space: nowrap; }
+.detail .kv dd { margin: 0; font-family: var(--mono); min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.detail .raw-event { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.detail .raw-event summary { cursor: pointer; color: var(--fg-dim); font-family: var(--mono); font-size: 12px; }
+.detail .raw-event[open] summary { margin-bottom: 8px; }
+.detail .raw-event-actions { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.detail .raw-event-actions .ghost { font-size: 11px; }
+.detail .raw-event pre { margin: 0; }
 .detail pre {
   background: var(--bg-code);
   border: 1px solid var(--border);

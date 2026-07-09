@@ -78,6 +78,8 @@
     readback: "readback",
     readbackRow: "readback-row",
     readerScopeNote: "reader-scope-note",
+    rawEvent: "raw-event",
+    rawEventActions: "raw-event-actions",
     // The current-assessment verdict block.
     verdictStatus: "verdict-status",
     verdictSummary: "verdict-summary",
@@ -2667,6 +2669,203 @@
     return "";
   }
   __name(eventBodyBlock, "eventBodyBlock");
+  function addRow(rows, label, value) {
+    if (value === void 0 || value === null || value === "") return;
+    rows.push([label, String(value)]);
+  }
+  __name(addRow, "addRow");
+  function addListRow(rows, label, values) {
+    if (!Array.isArray(values) || values.length === 0) return;
+    rows.push([label, values.join(", ")]);
+  }
+  __name(addListRow, "addListRow");
+  function addContentRows(rows, label, byteSize, hash, state2) {
+    addRow(rows, `${label}Bytes`, byteSize);
+    addRow(rows, `${label}Hash`, hash);
+    addRow(rows, `${label}State`, state2);
+  }
+  __name(addContentRows, "addContentRows");
+  function endpointSummary(endpoint) {
+    if (!endpoint) return "";
+    switch (endpoint.kind) {
+      case "git_commit":
+        return [
+          "git_commit",
+          endpoint.commitOid,
+          endpoint.treeOid ? `tree ${endpoint.treeOid}` : ""
+        ].filter(Boolean).join(" · ");
+      case "git_tree":
+        return ["git_tree", endpoint.treeOid].filter(Boolean).join(" · ");
+      case "git_index":
+        return ["git_index", endpoint.treeOid].filter(Boolean).join(" · ");
+      case "git_working_tree":
+        return "git_working_tree";
+      default:
+        return endpoint.kind ?? "";
+    }
+  }
+  __name(endpointSummary, "endpointSummary");
+  function sourceSummary(source) {
+    if (!source) return "";
+    const parts = [source.kind, source.mode];
+    if (source.includeUntracked !== void 0) {
+      parts.push(source.includeUntracked ? "includes untracked" : "tracked only");
+    }
+    if (source.pathspecs?.length) {
+      parts.push(`pathspecs ${source.pathspecs.join(", ")}`);
+    }
+    return parts.filter(Boolean).join(" · ");
+  }
+  __name(sourceSummary, "sourceSummary");
+  function targetSummary(target) {
+    if (!target) return "";
+    const kind = target.kind || "target";
+    const line = target.filePath && target.startLine ? `${target.filePath}:${target.startLine}-${target.endLine || target.startLine}` : target.filePath;
+    switch (kind) {
+      case "revision":
+        return ["revision", target.revisionId].filter(Boolean).join(" · ");
+      case "file":
+        return ["file", target.revisionId, line].filter(Boolean).join(" · ");
+      case "range":
+        return ["range", target.revisionId, line, target.side].filter(Boolean).join(" · ");
+      case "observation":
+        return ["observation", target.observationId, target.revisionId].filter(Boolean).join(" · ");
+      case "input_request":
+        return ["input request", target.inputRequestId, target.revisionId].filter(Boolean).join(" · ");
+      case "assessment":
+        return ["assessment", target.assessmentId, target.revisionId].filter(Boolean).join(" · ");
+      case "event":
+        return ["event", target.eventId, target.revisionId].filter(Boolean).join(" · ");
+      default:
+        return [kind, target.revisionId, line].filter(Boolean).join(" · ");
+    }
+  }
+  __name(targetSummary, "targetSummary");
+  function pushEventTypeRows(e, rows) {
+    const s = e.summary ?? {};
+    switch (e.eventType) {
+      case "review_initialized":
+        addRow(rows, "summary", "review initialized");
+        break;
+      case "work_object_proposed":
+        addRow(rows, "snapshot", s.objectId);
+        addRow(rows, "engagement", s.engagementId);
+        addRow(rows, "artifactHash", s.objectArtifactContentHash);
+        addRow(rows, "source", sourceSummary(s.source));
+        addRow(rows, "base", endpointSummary(s.base));
+        addRow(rows, "targetEndpoint", endpointSummary(s.target));
+        break;
+      case "review_observation_recorded":
+        addRow(rows, "observationId", s.observationId);
+        addRow(rows, "target", targetSummary(s.target));
+        addRow(rows, "confidence", s.confidence);
+        addListRow(rows, "tags", s.tags);
+        addListRow(rows, "supersedes", s.supersedes);
+        addListRow(rows, "respondsTo", s.respondsTo);
+        addContentRows(
+          rows,
+          "body",
+          s.bodyByteSize,
+          s.bodyContentHash,
+          s.bodyContentState
+        );
+        break;
+      case "review_assessment_recorded":
+        addRow(rows, "assessmentId", s.assessmentId);
+        addRow(rows, "assessment", s.assessment);
+        addRow(rows, "target", targetSummary(s.target));
+        addListRow(rows, "replaces", s.replaces);
+        addListRow(rows, "relatedObservations", s.relatedObservations);
+        addListRow(rows, "relatedInputRequests", s.relatedInputRequests);
+        addContentRows(
+          rows,
+          "summary",
+          s.summaryByteSize,
+          s.summaryContentHash,
+          s.summaryContentState
+        );
+        break;
+      case "input_request_opened":
+        addRow(rows, "inputRequestId", s.inputRequestId);
+        addRow(rows, "mode", s.mode);
+        addRow(rows, "reasonCode", s.reasonCode);
+        addRow(rows, "target", targetSummary(s.target));
+        addContentRows(
+          rows,
+          "body",
+          s.bodyByteSize,
+          s.bodyContentHash,
+          s.bodyContentState
+        );
+        break;
+      case "input_request_responded":
+        addRow(rows, "inputRequestResponseId", s.inputRequestResponseId);
+        addRow(rows, "inputRequestId", s.inputRequestId);
+        addRow(rows, "outcome", s.outcome);
+        addContentRows(
+          rows,
+          "reason",
+          s.reasonByteSize,
+          s.reasonContentHash,
+          s.reasonContentState
+        );
+        break;
+      case "review_note_imported":
+        addRow(rows, "summary", "retired note import");
+        break;
+      case "validation_check_recorded":
+        addRow(rows, "validationCheckId", s.validationCheckId);
+        addRow(rows, "target", targetSummary(s.target));
+        addRow(rows, "check", s.checkName);
+        addRow(rows, "status", s.status);
+        addRow(rows, "trigger", s.trigger);
+        addRow(rows, "exitCode", s.exitCode);
+        addRow(rows, "command", s.command);
+        addRow(rows, "sourceFingerprint", s.sourceFingerprint);
+        addRow(rows, "startedAt", s.startedAt);
+        addRow(rows, "completedAt", s.completedAt);
+        addListRow(rows, "logArtifacts", s.logArtifactContentHashes);
+        addContentRows(
+          rows,
+          "summary",
+          void 0,
+          s.summaryContentHash,
+          s.summaryContentState
+        );
+        break;
+      case "revision_ref_associated":
+        addRow(rows, "refAssociationId", s.refAssociationId);
+        addRow(rows, "refName", s.refName);
+        addRow(rows, "headOid", s.headOid);
+        break;
+      case "revision_ref_withdrawn":
+        addRow(rows, "refWithdrawalId", s.refWithdrawalId);
+        addRow(rows, "refAssociationId", s.refAssociationId);
+        break;
+      case "revision_commit_associated":
+        addRow(rows, "commitAssociationId", s.commitAssociationId);
+        addRow(rows, "commitOid", s.commitOid);
+        addRow(rows, "treeOid", s.treeOid);
+        break;
+      case "revision_commit_withdrawn":
+        addRow(rows, "commitWithdrawalId", s.commitWithdrawalId);
+        addRow(rows, "commitAssociationId", s.commitAssociationId);
+        break;
+      default:
+        addRow(rows, "summaryKind", s.kind);
+        break;
+    }
+  }
+  __name(pushEventTypeRows, "pushEventTypeRows");
+  function rawEventBlock(e) {
+    const raw = escapeHtml(JSON.stringify(e, null, 2));
+    return `<details class="${CLASS.rawEvent}">
+    <summary>Raw event</summary>
+    <div class="${CLASS.rawEventActions}"><button class="${CLASS.ghost}" type="button" data-copy-raw-event>copy</button></div>
+    <pre data-raw-event>${raw}</pre>
+  </details>`;
+  }
+  __name(rawEventBlock, "rawEventBlock");
   function renderDetail() {
     shownCompositeId = null;
     const el = $("#detail-body");
@@ -2695,14 +2894,7 @@
       const predecessors = supersedesRevision(revisionId);
       if (predecessors.length) kv.push(["supersedes", predecessors.join(", ")]);
     }
-    if (e.eventType === "validation_check_recorded") {
-      kv.push(["check", s.checkName || "—"]);
-      kv.push(["status", s.status || "—"]);
-      kv.push(["trigger", s.trigger || "—"]);
-      if (s.exitCode != null) kv.push(["exit code", String(s.exitCode)]);
-      if (s.command) kv.push(["command", s.command]);
-      kv.push(["validationCheckId", s.validationCheckId || "—"]);
-    }
+    pushEventTypeRows(e, kv);
     let focusId = null;
     let focusNoun = "";
     if (e.eventType === "review_observation_recorded") {
@@ -2733,7 +2925,7 @@
     ${readback}
     ${diffButton}
     ${bodyBlock}
-    <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
+    ${rawEventBlock(e)}`;
     projectScroll(e.eventId ?? null);
   }
   __name(renderDetail, "renderDetail");
@@ -2841,11 +3033,35 @@
     return openRevision(revisionId);
   }
   __name(showComposite, "showComposite");
+  async function copyRawEvent(button) {
+    const raw = button.closest(`.${CLASS.rawEvent}`)?.querySelector("[data-raw-event]")?.textContent;
+    if (!raw) return;
+    const previous = button.textContent ?? "copy";
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(raw);
+      button.textContent = "copied";
+    } catch {
+      button.textContent = "copy failed";
+    } finally {
+      window.setTimeout(() => {
+        button.textContent = previous;
+      }, 1200);
+    }
+  }
+  __name(copyRawEvent, "copyRawEvent");
   function initControls2() {
     const el = $("#detail");
     el?.addEventListener("click", (ev) => {
       const t = ev.target;
       if (!(t instanceof Element)) return;
+      const rawCopyBtn = t.closest("[data-copy-raw-event]");
+      if (rawCopyBtn) {
+        void copyRawEvent(rawCopyBtn);
+        return;
+      }
       const diffBtn = t.closest("[data-open-diff]");
       if (diffBtn) {
         const snapshotId = diffBtn.dataset.openDiff;

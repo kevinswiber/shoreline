@@ -76,3 +76,13 @@ test("the CSS-less allowlist stays honest (every entry is still emittable and st
     notEmittable: [],
   });
 });
+
+test("detail key/value rows reserve a content-sized label track", () => {
+  const css = readFileSync(APP_CSS_PATH, "utf8");
+  expect(css).toMatch(
+    /\.detail \.kv \{[^}]*grid-template-columns: minmax\(130px, max-content\) minmax\(0, 1fr\);/s,
+  );
+  expect(css).toMatch(/\.detail \.kv dt \{[^}]*white-space: nowrap;/s);
+  expect(css).toMatch(/\.detail \.kv dd \{[^}]*min-width: 0;/s);
+  expect(css).toMatch(/\.detail \.kv dd \{[^}]*overflow-wrap: anywhere;/s);
+});
