@@ -439,6 +439,42 @@ pub fn git_head_oid(repo: &Path) -> Result<String> {
     git_stdout_string(repo, &output.stdout, "HEAD oid")
 }
 
+/// The repository's integration/default branch as a full ref, best-effort: the
+/// target of `refs/remotes/origin/HEAD` when the remote publishes one, else a
+/// local `refs/heads/main` or `refs/heads/master` when present, else `None`.
+///
+/// Never fabricates a branch — a repository with none of these simply has no
+/// detectable default, and callers fall back to their own ordering. Name-agnostic
+/// by construction: `origin/HEAD` names whatever the remote's default is, and the
+/// local fallback tries the two conventional names in order (`main` before
+/// `master`) so a repo carrying both prefers `main`.
+pub(crate) fn git_default_branch_ref(repo: &Path) -> Result<Option<String>> {
+    let (code, stdout) = run_git_status(
+        repo,
+        ["symbolic-ref", "refs/remotes/origin/HEAD"],
+        &[0, 1, 128],
+    )?;
+    if code == 0 {
+        let trimmed = trim_git_stdout(&stdout);
+        if !trimmed.is_empty() {
+            return Ok(Some(git_field_string(trimmed, "origin/HEAD target")?));
+        }
+    }
+
+    for candidate in ["refs/heads/main", "refs/heads/master"] {
+        let (code, _) = run_git_status(
+            repo,
+            ["rev-parse", "--verify", "--quiet", candidate],
+            &[0, 1],
+        )?;
+        if code == 0 {
+            return Ok(Some(candidate.to_owned()));
+        }
+    }
+
+    Ok(None)
+}
+
 pub(crate) fn git_head_commit_oid_optional(repo: &Path) -> Result<Option<String>> {
     let (code, stdout) = run_git_status(
         repo,
@@ -1028,6 +1064,77 @@ mod tests {
 
         git(repo.path(), ["checkout", "--detach"]);
         assert_eq!(git_head_ref(repo.path()).unwrap(), None);
+    }
+
+    /// Default-branch detection is name-agnostic: a non-main local default
+    /// (`master`) is detected, `main` wins the local fallback order when both
+    /// exist, and a published `origin/HEAD` takes precedence over any local
+    /// fallback. CI runners default to `master`, so the branch names are forced
+    /// explicitly rather than left to `init.defaultBranch`.
+    #[test]
+    fn default_branch_ref_prefers_origin_head_then_local_main_then_master() {
+        let repo = TempDir::new().expect("create temp repository directory");
+        git(repo.path(), ["init"]);
+        git(repo.path(), ["symbolic-ref", "HEAD", "refs/heads/master"]);
+        git(repo.path(), ["config", "user.name", "Shore Tests"]);
+        git(
+            repo.path(),
+            ["config", "user.email", "shore-tests@example.com"],
+        );
+        git(repo.path(), ["config", "commit.gpgsign", "false"]);
+        fs::write(repo.path().join("file.txt"), "one\n").unwrap();
+        git(repo.path(), ["add", "--all"]);
+        git(repo.path(), ["commit", "-m", "first"]);
+
+        assert_eq!(
+            git_default_branch_ref(repo.path()).unwrap().as_deref(),
+            Some("refs/heads/master"),
+            "a repo whose only conventional default is master detects master"
+        );
+
+        // `main` alongside `master`: main wins the local fallback order.
+        git(repo.path(), ["branch", "main"]);
+        assert_eq!(
+            git_default_branch_ref(repo.path()).unwrap().as_deref(),
+            Some("refs/heads/main"),
+            "main is preferred over master when both exist"
+        );
+
+        // A published `origin/HEAD` takes precedence over the local fallback and
+        // names whatever the remote's default is.
+        git(
+            repo.path(),
+            [
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/trunk",
+            ],
+        );
+        assert_eq!(
+            git_default_branch_ref(repo.path()).unwrap().as_deref(),
+            Some("refs/remotes/origin/trunk"),
+            "origin/HEAD wins over the local fallback"
+        );
+    }
+
+    /// No conventional default and no origin: `None`, so the caller falls back to
+    /// its own ordering rather than a fabricated branch.
+    #[test]
+    fn default_branch_ref_is_none_without_a_conventional_default() {
+        let repo = TempDir::new().expect("create temp repository directory");
+        git(repo.path(), ["init"]);
+        git(repo.path(), ["symbolic-ref", "HEAD", "refs/heads/trunk"]);
+        git(repo.path(), ["config", "user.name", "Shore Tests"]);
+        git(
+            repo.path(),
+            ["config", "user.email", "shore-tests@example.com"],
+        );
+        git(repo.path(), ["config", "commit.gpgsign", "false"]);
+        fs::write(repo.path().join("file.txt"), "one\n").unwrap();
+        git(repo.path(), ["add", "--all"]);
+        git(repo.path(), ["commit", "-m", "first"]);
+
+        assert_eq!(git_default_branch_ref(repo.path()).unwrap(), None);
     }
 
     #[test]

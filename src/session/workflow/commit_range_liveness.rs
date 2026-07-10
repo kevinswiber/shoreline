@@ -19,8 +19,8 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::git::{
-    Ancestry, git_for_each_ref, git_independent_commits, git_is_ancestor, git_object_exists,
-    git_rev_list_reachable, git_rev_parse_commit_oid, git_worktree_list,
+    Ancestry, git_default_branch_ref, git_for_each_ref, git_independent_commits, git_is_ancestor,
+    git_object_exists, git_rev_list_reachable, git_rev_parse_commit_oid, git_worktree_list,
 };
 use crate::session::projection::commit_range::DIVERGENT_COMMIT_ASSOCIATION_CODE;
 use crate::session::state::ProjectionDiagnostic;
@@ -102,6 +102,17 @@ pub fn enrich_liveness(
         }),
         None => None,
     };
+    // Broad mode only: resolve the repo's integration/default branch so a
+    // broad-merged commit reads its landing branch rather than an arbitrary
+    // ref-sorted tip that merely contains main's history (#445). Best-effort — a
+    // repo with no detectable default falls back to the ref-order walk.
+    let default_branch_oid = match integration_ref {
+        Some(_) => None,
+        None => git_default_branch_ref(repo)
+            .ok()
+            .flatten()
+            .and_then(|reference| git_rev_parse_commit_oid(repo, &reference).ok()),
+    };
 
     let mut cache = HashMap::new();
     let mut seen = HashSet::new();
@@ -115,6 +126,7 @@ pub fn enrich_liveness(
             &commit.commit_oid,
             &tips,
             integration.as_ref(),
+            default_branch_oid.as_deref(),
             &mut cache,
         )?;
         per_commit.push(CommitLiveness {
@@ -132,6 +144,15 @@ pub fn enrich_liveness(
         headline,
         diagnostics,
     })
+}
+
+/// The repository's integration/default branch as a full ref, for a caller that
+/// wants a "did this land on the default branch?" merge answer — the `revision
+/// show` narrow default. Best-effort: `None` when no default branch is detectable
+/// (no `origin/HEAD`, no local `main`/`master`), in which case the caller keeps
+/// broad reachability rather than a fabricated ref.
+pub fn resolve_default_integration_ref(repo: &Path) -> Option<String> {
+    git_default_branch_ref(repo).ok().flatten()
 }
 
 /// Reachability resolved **once** for an entire revision list, so classifying each
@@ -280,9 +301,10 @@ impl LivenessBatch {
         // integration check, which keeps a live side-branch tip `Live` rather than
         // orphaning it just because it is not reachable from the integration ref.
         if use_integration && let Some(integration) = &self.integration {
-            if integration.oid == commit_oid {
-                return Ok((CommitGraphCondition::Live, Some(integration.label.clone())));
-            }
+            // `integration_reachable` is `git rev-list <ref>`, which includes the
+            // ref's own tip — so a commit sitting at the integration tip is merged
+            // into it, matching git's `merge-base --is-ancestor` equality (#447)
+            // and the per-entry `enrich_liveness` narrow arm.
             if self.integration_reachable.contains(commit_oid) {
                 return Ok((
                     CommitGraphCondition::Merged,
@@ -413,6 +435,7 @@ fn classify(
     commit_oid: &str,
     tips: &[LiveTip],
     integration: Option<&IntegrationRef>,
+    default_branch_oid: Option<&str>,
     cache: &mut HashMap<(String, String), Ancestry>,
 ) -> Result<(CommitGraphCondition, Option<String>)> {
     if !git_object_exists(repo, commit_oid)? {
@@ -425,26 +448,23 @@ fn classify(
     }
 
     if let Some(integration) = integration {
-        if integration.oid != commit_oid
-            && ancestry(repo, commit_oid, &integration.oid, cache)? == Ancestry::Ancestor
+        // Narrow: merged into the integration ref when the commit is an ancestor
+        // of it — and equality counts, matching git's own `merge-base
+        // --is-ancestor` (a commit sitting at the integration tip has landed on
+        // it, #447). Everything else falls through to the live-tip check below, so
+        // a live side-branch tip stays `Live` rather than orphaned.
+        if integration.oid == commit_oid
+            || ancestry(repo, commit_oid, &integration.oid, cache)? == Ancestry::Ancestor
         {
             return Ok((
                 CommitGraphCondition::Merged,
                 Some(integration.label.clone()),
             ));
         }
-        if integration.oid == commit_oid {
-            return Ok((CommitGraphCondition::Live, Some(integration.label.clone())));
-        }
-    } else {
-        for tip in tips {
-            if tip.oid == commit_oid {
-                continue;
-            }
-            if ancestry(repo, commit_oid, &tip.oid, cache)? == Ancestry::Ancestor {
-                return Ok((CommitGraphCondition::Merged, tip.label.clone()));
-            }
-        }
+    } else if let Some(label) =
+        broad_merged_label(repo, commit_oid, tips, default_branch_oid, cache)?
+    {
+        return Ok((CommitGraphCondition::Merged, label));
     }
 
     if let Some(tip) = tips.iter().find(|tip| tip.oid == commit_oid) {
@@ -457,6 +477,50 @@ fn classify(
         },
         None,
     ))
+}
+
+/// The label for a broad-merged commit (`Some(label)`), or `None` when the commit
+/// is not broad-merged. A commit is broad-merged when it is a proper ancestor of
+/// some live tip other than itself — the condition, unchanged. The returned label
+/// prefers the integration/default branch when that branch also reaches the commit
+/// (equality counts), so a freshly landed commit reads its landing branch and not
+/// an arbitrary ref-sorted feature branch that merely contains main's history
+/// (#445). Otherwise it is the first containing tip in ref order — a truthful
+/// witness that *some* live branch reaches it.
+fn broad_merged_label(
+    repo: &Path,
+    commit_oid: &str,
+    tips: &[LiveTip],
+    default_branch_oid: Option<&str>,
+    cache: &mut HashMap<(String, String), Ancestry>,
+) -> Result<Option<Option<String>>> {
+    let mut fallback_label: Option<Option<String>> = None;
+    for tip in tips {
+        if tip.oid == commit_oid {
+            continue;
+        }
+        if ancestry(repo, commit_oid, &tip.oid, cache)? == Ancestry::Ancestor {
+            fallback_label = Some(tip.label.clone());
+            break;
+        }
+    }
+    let Some(fallback_label) = fallback_label else {
+        return Ok(None);
+    };
+
+    // Merged. Prefer the default branch's label when it too reaches the commit —
+    // the ancestry probe is memoized in `cache`, so overlap with the walk above is
+    // free.
+    if let Some(default_oid) = default_branch_oid
+        && let Some(default_tip) = tips.iter().find(|tip| tip.oid == default_oid)
+        && default_tip.label.is_some()
+        && (default_tip.oid == commit_oid
+            || ancestry(repo, commit_oid, &default_tip.oid, cache)? == Ancestry::Ancestor)
+    {
+        return Ok(Some(default_tip.label.clone()));
+    }
+
+    Ok(Some(fallback_label))
 }
 
 fn ancestry(
@@ -1187,6 +1251,59 @@ mod tests {
             CommitGraphCondition::Orphaned {
                 reason: OrphanReason::Unreachable
             }
+        );
+    }
+
+    /// #447: under a narrow integration ref, a commit that IS the integration
+    /// ref's own tip is `Merged`, not `Live` — git's own `merge-base
+    /// --is-ancestor` treats equality as ancestry, so "is this merged into main"
+    /// is yes when the commit is main's exact tip. The per-entry and batch paths
+    /// must agree on that condition.
+    #[test]
+    fn narrow_integration_tip_is_merged() {
+        let repo = LivenessRepo::new();
+        let tip = repo.oid("main");
+        let view = view_with(&[&tip]);
+
+        let direct = enrich_liveness(&view, repo.path(), Some("refs/heads/main")).unwrap();
+        let batch = LivenessBatch::build(repo.path(), Some("refs/heads/main")).unwrap();
+        let batched = batch.enrich_merge(repo.path(), &view).unwrap();
+
+        assert_eq!(
+            direct.per_commit[0].condition,
+            CommitGraphCondition::Merged,
+            "a commit that is the integration ref's own tip is merged into it"
+        );
+        assert_eq!(conditions_of(&direct), conditions_of(&batched));
+        assert_eq!(direct.headline, batched.headline);
+    }
+
+    /// #445 option 1: a broad-merged commit is labeled with the integration/default
+    /// branch when that branch reaches it, not with an alphabetically-earlier
+    /// feature branch that merely contains main's history. Here `main`'s tip is
+    /// also reachable from a feature branch whose refname sorts before "main"; the
+    /// ref-order walk would pick that feature branch, but the label must read
+    /// "main".
+    #[test]
+    fn broad_merged_labels_the_default_branch_not_an_earlier_feature_branch() {
+        let repo = LivenessRepo::new();
+        let tip = repo.oid("main");
+        // A feature branch cut from main's tip with one extra commit: it contains
+        // the tip and its refname sorts before "main".
+        repo.git(["checkout", "-b", "feat-lens", "main"]);
+        repo.commit("lens", "lens\n");
+        repo.git(["checkout", "main"]);
+
+        let enrichment = enrich_liveness(&view_with(&[&tip]), repo.path(), None).unwrap();
+        let commit = &enrichment.per_commit[0];
+
+        assert_eq!(commit.condition, CommitGraphCondition::Merged);
+        assert_eq!(
+            commit.live_branch.as_deref(),
+            Some("main"),
+            "a merged commit reachable from the default branch reads its landing \
+             branch, not {:?}",
+            commit.live_branch
         );
     }
 

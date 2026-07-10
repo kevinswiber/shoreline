@@ -51,6 +51,7 @@ pub use capture::{
 };
 pub use commit_range_liveness::{
     CommitGraphCondition, CommitLiveness, LivenessEnrichment, OrphanReason, enrich_liveness,
+    resolve_default_integration_ref,
 };
 pub use event_signature::{
     EventSignatureRecordOptions, EventSignatureRecordResult, record_event_signature,
