@@ -365,7 +365,7 @@ impl ValidationRecord<'_> {
 /// accepting judgment on the revision (`assessment_subsumes_failure` — Rule B
 /// of the judgment-subsumption amendment to ADR-0019); a superseded revision
 /// does not report (staleness is the stale-assessment builder's job);
-/// `skipped` never reports. Heads-only + latest-per-check is deliberately
+/// `skipped` never reports and never clears. Heads-only + latest-per-check is deliberately
 /// stricter than the inspector's `failed_validation_count` rollup, which never
 /// clears — the two surfaces will converge on this projection later, not the
 /// reverse.
@@ -428,8 +428,11 @@ fn failed_validation_items(
         if !supersession.heads.contains(&revision_id) {
             continue;
         }
+        // Skipped records are invisible to the clearing decision: they never
+        // report, and a strictly-later skip must not hide an earlier failure.
         let Some(max_time) = group
             .iter()
+            .filter(|record| record.payload.status != ValidationStatus::Skipped)
             .map(|record| record.sort_time().to_owned())
             .max()
         else {
@@ -2509,6 +2512,80 @@ mod tests {
         assert!(
             has_failed_validation_item(&projection, "v1"),
             "a file-scoped acceptance is not a revision-scoped judgment",
+        );
+    }
+
+    #[test]
+    fn later_skipped_record_does_not_hide_an_earlier_failure() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v2",
+                "gate",
+                ValidationStatus::Skipped,
+                None,
+                None,
+                "2026-06-04T00:00:02Z",
+                vec![],
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "a later skipped run neither reports nor clears",
+        );
+    }
+
+    #[test]
+    fn later_passed_record_still_clears_the_failure() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v2",
+                "gate",
+                ValidationStatus::Passed,
+                Some(0),
+                None,
+                "2026-06-04T00:00:02Z",
+                vec![],
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_failed_validation_items(&projection),
+            "a strictly-later pass clears the card",
         );
     }
 }
