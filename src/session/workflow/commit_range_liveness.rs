@@ -537,12 +537,26 @@ fn landing_analysis(
         .collect();
 
     match competing.len() {
-        // Every claim is orphaned: the headline is the claims' agreed condition
-        // (orphaned), withheld only when the orphan reasons disagree.
-        0 => Ok((
-            agreed_condition(claims.iter().filter_map(|c| condition_of(&c.commit_oid))),
-            Vec::new(),
-        )),
+        // Every claim is orphaned: the headline reads orphaned regardless of how
+        // the reasons mix (the amendment's contract). `ObjectMissing` survives
+        // only when every claim's object is gone; otherwise `Unreachable` is the
+        // truthful summary — a missing object is also unreachable from live
+        // refs, and the per-OID matrix keeps the per-claim reasons.
+        0 => {
+            let reason = if claims.iter().all(|claim| {
+                matches!(
+                    condition_of(&claim.commit_oid),
+                    Some(CommitGraphCondition::Orphaned {
+                        reason: OrphanReason::ObjectMissing
+                    })
+                )
+            }) {
+                OrphanReason::ObjectMissing
+            } else {
+                OrphanReason::Unreachable
+            };
+            Ok((Some(CommitGraphCondition::Orphaned { reason }), Vec::new()))
+        }
         1 => Ok((condition_of(&competing[0].commit_oid).cloned(), Vec::new())),
         _ => {
             let trees: BTreeSet<&str> = competing
@@ -1057,6 +1071,30 @@ mod tests {
         let enrichment = enrich_liveness(&view, repo.path(), None).unwrap();
 
         assert_eq!(enrichment.headline, Some(CommitGraphCondition::Live));
+        assert!(enrichment.diagnostics.is_empty());
+    }
+
+    /// Every claim orphaned, reasons mixed (unreachable + object-missing): the
+    /// headline still reads orphaned — `Unreachable` is the truthful summary
+    /// (a missing object is also unreachable from live refs) — never withheld.
+    #[test]
+    fn all_orphaned_claims_with_mixed_reasons_read_orphaned() {
+        let repo = LivenessRepo::new();
+        let dangling = repo.dangling_oid();
+        let missing = "0".repeat(dangling.len());
+        let view = view_of_edges(vec![
+            claim(&dangling, "dangling-tree"),
+            claim(&missing, "gone-tree"),
+        ]);
+
+        let enrichment = enrich_liveness(&view, repo.path(), None).unwrap();
+
+        assert_eq!(
+            enrichment.headline,
+            Some(CommitGraphCondition::Orphaned {
+                reason: OrphanReason::Unreachable
+            })
+        );
         assert!(enrichment.diagnostics.is_empty());
     }
 
