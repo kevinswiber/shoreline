@@ -457,22 +457,41 @@ pub(crate) fn git_default_branch_ref(repo: &Path) -> Result<Option<String>> {
     if code == 0 {
         let trimmed = trim_git_stdout(&stdout);
         if !trimmed.is_empty() {
-            return Ok(Some(git_field_string(trimmed, "origin/HEAD target")?));
+            let target = git_field_string(trimmed, "origin/HEAD target")?;
+            // Only accept origin/HEAD when its target still resolves to a commit; a
+            // dangling symbolic ref (the remote-tracking branch was pruned) would
+            // otherwise shadow a valid local default and, downstream, make a narrow
+            // integration ref unresolvable and suppress the whole liveness block.
+            if git_ref_resolves_to_commit(repo, &target)? {
+                return Ok(Some(target));
+            }
         }
     }
 
     for candidate in ["refs/heads/main", "refs/heads/master"] {
-        let (code, _) = run_git_status(
-            repo,
-            ["rev-parse", "--verify", "--quiet", candidate],
-            &[0, 1],
-        )?;
-        if code == 0 {
+        if git_ref_resolves_to_commit(repo, candidate)? {
             return Ok(Some(candidate.to_owned()));
         }
     }
 
     Ok(None)
+}
+
+/// Whether `reference` resolves to a commit object (`rev-parse --verify --quiet
+/// <reference>^{commit}`), the two-valued check the default-branch resolution
+/// needs: exit 0 resolves, exit 1 does not (missing ref, or a non-commit).
+fn git_ref_resolves_to_commit(repo: &Path, reference: &str) -> Result<bool> {
+    let (code, _) = run_git_status(
+        repo,
+        [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{reference}^{{commit}}"),
+        ],
+        &[0, 1],
+    )?;
+    Ok(code == 0)
 }
 
 pub(crate) fn git_head_commit_oid_optional(repo: &Path) -> Result<Option<String>> {
@@ -1100,8 +1119,12 @@ mod tests {
             "main is preferred over master when both exist"
         );
 
-        // A published `origin/HEAD` takes precedence over the local fallback and
-        // names whatever the remote's default is.
+        // A published `origin/HEAD` whose target resolves takes precedence over the
+        // local fallback and names whatever the remote's default is.
+        git(
+            repo.path(),
+            ["update-ref", "refs/remotes/origin/trunk", "refs/heads/main"],
+        );
         git(
             repo.path(),
             [
@@ -1113,7 +1136,43 @@ mod tests {
         assert_eq!(
             git_default_branch_ref(repo.path()).unwrap().as_deref(),
             Some("refs/remotes/origin/trunk"),
-            "origin/HEAD wins over the local fallback"
+            "a resolvable origin/HEAD wins over the local fallback"
+        );
+    }
+
+    /// A dangling `origin/HEAD` (a symbolic ref whose target does not resolve to a
+    /// commit) must not be returned: detection falls through to a valid local
+    /// `main`/`master`, so a pruned remote default does not suppress liveness
+    /// downstream.
+    #[test]
+    fn default_branch_ref_skips_a_dangling_origin_head() {
+        let repo = TempDir::new().expect("create temp repository directory");
+        git(repo.path(), ["init"]);
+        git(repo.path(), ["symbolic-ref", "HEAD", "refs/heads/main"]);
+        git(repo.path(), ["config", "user.name", "Shore Tests"]);
+        git(
+            repo.path(),
+            ["config", "user.email", "shore-tests@example.com"],
+        );
+        git(repo.path(), ["config", "commit.gpgsign", "false"]);
+        fs::write(repo.path().join("file.txt"), "one\n").unwrap();
+        git(repo.path(), ["add", "--all"]);
+        git(repo.path(), ["commit", "-m", "first"]);
+
+        // origin/HEAD points at a remote-tracking ref that does not exist.
+        git(
+            repo.path(),
+            [
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/missing",
+            ],
+        );
+
+        assert_eq!(
+            git_default_branch_ref(repo.path()).unwrap().as_deref(),
+            Some("refs/heads/main"),
+            "a dangling origin/HEAD falls through to the valid local main"
         );
     }
 

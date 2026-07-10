@@ -94,6 +94,41 @@ fn revision_show_accepts_explicit_integration_ref() {
     );
 }
 
+/// #445 regression (dangling origin/HEAD): a symbolic `origin/HEAD` whose target
+/// does not resolve must not suppress the whole liveness block — detection falls
+/// through to local `main`, so `revision show` still emits liveness against it.
+#[test]
+fn revision_show_liveness_survives_a_dangling_origin_head() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+    // A dangling origin/HEAD: symbolic ref to a remote-tracking branch that does
+    // not exist.
+    repo.git([
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/missing",
+    ]);
+    let path = repo.path().to_str().unwrap();
+
+    let capture = shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    assert!(
+        capture.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&capture.stderr)
+    );
+
+    let json = parse_json(&shore(["revision", "show", "--repo", path]).stdout);
+    let per_commit = json["commitRange"]["liveness"]["perCommit"]
+        .as_array()
+        .expect("liveness block present despite dangling origin/HEAD");
+    assert_eq!(per_commit.len(), 1);
+    assert_eq!(per_commit[0]["condition"], "merged");
+    assert_eq!(per_commit[0]["liveBranch"], "main");
+}
+
 #[test]
 fn revision_show_positional_accepts_and_omits() {
     let repo = modified_repo();

@@ -104,14 +104,21 @@ pub fn enrich_liveness(
     };
     // Broad mode only: resolve the repo's integration/default branch so a
     // broad-merged commit reads its landing branch rather than an arbitrary
-    // ref-sorted tip that merely contains main's history (#445). Best-effort — a
-    // repo with no detectable default falls back to the ref-order walk.
-    let default_branch_oid = match integration_ref {
+    // ref-sorted tip that merely contains main's history (#445). We keep the
+    // resolved ref's **own** label alongside its OID — the live-tip set dedups by
+    // OID in ref order, so recovering the label from a tip could return a
+    // same-OID alias that sorts earlier. Best-effort — a repo with no detectable
+    // default falls back to the ref-order walk.
+    let default_branch = match integration_ref {
         Some(_) => None,
         None => git_default_branch_ref(repo)
             .ok()
             .flatten()
-            .and_then(|reference| git_rev_parse_commit_oid(repo, &reference).ok()),
+            .and_then(|reference| {
+                git_rev_parse_commit_oid(repo, &reference)
+                    .ok()
+                    .map(|oid| (oid, short_ref_label(&reference)))
+            }),
     };
 
     let mut cache = HashMap::new();
@@ -126,7 +133,9 @@ pub fn enrich_liveness(
             &commit.commit_oid,
             &tips,
             integration.as_ref(),
-            default_branch_oid.as_deref(),
+            default_branch
+                .as_ref()
+                .map(|(oid, label)| (oid.as_str(), label.as_str())),
             &mut cache,
         )?;
         per_commit.push(CommitLiveness {
@@ -435,7 +444,7 @@ fn classify(
     commit_oid: &str,
     tips: &[LiveTip],
     integration: Option<&IntegrationRef>,
-    default_branch_oid: Option<&str>,
+    default_branch: Option<(&str, &str)>,
     cache: &mut HashMap<(String, String), Ancestry>,
 ) -> Result<(CommitGraphCondition, Option<String>)> {
     if !git_object_exists(repo, commit_oid)? {
@@ -461,9 +470,7 @@ fn classify(
                 Some(integration.label.clone()),
             ));
         }
-    } else if let Some(label) =
-        broad_merged_label(repo, commit_oid, tips, default_branch_oid, cache)?
-    {
+    } else if let Some(label) = broad_merged_label(repo, commit_oid, tips, default_branch, cache)? {
         return Ok((CommitGraphCondition::Merged, label));
     }
 
@@ -482,16 +489,19 @@ fn classify(
 /// The label for a broad-merged commit (`Some(label)`), or `None` when the commit
 /// is not broad-merged. A commit is broad-merged when it is a proper ancestor of
 /// some live tip other than itself — the condition, unchanged. The returned label
-/// prefers the integration/default branch when that branch also reaches the commit
-/// (equality counts), so a freshly landed commit reads its landing branch and not
-/// an arbitrary ref-sorted feature branch that merely contains main's history
-/// (#445). Otherwise it is the first containing tip in ref order — a truthful
-/// witness that *some* live branch reaches it.
+/// prefers the integration/default branch (`(oid, label)`) when that branch also
+/// reaches the commit (equality counts), so a freshly landed commit reads its
+/// landing branch and not an arbitrary ref-sorted feature branch that merely
+/// contains main's history (#445). The default branch's **own** label is used —
+/// resolved from its ref name, not recovered from the deduped live-tip set, which
+/// could carry a same-OID alias that sorts earlier. Otherwise the label is the
+/// first containing tip in ref order — a truthful witness that *some* live branch
+/// reaches it.
 fn broad_merged_label(
     repo: &Path,
     commit_oid: &str,
     tips: &[LiveTip],
-    default_branch_oid: Option<&str>,
+    default_branch: Option<(&str, &str)>,
     cache: &mut HashMap<(String, String), Ancestry>,
 ) -> Result<Option<Option<String>>> {
     let mut fallback_label: Option<Option<String>> = None;
@@ -508,16 +518,14 @@ fn broad_merged_label(
         return Ok(None);
     };
 
-    // Merged. Prefer the default branch's label when it too reaches the commit —
-    // the ancestry probe is memoized in `cache`, so overlap with the walk above is
-    // free.
-    if let Some(default_oid) = default_branch_oid
-        && let Some(default_tip) = tips.iter().find(|tip| tip.oid == default_oid)
-        && default_tip.label.is_some()
-        && (default_tip.oid == commit_oid
-            || ancestry(repo, commit_oid, &default_tip.oid, cache)? == Ancestry::Ancestor)
+    // Merged. Prefer the default branch's own label when it too reaches the commit
+    // — the ancestry probe is memoized in `cache`, so overlap with the walk above
+    // is free.
+    if let Some((default_oid, default_label)) = default_branch
+        && (default_oid == commit_oid
+            || ancestry(repo, commit_oid, default_oid, cache)? == Ancestry::Ancestor)
     {
-        return Ok(Some(default_tip.label.clone()));
+        return Ok(Some(Some(default_label.to_owned())));
     }
 
     Ok(Some(fallback_label))
@@ -1303,6 +1311,30 @@ mod tests {
             Some("main"),
             "a merged commit reachable from the default branch reads its landing \
              branch, not {:?}",
+            commit.live_branch
+        );
+    }
+
+    /// #445 regression: when the default branch shares its tip OID with an
+    /// alphabetically-earlier branch, `live_tips` dedups by OID and keeps the
+    /// earlier label. The default-branch preference must report the default
+    /// branch's **own** label, not the deduped alias.
+    #[test]
+    fn broad_merged_label_uses_the_default_branch_name_not_a_same_oid_alias() {
+        let repo = LivenessRepo::new();
+        let mid = repo.oid("main~1");
+        // `aaa` points at main's exact tip and sorts before "main", so the deduped
+        // live tip for that OID carries the label "aaa".
+        repo.git(["branch", "aaa", "main"]);
+
+        let enrichment = enrich_liveness(&view_with(&[&mid]), repo.path(), None).unwrap();
+        let commit = &enrichment.per_commit[0];
+
+        assert_eq!(commit.condition, CommitGraphCondition::Merged);
+        assert_eq!(
+            commit.live_branch.as_deref(),
+            Some("main"),
+            "the default branch's own label wins over a same-OID alias, got {:?}",
             commit.live_branch
         );
     }
