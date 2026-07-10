@@ -533,8 +533,169 @@ fn design_system_docs_state_the_component_state_contract() {
         "README names the critical parity surface set"
     );
     assert!(
+        readme.contains("../assets/tokens.css") && readme.contains("live token source"),
+        "README names the served token sheet as Review's live source"
+    );
+    assert!(
+        readme.contains("contrast-check.mjs") && readme.contains("audit of record"),
+        "README names the product-local contrast audit"
+    );
+    assert!(
+        readme.contains("Node") && readme.contains("design tooling only"),
+        "README keeps Node outside the Rust build and runtime"
+    );
+    assert!(
         !readme.contains("PR #261") && !styles.contains("PR #261"),
         "gallery docs should describe current state, not a completed PR redo"
+    );
+}
+
+#[test]
+fn design_system_bake_is_gated_by_a_local_live_token_audit() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let audit_path = root.join("src/cli/inspect/design-system/contrast-check.mjs");
+    let audit = std::fs::read_to_string(&audit_path)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", audit_path.display()));
+    let bake = std::fs::read_to_string(root.join("src/cli/inspect/design-system/_bodies/bake.sh"))
+        .expect("design-system bake script is readable");
+
+    for required in [
+        "assets/tokens.css",
+        "--bg-row-sel",
+        "--sel-bg",
+        "--diff-add-fg",
+        "--emph-add-bg",
+        "--error-bg",
+        "--evt-assessment",
+        "--tok-keyword",
+    ] {
+        assert!(audit.contains(required), "audit must require {required}");
+    }
+    assert!(
+        !audit.contains("withpointbreak.com"),
+        "the product audit must not depend on the marketing repository"
+    );
+
+    let audit_at = bake
+        .find("contrast-check.mjs")
+        .expect("bake invokes the product-local contrast audit");
+    let publish_at = bake
+        .find("cat \"$TOKENS\"")
+        .expect("bake publishes the generated token layer");
+    assert!(
+        audit_at < publish_at,
+        "contrast verification must run before generated files are written"
+    );
+}
+
+#[test]
+fn design_system_brand_assets_are_locked_and_verified_offline() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let design_system = root.join("src/cli/inspect/design-system");
+    let lock_path = design_system.join("pointbreak-brand.lock.json");
+    let lock_source = std::fs::read_to_string(&lock_path)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", lock_path.display()));
+    let lock: serde_json::Value =
+        serde_json::from_str(&lock_source).expect("brand lock is valid JSON");
+    let checker_path = design_system.join("brand-check.mjs");
+    let checker = std::fs::read_to_string(&checker_path)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", checker_path.display()));
+    let bake = std::fs::read_to_string(design_system.join("_bodies/bake.sh"))
+        .expect("design-system bake script is readable");
+    let server = std::fs::read_to_string(root.join("src/cli/inspect/server.rs"))
+        .expect("inspector server source is readable");
+    let index = std::fs::read_to_string(root.join("src/cli/inspect/assets/index.html"))
+        .expect("inspector index is readable");
+
+    assert_eq!(lock["schema"], "com.withpointbreak.brand-lock/v1");
+    assert_eq!(
+        lock["source"]["repository"],
+        "https://github.com/kevinswiber/pointbreak-brand"
+    );
+    for field in ["commit", "manifestSha256"] {
+        let value = lock["source"][field]
+            .as_str()
+            .unwrap_or_else(|| panic!("source.{field} must be a string"));
+        let expected_len = if field == "commit" { 40 } else { 64 };
+        assert_eq!(value.len(), expected_len, "source.{field} has exact length");
+        assert!(
+            value
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
+            "source.{field} is lowercase hexadecimal"
+        );
+    }
+
+    let destinations = lock["artifacts"]
+        .as_array()
+        .expect("brand lock artifacts are an array")
+        .iter()
+        .map(|artifact| {
+            artifact["destination"]
+                .as_str()
+                .expect("every locked artifact has a destination")
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut expected = vec![
+        "src/cli/inspect/assets/pointbreak-logo-mono.svg".to_owned(),
+        "src/cli/inspect/design-system/logo/pointbreak-logo.svg".to_owned(),
+        "src/cli/inspect/design-system/fonts/OFL.txt".to_owned(),
+    ];
+    for name in [
+        "Bold",
+        "BoldItalic",
+        "ExtraBold",
+        "ExtraBoldItalic",
+        "ExtraLight",
+        "ExtraLightItalic",
+        "Italic",
+        "Light",
+        "LightItalic",
+        "Medium",
+        "MediumItalic",
+        "Regular",
+        "SemiBold",
+        "SemiBoldItalic",
+        "Thin",
+        "ThinItalic",
+    ] {
+        expected.push(format!(
+            "src/cli/inspect/design-system/fonts/JetBrainsMono-{name}.woff2"
+        ));
+    }
+    for destination in expected {
+        assert!(
+            destinations.contains(destination.as_str()),
+            "brand lock must cover {destination}"
+        );
+    }
+
+    for forbidden in [
+        "node:child_process",
+        "fetch(",
+        "http.request",
+        "https.request",
+        "POINTBREAK_BRAND_DIR",
+        "/Users/",
+    ] {
+        assert!(
+            !checker.contains(forbidden),
+            "offline checker must not contain {forbidden}"
+        );
+    }
+    let brand_at = bake
+        .find("brand-check.mjs")
+        .expect("bake invokes the offline brand checker");
+    let audit_at = bake
+        .find("contrast-check.mjs")
+        .expect("bake invokes the local contrast audit");
+    assert!(
+        brand_at < audit_at,
+        "brand verification must precede contrast verification"
+    );
+    assert!(
+        !server.contains("design-system/logo") && !index.contains("pointbreak-logo.svg"),
+        "the multiband logo must remain gallery-only; live chrome keeps its mono asset"
     );
 }
 

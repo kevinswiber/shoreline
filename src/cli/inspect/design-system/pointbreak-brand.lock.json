@@ -1,0 +1,145 @@
+{
+  "schema": "com.withpointbreak.brand-lock/v1",
+  "source": {
+    "repository": "https://github.com/kevinswiber/pointbreak-brand",
+    "commit": "6d0bab7987b96d82eefe9b8d92a084cfe69d200c",
+    "manifestSha256": "a6d36770cd2e9db2951c45835c7739fbb6d89ad45e959c50fe2bbe2e7a76eabe"
+  },
+  "artifacts": [
+    {
+      "id": "font.jetbrains-mono.bold-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-BoldItalic.woff2",
+      "sha256": "3a013466c0eee979fb9d42c2d7a8887cd3645dc8b897cfc5b71781cf982efc5a",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.bold.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-Bold.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-Bold.woff2",
+      "sha256": "c503cc5ec5f8b2c7666b7ecda1adf44bd45f2e6579b2eba0fc292150416588a2",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.extra-bold-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-ExtraBoldItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-ExtraBoldItalic.woff2",
+      "sha256": "67718afd5e93925277efb878127107f0ff668059ef5fd799fb31ed12aaae7a96",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.extra-bold.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-ExtraBold.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-ExtraBold.woff2",
+      "sha256": "88097a36a292c145a14394f1fd5133f76b9a3d6fdb133834b2c94a3db61dd39a",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.extra-light-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-ExtraLightItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-ExtraLightItalic.woff2",
+      "sha256": "c43d0dd87523c65879334d43651d3fb1815ca1d18d27507356e6704322d63b79",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.extra-light.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-ExtraLight.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-ExtraLight.woff2",
+      "sha256": "e7964fc553a794d00167f168dc174fdd19b083c30ad213bfc2e6a95876912a44",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-Italic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-Italic.woff2",
+      "sha256": "cb6a1b246318ed3885d7dffa14a2609297fe80e9b8e500bea33b52fa312a36a4",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.license.ofl",
+      "sourcePath": "assets/fonts/jetbrains-mono/OFL.txt",
+      "destination": "src/cli/inspect/design-system/fonts/OFL.txt",
+      "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.light-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-LightItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-LightItalic.woff2",
+      "sha256": "49c50b344b458c1322d859f4f0d9db7f770533c1dbdab31defa0987c29925b9b",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.light.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-Light.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-Light.woff2",
+      "sha256": "43eb798d59b557c3d87c1402ce684b3fda1ad66bf7ec8021b0a43dc31ad9c572",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.medium-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-MediumItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-MediumItalic.woff2",
+      "sha256": "1c9b7a62ee6c3f77c82982a3d0ab7ead8805f5e67ccfc1942037fc65f398f22b",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.medium.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-Medium.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-Medium.woff2",
+      "sha256": "086c48dfbea9ddaff1320f7e09399b8e2924e88ce67453721255db3bdbb5a353",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.regular.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-Regular.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-Regular.woff2",
+      "sha256": "a9cb1cd82332b23a47e3a1239d25d13c86d16c4220695e34b243effa999f45f2",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.semi-bold-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-SemiBoldItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-SemiBoldItalic.woff2",
+      "sha256": "07daacf7fc1956b5b68d902ab4763a062b196a3665d713e54bff066c667c0674",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.semi-bold.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-SemiBold.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-SemiBold.woff2",
+      "sha256": "918edad542a1da608fd2ba8daebaff9ac802309103fe760eed465b8b4e47faf1",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.thin-italic.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-ThinItalic.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-ThinItalic.woff2",
+      "sha256": "c261d07880deb91518e190c19816ddc93a69bf4539b8486cad316b6ed59a065d",
+      "mode": "vendored"
+    },
+    {
+      "id": "font.jetbrains-mono.thin.woff2",
+      "sourcePath": "assets/fonts/jetbrains-mono/JetBrainsMono-Thin.woff2",
+      "destination": "src/cli/inspect/design-system/fonts/JetBrainsMono-Thin.woff2",
+      "sha256": "01c7c4cd01380e75fb1b5ff9900508afcd89a83d0b0e6f70e96ede53183ab53a",
+      "mode": "vendored"
+    },
+    {
+      "id": "logo.full-color.svg",
+      "sourcePath": "assets/logo/pointbreak-logo.svg",
+      "destination": "src/cli/inspect/design-system/logo/pointbreak-logo.svg",
+      "sha256": "08ab40b1d1af858d3e164af86d12f91e742b02ed5d1a307adf32b654681cbbfe",
+      "geometrySha256": "d9702ef7bc16aa10269183e97b659065ded06f2aad16076c8ec78fd446dc36f4",
+      "mode": "vendored"
+    },
+    {
+      "id": "logo.mono.svg",
+      "sourcePath": "assets/logo/pointbreak-logo-mono.svg",
+      "destination": "src/cli/inspect/assets/pointbreak-logo-mono.svg",
+      "sha256": "d444832e76390d1160b18390311e550f829f0534058fa6831be32b740f401c41",
+      "geometrySha256": "d9702ef7bc16aa10269183e97b659065ded06f2aad16076c8ec78fd446dc36f4",
+      "mode": "vendored"
+    }
+  ]
+}

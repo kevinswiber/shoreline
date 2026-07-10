@@ -13,11 +13,15 @@ stays in the live inspector.
 | Path | Role |
 | --- | --- |
 | `ABOUT.md` | Product context for Claude Design (what Pointbreak Review/`shore inspect` is, the design language, UI vocabulary). Synced to both projects alongside the cards. |
-| `../assets/tokens.css` | The single source of truth for the palette (the only `:root`). |
+| `../assets/tokens.css` | Review's live token source and single source of truth for the palette (the only `:root`). |
 | `styles.css` | Component rules only — references the tokens via `var(--…)`. |
 | `_bodies/*.body.html` | Per-card markup fragments (the authored content of each card). |
 | `<group>/<card>.html` | **Generated, git-ignored.** Run the baker to produce them. |
-| `_bodies/bake.sh` | Bakes self-contained preview cards from a fragment + the tokens + `styles.css`. |
+| `contrast-check.mjs` | Product-local text-contrast audit of record; parses the live token source for both themes. |
+| `pointbreak-brand.lock.json` | Immutable source commit, manifest digest, and local destinations for vendored brand assets. |
+| `brand-check.mjs` | Offline verification of every locked local byte digest and SVG geometry digest. |
+| `logo/pointbreak-logo.svg` | Original multiband logo for gallery identity evidence only; live compact chrome remains mono. |
+| `_bodies/bake.sh` | Verifies brand and contrast contracts, then bakes self-contained cards from a fragment + tokens + `styles.css`. |
 
 Each baked card is self-contained: the baker prepends the
 `<!-- @dsCard group="…" -->` marker the gallery indexes on, inlines
@@ -29,7 +33,8 @@ reads the inlined token values via `getComputedStyle`.
 ## Workflow
 
 1. Edit `styles.css` and/or a `_bodies/*.body.html` fragment.
-2. Regenerate the cards:
+2. Regenerate the cards; the baker runs the offline brand check and local
+   contrast audit before writing generated output:
    ```sh
    bash _bodies/bake.sh
    ```
@@ -40,3 +45,10 @@ The palette is single-sourced in `../assets/tokens.css` (the served frontend's
 only `:root`); `bake.sh` inlines that same file into every card, so the gallery
 and the live inspector resolve the same shared tokens. Add or rename a token in
 `tokens.css` and re-bake.
+
+Node is design tooling only. Neither Node nor this gallery participates in the
+Rust build/runtime, and no product build or audit depends on the marketing
+repository or a sibling `pointbreak-brand` checkout. Brand updates land in the
+central repository first, then Review deliberately vendors the selected files
+and updates `pointbreak-brand.lock.json`; normal verification reads only that
+lock and committed local assets.

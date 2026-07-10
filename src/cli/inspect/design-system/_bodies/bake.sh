@@ -6,6 +6,11 @@ DS="$(cd "$(dirname "$0")/.." && pwd)"
 TOKENS="$DS/../assets/tokens.css"
 STYLES="$DS/styles.css"
 
+# Verify immutable brand inputs and the live palette before writing generated
+# gallery files. Both checks are repository-local and network-free.
+node "$DS/brand-check.mjs"
+node "$DS/contrast-check.mjs"
+
 # Publish a token file for the synced design-system project: the shared product
 # tokens plus the self-hosted JetBrains Mono @font-face block (fonts.css). The
 # project's styles.css @imports this, so the compiler resolves both the tokens

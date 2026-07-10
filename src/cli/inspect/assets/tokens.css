@@ -14,9 +14,10 @@
  * Dark-first: :root is the dark theme (the product's native register), and the
  * light-theme override is a semantic-alias flip — components never change, only
  * the alias→value mapping. Both themes are WCAG-AA contrast-audited against the
- * surfaces each token actually renders on (the merged design-system's
- * contrast-check.mjs is the audit of record): every text pair clears AA (4.5:1)
- * in both themes, including the composited diff/emphasis rows. Borders sit below
+ * surfaces each token actually renders on by the product-local design-system/
+ * contrast-check.mjs, which parses this live token source: every text pair
+ * clears AA (4.5:1) in both themes, including the composited diff/emphasis rows.
+ * Borders sit below
  * the 3:1 non-text bar by design — a perception-grade boundary that surfaces and
  * spacing reinforce, matching the inspector's established values.
  */

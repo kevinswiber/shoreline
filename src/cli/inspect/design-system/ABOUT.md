@@ -27,8 +27,8 @@ surface because Pointbreak also covers debugging collaboration tools.
 - **Dark-first, light-real.** `:root` is the dark theme;
   `[data-theme="light"]` is a full semantic-alias override. Status hues are
   WCAG AA contrast-checked against the surfaces they actually render on, in
-  both themes — the checks are documented in `tokens.css` comments. Don't
-  introduce colors casually.
+  both themes by the product-local `contrast-check.mjs`, which parses the live
+  `../assets/tokens.css` source. Don't introduce colors casually.
 - **Harbor surfaces** (`--bg → --bg-elev → --bg-row → --bg-row-sel`): an
   ocean-navy wash — `--bg` (`#0a1929`) is shared with the marketing chrome —
   quiet enough that the status hues still carry all the meaning. The **accent**
@@ -50,6 +50,11 @@ surface because Pointbreak also covers debugging collaboration tools.
   heading anchor. Mono-heavy (identifiers, timestamps, chips, diffs). The
   product ships **zero webfonts** (system mono stack); only this gallery
   self-hosts JetBrains Mono so cards render consistently.
+
+The gallery's multiband logo and self-hosted fonts are locally vendored brand
+inputs pinned by `pointbreak-brand.lock.json`. `brand-check.mjs` verifies their
+bytes and logo geometry offline. The live inspector continues to use its compact
+mono logo and system font stack.
 
 ## Vocabulary the UI speaks
 
