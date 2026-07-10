@@ -236,3 +236,65 @@ fn modified_repo() -> GitRepo {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo
 }
+
+#[test]
+fn accepted_after_failed_validation_clears_the_attention_item() {
+    let repo = modified_repo();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    let capture = shore(["capture", "--repo", &repo_arg]);
+    assert!(
+        capture.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&capture.stderr)
+    );
+    let revision_id = parse_json(&capture.stdout)["revision"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let failed = shore([
+        "validation",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--check-name",
+        "red proof",
+        "--status",
+        "failed",
+        "--revision",
+        &revision_id,
+    ]);
+    assert!(
+        failed.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&failed.stderr)
+    );
+
+    // Before the judgment: the failure claims attention.
+    let before = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    assert_eq!(before["items"].as_array().unwrap().len(), 1);
+
+    let accepted = shore([
+        "assessment",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--assessment",
+        "accepted",
+        "--revision",
+        &revision_id,
+    ]);
+    assert!(
+        accepted.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+
+    // After: the judgment subsumes the failure; the queue is empty.
+    let after = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    assert_eq!(after["items"].as_array().unwrap().len(), 0);
+}

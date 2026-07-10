@@ -1,7 +1,7 @@
 mod actor_attributes;
 mod clock;
 mod delegates;
-mod instant;
+pub(crate) mod instant;
 mod principal;
 mod writer;
 

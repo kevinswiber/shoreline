@@ -8,13 +8,14 @@ use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, AssessmentId, InputRequestId, ObservationId, RevisionId, TrackId, ValidationCheckId,
-    ValidationStatus, ValidationTarget,
+    ActorId, AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, RevisionId, TrackId,
+    ValidationCheckId, ValidationStatus, ValidationTarget,
 };
 use crate::session::event::{
     AssertionMode, EventType, InputRequestReasonCode, ReviewAssessment, ShoreEvent,
     ValidationCheckRecordedPayload, WorkObjectProposal, WorkObjectProposedPayload,
 };
+use crate::session::identity::instant::parse_event_instant;
 use crate::session::projection::supersession::SupersessionView;
 use crate::session::state::ProjectionDiagnostic;
 use crate::session::workflow::assessment::collect_assessment_records_by_revision;
@@ -139,6 +140,12 @@ pub struct AttentionAssessmentRecord {
     pub related_observation_ids: Vec<ObservationId>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub related_input_request_ids: Vec<InputRequestId>,
+    /// Whether the assessment's payload target is the revision itself (vs a
+    /// file/range/observation/request within it). The suppression predicates
+    /// accept only revision-scoped judgments as positive witnesses; never
+    /// serialized, so the wire shape is unchanged.
+    #[serde(skip)]
+    pub revision_scoped: bool,
 }
 
 /// The tier of an attention item is a pure function of its kind (+ request mode
@@ -184,7 +191,7 @@ pub(crate) fn attention_from_events(
     ambiguous_assessment_items(&current_assessments, &supersession, &mut items);
     competing_heads_items(&supersession, &captured_at, &mut items);
     stale_assessment_items(&current_assessments, &supersession, &mut items);
-    failed_validation_items(events, &supersession, &mut items)?;
+    failed_validation_items(events, &supersession, &current_assessments, &mut items)?;
     follow_up_outstanding_items(
         &current_assessments,
         &open_request_ids,
@@ -354,14 +361,18 @@ impl ValidationRecord<'_> {
 
 /// One `failed_validation` item per latest failed/errored validation record per
 /// `(revision, track, check_name)`, on current heads only. A later `passed`
-/// record for the same check clears the card; a superseded revision does not
-/// report (staleness is the stale-assessment builder's job); `skipped` never
-/// reports. Heads-only + latest-per-check is deliberately stricter than the
-/// inspector's `failed_validation_count` rollup, which never clears — the two
-/// surfaces will converge on this projection later, not the reverse.
+/// record for the same check clears the card, and so does a later unanimously
+/// accepting judgment on the revision (`assessment_subsumes_failure` — Rule B
+/// of the judgment-subsumption amendment to ADR-0019); a superseded revision
+/// does not report (staleness is the stale-assessment builder's job);
+/// `skipped` never reports. Heads-only + latest-per-check is deliberately
+/// stricter than the inspector's `failed_validation_count` rollup, which never
+/// clears — the two surfaces will converge on this projection later, not the
+/// reverse.
 fn failed_validation_items(
     events: &[ShoreEvent],
     supersession: &SupersessionView,
+    current_by_revision: &BTreeMap<RevisionId, Vec<AttentionAssessmentRecord>>,
     items: &mut Vec<AttentionItem>,
 ) -> Result<()> {
     // Dedup by validation_check_id, lowest-event-id representative (mirrors
@@ -424,6 +435,13 @@ fn failed_validation_items(
         else {
             continue;
         };
+        let peers = current_by_revision
+            .get(&revision_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if assessment_subsumes_failure(peers, &max_time) {
+            continue;
+        }
         // Deterministic order among tied failing records (the final sort re-orders
         // across kinds, but keep this stable so ties never reorder run to run).
         group.sort_by(|left, right| {
@@ -576,6 +594,7 @@ fn current_assessment_records_by_revision(
                 related_input_request_ids: sorted_unique(
                     record.payload.related_input_request_ids.clone(),
                 ),
+                revision_scoped: matches!(record.payload.target, ReviewTargetRef::Revision { .. }),
             })
             .collect();
         peers.sort_by(|left, right| {
@@ -619,6 +638,37 @@ fn ambiguous_assessment_items(
             detail,
         });
     }
+}
+
+/// Whether a later, unanimously accepting judgment subsumes a failing
+/// validation record (Rule B of the judgment-subsumption amendment to
+/// ADR-0019): the current assessment set is non-empty, every current
+/// assessment is accepting, and at least one revision-scoped current
+/// assessment was recorded strictly later than the failure. Instants are
+/// parsed (`unix-ms:` or RFC 3339) — never compared lexically, since the two
+/// forms interleave in real stores; an unparseable timestamp on either side
+/// can never establish strictly-later, and ties keep the card.
+fn assessment_subsumes_failure(peers: &[AttentionAssessmentRecord], failure_time: &str) -> bool {
+    if peers.is_empty() {
+        return false;
+    }
+    let all_accepting = peers.iter().all(|record| {
+        matches!(
+            record.assessment,
+            ReviewAssessment::Accepted | ReviewAssessment::AcceptedWithFollowUp
+        )
+    });
+    if !all_accepting {
+        return false;
+    }
+    let Some(failure_instant) = parse_event_instant(failure_time) else {
+        return false;
+    };
+    peers.iter().any(|record| {
+        record.revision_scoped
+            && parse_event_instant(&record.recorded_at)
+                .is_some_and(|instant| instant > failure_instant)
+    })
 }
 
 /// Supersession-derived freshness for a revision: current when the revision is a
@@ -746,14 +796,42 @@ mod tests {
         related_input_requests: Vec<&str>,
         occurred_at: &str,
     ) -> ShoreEvent {
+        assessment_event_with_target(
+            revision,
+            track,
+            actor,
+            assess_id,
+            assessment,
+            replaces,
+            related_input_requests,
+            occurred_at,
+            ReviewTargetRef::Revision {
+                revision_id: revision.clone(),
+            },
+        )
+    }
+
+    /// An assessment with an explicit payload target. A file/range/observation
+    /// target still groups under its subject revision, but must never act as a
+    /// revision-scoped judgment (invariant 3).
+    #[allow(clippy::too_many_arguments)]
+    fn assessment_event_with_target(
+        revision: &RevisionId,
+        track: &str,
+        actor: &str,
+        assess_id: &str,
+        assessment: ReviewAssessment,
+        replaces: Vec<&str>,
+        related_input_requests: Vec<&str>,
+        occurred_at: &str,
+        target: ReviewTargetRef,
+    ) -> ShoreEvent {
         let revision = revision.clone();
         let track_id = TrackId::new(track.to_owned());
         let assessment_id = AssessmentId::new(format!("assess:sha256:{assess_id}"));
         let payload = ReviewAssessmentRecordedPayload {
             assessment_id,
-            target: ReviewTargetRef::Revision {
-                revision_id: revision.clone(),
-            },
+            target,
             assessment,
             summary: None,
             summary_content_type: Default::default(),
@@ -1975,5 +2053,462 @@ mod tests {
             "openedBy": "actor:human:kevin",
         });
         assert_eq!(serde_json::to_value(item).unwrap(), expected);
+    }
+
+    /// True when no `failed_validation` item survives in the projection.
+    fn no_failed_validation_items(projection: &AttentionProjection) -> bool {
+        projection
+            .items
+            .iter()
+            .all(|item| !item.id.starts_with("failed_validation:"))
+    }
+
+    fn has_failed_validation_item(projection: &AttentionProjection, check_id: &str) -> bool {
+        projection
+            .items
+            .iter()
+            .any(|item| item.id == format!("failed_validation:validation:sha256:{check_id}"))
+    }
+
+    #[test]
+    fn accepting_assessment_after_failure_subsumes_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "red proof",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_failed_validation_items(&projection),
+            "an accepting judgment recorded after the failure clears the card",
+        );
+    }
+
+    #[test]
+    fn accepted_with_follow_up_subsumes_an_errored_record_too() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "flaky probe",
+                ValidationStatus::Errored,
+                None,
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::AcceptedWithFollowUp,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_failed_validation_items(&projection),
+            "accepted_with_follow_up is accepting and subsumes an errored record",
+        );
+    }
+
+    #[test]
+    fn needs_changes_after_failure_keeps_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::NeedsChanges,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(has_failed_validation_item(&projection, "v1"));
+    }
+
+    #[test]
+    fn needs_clarification_after_failure_keeps_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::NeedsClarification,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(has_failed_validation_item(&projection, "v1"));
+    }
+
+    #[test]
+    fn assessment_recorded_before_the_failure_keeps_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "post-acceptance gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:02Z",
+                vec![],
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "a failure recorded after acceptance re-raises attention",
+        );
+    }
+
+    #[test]
+    fn assessment_tied_with_the_failure_keeps_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "equal instants keep the card (conservative tie rule)",
+        );
+    }
+
+    #[test]
+    fn mixed_current_assessments_keep_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "human:kevin",
+                "actor:human:kevin",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::NeedsChanges,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:03Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "any current non-accepting assessment vetoes suppression",
+        );
+    }
+
+    #[test]
+    fn replaced_needs_changes_then_accepted_subsumes() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "red proof",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::NeedsChanges,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::Accepted,
+                vec!["s1"],
+                vec![],
+                "2026-06-04T00:00:03Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_failed_validation_items(&projection),
+            "the CURRENT set (needs_changes replaced by accepted) is unanimously accepting",
+        );
+    }
+
+    #[test]
+    fn mixed_timestamp_formats_compare_as_instants() {
+        // Case A: RFC 3339 failure at 2026-06-04T00:00:01Z (epoch-ms
+        // 1780531201000); unix-ms assessment genuinely EARLIER
+        // (1780531100000). Lexical order would call the assessment later
+        // ('u' > '2') and wrongly suppress; parsed comparison keeps the card.
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "unix-ms:1780531100000",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "an earlier unix-ms assessment must not suppress an RFC 3339 failure",
+        );
+
+        // Case B: unix-ms failure at 1780531201000 (2026-06-04T00:00:01Z);
+        // RFC 3339 assessment genuinely LATER (2026-06-04T00:00:02Z). Lexical
+        // order would call the assessment earlier and keep the card; parsed
+        // comparison clears it.
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "unix-ms:1780531201000",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_failed_validation_items(&projection),
+            "a genuinely later RFC 3339 assessment subsumes a unix-ms failure",
+        );
+    }
+
+    #[test]
+    fn unparseable_timestamp_keeps_the_card() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "not-a-time",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "an unparseable assessment instant can never establish strictly-later",
+        );
+    }
+
+    #[test]
+    fn file_scoped_acceptance_does_not_subsume() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "v1",
+                "gate",
+                ValidationStatus::Failed,
+                Some(1),
+                None,
+                "2026-06-04T00:00:01Z",
+                vec![],
+            ),
+            assessment_event_with_target(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+                ReviewTargetRef::File {
+                    revision_id: a.clone(),
+                    file_path: "src/lib.rs".to_owned(),
+                },
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_failed_validation_item(&projection, "v1"),
+            "a file-scoped acceptance is not a revision-scoped judgment",
+        );
     }
 }
