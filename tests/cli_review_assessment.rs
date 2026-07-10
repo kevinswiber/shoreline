@@ -342,6 +342,122 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
 }
 
 #[test]
+fn shore_review_assessment_add_flags_competing_candidates_without_replaces() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["capture", "--repo", repo_arg]);
+
+    let first = add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
+    assert!(
+        first["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "assessment_competing_candidates"),
+        "first assessment must not flag competing candidates: {first}"
+    );
+
+    let second = add_assessment(repo_arg, "agent:codex", "needs-changes", "fix it");
+    let diagnostic = second["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "assessment_competing_candidates")
+        .unwrap_or_else(|| panic!("expected competing-candidates diagnostic: {second}"));
+    let message = diagnostic["message"].as_str().unwrap();
+    assert!(
+        message.contains(first["assessmentId"].as_str().unwrap()),
+        "message must name the unreplaced candidate:\n{message}"
+    );
+    assert!(
+        message.contains("--replaces"),
+        "message must point at --replaces:\n{message}"
+    );
+}
+
+#[test]
+fn shore_review_assessment_add_replacing_every_candidate_stays_quiet() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["capture", "--repo", repo_arg]);
+    let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "fix it");
+
+    let second = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+        "--summary",
+        "fixed",
+        "--replaces",
+        first["assessmentId"].as_str().unwrap(),
+    ]);
+    assert!(
+        second.status.success(),
+        "assessment add failed: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let output = parse_json(&second.stdout);
+    assert!(
+        output["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "assessment_competing_candidates"),
+        "a full replacement must not flag competing candidates: {output}"
+    );
+}
+
+#[test]
+fn shore_review_assessment_add_flags_only_candidates_left_unreplaced() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["capture", "--repo", repo_arg]);
+    let first = add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
+    let second = add_assessment(repo_arg, "agent:codex", "needs-changes", "fix it");
+
+    let third = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "agent:codex",
+        "--assessment",
+        "accepted",
+        "--summary",
+        "fixed",
+        "--replaces",
+        second["assessmentId"].as_str().unwrap(),
+    ]);
+    assert!(
+        third.status.success(),
+        "assessment add failed: {}",
+        String::from_utf8_lossy(&third.stderr)
+    );
+    let output = parse_json(&third.stdout);
+    let diagnostic = output["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == "assessment_competing_candidates")
+        .unwrap_or_else(|| panic!("expected competing-candidates diagnostic: {output}"));
+    let message = diagnostic["message"].as_str().unwrap();
+    assert!(
+        message.contains(first["assessmentId"].as_str().unwrap()),
+        "message must name the candidate left standing:\n{message}"
+    );
+    assert!(
+        !message.contains(second["assessmentId"].as_str().unwrap()),
+        "message must not name the replaced candidate:\n{message}"
+    );
+}
+
+#[test]
 fn shore_review_assessment_add_targets_input_request_and_emits_related_input_requests() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();

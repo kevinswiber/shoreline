@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
 use super::AssessmentTargetSelector;
 use super::target::resolve_assessment_target;
+use super::view::collect_assessment_records_by_revision;
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
@@ -239,6 +240,14 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         related_input_request_ids: &related_input_request_ids,
         writer_actor_id: writer.actor_id.as_str(),
     })?;
+    // Advisory only: read the same writer-visible union the relationship
+    // validation reads, before this write lands.
+    let competing_candidates = competing_candidates_diagnostic(
+        &validation_events,
+        &resolved.revision_id,
+        &assessment_id,
+        &replaces_assessment_ids,
+    );
     let source_key = options
         .idempotency_key
         .as_deref()
@@ -303,6 +312,9 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         Durability::Projection,
     )?;
 
+    let mut diagnostics = state.diagnostics;
+    diagnostics.extend(competing_candidates);
+
     let result = AssessmentAddResult {
         revision_id: resolved.revision_id,
         assessment_id,
@@ -314,9 +326,75 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         events_created,
         events_existing,
         events_created_by_type,
-        diagnostics: state.diagnostics,
+        diagnostics,
     };
     Ok(result)
+}
+
+/// The advisory nudge's diagnostic code: the new assessment leaves other
+/// unreplaced assessments standing on the same revision, so the revision's
+/// current assessment reads as ambiguous (competing candidates). Replacement
+/// is never implicit — even a same-actor revision of an earlier call must name
+/// it via `--replaces`. Advisory and never blocking: the assessment has
+/// already recorded when this is computed, and it decorates only the write's
+/// result document, never the store.
+pub const ASSESSMENT_COMPETING_CANDIDATES_CODE: &str = "assessment_competing_candidates";
+
+/// Advisory competing-candidates diagnostic for the add result, or `None` when
+/// this write leaves the revision with a single current assessment.
+fn competing_candidates_diagnostic(
+    events: &[ShoreEvent],
+    revision_id: &RevisionId,
+    new_assessment_id: &AssessmentId,
+    new_replaces_ids: &[AssessmentId],
+) -> Option<ProjectionDiagnostic> {
+    let left_standing =
+        unreplaced_assessment_candidates(events, revision_id, new_assessment_id, new_replaces_ids);
+    if left_standing.is_empty() {
+        return None;
+    }
+    let listed = left_standing
+        .iter()
+        .map(|assessment_id| assessment_id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(ProjectionDiagnostic {
+        code: ASSESSMENT_COMPETING_CANDIDATES_CODE.to_owned(),
+        message: format!(
+            "this assessment leaves {} unreplaced assessment(s) standing on revision {}: \
+             {listed}; the revision's current assessment reads as ambiguous — pass --replaces \
+             for any candidate this judgment supersedes, or leave them standing deliberately",
+            left_standing.len(),
+            revision_id.as_str(),
+        ),
+    })
+}
+
+/// The distinct assessments still current on the revision once this write
+/// lands: every recorded assessment id, minus those replaced by any record or
+/// by the new assessment, minus the new assessment itself. An event set the
+/// shared collector cannot decode yields no candidates — the nudge is advisory
+/// and must never turn a malformed sibling event into a write failure.
+fn unreplaced_assessment_candidates(
+    events: &[ShoreEvent],
+    revision_id: &RevisionId,
+    new_assessment_id: &AssessmentId,
+    new_replaces_ids: &[AssessmentId],
+) -> Vec<AssessmentId> {
+    let Ok(mut by_revision) = collect_assessment_records_by_revision(events) else {
+        return Vec::new();
+    };
+    let records = by_revision.remove(revision_id).unwrap_or_default();
+    let mut replaced: BTreeSet<AssessmentId> = new_replaces_ids.iter().cloned().collect();
+    for record in records.values() {
+        replaced.extend(record.payload.replaces_assessment_ids.iter().cloned());
+    }
+    records
+        .into_keys()
+        .filter(|assessment_id| {
+            assessment_id != new_assessment_id && !replaced.contains(assessment_id)
+        })
+        .collect()
 }
 
 fn validate_assessment_relationships(
