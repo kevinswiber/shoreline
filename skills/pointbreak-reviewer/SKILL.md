@@ -254,6 +254,16 @@ Recording the assessment is the reviewer's role. Do not add a second assessment 
 record clarifying facts as observations before the single assessment, or choose
 `needs-clarification` if the review call is not ready.
 
+If your judgment supersedes an assessment already on the revision — you are revising your own
+earlier call in a later round, or your re-review pass replaces a predecessor track's assessment —
+pass `--replaces <assessment-id>` (repeatable) on the new assessment. Replacement is never
+implicit, even for the same actor: two unreplaced assessments on one revision read as competing
+candidates and surface as an `ambiguous_assessment` attention item. Check what is current first:
+
+```bash
+shore assessment show --revision "$revision_id"
+```
+
 ## Read back and stand down
 
 Verify the reviewer record with bounded read commands:
@@ -303,3 +313,6 @@ an implementation role.
 - **Recording author-decision follow-ups as observations.** Use an advisory input request when the
   author should answer.
 - **Adding multiple assessments.** The reviewer records exactly one assessment for the review pass.
+- **Re-assessing without `--replaces`.** A revised call — or a re-review of an already-assessed
+  revision — records the new assessment with `--replaces <prior-assessment-id>`; omitting it leaves
+  two competing candidates that read as ambiguous.
