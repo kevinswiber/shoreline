@@ -12,6 +12,88 @@ fn revision_help_lists_show() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("show"));
 }
 
+/// #445 option 2: `revision show` liveness defaults to "did this land on the
+/// default branch?" — narrow against the detected default branch — not broad
+/// reachability. The anchored commit here is `main`'s own tip, so with the
+/// tip-equality fix (#447) it reads `merged` and its label is the default branch.
+#[test]
+fn revision_show_liveness_defaults_to_the_integration_branch() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+    let path = repo.path().to_str().unwrap();
+
+    // A commit-range capture anchors the target (HEAD) commit, which is main's tip.
+    let capture = shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    assert!(
+        capture.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&capture.stderr)
+    );
+
+    let json = parse_json(&shore(["revision", "show", "--repo", path]).stdout);
+    let per_commit = json["commitRange"]["liveness"]["perCommit"]
+        .as_array()
+        .unwrap();
+    assert_eq!(per_commit.len(), 1);
+    assert_eq!(
+        per_commit[0]["condition"], "merged",
+        "the anchored commit is main's tip → landed on the default branch"
+    );
+    assert_eq!(per_commit[0]["liveBranch"], "main");
+}
+
+/// An explicit `--integration-ref` overrides the default: narrowed against a side
+/// branch that main's tip has not landed on, the commit is not `merged`. It stays
+/// a live tip (`live`), not orphaned — the integration check only decides "merged
+/// into that ref".
+#[test]
+fn revision_show_accepts_explicit_integration_ref() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+    // A side branch forking before HEAD: its tip does not reach main's tip.
+    repo.git(["checkout", "-b", "side", "HEAD~1"]);
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 9 }\n");
+    repo.commit_all("side");
+    repo.git(["checkout", "main"]);
+    let path = repo.path().to_str().unwrap();
+
+    let capture = shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    assert!(
+        capture.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&capture.stderr)
+    );
+
+    let show = shore([
+        "revision",
+        "show",
+        "--repo",
+        path,
+        "--integration-ref",
+        "refs/heads/side",
+    ]);
+    assert!(
+        show.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&show.stderr)
+    );
+    let json = parse_json(&show.stdout);
+    let per_commit = json["commitRange"]["liveness"]["perCommit"]
+        .as_array()
+        .unwrap();
+    assert_eq!(per_commit.len(), 1);
+    assert_eq!(
+        per_commit[0]["condition"], "live",
+        "main's tip has not landed on the side branch, but it is still a live tip"
+    );
+}
+
 #[test]
 fn revision_show_positional_accepts_and_omits() {
     let repo = modified_repo();

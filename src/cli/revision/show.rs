@@ -9,7 +9,7 @@ use pointbreak::session::event::AssertionMode;
 use pointbreak::session::{
     CurrentAssessmentStatus, EventVerificationPolicy, EventVerificationStatus, InputRequestStatus,
     InputRequestView, RemovalPolicy, RevisionShowOptions, RevisionShowResult, enrich_liveness,
-    show_revision,
+    resolve_default_integration_ref, show_revision,
 };
 
 use crate::cli::output;
@@ -35,6 +35,15 @@ pub(super) struct ShowArgs {
     #[arg(long)]
     include_body: bool,
 
+    /// Reachability target for the liveness block's "merged" condition: the commit
+    /// is merged only when an ancestor of this ref (equality counts). Defaults to
+    /// the repository's detected default branch (`origin/HEAD`, else local
+    /// `main`/`master`), so liveness answers "did this land on the default
+    /// branch?"; when no default branch is detected it falls back to broad
+    /// reachability (any live tip).
+    #[arg(long = "integration-ref")]
+    integration_ref: Option<String>,
+
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -59,8 +68,16 @@ pub(super) fn run(
 
     // Liveness (merged/live/orphaned per OID + headline) is layered here, outside
     // the git-free document workflow: best-effort, omitted when reachability is
-    // unknown.
-    let liveness = enrich_liveness(&result.commit_range, &args.repo, None).ok();
+    // unknown. Narrow by default against the repository's detected default branch
+    // so the block answers "did this land on the default branch?" (#445); an
+    // explicit `--integration-ref` overrides, and an undetectable default falls
+    // back to broad reachability.
+    let integration_ref = match &args.integration_ref {
+        Some(explicit) => Some(explicit.clone()),
+        None => resolve_default_integration_ref(&args.repo),
+    };
+    let liveness =
+        enrich_liveness(&result.commit_range, &args.repo, integration_ref.as_deref()).ok();
     // `revision_show_document` consumes `result` by value; the text digest reads
     // the same result, so clone it only when the text lane will actually render
     // (the machine lanes never pay for the clone — this is the #96 heavy command).
