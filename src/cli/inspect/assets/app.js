@@ -150,7 +150,15 @@
     cmdEmpty: "cmd-empty",
     cmdGroup: "cmd-group",
     cmdHint: "cmd-hint",
-    cmdLabel: "cmd-label"
+    cmdLabel: "cmd-label",
+    // The attention lens: tiered cards over the outstanding review state.
+    attentionCard: "attention-card",
+    attentionTier: "attention-tier",
+    attentionEmpty: "attention-empty",
+    attentionKind: "attention-kind",
+    attentionMeta: "attention-meta",
+    attentionFreshness: "attention-freshness",
+    attentionFocus: "attention-focus"
   };
   var ANNO_KINDS = [
     "observation",
@@ -464,7 +472,12 @@
     needs_changes: "needs-changes",
     needs_clarification: "needs-clarification"
   };
-  var LENSES = ["timeline", "list", "threads"];
+  var LENSES = [
+    "timeline",
+    "list",
+    "threads",
+    "attention"
+  ];
   var DEFAULT_LENS = "timeline";
   var QUERY_FIELDS = [
     "type",
@@ -772,6 +785,7 @@
     history: null,
     revisions: null,
     threads: null,
+    attention: null,
     identity: null,
     lens: "timeline",
     selected: { kind: null, id: null },
@@ -1080,6 +1094,10 @@
     );
   }
   __name(lensEntryIds, "lensEntryIds");
+  function attentionEntryKeys(state2) {
+    return (state2.attention?.items ?? []).map((item) => item.id);
+  }
+  __name(attentionEntryKeys, "attentionEntryKeys");
   function selectedEventId() {
     const selected = getState().selected;
     return selected && selected.kind === "event" ? selected.id : null;
@@ -1136,14 +1154,16 @@
         history: { ...historyRaw, queryKey: params },
         lastEventCount: freshness.eventCount ?? null
       });
-      const [revisionsRaw, threadsRaw] = await Promise.all([
+      const [revisionsRaw, threadsRaw, attentionRaw] = await Promise.all([
         fetchJSON("/api/revisions"),
-        fetchJSON("/api/threads")
+        fetchJSON("/api/threads"),
+        fetchJSON("/api/attention")
       ]);
       showError(null);
       commit({
         revisions: revisionsRaw,
-        threads: threadsRaw
+        threads: threadsRaw,
+        attention: attentionRaw
       });
     } catch (err) {
       showError(err instanceof Error ? err.message : String(err));
@@ -1776,7 +1796,7 @@
   __name(noop, "noop");
 
   // src/router.ts
-  var LENSES2 = ["timeline", "list", "threads"];
+  var LENSES2 = ["timeline", "list", "threads", "attention"];
   var DEFAULT_LENS2 = "timeline";
   function selectionKind(id) {
     const info = refInfo(id);
@@ -3699,6 +3719,12 @@
     });
     cmds.push({
       kind: "Actions",
+      label: "Switch to attention lens",
+      hint: "lens",
+      run: /* @__PURE__ */ __name(() => navigate({ lens: "attention" }), "run")
+    });
+    cmds.push({
+      kind: "Actions",
       label: "Toggle timeline order",
       hint: "order",
       run: /* @__PURE__ */ __name(() => navigate(
@@ -3926,6 +3952,59 @@
     return lens === "list" || lens === "threads";
   }
   __name(revisionLensIsActive, "revisionLensIsActive");
+  function attentionLensIsActive() {
+    return getState().lens === "attention";
+  }
+  __name(attentionLensIsActive, "attentionLensIsActive");
+  var attentionFocusKey = null;
+  function setAttentionFocus(key) {
+    attentionFocusKey = key;
+    const master = $("#master");
+    if (!master) return;
+    for (const card of Array.from(
+      master.querySelectorAll(".attention-card")
+    )) {
+      const on = card.dataset.entryId === key;
+      card.classList.toggle(CLASS.attentionFocus, on);
+      if (on) card.scrollIntoView({ block: "nearest" });
+    }
+  }
+  __name(setAttentionFocus, "setAttentionFocus");
+  function stepAttention(delta) {
+    const keys = attentionEntryKeys(getState());
+    if (!keys.length) return;
+    let idx = attentionFocusKey ? keys.indexOf(attentionFocusKey) : -1;
+    if (idx < 0) idx = delta > 0 ? -1 : 0;
+    const next = Math.max(0, Math.min(keys.length - 1, idx + delta));
+    setAttentionFocus(keys[next]);
+  }
+  __name(stepAttention, "stepAttention");
+  function jumpAttentionBoundary(target) {
+    const keys = attentionEntryKeys(getState());
+    if (!keys.length) return;
+    setAttentionFocus(target === "first" ? keys[0] : keys[keys.length - 1]);
+  }
+  __name(jumpAttentionBoundary, "jumpAttentionBoundary");
+  function attentionViewportRows() {
+    const el = $("#attention");
+    const viewportH = el?.clientHeight ?? 0;
+    const card = el?.querySelector(".attention-card");
+    const itemH = card?.getBoundingClientRect().height ?? 0;
+    const measured = viewportH > 0 && itemH > 0 ? Math.floor(viewportH / itemH) : 0;
+    return Math.max(1, measured);
+  }
+  __name(attentionViewportRows, "attentionViewportRows");
+  function activateAttentionFocus() {
+    if (!attentionFocusKey) return;
+    const master = $("#master");
+    const card = Array.from(
+      master?.querySelectorAll(".attention-card") ?? []
+    ).find((c) => c.dataset.entryId === attentionFocusKey);
+    const revisionId = card?.dataset.revisionId;
+    if (revisionId)
+      navigate({ selected: { kind: "revision", id: revisionId }, open: true });
+  }
+  __name(activateAttentionFocus, "activateAttentionFocus");
   function timelineViewportRows() {
     const list = $("#timeline");
     const viewportH = list?.clientHeight ?? 0;
@@ -4070,6 +4149,7 @@
   function jumpLensBoundary(target) {
     if (timelineIsActive()) void jumpTimelineBoundary(target);
     else if (revisionLensIsActive()) jumpLoadedLensBoundary(target);
+    else if (attentionLensIsActive()) jumpAttentionBoundary(target);
   }
   __name(jumpLensBoundary, "jumpLensBoundary");
   function pageLensRows(deltaRows) {
@@ -4078,6 +4158,7 @@
       return;
     }
     if (revisionLensIsActive()) pageLoadedLens(deltaRows);
+    else if (attentionLensIsActive()) stepAttention(deltaRows);
   }
   __name(pageLensRows, "pageLensRows");
   function pageLensFullPage(direction) {
@@ -4087,6 +4168,10 @@
     }
     if (revisionLensIsActive()) {
       pageLensRows(direction * revisionLensViewportRows());
+      return;
+    }
+    if (attentionLensIsActive()) {
+      pageLensRows(direction * attentionViewportRows());
     }
   }
   __name(pageLensFullPage, "pageLensFullPage");
@@ -4094,6 +4179,12 @@
     if (timelineIsActive()) {
       pageLensRows(
         direction * Math.max(1, Math.floor(timelineViewportRows() / 2))
+      );
+      return;
+    }
+    if (attentionLensIsActive()) {
+      pageLensRows(
+        direction * Math.max(1, Math.floor(attentionViewportRows() / 2))
       );
       return;
     }
@@ -4105,6 +4196,10 @@
   }
   __name(pageLensHalfPage, "pageLensHalfPage");
   async function stepSelectionAsync(delta) {
+    if (attentionLensIsActive()) {
+      stepAttention(delta);
+      return;
+    }
     if (getState().lens === "timeline") {
       await stepTimeline(delta);
       return;
@@ -4113,6 +4208,10 @@
   }
   __name(stepSelectionAsync, "stepSelectionAsync");
   function activateSelection() {
+    if (attentionLensIsActive()) {
+      activateAttentionFocus();
+      return;
+    }
     const sel = getState().selected;
     if (!getState().open) {
       if (!sel.id) return;
@@ -4231,14 +4330,18 @@
         ev.preventDefault();
         navigate({ lens: "threads" });
         return;
+      case "4":
+        ev.preventDefault();
+        navigate({ lens: "attention" });
+        return;
       case "g":
-        if (timelineIsActive() || revisionLensIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive() || attentionLensIsActive()) {
           ev.preventDefault();
           jumpLensBoundary("first");
         }
         return;
       case "G":
-        if (timelineIsActive() || revisionLensIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive() || attentionLensIsActive()) {
           ev.preventDefault();
           jumpLensBoundary("last");
         }
@@ -4248,25 +4351,25 @@
         focusSearch();
         return;
       case "f":
-        if (timelineIsActive() || revisionLensIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive() || attentionLensIsActive()) {
           ev.preventDefault();
           pageLensFullPage(1);
         }
         return;
       case "b":
-        if (timelineIsActive() || revisionLensIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive() || attentionLensIsActive()) {
           ev.preventDefault();
           pageLensFullPage(-1);
         }
         return;
       case "d":
-        if (timelineIsActive() || revisionLensIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive() || attentionLensIsActive()) {
           ev.preventDefault();
           pageLensHalfPage(1);
         }
         return;
       case "u":
-        if (timelineIsActive() || revisionLensIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive() || attentionLensIsActive()) {
           ev.preventDefault();
           pageLensHalfPage(-1);
         }
@@ -4318,6 +4421,102 @@
     }
   }
   __name(onKey, "onKey");
+
+  // src/lenses/attention.ts
+  function renderAttention() {
+    const el = $("#attention");
+    if (!el) return;
+    const items = getState().attention?.items ?? [];
+    if (!items.length) {
+      el.innerHTML = `<p class="${CLASS.attentionEmpty}" style="color:var(--fg-dim)">Nothing needs attention in this store.</p>`;
+      return;
+    }
+    const primary = items.filter((item) => item.tier !== "secondary");
+    const secondary = items.filter((item) => item.tier === "secondary");
+    el.innerHTML = renderTier("Needs input", primary) + renderTier("Advisory", secondary);
+  }
+  __name(renderAttention, "renderAttention");
+  function renderTier(label, items) {
+    if (!items.length) return "";
+    return `<h3 class="${CLASS.attentionTier}">${escapeHtml(label)} (${items.length})</h3>${items.map(renderAttentionCard).join("")}`;
+  }
+  __name(renderTier, "renderTier");
+  function anchorRevision(item) {
+    if (item.revisionId) return item.revisionId;
+    return item.headRevisionIds?.[0] ?? "";
+  }
+  __name(anchorRevision, "anchorRevision");
+  function renderAttentionCard(item) {
+    const anchor = anchorRevision(item);
+    const kind = escapeHtml(item.kind.replace(/_/g, "-"));
+    const subject = anchor ? shortRef(anchor) : "thread";
+    const freshness = item.freshness?.state === "superseded" ? `<span class="${CLASS.attentionFreshness}">superseded${item.freshness.supersededBy?.length ? ` by ${item.freshness.supersededBy.map((id) => linkify(id)).join(", ")}` : ""}</span>` : "";
+    const rows = [];
+    const push = /* @__PURE__ */ __name((k, v) => {
+      rows.push(`<span>${escapeHtml(k)}</span><b>${v}</b>`);
+    }, "push");
+    push("subject", escapeHtml(subject));
+    for (const [k, v] of detailRows(item)) push(k, v);
+    push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
+    return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
+      <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>
+      ${freshness}
+      <div class="${CLASS.kv}">${rows.join("")}</div>
+    </div>`;
+  }
+  __name(renderAttentionCard, "renderAttentionCard");
+  function askLabel(item) {
+    switch (item.kind) {
+      case "open_input_request":
+        return item.title ?? "open input request";
+      case "ambiguous_assessment":
+        return `${item.assessments?.length ?? 0} competing assessments`;
+      case "competing_heads":
+        return `${item.headRevisionIds?.length ?? 0} competing heads`;
+      case "stale_assessment":
+        return `stale ${item.assessment ?? "assessment"}`;
+      case "failed_validation":
+        return `${item.checkName ?? "check"} ${item.status ?? "failed"}`;
+      case "follow_up_outstanding":
+        return "follow-up outstanding";
+      default:
+        return item.kind.replace(/_/g, "-");
+    }
+  }
+  __name(askLabel, "askLabel");
+  function detailRows(item) {
+    const actor = item.openedBy ?? item.recordedBy;
+    const rows = [];
+    if (item.reasonCode) rows.push(["reason", escapeHtml(item.reasonCode)]);
+    if (item.mode) rows.push(["mode", escapeHtml(item.mode)]);
+    if (item.trackId) rows.push(["track", escapeHtml(item.trackId)]);
+    if (actor) rows.push(["actor", linkify(actor)]);
+    if (item.kind === "competing_heads" && item.headRevisionIds) {
+      rows.push([
+        "heads",
+        item.headRevisionIds.map((id) => linkify(id)).join(" ")
+      ]);
+    }
+    if (item.kind === "ambiguous_assessment" && item.assessments) {
+      rows.push([
+        "assessments",
+        item.assessments.map(
+          (a) => `${escapeHtml(a.assessment ?? "")} (${escapeHtml(a.trackId ?? "")})`
+        ).join(", ")
+      ]);
+    }
+    if (item.kind === "failed_validation" && item.exitCode != null) {
+      rows.push(["exit", escapeHtml(String(item.exitCode))]);
+    }
+    if (item.kind === "follow_up_outstanding" && item.openInputRequestIds) {
+      rows.push([
+        "requests",
+        item.openInputRequestIds.map((id) => linkify(id)).join(" ")
+      ]);
+    }
+    return rows;
+  }
+  __name(detailRows, "detailRows");
 
   // src/lenses/revisions.ts
   function renderRevisionList() {
@@ -4581,12 +4780,15 @@ click to open the revision page">
         master.innerHTML = `<div id="units" class="${CLASS.units}"></div>`;
       } else if (lens === "threads") {
         master.innerHTML = `<div id="revisions" class="${CLASS.units}" aria-label="supersession threads"></div>`;
+      } else if (lens === "attention") {
+        master.innerHTML = `<div id="attention" class="${CLASS.units}" aria-label="attention"></div>`;
       } else {
         master.innerHTML = `<ol id="timeline" class="${CLASS.timeline}" aria-label="event timeline" tabindex="0"></ol>`;
       }
     }
     if (lens === "list") renderRevisionList();
     else if (lens === "threads") renderRevisions();
+    else if (lens === "attention") renderAttention();
     else renderTimeline();
   }
   __name(renderMaster, "renderMaster");

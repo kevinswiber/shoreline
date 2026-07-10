@@ -30,7 +30,7 @@ import {
   shortId,
   targetDisplayLabel,
 } from "./refs";
-import { getState } from "./store";
+import { getState, type State } from "./store";
 import {
   type HistoryEntry,
   type Overview,
@@ -489,6 +489,18 @@ export function lensEntryIds(): LensEntry[] {
   return (s.history?.entries ?? []).map(
     (e): LensEntry => ({ kind: "event", id: e.eventId ?? "" }),
   );
+}
+
+/**
+ * The attention lens's cursor keys, in render order: the kind-qualified item ids.
+ * State-derived and DOM-free (mirrors `lensEntryIds`), but deliberately NOT part
+ * of `lensEntryIds`/`LensEntry`: the attention cursor is lens-local and never
+ * writes a typed `Selection`, so overloading the typed cursor would conflate a
+ * card focus with an entity selection. The ids are kind-qualified and therefore
+ * unique even when several cards share one revision anchor.
+ */
+export function attentionEntryKeys(state: State): string[] {
+  return (state.attention?.items ?? []).map((item) => item.id);
 }
 
 /** The selected id when the single selection is an event, else null. */

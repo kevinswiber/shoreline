@@ -4,6 +4,7 @@
 // at the `fetch` boundary (not `fetchJSON`) keeps the ported `http.ts`/`fetchJSON`
 // in the path under test. Append-only shared surface: extend with new routes here.
 
+import attentionJson from "../fixtures/attention.json";
 import historyJson from "../fixtures/history.json";
 import identityJson from "../fixtures/identity.json";
 import revisionJson from "../fixtures/revision.json";
@@ -18,6 +19,7 @@ import threadsJson from "../fixtures/threads.json";
 const FIXTURES: Record<string, unknown> = {
   "/api/revisions": revisionsJson,
   "/api/threads": threadsJson,
+  "/api/attention": attentionJson,
   "/api/identity": identityJson,
 };
 

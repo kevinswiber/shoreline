@@ -1,0 +1,106 @@
+{
+  "schema": "pointbreak.inspect-attention",
+  "eventSetHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "eventCount": 11,
+  "items": [
+    {
+      "id": "open_input_request:input-request:sha256:aaaa111111111111111111111111111111111111111111111111111111111111",
+      "tier": "primary",
+      "revisionId": "rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda",
+      "freshness": { "state": "current" },
+      "observedAt": "unix-ms:1751000000000",
+      "kind": "open_input_request",
+      "inputRequestId": "input-request:sha256:aaaa111111111111111111111111111111111111111111111111111111111111",
+      "mode": "operative",
+      "reasonCode": "insufficient_evidence",
+      "title": "Runtime trace required",
+      "trackId": "human:kevin",
+      "openedBy": "actor:human:kevin"
+    },
+    {
+      "id": "ambiguous_assessment:rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda",
+      "tier": "primary",
+      "revisionId": "rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda",
+      "freshness": { "state": "current" },
+      "observedAt": "unix-ms:1751000000500",
+      "kind": "ambiguous_assessment",
+      "assessments": [
+        {
+          "assessmentId": "assess:sha256:bbbb111111111111111111111111111111111111111111111111111111111111",
+          "assessment": "accepted",
+          "trackId": "human:kevin",
+          "recordedBy": "actor:human:kevin",
+          "recordedAt": "unix-ms:1751000000300"
+        },
+        {
+          "assessmentId": "assess:sha256:cccc111111111111111111111111111111111111111111111111111111111111",
+          "assessment": "needs_changes",
+          "trackId": "agent:codex",
+          "recordedBy": "actor:agent:codex",
+          "recordedAt": "unix-ms:1751000000500"
+        }
+      ]
+    },
+    {
+      "id": "failed_validation:validation:sha256:dddd111111111111111111111111111111111111111111111111111111111111",
+      "tier": "primary",
+      "revisionId": "rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda",
+      "freshness": { "state": "current" },
+      "observedAt": "unix-ms:1751000001000",
+      "kind": "failed_validation",
+      "validationCheckId": "validation:sha256:dddd111111111111111111111111111111111111111111111111111111111111",
+      "checkName": "cargo clippy",
+      "status": "failed",
+      "exitCode": 101,
+      "trackId": "agent:codex",
+      "recordedBy": "actor:agent:codex",
+      "logArtifactContentHashes": [
+        "sha256:eeee111111111111111111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "competing_heads:rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda",
+      "tier": "primary",
+      "freshness": { "state": "current" },
+      "observedAt": "unix-ms:1751000002000",
+      "kind": "competing_heads",
+      "headRevisionIds": [
+        "rev:sha256:1111aaaa11111111111111111111111111111111111111111111111111111111",
+        "rev:sha256:2222bbbb22222222222222222222222222222222222222222222222222222222"
+      ],
+      "threadRevisionCount": 3
+    },
+    {
+      "id": "stale_assessment:assess:sha256:ffff111111111111111111111111111111111111111111111111111111111111",
+      "tier": "primary",
+      "revisionId": "rev:sha256:3333cccc33333333333333333333333333333333333333333333333333333333",
+      "freshness": {
+        "state": "superseded",
+        "supersededBy": [
+          "rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda"
+        ]
+      },
+      "observedAt": "unix-ms:1751000003000",
+      "kind": "stale_assessment",
+      "assessmentId": "assess:sha256:ffff111111111111111111111111111111111111111111111111111111111111",
+      "assessment": "accepted",
+      "trackId": "human:kevin",
+      "recordedBy": "actor:human:kevin"
+    },
+    {
+      "id": "open_input_request:input-request:sha256:9999111111111111111111111111111111111111111111111111111111111111",
+      "tier": "secondary",
+      "revisionId": "rev:sha256:09acdf5af68b635967f0da4d3c73c330407cc15a81a48f3db18ccd4abf8a6bda",
+      "freshness": { "state": "current" },
+      "observedAt": "unix-ms:1751000004000",
+      "kind": "open_input_request",
+      "inputRequestId": "input-request:sha256:9999111111111111111111111111111111111111111111111111111111111111",
+      "mode": "advisory",
+      "reasonCode": "manual_decision_required",
+      "title": "Advisory question about naming",
+      "trackId": "agent:codex",
+      "openedBy": "actor:agent:codex"
+    }
+  ],
+  "diagnostics": []
+}

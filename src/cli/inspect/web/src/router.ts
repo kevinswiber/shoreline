@@ -35,7 +35,7 @@ import {
 import { refInfo, shortRef } from "./refs";
 import { commit, getState, type Selection, type State } from "./store";
 
-const LENSES = ["timeline", "list", "threads"];
+const LENSES = ["timeline", "list", "threads", "attention"];
 const DEFAULT_LENS = "timeline";
 
 /**

@@ -18,6 +18,7 @@ import { renderDetail, showComposite } from "./detail";
 import { openDiff, renderDiffOverlay } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
+import { renderAttention } from "./lenses/attention";
 import { renderRevisionList, renderRevisions } from "./lenses/revisions";
 import {
   renderTimeline,
@@ -209,12 +210,15 @@ function renderMaster(): void {
       master.innerHTML = `<div id="units" class="${CLASS.units}"></div>`;
     } else if (lens === "threads") {
       master.innerHTML = `<div id="revisions" class="${CLASS.units}" aria-label="supersession threads"></div>`;
+    } else if (lens === "attention") {
+      master.innerHTML = `<div id="attention" class="${CLASS.units}" aria-label="attention"></div>`;
     } else {
       master.innerHTML = `<ol id="timeline" class="${CLASS.timeline}" aria-label="event timeline" tabindex="0"></ol>`;
     }
   }
   if (lens === "list") renderRevisionList();
   else if (lens === "threads") renderRevisions();
+  else if (lens === "attention") renderAttention();
   else renderTimeline();
 }
 

@@ -76,6 +76,67 @@ export interface ThreadsDoc {
   threadCount?: number;
 }
 
+/** One current assessment carried inside an ambiguous-assessment item. */
+export interface AttentionAssessmentRecord {
+  assessmentId?: string;
+  assessment?: string;
+  trackId?: string;
+  recordedBy?: string;
+  recordedAt?: string;
+  relatedObservationIds?: string[];
+  relatedInputRequestIds?: string[];
+}
+
+/** The supersession-derived freshness block on an attention item. */
+export interface AttentionFreshness {
+  state?: string;
+  supersededBy?: string[];
+}
+
+/**
+ * One attention item from `/api/attention`. A permissive view over the wire: the
+ * common fields plus the flattened, kind-specific detail fields the renderer
+ * reads by name. The `kind` tag selects which detail fields are present.
+ */
+export interface AttentionItem {
+  id: string;
+  kind: string;
+  tier: string;
+  revisionId?: string;
+  freshness?: AttentionFreshness;
+  observedAt?: string;
+  // open_input_request
+  inputRequestId?: string;
+  mode?: string;
+  reasonCode?: string;
+  title?: string;
+  trackId?: string;
+  openedBy?: string;
+  // ambiguous_assessment
+  assessments?: AttentionAssessmentRecord[];
+  // competing_heads
+  headRevisionIds?: string[];
+  threadRevisionCount?: number;
+  // stale_assessment / follow_up_outstanding
+  assessmentId?: string;
+  assessment?: string;
+  recordedBy?: string;
+  openInputRequestIds?: string[];
+  // failed_validation
+  validationCheckId?: string;
+  checkName?: string;
+  status?: string;
+  exitCode?: number;
+  logArtifactContentHashes?: string[];
+}
+
+/** The `/api/attention` document: outstanding, judgment-needing review state. */
+export interface AttentionDoc {
+  items: AttentionItem[];
+  eventCount?: number;
+  eventSetHash?: string;
+}
+
 /**
  * The single selection through-line. The detail pane is a pure projection of
  * this; `kind`/`id` are null when nothing is selected.
@@ -96,6 +157,7 @@ export interface State {
   history: HistoryDoc | null;
   revisions: RevisionsDoc | null;
   threads: ThreadsDoc | null;
+  attention: AttentionDoc | null;
   // The served repo/store identity (issue #391); null until the one-shot bootstrap
   // fetch lands, and left null on a fetch failure (best-effort chrome cue).
   identity: IdentityDoc | null;
@@ -136,6 +198,7 @@ const state: State = {
   history: null,
   revisions: null,
   threads: null,
+  attention: null,
   identity: null,
   lens: "timeline",
   selected: { kind: null, id: null },

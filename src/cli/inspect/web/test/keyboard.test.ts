@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Thread } from "../src/model";
-import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
+import type {
+  AttentionDoc,
+  HistoryDoc,
+  RevisionsDoc,
+  ThreadsDoc,
+} from "../src/store";
 import type { HistoryEntry } from "../src/types";
 import historyJson from "./fixtures/history.json";
 import revisionsJson from "./fixtures/revisions.json";
@@ -881,5 +886,119 @@ describe("less-style timeline keyboard navigation", () => {
     expect(store.getState().selected.id).toBe("e20");
     expect(store.getState().open).toBe(true);
     expect(store.getState().reading).toBe(true);
+  });
+});
+
+describe("the attention lens has a lens-local cursor", () => {
+  const R1 = "rev:sha256:r1";
+  const R2 = "rev:sha256:r2";
+  // Two items share the R1 anchor (open request + its ambiguity), so they are two
+  // distinct cursor stops that both activate to R1.
+  const ITEMS = [
+    {
+      id: "open_input_request:input-request:sha256:aa",
+      kind: "open_input_request",
+      tier: "primary",
+      revisionId: R1,
+    },
+    {
+      id: "ambiguous_assessment:rev:sha256:r1",
+      kind: "ambiguous_assessment",
+      tier: "primary",
+      revisionId: R1,
+    },
+    {
+      id: "failed_validation:validation:sha256:vv",
+      kind: "failed_validation",
+      tier: "primary",
+      revisionId: R2,
+    },
+  ];
+
+  function seedAttentionLens(): void {
+    store.commit({
+      attention: { items: ITEMS } as unknown as AttentionDoc,
+      lens: "attention",
+      selected: { kind: null, id: null },
+    });
+    const master = document.querySelector<HTMLElement>("#master");
+    if (!master) throw new Error("#master not mounted");
+    master.innerHTML = ITEMS.map(
+      (item) =>
+        `<div class="unit-card attention-card" data-entry-id="${item.id}" data-revision-id="${item.revisionId}"></div>`,
+    ).join("");
+  }
+
+  function focusedEntryId(): string | null {
+    return (
+      document
+        .querySelector<HTMLElement>(".attention-card.attention-focus")
+        ?.getAttribute("data-entry-id") ?? null
+    );
+  }
+
+  it("key 4 navigates to the attention lens", () => {
+    store.commit({ lens: "list" });
+    key({ key: "4" });
+    expect(store.getState().lens).toBe("attention");
+  });
+
+  it("attentionEntryKeys returns the kind-qualified ids in render order", () => {
+    seedAttentionLens();
+    expect(model.attentionEntryKeys(store.getState())).toEqual(
+      ITEMS.map((i) => i.id),
+    );
+  });
+
+  it("j/k step the lens-local focus without writing a Selection", async () => {
+    seedAttentionLens();
+    key({ key: "j" });
+    await settleKeyboard();
+    expect(focusedEntryId()).toBe(ITEMS[0].id);
+    // The timeline cursor is untouched — no Selection written (the desync gotcha).
+    expect(store.getState().selected.id).toBeNull();
+
+    key({ key: "j" });
+    await settleKeyboard();
+    expect(focusedEntryId()).toBe(ITEMS[1].id);
+    // Focus is exclusive: only one card carries it.
+    expect(
+      document.querySelectorAll(".attention-card.attention-focus").length,
+    ).toBe(1);
+
+    key({ key: "k" });
+    await settleKeyboard();
+    expect(focusedEntryId()).toBe(ITEMS[0].id);
+
+    // lensEntryIds is untouched: it never gained an attention kind.
+    expect(
+      model
+        .lensEntryIds()
+        .every((e) => e.kind === "event" || e.kind === "revision"),
+    ).toBe(true);
+  });
+
+  it("Enter activates the focused card to its anchored revision", async () => {
+    seedAttentionLens();
+    key({ key: "j" });
+    await settleKeyboard();
+    key({ key: "Enter" });
+    await settleKeyboard();
+    expect(store.getState().selected).toEqual({ kind: "revision", id: R1 });
+    expect(store.getState().open).toBe(true);
+  });
+
+  it("overlapping-anchor cards are distinct stops that activate to the same revision", async () => {
+    seedAttentionLens();
+    key({ key: "j" });
+    await settleKeyboard();
+    key({ key: "j" });
+    await settleKeyboard();
+    // The second stop is a different card...
+    expect(focusedEntryId()).toBe(ITEMS[1].id);
+    key({ key: "Enter" });
+    await settleKeyboard();
+    // ...that still activates to the shared R1 anchor.
+    expect(store.getState().selected).toEqual({ kind: "revision", id: R1 });
   });
 });

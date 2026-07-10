@@ -142,6 +142,15 @@ export const CLASS = {
   cmdGroup: "cmd-group",
   cmdHint: "cmd-hint",
   cmdLabel: "cmd-label",
+
+  // The attention lens: tiered cards over the outstanding review state.
+  attentionCard: "attention-card",
+  attentionTier: "attention-tier",
+  attentionEmpty: "attention-empty",
+  attentionKind: "attention-kind",
+  attentionMeta: "attention-meta",
+  attentionFreshness: "attention-freshness",
+  attentionFocus: "attention-focus",
 } as const;
 
 // ---------------------------------------------------------------------------

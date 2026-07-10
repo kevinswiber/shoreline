@@ -210,6 +210,12 @@ function buildCommands(): Command[] {
   });
   cmds.push({
     kind: "Actions",
+    label: "Switch to attention lens",
+    hint: "lens",
+    run: () => navigate({ lens: "attention" }),
+  });
+  cmds.push({
+    kind: "Actions",
     label: "Toggle timeline order",
     hint: "order",
     run: () =>

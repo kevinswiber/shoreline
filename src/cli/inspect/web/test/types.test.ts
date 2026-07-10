@@ -71,7 +71,7 @@ describe("typeColor / typeLabel", () => {
 
 describe("shared constants", () => {
   it("declares the lenses and default", () => {
-    expect(LENSES).toEqual(["timeline", "list", "threads"]);
+    expect(LENSES).toEqual(["timeline", "list", "threads", "attention"]);
     expect(DEFAULT_LENS).toBe("timeline");
   });
 

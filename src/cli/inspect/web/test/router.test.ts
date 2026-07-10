@@ -108,6 +108,7 @@ describe("parseHash", () => {
   it("reads a bare lens path", () => {
     expect(router.parseHash("#/list", PT).lens).toBe("list");
     expect(router.parseHash("#/threads", PT).lens).toBe("threads");
+    expect(router.parseHash("#/attention", PT).lens).toBe("attention");
   });
 
   it("defaults the enabled types to the present types when `types=` is absent", () => {

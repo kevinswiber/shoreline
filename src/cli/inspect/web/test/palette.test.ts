@@ -88,6 +88,7 @@ describe("buildCommands (actions + contextual jumps over the loaded state)", () 
     const text = results()?.textContent ?? "";
     expect(text).toContain("Copy current view link");
     expect(text).toContain("Switch to list lens");
+    expect(text).toContain("Switch to attention lens");
     // Group headers for the contextual jumps built from state.revisions / history.
     expect(text).toContain("Revisions");
     expect(text).toContain("Events");

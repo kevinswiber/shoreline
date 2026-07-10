@@ -18,6 +18,7 @@ import { $ } from "./dom";
 import { fetchJSON } from "./http";
 import { presentTypes } from "./model";
 import {
+  type AttentionDoc,
   commit,
   getState,
   type HistoryDoc,
@@ -100,14 +101,16 @@ export async function load(): Promise<void> {
       lastEventCount: freshness.eventCount ?? null,
     });
 
-    const [revisionsRaw, threadsRaw] = await Promise.all([
+    const [revisionsRaw, threadsRaw, attentionRaw] = await Promise.all([
       fetchJSON("/api/revisions"),
       fetchJSON("/api/threads"),
+      fetchJSON("/api/attention"),
     ]);
     showError(null);
     commit({
       revisions: revisionsRaw as RevisionsDoc,
       threads: threadsRaw as ThreadsDoc,
+      attention: attentionRaw as AttentionDoc,
     });
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));

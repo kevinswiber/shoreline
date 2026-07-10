@@ -10,11 +10,12 @@
 // (palette / diff / help are mutually exclusive), and the help toggle opens/closes
 // `help` through the manager — so keyboard imports no sibling overlay module.
 
+import { CLASS } from "./classNames";
 import { fetchHistoryPage, HISTORY_PAGE } from "./data";
 import { jumpChange, jumpFact, openRevisionDiff } from "./diff/controller";
 import { $ } from "./dom";
 import { loadedWindow, timelineRowHeight } from "./lenses/timeline";
-import { lensEntryIds } from "./model";
+import { attentionEntryKeys, lensEntryIds } from "./model";
 import { resolveRef } from "./navigation";
 import {
   activeName,
@@ -72,6 +73,73 @@ function timelineIsActive(): boolean {
 function revisionLensIsActive(): boolean {
   const lens = getState().lens;
   return lens === "list" || lens === "threads";
+}
+
+function attentionLensIsActive(): boolean {
+  return getState().lens === "attention";
+}
+
+// The attention lens keeps a lens-local focus cursor (a DOM focus class), never a
+// typed `Selection` — so it does not go through `lensEntryIds`/`LensEntry`. The
+// focus key persists between steps; a repaint that drops it re-seeds from the top.
+let attentionFocusKey: string | null = null;
+
+// Apply the focus class to the card matching `key`, clear it from the rest, and
+// scroll it into view. The keys are the kind-qualified item ids on `data-entry-id`.
+function setAttentionFocus(key: string): void {
+  attentionFocusKey = key;
+  const master = $<HTMLElement>("#master");
+  if (!master) return;
+  for (const card of Array.from(
+    master.querySelectorAll<HTMLElement>(".attention-card"),
+  )) {
+    const on = card.dataset.entryId === key;
+    card.classList.toggle(CLASS.attentionFocus, on);
+    if (on) card.scrollIntoView({ block: "nearest" });
+  }
+}
+
+// Step the lens-local focus cursor by `delta`, clamped to the loaded item keys.
+// Never writes `Selection` (the desync gotcha's answer: j/k here never touches the
+// timeline cursor).
+function stepAttention(delta: number): void {
+  const keys = attentionEntryKeys(getState());
+  if (!keys.length) return;
+  let idx = attentionFocusKey ? keys.indexOf(attentionFocusKey) : -1;
+  if (idx < 0) idx = delta > 0 ? -1 : 0;
+  const next = Math.max(0, Math.min(keys.length - 1, idx + delta));
+  setAttentionFocus(keys[next]);
+}
+
+function jumpAttentionBoundary(target: "first" | "last"): void {
+  const keys = attentionEntryKeys(getState());
+  if (!keys.length) return;
+  setAttentionFocus(target === "first" ? keys[0] : keys[keys.length - 1]);
+}
+
+// Measure the attention container's viewport in cards, for half/full-page paging.
+function attentionViewportRows(): number {
+  const el = $<HTMLElement>("#attention");
+  const viewportH = el?.clientHeight ?? 0;
+  const card = el?.querySelector<HTMLElement>(".attention-card");
+  const itemH = card?.getBoundingClientRect().height ?? 0;
+  const measured =
+    viewportH > 0 && itemH > 0 ? Math.floor(viewportH / itemH) : 0;
+  return Math.max(1, measured);
+}
+
+// Enter/click activation resolves to the anchored revision via the delegated
+// click path's target: the focused card's `data-revision-id`. This writes a
+// revision `Selection` (an existing kind), never a new attention selection kind.
+function activateAttentionFocus(): void {
+  if (!attentionFocusKey) return;
+  const master = $<HTMLElement>("#master");
+  const card = Array.from(
+    master?.querySelectorAll<HTMLElement>(".attention-card") ?? [],
+  ).find((c) => c.dataset.entryId === attentionFocusKey);
+  const revisionId = card?.dataset.revisionId;
+  if (revisionId)
+    navigate({ selected: { kind: "revision", id: revisionId }, open: true });
 }
 
 function timelineViewportRows(): number {
@@ -227,6 +295,7 @@ async function pageTimeline(deltaRows: number): Promise<void> {
 function jumpLensBoundary(target: "first" | "last"): void {
   if (timelineIsActive()) void jumpTimelineBoundary(target);
   else if (revisionLensIsActive()) jumpLoadedLensBoundary(target);
+  else if (attentionLensIsActive()) jumpAttentionBoundary(target);
 }
 
 function pageLensRows(deltaRows: number): void {
@@ -235,6 +304,7 @@ function pageLensRows(deltaRows: number): void {
     return;
   }
   if (revisionLensIsActive()) pageLoadedLens(deltaRows);
+  else if (attentionLensIsActive()) stepAttention(deltaRows);
 }
 
 function pageLensFullPage(direction: 1 | -1): void {
@@ -244,6 +314,10 @@ function pageLensFullPage(direction: 1 | -1): void {
   }
   if (revisionLensIsActive()) {
     pageLensRows(direction * revisionLensViewportRows());
+    return;
+  }
+  if (attentionLensIsActive()) {
+    pageLensRows(direction * attentionViewportRows());
   }
 }
 
@@ -251,6 +325,12 @@ function pageLensHalfPage(direction: 1 | -1): void {
   if (timelineIsActive()) {
     pageLensRows(
       direction * Math.max(1, Math.floor(timelineViewportRows() / 2)),
+    );
+    return;
+  }
+  if (attentionLensIsActive()) {
+    pageLensRows(
+      direction * Math.max(1, Math.floor(attentionViewportRows() / 2)),
     );
     return;
   }
@@ -263,6 +343,10 @@ function pageLensHalfPage(direction: 1 | -1): void {
 
 /** Step the selection by delta, paging the timeline past its loaded edges. */
 export async function stepSelectionAsync(delta: number): Promise<void> {
+  if (attentionLensIsActive()) {
+    stepAttention(delta);
+    return;
+  }
   if (getState().lens === "timeline") {
     await stepTimeline(delta);
     return;
@@ -273,6 +357,10 @@ export async function stepSelectionAsync(delta: number): Promise<void> {
 // The Enter descend ladder: a parked cursor opens the detail pane; an open
 // selection descends into its snapshot diff — a read affordance, never a gate.
 function activateSelection(): void {
+  if (attentionLensIsActive()) {
+    activateAttentionFocus();
+    return;
+  }
   const sel = getState().selected;
   if (!getState().open) {
     if (!sel.id) return;
@@ -412,14 +500,26 @@ export function onKey(ev: KeyboardEvent): void {
       ev.preventDefault();
       navigate({ lens: "threads" });
       return;
+    case "4":
+      ev.preventDefault();
+      navigate({ lens: "attention" });
+      return;
     case "g":
-      if (timelineIsActive() || revisionLensIsActive()) {
+      if (
+        timelineIsActive() ||
+        revisionLensIsActive() ||
+        attentionLensIsActive()
+      ) {
         ev.preventDefault();
         jumpLensBoundary("first");
       }
       return;
     case "G":
-      if (timelineIsActive() || revisionLensIsActive()) {
+      if (
+        timelineIsActive() ||
+        revisionLensIsActive() ||
+        attentionLensIsActive()
+      ) {
         ev.preventDefault();
         jumpLensBoundary("last");
       }
@@ -429,25 +529,41 @@ export function onKey(ev: KeyboardEvent): void {
       focusSearch();
       return;
     case "f":
-      if (timelineIsActive() || revisionLensIsActive()) {
+      if (
+        timelineIsActive() ||
+        revisionLensIsActive() ||
+        attentionLensIsActive()
+      ) {
         ev.preventDefault();
         pageLensFullPage(1);
       }
       return;
     case "b":
-      if (timelineIsActive() || revisionLensIsActive()) {
+      if (
+        timelineIsActive() ||
+        revisionLensIsActive() ||
+        attentionLensIsActive()
+      ) {
         ev.preventDefault();
         pageLensFullPage(-1);
       }
       return;
     case "d":
-      if (timelineIsActive() || revisionLensIsActive()) {
+      if (
+        timelineIsActive() ||
+        revisionLensIsActive() ||
+        attentionLensIsActive()
+      ) {
         ev.preventDefault();
         pageLensHalfPage(1);
       }
       return;
     case "u":
-      if (timelineIsActive() || revisionLensIsActive()) {
+      if (
+        timelineIsActive() ||
+        revisionLensIsActive() ||
+        attentionLensIsActive()
+      ) {
         ev.preventDefault();
         pageLensHalfPage(-1);
       }
