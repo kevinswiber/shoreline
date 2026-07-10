@@ -90,7 +90,10 @@ fn api_attention_serves_projection() {
     let store = representative_store();
     // The fixture's human assessment REPLACES the agent one, leaving a single
     // current record. Append one extra un-replaced assessment on a distinct track
-    // so two current assessments coexist and the revision is ambiguous.
+    // so two current assessments coexist and the revision is ambiguous. It must
+    // be NON-accepting: a unanimously accepting current set recorded after the
+    // fixture's failed clippy check would subsume the failed_validation item
+    // (judgment-subsumption Rule B), and this test needs that kind visible.
     let added = support::shore([
         "assessment",
         "add",
@@ -99,7 +102,7 @@ fn api_attention_serves_projection() {
         "--track",
         "agent:second",
         "--assessment",
-        "accepted",
+        "needs-changes",
         "--summary",
         "second opinion",
     ]);
