@@ -1,0 +1,41 @@
+{
+  "schema": "com.withpointbreak.review-interface-capture/v1",
+  "source": {
+    "revision": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f",
+    "track": "example:marketing-review-proof",
+    "selected_assessment": "accepted",
+    "writer_actors": [
+      "actor:agent:pointbreak-example-author",
+      "actor:agent:pointbreak-example-reviewer"
+    ],
+    "publicly_inspectable": false,
+    "redactions": []
+  },
+  "capture": {
+    "viewport": {
+      "width": 900,
+      "height": 506
+    },
+    "device_scale_factor": 2,
+    "density": "comfortable",
+    "sort": "newest_first",
+    "hidden_event_types": [
+      "observation",
+      "validation"
+    ]
+  },
+  "assets": {
+    "dark": {
+      "path": "assets/marketing/shore-inspector-dark.png",
+      "width": 1800,
+      "height": 1012,
+      "sha256": "cc3678da02a863bcafec3bb81e2aec3be29cc45c78710c0fa527e652bfce484a"
+    },
+    "light": {
+      "path": "assets/marketing/shore-inspector-light.png",
+      "width": 1800,
+      "height": 1012,
+      "sha256": "6af22669145d2e9d02a9d61ed146e11eb392f074fd9951b225a1c64c701a512c"
+    }
+  }
+}

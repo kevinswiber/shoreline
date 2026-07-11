@@ -25,6 +25,7 @@ Options:
   --track <id>          Track filter (default: agent:codex-450)
   --assessment <value> Assessment row to select (default: accepted)
   --out-dir <dir>       Asset destination (default: <repo>/assets)
+  --hide-observations   Hide observation rows to keep assessment transitions together
   -h, --help            Show this help
 
 Environment:
@@ -40,6 +41,7 @@ REVISION="93326e73"
 TRACK="agent:codex-450"
 ASSESSMENT="accepted"
 OUT_DIR="$REPO_ROOT/assets"
+HIDE_OBSERVATIONS="false"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,6 +50,7 @@ while [ $# -gt 0 ]; do
     --track) TRACK="$2"; shift 2 ;;
     --assessment) ASSESSMENT="$2"; shift 2 ;;
     --out-dir) OUT_DIR="$2"; shift 2 ;;
+    --hide-observations) HIDE_OBSERVATIONS="true"; shift ;;
     -h|--help) show_help; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -98,14 +101,22 @@ cat > "$TMP_DIR/cli.config.json" <<'EOF'
 EOF
 
 CAPTURE_CONFIG="$(node -e '
-const [baseUrl, revision, track, assessment, darkPath, lightPath] = process.argv.slice(1);
-process.stdout.write(JSON.stringify({ baseUrl, revision, track, assessment, darkPath, lightPath }));
-' "$BASE_URL" "$REVISION" "$TRACK" "$ASSESSMENT" \
+const [baseUrl, revision, track, assessment, hideObservations, darkPath, lightPath] = process.argv.slice(1);
+process.stdout.write(JSON.stringify({
+  baseUrl,
+  revision,
+  track,
+  assessment,
+  hideObservations: hideObservations === "true",
+  darkPath,
+  lightPath,
+}));
+' "$BASE_URL" "$REVISION" "$TRACK" "$ASSESSMENT" "$HIDE_OBSERVATIONS" \
   "$TMP_DIR/shore-inspector-dark.png" "$TMP_DIR/shore-inspector-light.png")"
 
 cat > "$TMP_DIR/capture.mjs" <<'EOF'
 ((config) => async page => {
-const { baseUrl, revision, track, assessment, darkPath, lightPath } = config;
+const { baseUrl, revision, track, assessment, hideObservations, darkPath, lightPath } = config;
 const consoleErrors = [];
 
 page.on("console", (message) => {
@@ -132,6 +143,11 @@ async function prepareFrame() {
 
   const hideValidation = page.getByRole("button", { name: /Hide validation events/i });
   if (await hideValidation.count()) await hideValidation.click();
+
+  if (hideObservations) {
+    const hideObservation = page.getByRole("button", { name: /Hide observation events/i });
+    if (await hideObservation.count()) await hideObservation.click();
+  }
 
   const row = page
     .getByRole("listitem")
@@ -204,7 +220,7 @@ for (const file of process.argv.slice(2)) {
 }
 EOF
 
-echo "Capturing Pointbreak Review README screenshots"
+echo "Capturing Pointbreak Review screenshots"
 note "inspector : $BASE_URL"
 note "query     : revision:$REVISION track:$TRACK"
 note "selected  : $ASSESSMENT"
