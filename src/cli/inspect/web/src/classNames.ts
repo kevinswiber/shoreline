@@ -156,6 +156,10 @@ export const CLASS = {
   // empty) and the muted advisory count beside the needs-input number.
   attentionBadge: "attention-badge",
   attentionBadgeSecondary: "attention-badge-secondary",
+
+  // The detail page's per-revision outstanding set (the scoped attention read);
+  // absent when nothing is outstanding on the shown revision.
+  outstandingSet: "outstanding-set",
 } as const;
 
 // ---------------------------------------------------------------------------

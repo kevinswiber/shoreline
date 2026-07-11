@@ -162,7 +162,10 @@
     // The attention tab's judgment-queue count badge (absent when both tiers are
     // empty) and the muted advisory count beside the needs-input number.
     attentionBadge: "attention-badge",
-    attentionBadgeSecondary: "attention-badge-secondary"
+    attentionBadgeSecondary: "attention-badge-secondary",
+    // The detail page's per-revision outstanding set (the scoped attention read);
+    // absent when nothing is outstanding on the shown revision.
+    outstandingSet: "outstanding-set"
   };
   var ANNO_KINDS = [
     "observation",
@@ -2635,6 +2638,110 @@
   }
   __name(initControls, "initControls");
 
+  // src/lenses/attention.ts
+  function partitionAttentionTiers(items) {
+    return {
+      primary: items.filter((item) => item.tier !== "secondary"),
+      secondary: items.filter((item) => item.tier === "secondary")
+    };
+  }
+  __name(partitionAttentionTiers, "partitionAttentionTiers");
+  function renderAttention() {
+    const el = $("#attention");
+    if (!el) return;
+    const items = getState().attention?.items ?? [];
+    if (!items.length) {
+      el.innerHTML = `<p class="${CLASS.attentionEmpty}" style="color:var(--fg-dim)">Nothing needs attention in this store.</p>`;
+      return;
+    }
+    const { primary, secondary } = partitionAttentionTiers(items);
+    const focus = getState().attentionFocus;
+    el.innerHTML = renderTier("Needs input", primary, focus) + renderTier("Advisory", secondary, focus);
+  }
+  __name(renderAttention, "renderAttention");
+  function renderTier(label, items, focus) {
+    if (!items.length) return "";
+    return `<h3 class="${CLASS.attentionTier}">${escapeHtml(label)} (${items.length})</h3>${items.map((item) => renderAttentionCard(item, focus)).join("")}`;
+  }
+  __name(renderTier, "renderTier");
+  function anchorRevision(item) {
+    if (item.revisionId) return item.revisionId;
+    return item.headRevisionIds?.[0] ?? "";
+  }
+  __name(anchorRevision, "anchorRevision");
+  function renderAttentionCard(item, focus) {
+    const anchor = anchorRevision(item);
+    const focusClass = item.id === focus ? ` ${CLASS.attentionFocus}` : "";
+    const kind = escapeHtml(item.kind.replace(/_/g, "-"));
+    const subject = anchor ? shortRef(anchor) : "thread";
+    const freshness = item.freshness?.state === "superseded" ? `<span class="${CLASS.attentionFreshness}">superseded${item.freshness.supersededBy?.length ? ` by ${item.freshness.supersededBy.map((id) => linkify(id)).join(", ")}` : ""}</span>` : "";
+    const rows = [];
+    const push = /* @__PURE__ */ __name((k, v) => {
+      rows.push(`<span>${escapeHtml(k)}</span><b>${v}</b>`);
+    }, "push");
+    push("subject", escapeHtml(subject));
+    for (const [k, v] of detailRows(item)) push(k, v);
+    push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
+    return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}${focusClass}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
+      <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>
+      ${freshness}
+      <div class="${CLASS.kv}">${rows.join("")}</div>
+    </div>`;
+  }
+  __name(renderAttentionCard, "renderAttentionCard");
+  function askLabel(item) {
+    switch (item.kind) {
+      case "open_input_request":
+        return item.title ?? "open input request";
+      case "ambiguous_assessment":
+        return `${item.assessments?.length ?? 0} competing assessments`;
+      case "competing_heads":
+        return `${item.headRevisionIds?.length ?? 0} competing heads`;
+      case "stale_assessment":
+        return `stale ${item.assessment ?? "assessment"}`;
+      case "failed_validation":
+        return `${item.checkName ?? "check"} ${item.status ?? "failed"}`;
+      case "follow_up_outstanding":
+        return "follow-up outstanding";
+      default:
+        return item.kind.replace(/_/g, "-");
+    }
+  }
+  __name(askLabel, "askLabel");
+  function detailRows(item) {
+    const actor = item.openedBy ?? item.recordedBy;
+    const rows = [];
+    if (item.reasonCode) rows.push(["reason", escapeHtml(item.reasonCode)]);
+    if (item.mode) rows.push(["mode", escapeHtml(item.mode)]);
+    if (item.trackId) rows.push(["track", escapeHtml(item.trackId)]);
+    if (actor) rows.push(["actor", linkify(actor)]);
+    if (item.kind === "competing_heads" && item.headRevisionIds) {
+      rows.push([
+        "heads",
+        item.headRevisionIds.map((id) => linkify(id)).join(" ")
+      ]);
+    }
+    if (item.kind === "ambiguous_assessment" && item.assessments) {
+      rows.push([
+        "assessments",
+        item.assessments.map(
+          (a) => `${escapeHtml(a.assessment ?? "")} (${escapeHtml(a.trackId ?? "")})`
+        ).join(", ")
+      ]);
+    }
+    if (item.kind === "failed_validation" && item.exitCode != null) {
+      rows.push(["exit", escapeHtml(String(item.exitCode))]);
+    }
+    if (item.kind === "follow_up_outstanding" && item.openInputRequestIds) {
+      rows.push([
+        "requests",
+        item.openInputRequestIds.map((id) => linkify(id)).join(" ")
+      ]);
+    }
+    return rows;
+  }
+  __name(detailRows, "detailRows");
+
   // src/detail.ts
   var shownCompositeId = null;
   var SCROLL_MEMORY_CAP = 50;
@@ -2994,6 +3101,54 @@
     }
   }
   __name(wireDagInteractions, "wireDagInteractions");
+  var scopedAttention = null;
+  var scopedAttentionPending = null;
+  var scopedAttentionGeneration = 0;
+  function scopedAttentionFresh(revisionId) {
+    const eventSetHash = getState().attention?.eventSetHash;
+    const hit = /* @__PURE__ */ __name((s) => s?.revisionId === revisionId && s.eventSetHash === eventSetHash, "hit");
+    return hit(scopedAttention) || hit(scopedAttentionPending);
+  }
+  __name(scopedAttentionFresh, "scopedAttentionFresh");
+  async function fetchScopedAttention(revisionId) {
+    const eventSetHash = getState().attention?.eventSetHash;
+    const generation = ++scopedAttentionGeneration;
+    scopedAttentionPending = { revisionId, eventSetHash };
+    let items;
+    try {
+      const doc = await fetchJSON(
+        `/api/attention?revision=${encodeURIComponent(revisionId)}`
+      );
+      items = doc.items ?? [];
+    } catch {
+      items = null;
+    }
+    if (generation !== scopedAttentionGeneration) return;
+    scopedAttentionPending = null;
+    scopedAttention = { revisionId, eventSetHash, items };
+  }
+  __name(fetchScopedAttention, "fetchScopedAttention");
+  function renderOutstandingBlock(revisionId) {
+    const items = scopedAttention?.revisionId === revisionId ? scopedAttention.items : null;
+    if (!items?.length) return "";
+    const rows = items.map((item) => {
+      const anchor = anchorRevision(item);
+      const kind = escapeHtml(item.kind.replace(/_/g, "-"));
+      return `<li><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}${anchor ? ` ${linkify(anchor)}` : ""}</li>`;
+    }).join("");
+    return `<section class="${CLASS.outstandingSet}"><h2>Outstanding (${items.length})</h2><ul>${rows}</ul></section>`;
+  }
+  __name(renderOutstandingBlock, "renderOutstandingBlock");
+  async function refreshOutstandingIfStale(revisionId) {
+    if (scopedAttentionFresh(revisionId)) return;
+    await fetchScopedAttention(revisionId);
+    if (revisionId !== shownCompositeId) return;
+    const host = $("#detail-body")?.querySelector(
+      "[data-outstanding-host]"
+    );
+    if (host) host.innerHTML = renderOutstandingBlock(revisionId);
+  }
+  __name(refreshOutstandingIfStale, "refreshOutstandingIfStale");
   function staleFactSectionContext(revisionId) {
     const successors = supersededByRevision(revisionId);
     if (!successors.length) return "";
@@ -3026,6 +3181,9 @@
   </dl>${renderRevisionSupersessionBlock(d.revisionSupersession, revisionId)}</section>`);
     sections.push(
       `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`
+    );
+    sections.push(
+      `<div data-outstanding-host>${renderOutstandingBlock(revisionId)}</div>`
     );
     sections.push(`<section><h2>Summary</h2><div class="${CLASS.upStats}">
     ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}
@@ -3079,9 +3237,10 @@
     rememberScroll();
     if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
     try {
-      const d = await fetchJSON(
-        `/api/revisions/${encodeURIComponent(revisionId)}`
-      );
+      const [d] = await Promise.all([
+        fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`),
+        fetchScopedAttention(revisionId)
+      ]);
       const sel = getState().selected;
       if (sel.kind !== "revision" || sel.id !== revisionId) return;
       renderRevisionPage(d);
@@ -3098,7 +3257,8 @@
   }
   __name(openRevision, "openRevision");
   function showComposite(revisionId) {
-    if (revisionId === shownCompositeId) return Promise.resolve();
+    if (revisionId === shownCompositeId)
+      return refreshOutstandingIfStale(revisionId);
     shownCompositeId = revisionId;
     return openRevision(revisionId);
   }
@@ -4439,110 +4599,6 @@
     }
   }
   __name(onKey, "onKey");
-
-  // src/lenses/attention.ts
-  function partitionAttentionTiers(items) {
-    return {
-      primary: items.filter((item) => item.tier !== "secondary"),
-      secondary: items.filter((item) => item.tier === "secondary")
-    };
-  }
-  __name(partitionAttentionTiers, "partitionAttentionTiers");
-  function renderAttention() {
-    const el = $("#attention");
-    if (!el) return;
-    const items = getState().attention?.items ?? [];
-    if (!items.length) {
-      el.innerHTML = `<p class="${CLASS.attentionEmpty}" style="color:var(--fg-dim)">Nothing needs attention in this store.</p>`;
-      return;
-    }
-    const { primary, secondary } = partitionAttentionTiers(items);
-    const focus = getState().attentionFocus;
-    el.innerHTML = renderTier("Needs input", primary, focus) + renderTier("Advisory", secondary, focus);
-  }
-  __name(renderAttention, "renderAttention");
-  function renderTier(label, items, focus) {
-    if (!items.length) return "";
-    return `<h3 class="${CLASS.attentionTier}">${escapeHtml(label)} (${items.length})</h3>${items.map((item) => renderAttentionCard(item, focus)).join("")}`;
-  }
-  __name(renderTier, "renderTier");
-  function anchorRevision(item) {
-    if (item.revisionId) return item.revisionId;
-    return item.headRevisionIds?.[0] ?? "";
-  }
-  __name(anchorRevision, "anchorRevision");
-  function renderAttentionCard(item, focus) {
-    const anchor = anchorRevision(item);
-    const focusClass = item.id === focus ? ` ${CLASS.attentionFocus}` : "";
-    const kind = escapeHtml(item.kind.replace(/_/g, "-"));
-    const subject = anchor ? shortRef(anchor) : "thread";
-    const freshness = item.freshness?.state === "superseded" ? `<span class="${CLASS.attentionFreshness}">superseded${item.freshness.supersededBy?.length ? ` by ${item.freshness.supersededBy.map((id) => linkify(id)).join(", ")}` : ""}</span>` : "";
-    const rows = [];
-    const push = /* @__PURE__ */ __name((k, v) => {
-      rows.push(`<span>${escapeHtml(k)}</span><b>${v}</b>`);
-    }, "push");
-    push("subject", escapeHtml(subject));
-    for (const [k, v] of detailRows(item)) push(k, v);
-    push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
-    return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}${focusClass}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
-      <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>
-      ${freshness}
-      <div class="${CLASS.kv}">${rows.join("")}</div>
-    </div>`;
-  }
-  __name(renderAttentionCard, "renderAttentionCard");
-  function askLabel(item) {
-    switch (item.kind) {
-      case "open_input_request":
-        return item.title ?? "open input request";
-      case "ambiguous_assessment":
-        return `${item.assessments?.length ?? 0} competing assessments`;
-      case "competing_heads":
-        return `${item.headRevisionIds?.length ?? 0} competing heads`;
-      case "stale_assessment":
-        return `stale ${item.assessment ?? "assessment"}`;
-      case "failed_validation":
-        return `${item.checkName ?? "check"} ${item.status ?? "failed"}`;
-      case "follow_up_outstanding":
-        return "follow-up outstanding";
-      default:
-        return item.kind.replace(/_/g, "-");
-    }
-  }
-  __name(askLabel, "askLabel");
-  function detailRows(item) {
-    const actor = item.openedBy ?? item.recordedBy;
-    const rows = [];
-    if (item.reasonCode) rows.push(["reason", escapeHtml(item.reasonCode)]);
-    if (item.mode) rows.push(["mode", escapeHtml(item.mode)]);
-    if (item.trackId) rows.push(["track", escapeHtml(item.trackId)]);
-    if (actor) rows.push(["actor", linkify(actor)]);
-    if (item.kind === "competing_heads" && item.headRevisionIds) {
-      rows.push([
-        "heads",
-        item.headRevisionIds.map((id) => linkify(id)).join(" ")
-      ]);
-    }
-    if (item.kind === "ambiguous_assessment" && item.assessments) {
-      rows.push([
-        "assessments",
-        item.assessments.map(
-          (a) => `${escapeHtml(a.assessment ?? "")} (${escapeHtml(a.trackId ?? "")})`
-        ).join(", ")
-      ]);
-    }
-    if (item.kind === "failed_validation" && item.exitCode != null) {
-      rows.push(["exit", escapeHtml(String(item.exitCode))]);
-    }
-    if (item.kind === "follow_up_outstanding" && item.openInputRequestIds) {
-      rows.push([
-        "requests",
-        item.openInputRequestIds.map((id) => linkify(id)).join(" ")
-      ]);
-    }
-    return rows;
-  }
-  __name(detailRows, "detailRows");
 
   // src/lenses/revisions.ts
   function renderRevisionList() {

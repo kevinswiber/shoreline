@@ -61,9 +61,10 @@ function renderTier(
     .join("")}`;
 }
 
-/** The revision the card activates to: the item's anchor, or the smallest head
- * of a thread-scoped competing-heads item (its sorted `headRevisionIds[0]`). */
-function anchorRevision(item: AttentionItem): string {
+/** The revision an item activates to: the item's anchor, or the smallest head
+ * of a thread-scoped competing-heads item (its sorted `headRevisionIds[0]`).
+ * Shared with the detail page's outstanding block — one anchor rule. */
+export function anchorRevision(item: AttentionItem): string {
   if (item.revisionId) return item.revisionId;
   return item.headRevisionIds?.[0] ?? "";
 }
@@ -100,8 +101,9 @@ function renderAttentionCard(
     </div>`;
 }
 
-/** The one-line "ask" for an item — what a reader would scan first. */
-function askLabel(item: AttentionItem): string {
+/** The one-line "ask" for an item — what a reader would scan first. Shared
+ * with the detail page's outstanding block — one ask vocabulary. */
+export function askLabel(item: AttentionItem): string {
   switch (item.kind) {
     case "open_input_request":
       return item.title ?? "open input request";

@@ -532,6 +532,11 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 }
 .attention-empty { padding: 12px 14px; }
 .attention-card.attention-focus { border-color: var(--accent); background: var(--sel-bg); }
+
+/* The detail page's per-revision outstanding set: the scoped attention items,
+   one compact row per item, navigation-only. Absent when nothing is outstanding. */
+.outstanding-set ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.outstanding-set li { font-size: var(--fs-sm); }
 .supersession-badges { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 8px; }
 .overview-summary { display: grid; gap: 6px; margin: 8px 0 10px; }
 .overview-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

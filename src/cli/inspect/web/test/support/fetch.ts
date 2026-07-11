@@ -77,6 +77,37 @@ export function resetSnapshotResponse(): void {
   snapshotResponse = snapshotJson;
 }
 
+// The scoped `/api/attention?revision=` read defaults to an empty set; the
+// detail outstanding-block tests override it (or force an error) to drive the
+// per-revision judgment view. Every `/api/attention` request target (path +
+// query) is recorded so a test can assert the scoped form was actually
+// requested rather than a client-side filter of the global document.
+let scopedAttentionResponse: unknown = { items: [] };
+let scopedAttentionError: { status: number; message: string } | null = null;
+let attentionRequestLog: string[] = [];
+
+/** Override the scoped `/api/attention?revision=` response the mock returns. */
+export function setScopedAttentionResponse(payload: unknown): void {
+  scopedAttentionResponse = payload;
+}
+
+/** Make the scoped `/api/attention?revision=` read fail (degrade-to-omission tests). */
+export function setScopedAttentionError(status: number, message: string): void {
+  scopedAttentionError = { status, message };
+}
+
+/** The recorded `/api/attention` request targets (path + query), oldest first. */
+export function attentionRequests(): readonly string[] {
+  return attentionRequestLog;
+}
+
+/** Restore the default scoped-attention response and clear the request log. */
+export function resetScopedAttention(): void {
+  scopedAttentionResponse = { items: [] };
+  scopedAttentionError = null;
+  attentionRequestLog = [];
+}
+
 // The composite `/api/revisions/{id}` document defaults to the committed fixture;
 // a fact-supersession test overrides it to drive a fork the plain fixture lacks.
 let compositeResponse: unknown = revisionJson;
@@ -98,9 +129,9 @@ function urlOf(input: RequestInfo | URL): string {
   return input.url;
 }
 
-/** The pathname of a request target (relative `/api/*` paths resolve against a stub origin). */
-function pathnameOf(input: RequestInfo | URL): string {
-  return new URL(urlOf(input), "http://inspector.test").pathname;
+/** The parsed request target (relative `/api/*` paths resolve against a stub origin). */
+function targetOf(input: RequestInfo | URL): URL {
+  return new URL(urlOf(input), "http://inspector.test");
 }
 
 /** A JSON `200` response. */
@@ -142,9 +173,22 @@ function classifyMember(
 }
 
 const mockFetch: typeof fetch = (input) => {
-  const pathname = pathnameOf(input);
+  const target = targetOf(input);
+  const pathname = target.pathname;
   if (pathname === "/api/freshness") return json(freshness);
   if (pathname === "/api/history") return json(historyResponse);
+  if (pathname === "/api/attention") {
+    attentionRequestLog.push(pathname + target.search);
+    if (target.searchParams.get("revision") !== null) {
+      if (scopedAttentionError)
+        return errorResponse(
+          scopedAttentionError.status,
+          scopedAttentionError.message,
+        );
+      return json(scopedAttentionResponse);
+    }
+    // The unscoped form falls through to the fixture table below.
+  }
   for (const [prefix, fixture] of [
     ["/api/snapshots/", snapshotResponse],
     ["/api/revisions/", compositeResponse],

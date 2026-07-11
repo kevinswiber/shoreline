@@ -44,6 +44,7 @@ import { $ } from "./dom";
 import { escapeHtml } from "./escape";
 import { fmtDateTime } from "./format";
 import { fetchJSON } from "./http";
+import { anchorRevision, askLabel } from "./lenses/attention";
 import { renderBodyContent } from "./markdown";
 import {
   selectedEventId,
@@ -71,6 +72,7 @@ import {
   targetHeadBadge,
 } from "./refs";
 import { navigate } from "./router";
+import type { AttentionDoc, AttentionItem } from "./store";
 import { getState } from "./store";
 import { renderSupersessionSvg } from "./supersession";
 import {
@@ -587,6 +589,93 @@ function wireDagInteractions(scope: HTMLElement): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The per-revision outstanding block (the scoped /api/attention read)
+// ---------------------------------------------------------------------------
+
+// The scoped attention set the open revision's page renders, cached under the
+// revision id AND the global attention doc's eventSetHash it was fetched under:
+// when the freshness poll moves the global doc, the composite revision-id dedupe
+// must not pin this block, so a repaint under a changed hash re-fetches. `items`
+// is null when the scoped read failed — the block degrades to omission and the
+// page stays functional. Transient view-cache — never on the store.
+interface ScopedAttention {
+  revisionId: string;
+  eventSetHash: string | undefined;
+  items: AttentionItem[] | null;
+}
+let scopedAttention: ScopedAttention | null = null;
+// The key of the newest scoped read still in flight, so repaints during the
+// read (every store commit repaints) do not stack duplicate fetches. A
+// monotonic generation marks each read; only the newest may commit its
+// response or clear this marker, so a superseded read settling out of order
+// can neither overwrite a fresher cache nor leave the marker pinned.
+let scopedAttentionPending: Omit<ScopedAttention, "items"> | null = null;
+let scopedAttentionGeneration = 0;
+
+/** Whether the cached (or in-flight) scoped set matches the revision and the
+ * CURRENT global attention hash — false means a re-fetch is due. */
+function scopedAttentionFresh(revisionId: string): boolean {
+  const eventSetHash = getState().attention?.eventSetHash;
+  const hit = (s: { revisionId: string; eventSetHash?: string } | null) =>
+    s?.revisionId === revisionId && s.eventSetHash === eventSetHash;
+  return hit(scopedAttention) || hit(scopedAttentionPending);
+}
+
+/** Fetch the revision-scoped attention set and cache it. Never throws: a failed
+ * read caches null items (omission), so it can ride `Promise.all` with the
+ * composite fetch without turning the page into an error paint. A read that a
+ * newer one superseded drops its response instead of committing it. */
+async function fetchScopedAttention(revisionId: string): Promise<void> {
+  const eventSetHash = getState().attention?.eventSetHash;
+  const generation = ++scopedAttentionGeneration;
+  scopedAttentionPending = { revisionId, eventSetHash };
+  let items: AttentionItem[] | null;
+  try {
+    const doc = (await fetchJSON(
+      `/api/attention?revision=${encodeURIComponent(revisionId)}`,
+    )) as AttentionDoc;
+    items = doc.items ?? [];
+  } catch {
+    items = null;
+  }
+  if (generation !== scopedAttentionGeneration) return;
+  scopedAttentionPending = null;
+  scopedAttention = { revisionId, eventSetHash, items };
+}
+
+// The outstanding block: the scoped attention item SET, one row per item (kind
+// chip + the lens's ask wording + a navigation chip to the anchor) — never
+// collapsed to one chip or a stage scalar. Read-only: navigation is the only
+// interaction; there is no dismissal affordance of any kind. Empty (or failed)
+// scoped reads render nothing.
+function renderOutstandingBlock(revisionId: string): string {
+  const items =
+    scopedAttention?.revisionId === revisionId ? scopedAttention.items : null;
+  if (!items?.length) return "";
+  const rows = items
+    .map((item) => {
+      const anchor = anchorRevision(item);
+      const kind = escapeHtml(item.kind.replace(/_/g, "-"));
+      return `<li><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}${anchor ? ` ${linkify(anchor)}` : ""}</li>`;
+    })
+    .join("");
+  return `<section class="${CLASS.outstandingSet}"><h2>Outstanding (${items.length})</h2><ul>${rows}</ul></section>`;
+}
+
+/** Re-fetch the scoped set when the global attention doc moved under the open
+ * revision, repainting only the block's host (not the composite). */
+async function refreshOutstandingIfStale(revisionId: string): Promise<void> {
+  if (scopedAttentionFresh(revisionId)) return;
+  await fetchScopedAttention(revisionId);
+  // The shown revision may have changed under the await; its paint owns the host.
+  if (revisionId !== shownCompositeId) return;
+  const host = $("#detail-body")?.querySelector<HTMLElement>(
+    "[data-outstanding-host]",
+  );
+  if (host) host.innerHTML = renderOutstandingBlock(revisionId);
+}
+
 /** The "superseded by <successors>" context repeated near each fact section, or "". */
 export function staleFactSectionContext(revisionId: string): string {
   const successors = supersededByRevision(revisionId);
@@ -631,6 +720,13 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
 
   sections.push(
     `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`,
+  );
+
+  // The per-revision outstanding set sits by the judgment context. The host div
+  // is stable across scoped re-fetches, so a moved global attention doc repaints
+  // only the block, never the composite.
+  sections.push(
+    `<div data-outstanding-host>${renderOutstandingBlock(revisionId)}</div>`,
   );
 
   // The annotated-diff affordance carries its open-diff datasets (the #detail
@@ -697,9 +793,12 @@ export async function openRevision(revisionId: string): Promise<void> {
   rememberScroll();
   if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
   try {
-    const d = await fetchJSON(
-      `/api/revisions/${encodeURIComponent(revisionId)}`,
-    );
+    // The scoped attention set rides the same paint (fetchScopedAttention never
+    // throws, so only a composite failure reaches the error paint below).
+    const [d] = await Promise.all([
+      fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`),
+      fetchScopedAttention(revisionId),
+    ]);
     // A later selection change may have superseded this fetch.
     const sel = getState().selected;
     if (sel.kind !== "revision" || sel.id !== revisionId) return;
@@ -721,7 +820,10 @@ export async function openRevision(revisionId: string): Promise<void> {
  * the in-flight fetch so a caller can await the paint; render ignores the return.
  */
 export function showComposite(revisionId: string): Promise<void> {
-  if (revisionId === shownCompositeId) return Promise.resolve();
+  // The revision-id dedupe guards the composite fetch only — it must not pin
+  // the outstanding block, which follows the global attention doc's freshness.
+  if (revisionId === shownCompositeId)
+    return refreshOutstandingIfStale(revisionId);
   shownCompositeId = revisionId;
   return openRevision(revisionId);
 }

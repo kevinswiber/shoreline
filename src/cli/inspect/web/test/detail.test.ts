@@ -1,15 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
+import type {
+  AttentionDoc,
+  AttentionItem,
+  HistoryDoc,
+  RevisionsDoc,
+  ThreadsDoc,
+} from "../src/store";
 import historyJson from "./fixtures/history.json";
 import revisionJson from "./fixtures/revision.json";
 import revisionsJson from "./fixtures/revisions.json";
 import threadsJson from "./fixtures/threads.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
 import {
+  attentionRequests,
   installFetchMock,
   resetCompositeResponse,
+  resetScopedAttention,
   resetSnapshotResponse,
   setCompositeResponse,
+  setScopedAttentionError,
+  setScopedAttentionResponse,
   uninstallFetchMock,
 } from "./support/fetch";
 
@@ -75,6 +85,7 @@ afterEach(() => {
   uninstallFetchMock();
   resetSnapshotResponse();
   resetCompositeResponse();
+  resetScopedAttention();
   resetDom();
 });
 
@@ -388,6 +399,179 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
     await detail.showComposite(REV);
     expect(detailEl().innerHTML).not.toContain("loading…");
     expect(detailEl().querySelector(".unit-page")).not.toBeNull();
+  });
+});
+
+describe("the per-revision outstanding block (scoped attention on the detail page)", () => {
+  // The block answers "what's outstanding on THIS revision?" from the scoped
+  // /api/attention?revision= read — never a client-side filter of the global
+  // document (a naive filter cannot reproduce competing-heads component
+  // coverage). One row per item, kind + ask; navigation is the only interaction.
+  const OTHER_HEAD =
+    "rev:sha256:3333333333333333333333333333333333333333333333333333333333333333";
+  const scopedItems: AttentionItem[] = [
+    {
+      id: "open_input_request:input-request:sha256:aaaa",
+      kind: "open_input_request",
+      tier: "primary",
+      revisionId: REV,
+      title: "Runtime trace required",
+    },
+    {
+      id: "failed_validation:validation:sha256:bbbb",
+      kind: "failed_validation",
+      tier: "secondary",
+      revisionId: REV,
+      checkName: "just check",
+      status: "failed",
+    },
+    {
+      id: `competing_heads:${REV}`,
+      kind: "competing_heads",
+      tier: "primary",
+      headRevisionIds: [OTHER_HEAD, REV],
+    },
+  ];
+  const attentionOf = (eventSetHash: string): AttentionDoc => ({
+    items: [],
+    eventSetHash,
+  });
+
+  it("fetches the scoped set with the composite document and renders one row per item", async () => {
+    setScopedAttentionResponse({ items: scopedItems });
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.showComposite(REV);
+
+    // The mock saw the scoped form — revision= in the query string.
+    const scoped = attentionRequests().filter((u) => u.includes("revision="));
+    expect(scoped.length).toBe(1);
+    expect(scoped[0]).toContain(`revision=${encodeURIComponent(REV)}`);
+
+    const block = detailEl().querySelector(".outstanding-set");
+    expect(block).not.toBeNull();
+    const rows = Array.from(block?.querySelectorAll("li") ?? []);
+    expect(rows.length).toBe(3); // the SET — one row per item, never collapsed
+    const text = block?.textContent ?? "";
+    // Each row names the item kind and carries the attention lens's ask wording.
+    expect(block?.querySelectorAll(".attention-kind").length).toBe(3);
+    expect(text).toContain("Runtime trace required");
+    expect(text).toContain("just check failed");
+    expect(text).toContain("2 competing heads");
+    // A navigation chip to the anchor where one exists.
+    expect(block?.querySelector(`[data-ref-id="${REV}"]`)).not.toBeNull();
+  });
+
+  it("renders nothing when the scoped set is empty", async () => {
+    // The default scoped response is an empty set.
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.showComposite(REV);
+    expect(detailEl().querySelector(".unit-page")).not.toBeNull();
+    expect(detailEl().querySelector(".outstanding-set")).toBeNull();
+  });
+
+  it("offers no dismissal affordance of any kind", async () => {
+    setScopedAttentionResponse({ items: scopedItems });
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.showComposite(REV);
+    const block = detailEl().querySelector(".outstanding-set");
+    expect(block).not.toBeNull();
+    // Links only: no per-item control, no read-state, no done/snooze.
+    expect(block?.querySelector("button, input, select, textarea")).toBeNull();
+  });
+
+  it("re-fetches the scoped set when the global attention doc moves under an open revision", async () => {
+    setScopedAttentionResponse({ items: scopedItems });
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      attention: attentionOf("sha256:hash-one"),
+    });
+    await detail.showComposite(REV); // scoped fetch #1
+    expect(
+      attentionRequests().filter((u) => u.includes("revision=")).length,
+    ).toBe(1);
+
+    // A repaint with an unchanged event set keeps the cached scoped set.
+    await detail.showComposite(REV);
+    expect(
+      attentionRequests().filter((u) => u.includes("revision=")).length,
+    ).toBe(1);
+
+    // The freshness poll delivers a moved global doc while the same revision
+    // stays open — the composite revision-id dedupe must not pin the block.
+    setScopedAttentionResponse({ items: [scopedItems[0]] });
+    store.commit({ attention: attentionOf("sha256:hash-two") });
+    await detail.showComposite(REV); // scoped fetch #2
+    expect(
+      attentionRequests().filter((u) => u.includes("revision=")).length,
+    ).toBe(2);
+    // The block re-rendered from the new scoped response.
+    const rows = detailEl().querySelectorAll(".outstanding-set li");
+    expect(rows.length).toBe(1);
+  });
+
+  it("drops an out-of-order scoped response instead of overwriting a fresher cache", async () => {
+    // Defer the scoped responses so they can settle out of order: a superseded
+    // read resolving last must not overwrite the cache the newer read
+    // committed, and the pending marker must clear on settlement so the
+    // freshness check cannot stay pinned behind a read that lost the race.
+    const deferred: Array<(data: unknown) => void> = [];
+    const base = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.includes("revision=")) {
+        return new Promise<Response>((resolve) => {
+          deferred.push((data) =>
+            resolve(
+              new Response(JSON.stringify(data), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+            ),
+          );
+        });
+      }
+      return base(input, init);
+    }) as typeof fetch;
+
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      attention: attentionOf("sha256:hash-one"),
+    });
+    const first = detail.showComposite(REV); // composite + scoped read #1 (deferred)
+    expect(deferred.length).toBe(1);
+
+    // The global doc moves while #1 is still in flight; the repaint starts #2.
+    store.commit({ attention: attentionOf("sha256:hash-two") });
+    const second = detail.showComposite(REV);
+    expect(deferred.length).toBe(2);
+
+    deferred[1]({ items: [scopedItems[0]] }); // the newer read settles first
+    await second;
+    deferred[0]({ items: [] }); // the superseded read settles last
+    await first;
+
+    // The composite paint renders from the cache: the stale empty set was
+    // dropped, so the newer one-item set survives.
+    expect(detailEl().querySelectorAll(".outstanding-set li").length).toBe(1);
+
+    // And the settled state is fresh — no further scoped fetch on repaint.
+    await detail.showComposite(REV);
+    expect(deferred.length).toBe(2);
+  });
+
+  it("degrades to omission when the scoped fetch fails (the page stays functional)", async () => {
+    setScopedAttentionError(500, "attention read failed");
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.showComposite(REV);
+    const el = detailEl();
+    expect(el.querySelector(".unit-page")).not.toBeNull();
+    expect(el.textContent).toContain("Current assessment");
+    expect(el.querySelector(".outstanding-set")).toBeNull();
   });
 });
 
