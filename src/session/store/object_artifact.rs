@@ -104,7 +104,32 @@ pub fn read_bound_object_artifact(
     object_id: &ObjectId,
     content_hash: &str,
 ) -> Result<ObjectArtifact> {
-    let bytes = read_bound_object_artifact_bytes(repo, object_id, content_hash)?;
+    let read_store = resolve_read_store(repo.as_ref())?;
+    read_bound_object_artifact_from_backend(read_store.backend(), object_id, content_hash)
+}
+
+/// The store-injected twin of [`read_bound_object_artifact`]: reads through an
+/// already-resolved backend so a batch caller (the overview builder) resolves
+/// the store once, not once per artifact. Decodes and hash-validates exactly
+/// once — the canonical-hash recompute is the dominant cost of a bound read, so
+/// it must not run twice on one artifact.
+pub(crate) fn read_bound_object_artifact_from_backend(
+    backend: &StoreBackend,
+    object_id: &ObjectId,
+    content_hash: &str,
+) -> Result<ObjectArtifact> {
+    let content = ContentArtifacts::from_backend(backend);
+    let bytes =
+        match content.read_object_bytes_if_exists(&object_content_ref_for_hash(content_hash))? {
+            Some(bytes) => bytes,
+            None => {
+                // Compatibility with stores written before object artifacts were keyed
+                // by content hash. The old path was object-id keyed; it is valid only
+                // if the stored blob still matches the event-bound content hash.
+                let legacy_ref = object_content_ref(object_id);
+                content.read_object_bytes(&legacy_ref, object_id)?
+            }
+        };
     let artifact = decode_and_validate_object_artifact(&bytes)?;
     validate_bound_object_artifact(&artifact, object_id, content_hash)?;
     Ok(artifact)

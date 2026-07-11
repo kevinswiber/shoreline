@@ -23,8 +23,8 @@ use pointbreak::session::{
     ObservationView, ProjectionDiagnostic, ReviewHistoryEntry, RevisionCommitRangeView,
     RevisionListEntry, RevisionListOptions, RevisionOverview, RevisionOverviewsOptions,
     RevisionProjectionSummary, RevisionShowOptions, RevisionShowResult, SessionState,
-    StoreIdentity, StoreIdentityOptions, SupersessionView, apply_history_query,
-    default_history_page_projection, enrich_liveness, event_log_head_marker,
+    SnapshotSummaryCache, StoreIdentity, StoreIdentityOptions, SupersessionView,
+    apply_history_query, default_history_page_projection, enrich_liveness, event_log_head_marker,
     history_base_projection, list_attention, list_revisions, read_bound_object_artifact,
     read_events_for_display, read_object_artifact, show_revision, show_revision_overviews,
     store_identity,
@@ -473,6 +473,7 @@ fn to_unit_entry_documents(
 fn revision_overviews(
     repo: &Path,
     entries: &[RevisionListEntry],
+    snapshot_summaries: &Arc<SnapshotSummaryCache>,
 ) -> Result<BTreeMap<String, RevisionOverviewDocument>, String> {
     let span = tracing::debug_span!(
         "shore.inspect.revisions.revision_overviews",
@@ -497,7 +498,8 @@ fn revision_overviews(
             RevisionOverviewsOptions::new(repo)
                 .with_revisions(entries.iter().map(|entry| entry.revision_id.clone()))
                 .with_read_for_display(true)
-                .with_trust_set(trust_set),
+                .with_trust_set(trust_set)
+                .with_snapshot_summary_cache(Arc::clone(snapshot_summaries)),
         )
         .map_err(|error| {
             tracing::debug!(error = %error, "inspect_unit_overviews_failed");
@@ -813,8 +815,66 @@ fn cached_history_base(
     })
 }
 
-/// Captured Revisions with their base/target/snapshot identity.
-pub(super) fn revisions_json(repo: &Path) -> Result<String, String> {
+/// Captured Revisions with their base/target/snapshot identity. Served from the
+/// head-marker-keyed response cache: the endpoint takes no query parameters, so
+/// one store version has exactly one payload, rebuilt only when the marker
+/// moves (#426). Concurrent requests during a rebuild coalesce on the cache's
+/// write lock instead of duplicating the build.
+pub(super) fn revisions_json(
+    repo: &Path,
+    cache: &super::cache::RevisionsResponseCache,
+    snapshot_summaries: &Arc<SnapshotSummaryCache>,
+) -> Result<String, String> {
+    cached_revisions_json(repo, cache, snapshot_summaries).map(|payload| (*payload).clone())
+}
+
+/// Warm the `/api/revisions` response cache without serializing a response.
+///
+/// Best-effort, exactly like [`warm_history_cache`]: endpoint requests use the
+/// same cache path and surface any real error to the client.
+pub(super) fn warm_revisions_cache(
+    repo: &Path,
+    cache: &super::cache::RevisionsResponseCache,
+    snapshot_summaries: &Arc<SnapshotSummaryCache>,
+) -> Result<(), String> {
+    let span = tracing::debug_span!("shore.inspect.warm_revisions_cache");
+    let _guard = span.enter();
+
+    cached_revisions_json(repo, cache, snapshot_summaries).map(|_| ())
+}
+
+/// Whether the `/api/revisions` cache already holds the payload for the store's
+/// current head marker. `false` on any marker-read error — the caller only uses
+/// this to decide whether a background warm is worth spawning.
+pub(super) fn revisions_cache_is_warm(
+    repo: &Path,
+    cache: &super::cache::RevisionsResponseCache,
+) -> bool {
+    event_log_head_marker(repo)
+        .ok()
+        .and_then(|marker| cache.try_get(marker))
+        .is_some()
+}
+
+fn cached_revisions_json(
+    repo: &Path,
+    cache: &super::cache::RevisionsResponseCache,
+    snapshot_summaries: &Arc<SnapshotSummaryCache>,
+) -> Result<Arc<String>, String> {
+    let marker = {
+        let span = tracing::debug_span!("shore.inspect.revisions.event_log_head_marker");
+        let _guard = span.enter();
+        event_log_head_marker(repo).map_err(|error| error.to_string())?
+    };
+    let span = tracing::debug_span!("shore.inspect.revisions.cache_get_or_build", marker);
+    let _guard = span.enter();
+    cache.get_or_build(marker, || build_revisions_json(repo, snapshot_summaries))
+}
+
+fn build_revisions_json(
+    repo: &Path,
+    snapshot_summaries: &Arc<SnapshotSummaryCache>,
+) -> Result<String, String> {
     let span = tracing::debug_span!("shore.inspect.api.revisions_json");
     let _guard = span.enter();
 
@@ -824,7 +884,7 @@ pub(super) fn revisions_json(repo: &Path) -> Result<String, String> {
         list_revisions(RevisionListOptions::new(repo).with_read_for_display(true))
             .map_err(|error| error.to_string())?
     };
-    let overviews = revision_overviews(repo, &result.entries)?;
+    let overviews = revision_overviews(repo, &result.entries, snapshot_summaries)?;
     let entries = {
         let span = tracing::debug_span!(
             "shore.inspect.revisions.to_entry_documents",

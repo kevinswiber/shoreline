@@ -10,12 +10,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
 use pointbreak::model::EventId;
-use pointbreak::session::{HistoryOrder, HistoryPage, HistoryQuery};
+use pointbreak::session::{HistoryOrder, HistoryPage, HistoryQuery, SnapshotSummaryCache};
 
 use super::api;
 
@@ -28,6 +29,17 @@ pub(super) struct InspectState {
     /// queries over one store version reuse the fully-hydrated base instead of
     /// re-reading and re-hydrating the whole log per request (INV-5).
     pub history_cache: super::cache::HistoryProjectionCache,
+    /// The single-slot `/api/revisions` response cache (#426): one payload per
+    /// store version, rebuilt only when the head marker moves.
+    pub revisions_cache: super::cache::RevisionsResponseCache,
+    /// Content-hash-keyed snapshot summary counts shared across every
+    /// `/api/revisions` rebuild (#426): each snapshot artifact is decoded once
+    /// per server process, not once per rebuild.
+    pub snapshot_summaries: Arc<SnapshotSummaryCache>,
+    /// Dedup flag for the background `/api/revisions` rewarm: at most one warm
+    /// thread runs at a time, no matter how many freshness polls observe a
+    /// moved marker.
+    revisions_warm_in_flight: AtomicBool,
 }
 
 impl InspectState {
@@ -36,6 +48,9 @@ impl InspectState {
             repo,
             highlight_cache: RwLock::new(HighlightCache::new(HIGHLIGHT_CACHE_CAPACITY)),
             history_cache: super::cache::HistoryProjectionCache::new(),
+            revisions_cache: super::cache::RevisionsResponseCache::new(),
+            snapshot_summaries: Arc::new(SnapshotSummaryCache::new()),
+            revisions_warm_in_flight: AtomicBool::new(false),
         }
     }
 }
@@ -157,7 +172,7 @@ pub(super) fn serve(
     stdout.flush().ok();
 
     let state = Arc::new(InspectState::new(repo));
-    warm_history_cache(Arc::clone(&state));
+    warm_caches(Arc::clone(&state));
 
     if open {
         open_browser(&url);
@@ -182,17 +197,57 @@ pub(super) fn serve(
     Ok(())
 }
 
-fn warm_history_cache(state: Arc<InspectState>) {
+/// Warm both store-version caches in the background at startup: history first
+/// (the timeline is the first paint), then the `/api/revisions` payload (the
+/// expensive one — every revision's overview). Best-effort: endpoint requests
+/// use the same cache paths and surface any real error to the client.
+fn warm_caches(state: Arc<InspectState>) {
     thread::spawn(move || {
         if let Err(error) = api::warm_history_cache(state.repo.as_path(), &state.history_cache) {
             tracing::debug!(error = %error, "inspect_history_cache_warm_failed");
         } else {
             tracing::debug!("inspect_history_cache_warmed");
         }
+        if let Err(error) = api::warm_revisions_cache(
+            state.repo.as_path(),
+            &state.revisions_cache,
+            &state.snapshot_summaries,
+        ) {
+            tracing::debug!(error = %error, "inspect_revisions_cache_warm_failed");
+        } else {
+            tracing::debug!("inspect_revisions_cache_warmed");
+        }
     });
 }
 
-fn handle_connection(stream: TcpStream, state: &InspectState) -> std::io::Result<()> {
+/// Kick a deduped background rebuild of the `/api/revisions` payload when the
+/// freshness poll observes a store version the cache does not hold. The poll
+/// is the client's own change detector, so by the time it refetches
+/// `/api/revisions` the rebuild has usually already started (or finished)
+/// instead of blocking that request for the full build.
+fn maybe_warm_revisions_cache(state: &Arc<InspectState>) {
+    if api::revisions_cache_is_warm(state.repo.as_path(), &state.revisions_cache) {
+        return;
+    }
+    if state.revisions_warm_in_flight.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let state = Arc::clone(state);
+    thread::spawn(move || {
+        if let Err(error) = api::warm_revisions_cache(
+            state.repo.as_path(),
+            &state.revisions_cache,
+            &state.snapshot_summaries,
+        ) {
+            tracing::debug!(error = %error, "inspect_revisions_cache_rewarm_failed");
+        }
+        state
+            .revisions_warm_in_flight
+            .store(false, Ordering::Release);
+    });
+}
+
+fn handle_connection(stream: TcpStream, state: &Arc<InspectState>) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
 
@@ -222,7 +277,7 @@ fn handle_connection(stream: TcpStream, state: &InspectState) -> std::io::Result
     write_response(stream, &response)
 }
 
-fn route(state: &InspectState, method: &str, path: &str, query: Option<&str>) -> Response {
+fn route(state: &Arc<InspectState>, method: &str, path: &str, query: Option<&str>) -> Response {
     if method != "GET" {
         return Response::text("405 Method Not Allowed", "method not allowed");
     }
@@ -248,10 +303,20 @@ fn route(state: &InspectState, method: &str, path: &str, query: Option<&str>) ->
             )),
             Err(message) => Response::json_error("400 Bad Request", &message),
         },
-        "/api/revisions" => api_response(api::revisions_json(repo)),
+        "/api/revisions" => api_response(api::revisions_json(
+            repo,
+            &state.revisions_cache,
+            &state.snapshot_summaries,
+        )),
         "/api/threads" => api_response(api::threads_json(repo)),
         "/api/attention" => api_response(api::attention_json(repo)),
-        "/api/freshness" => api_response(api::freshness_json(repo)),
+        "/api/freshness" => {
+            // The freshness poll is the client's change detector; ride it to
+            // start rebuilding the expensive revisions payload before the
+            // client's follow-up refetch arrives.
+            maybe_warm_revisions_cache(state);
+            api_response(api::freshness_json(repo))
+        }
         "/api/identity" => api_response(api::identity_json(repo)),
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
         _ => route_member(state, path, query),
@@ -262,7 +327,7 @@ fn route(state: &InspectState, method: &str, path: &str, query: Option<&str>) ->
 /// member (a trailing slash with no id) is a `400`; anything else unmatched is a
 /// `404`. The id segment arrives percent-encoded (the client encodes it with
 /// `encodeURIComponent`) and is decoded here.
-fn route_member(state: &InspectState, path: &str, query: Option<&str>) -> Response {
+fn route_member(state: &Arc<InspectState>, path: &str, query: Option<&str>) -> Response {
     let repo = state.repo.as_path();
     if let Some(raw) = path_member(path, "/api/revisions/") {
         return match decode_member(raw) {
@@ -456,7 +521,9 @@ mod tests {
     fn route_for(method: &str, path: &str) -> Response {
         // Static assets, 404, 405, and the missing-id snapshot case do not
         // touch the store, so the repo path is never read for these cases.
-        let state = InspectState::new(PathBuf::from("/inspect-routing-test-unused"));
+        let state = Arc::new(InspectState::new(PathBuf::from(
+            "/inspect-routing-test-unused",
+        )));
         route(&state, method, path, None)
     }
 

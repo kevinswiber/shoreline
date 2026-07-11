@@ -5,6 +5,7 @@ use crate::error::{Result, ShoreError};
 use crate::model::{DiffSnapshot, ObjectId};
 use crate::session::object_artifact::{
     object_artifact_path, object_artifact_path_for_hash, read_bound_object_artifact,
+    read_bound_object_artifact_from_backend,
 };
 use crate::session::projection::RemovalOperativeStatus;
 use crate::session::store::resolution::resolve_read_store;
@@ -95,6 +96,28 @@ pub(super) fn load_bound_object_artifact(
         &revision.object_id,
         &revision.object_artifact_content_hash,
     )?;
+    validate_loaded_artifact(artifact, revision)
+}
+
+/// The store-injected twin of [`load_bound_object_artifact`]: the overview batch
+/// resolves the read store once and threads its backend through every artifact
+/// load, instead of re-resolving the store per revision.
+pub(super) fn load_bound_object_artifact_from_backend(
+    backend: &crate::session::store::backend::StoreBackend,
+    revision: &RevisionProjectionIdentity,
+) -> Result<DiffSnapshot> {
+    let artifact = read_bound_object_artifact_from_backend(
+        backend,
+        &revision.object_id,
+        &revision.object_artifact_content_hash,
+    )?;
+    validate_loaded_artifact(artifact, revision)
+}
+
+fn validate_loaded_artifact(
+    artifact: crate::session::object_artifact::ObjectArtifact,
+    revision: &RevisionProjectionIdentity,
+) -> Result<DiffSnapshot> {
     // Bind via the namespace-independent object_id + content_hash only. Identity
     // (revision_id/source/base/target) lives in the capture event/projection,
     // never the content-addressed artifact body.

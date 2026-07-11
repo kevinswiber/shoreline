@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::error::Result;
 use crate::model::{DiffSnapshot, EventId, ReviewId, RevisionId};
 use crate::session::assessment::{
     AssessmentProjectionOptions, AssessmentView, CurrentAssessmentView, project_assessments,
 };
-use crate::session::event::ShoreEvent;
+use crate::session::event::{EventType, ShoreEvent};
 use crate::session::input_request::{
     InputRequestProjectionOptions, InputRequestStatusFilter, InputRequestView,
     project_input_requests,
@@ -37,6 +39,7 @@ mod identity;
 mod resolving;
 mod rows;
 mod snapshot;
+mod summary_cache;
 
 use self::identity::principal_diagnostics;
 pub use self::identity::{
@@ -49,7 +52,10 @@ use self::rows::{
     build_assessment_rows, build_input_request_rows, build_observation_rows, build_snapshot_rows,
     build_validation_rows, renumber_projection_rows,
 };
-use self::snapshot::{SnapshotContent, resolve_snapshot_content};
+use self::snapshot::{
+    SnapshotContent, load_bound_object_artifact_from_backend, resolve_snapshot_content,
+};
+pub use self::summary_cache::{SnapshotSummaryCache, SnapshotSummaryCounts};
 use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 
 /// A removal is recorded for the bound snapshot content, but its bytes are still
@@ -474,13 +480,14 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
 /// strict read. The verification-policy / actor-attributes / delegation-map
 /// inputs are deliberately absent — they feed only the per-event readback and the
 /// principal diagnostics, neither of which a [`RevisionOverview`] carries.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct RevisionOverviewsOptions {
     pub(super) repo: PathBuf,
     pub(super) revisions: Vec<RevisionId>,
     pub(super) trust_set: TrustSet,
     pub(super) removal_policy: RemovalPolicy,
     pub(super) read_for_display: bool,
+    pub(super) snapshot_summaries: Option<Arc<SnapshotSummaryCache>>,
 }
 
 impl RevisionOverviewsOptions {
@@ -491,6 +498,7 @@ impl RevisionOverviewsOptions {
             trust_set: TrustSet::default(),
             removal_policy: RemovalPolicy::default(),
             read_for_display: false,
+            snapshot_summaries: None,
         }
     }
 
@@ -523,6 +531,15 @@ impl RevisionOverviewsOptions {
     /// overview path opts in, matching the singular `show_revision` it replaces.
     pub fn with_read_for_display(mut self, value: bool) -> Self {
         self.read_for_display = value;
+        self
+    }
+
+    /// Share a snapshot summary cache across batch builds. Counts are keyed by
+    /// the artifact content hash (immutable content), so a long-lived caller —
+    /// the inspect server — decodes each snapshot artifact once per process,
+    /// not once per rebuild (#426).
+    pub fn with_snapshot_summary_cache(mut self, cache: Arc<SnapshotSummaryCache>) -> Self {
+        self.snapshot_summaries = Some(cache);
         self
     }
 }
@@ -566,11 +583,11 @@ pub fn show_revision_overviews(
     };
     revision_overviews_from_store(
         &read_store,
-        &options.repo,
         &options.revisions,
         &options.trust_set,
         options.removal_policy,
         options.read_for_display,
+        options.snapshot_summaries.as_deref(),
     )
 }
 
@@ -582,11 +599,11 @@ pub fn show_revision_overviews(
 /// capture is skipped (the caller's lookup surfaces a genuine miss).
 fn revision_overviews_from_store(
     read_store: &ReadStore,
-    repo: &Path,
     revisions: &[RevisionId],
     trust_set: &TrustSet,
     removal_policy: RemovalPolicy,
     read_for_display: bool,
+    summary_cache: Option<&SnapshotSummaryCache>,
 ) -> Result<BTreeMap<RevisionId, RevisionOverview>> {
     let span = tracing::debug_span!(
         "shore.revisions.overviews.from_store",
@@ -628,42 +645,264 @@ fn revision_overviews_from_store(
             .collect()
     };
 
+    let requested: Vec<&RevisionProjectionIdentity> = revisions
+        .iter()
+        .filter_map(|revision_id| identities.get(revision_id))
+        .collect();
+
+    // Snapshot seeds: decide the operative-removal outcome per revision, then
+    // satisfy every present snapshot's counts from the shared cache or a
+    // one-time (parallel) decode. This is the batch's dominant cost, so it runs
+    // once per distinct content hash instead of once per revision per rebuild.
+    let seeds = {
+        let span = tracing::debug_span!("shore.revisions.overviews.snapshot_seeds");
+        let _guard = span.enter();
+        snapshot_summary_seeds(
+            read_store.backend(),
+            &requested,
+            trust_set,
+            removal_policy,
+            &removal,
+            &cosig_index,
+            summary_cache,
+        )?
+    };
+
+    // Bucket the review-fact events by their subject revision once, so each
+    // per-revision projection folds its own events instead of re-scanning the
+    // whole log per revision (the O(revisions × events) term).
+    let fact_events = {
+        let span = tracing::debug_span!("shore.revisions.overviews.bucket_fact_events");
+        let _guard = span.enter();
+        bucket_fact_events(&events, &requested)?
+    };
+
     let mut overviews = BTreeMap::new();
     {
         let span = tracing::debug_span!("shore.revisions.overviews.build_requested");
         let _guard = span.enter();
-        for revision_id in revisions {
-            let Some(identity) = identities.get(revision_id) else {
-                continue;
-            };
+        for identity in requested {
+            let seed = seeds
+                .get(&identity.id)
+                .expect("every requested identity has a snapshot seed");
+            let revision_facts = fact_events
+                .get(&identity.id)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
             let overview = build_revision_overview(
                 read_store.backend(),
-                repo,
-                &events,
+                revision_facts,
                 identity,
+                seed,
                 trust_set,
                 removal_policy,
                 &removal,
                 &cosig_index,
                 &supersession,
             )?;
-            overviews.insert(revision_id.clone(), overview);
+            overviews.insert(identity.id.clone(), overview);
         }
     }
     Ok(overviews)
 }
 
+/// The snapshot-derived half of one revision's overview, decided before the
+/// per-revision assembly: either the present content's counts (from the shared
+/// cache or a one-time decode) or the operative-removal outcome (the overview
+/// renders an empty snapshot either way, so the swept-vs-suppressed stat is
+/// never paid here).
+enum SnapshotSeed {
+    Present(SnapshotSummaryCounts),
+    Removed,
+}
+
+/// Resolve every requested revision's snapshot counts: operative removals seed
+/// `Removed`; present content resolves from the shared cache when warm, and the
+/// remaining misses decode once per distinct content hash (in parallel) and
+/// backfill the cache.
+fn snapshot_summary_seeds(
+    backend: &StoreBackend,
+    requested: &[&RevisionProjectionIdentity],
+    trust_set: &TrustSet,
+    removal_policy: RemovalPolicy,
+    removal: &ArtifactRemovalProjection,
+    cosig_index: &CosignatureIndex<'_>,
+    summary_cache: Option<&SnapshotSummaryCache>,
+) -> Result<BTreeMap<RevisionId, SnapshotSeed>> {
+    let mut seeds = BTreeMap::new();
+    let mut misses: Vec<&RevisionProjectionIdentity> = Vec::new();
+    let mut miss_hashes: BTreeSet<&str> = BTreeSet::new();
+    for identity in requested {
+        let status = {
+            let span = tracing::debug_span!("shore.revisions.overviews.operative_status");
+            let _guard = span.enter();
+            removal.operative_status(
+                &identity.object_artifact_content_hash,
+                trust_set,
+                removal_policy,
+                cosig_index,
+            )?
+        };
+        if matches!(
+            status,
+            RemovalOperativeStatus::OperativePossession | RemovalOperativeStatus::OperativeTrusted
+        ) {
+            seeds.insert(identity.id.clone(), SnapshotSeed::Removed);
+            continue;
+        }
+        if let Some(counts) =
+            summary_cache.and_then(|cache| cache.get(&identity.object_artifact_content_hash))
+        {
+            seeds.insert(identity.id.clone(), SnapshotSeed::Present(counts));
+            continue;
+        }
+        // Decode work is deduped by content hash: two revisions binding the
+        // same content share one decode.
+        if miss_hashes.insert(identity.object_artifact_content_hash.as_str()) {
+            misses.push(identity);
+        }
+    }
+
+    let decoded = decode_snapshot_counts(backend, &misses)?;
+    let counts_by_hash: BTreeMap<&str, SnapshotSummaryCounts> = misses
+        .iter()
+        .zip(&decoded)
+        .map(|(identity, counts)| (identity.object_artifact_content_hash.as_str(), *counts))
+        .collect();
+    if let Some(cache) = summary_cache {
+        for (content_hash, counts) in &counts_by_hash {
+            cache.insert((*content_hash).to_owned(), *counts);
+        }
+    }
+    for identity in requested {
+        if seeds.contains_key(&identity.id) {
+            continue;
+        }
+        let counts = counts_by_hash
+            .get(identity.object_artifact_content_hash.as_str())
+            .copied()
+            .expect("every non-removed requested revision was decoded or cache-seeded");
+        seeds.insert(identity.id.clone(), SnapshotSeed::Present(counts));
+    }
+    Ok(seeds)
+}
+
+/// Decode each missed artifact once and count its snapshot rows. The decode —
+/// a full JSON parse plus a canonical-hash revalidation per artifact — is the
+/// batch's dominant cost and each miss is independent, so misses run on scoped
+/// threads. Results keep input order and the first failure in input order is
+/// the batch's error, exactly what a sequential loop would surface.
+fn decode_snapshot_counts(
+    backend: &StoreBackend,
+    misses: &[&RevisionProjectionIdentity],
+) -> Result<Vec<SnapshotSummaryCounts>> {
+    let worker_count = std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1)
+        .min(misses.len());
+    if worker_count <= 1 {
+        return misses
+            .iter()
+            .map(|identity| decode_one_snapshot_counts(backend, identity))
+            .collect();
+    }
+
+    let next = AtomicUsize::new(0);
+    let mut indexed: Vec<(usize, Result<SnapshotSummaryCounts>)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..worker_count)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut local = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(identity) = misses.get(index) else {
+                            break;
+                        };
+                        local.push((index, decode_one_snapshot_counts(backend, identity)));
+                    }
+                    local
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| {
+                worker
+                    .join()
+                    .expect("snapshot decode worker does not panic")
+            })
+            .collect()
+    });
+    indexed.sort_unstable_by_key(|(index, _)| *index);
+    indexed.into_iter().map(|(_, counts)| counts).collect()
+}
+
+fn decode_one_snapshot_counts(
+    backend: &StoreBackend,
+    identity: &RevisionProjectionIdentity,
+) -> Result<SnapshotSummaryCounts> {
+    let span = tracing::debug_span!("shore.revisions.overviews.resolve_snapshot_content");
+    let _guard = span.enter();
+    let snapshot = load_bound_object_artifact_from_backend(backend, identity)?;
+    // The rows are built only to count them, exactly as the summary recompute
+    // in `show_revision` does, so the counts cannot drift from the row builder.
+    let (_rows, summary) = build_snapshot_rows(&snapshot, &identity.id);
+    Ok(SnapshotSummaryCounts {
+        file_count: summary.file_count,
+        snapshot_row_count: summary.snapshot_row_count,
+    })
+}
+
+/// The event types the four overview fact projections read. Bucketing must
+/// cover exactly this set: a type outside it never reaches an overview
+/// projection, and every one of these reconstructs a review-revision subject
+/// (an input-request response carries its request's revision in the payload).
+const OVERVIEW_FACT_EVENT_TYPES: [EventType; 5] = [
+    EventType::ReviewObservationRecorded,
+    EventType::InputRequestOpened,
+    EventType::InputRequestResponded,
+    EventType::ReviewAssessmentRecorded,
+    EventType::ValidationCheckRecorded,
+];
+
+/// One pass over the log: group the requested revisions' review-fact events by
+/// their subject revision, so each per-revision projection receives only its
+/// own events. Subject reconstruction errors propagate exactly as they would
+/// from the projections themselves (same types, same probe).
+fn bucket_fact_events(
+    events: &[ShoreEvent],
+    requested: &[&RevisionProjectionIdentity],
+) -> Result<BTreeMap<RevisionId, Vec<ShoreEvent>>> {
+    let requested_ids: BTreeSet<&RevisionId> =
+        requested.iter().map(|identity| &identity.id).collect();
+    let mut buckets: BTreeMap<RevisionId, Vec<ShoreEvent>> = BTreeMap::new();
+    for event in events {
+        if !OVERVIEW_FACT_EVENT_TYPES.contains(&event.event_type) {
+            continue;
+        }
+        let Some(revision_id) = event.subject_revision_id()? else {
+            continue;
+        };
+        if !requested_ids.contains(&revision_id) {
+            continue;
+        }
+        buckets.entry(revision_id).or_default().push(event.clone());
+    }
+    Ok(buckets)
+}
+
 /// The per-revision tail, the same one `show_revision` runs for the single
-/// revision it resolves: resolve the bound snapshot (an operative removal empties
-/// it), run the same five projections, and recompute the summary the same way. It
-/// omits the member-readback loop and the `SessionState`/commit-range/diagnostics
+/// revision it resolves: run the same five projections over the revision's own
+/// bucketed events and recompute the summary the same way, seeding the
+/// snapshot-derived counts from the precomputed [`SnapshotSeed`]. It omits the
+/// member-readback loop and the `SessionState`/commit-range/diagnostics
 /// assembly — none of which a [`RevisionOverview`] carries.
 #[allow(clippy::too_many_arguments)]
 fn build_revision_overview(
     backend: &StoreBackend,
-    repo: &Path,
-    events: &[ShoreEvent],
+    fact_events: &[ShoreEvent],
     revision: &RevisionProjectionIdentity,
+    seed: &SnapshotSeed,
     trust_set: &TrustSet,
     removal_policy: RemovalPolicy,
     removal: &ArtifactRemovalProjection,
@@ -679,34 +918,7 @@ fn build_revision_overview(
         object_id: revision.object_id.clone(),
         object_artifact_content_hash: revision.object_artifact_content_hash.clone(),
     };
-    let bound_status = {
-        let span = tracing::debug_span!("shore.revisions.overviews.operative_status");
-        let _guard = span.enter();
-        removal.operative_status(
-            &revision.object_artifact_content_hash,
-            trust_set,
-            removal_policy,
-            cosig_index,
-        )?
-    };
     let body_removal_lens = BodyRemovalLens::new(removal, trust_set, removal_policy, cosig_index);
-    let snapshot_content = {
-        let span = tracing::debug_span!("shore.revisions.overviews.resolve_snapshot_content");
-        let _guard = span.enter();
-        resolve_snapshot_content(repo, revision, bound_status)?
-    };
-    let (snapshot, removed_snapshot_content_hash) = match snapshot_content {
-        SnapshotContent::Present(snapshot) => (snapshot, None),
-        SnapshotContent::SuppressedPresent { content_hash }
-        | SnapshotContent::PhysicallyRemoved { content_hash } => (
-            DiffSnapshot::new(
-                ReviewId::new(revision.journal_id.as_str()),
-                revision.object_id.clone(),
-                Vec::new(),
-            ),
-            Some(content_hash),
-        ),
-    };
     // The overview reads only counts, titles, statuses, and timestamps — never a
     // hydrated body — so `include_body` is false on every projection, matching the
     // current overview path (which never sets `with_include_body`).
@@ -715,7 +927,7 @@ fn build_revision_overview(
         let _guard = span.enter();
         project_observations(ObservationProjectionOptions {
             backend,
-            events,
+            events: fact_events,
             resolved: &resolved,
             track_filter: None,
             file_filter: None,
@@ -729,7 +941,7 @@ fn build_revision_overview(
         let _guard = span.enter();
         project_input_requests(InputRequestProjectionOptions {
             backend,
-            events,
+            events: fact_events,
             resolved: &resolved,
             track_filter: None,
             mode_filter: None,
@@ -744,7 +956,7 @@ fn build_revision_overview(
         let _guard = span.enter();
         project_assessments(AssessmentProjectionOptions {
             backend: Some(backend),
-            events,
+            events: fact_events,
             resolved: &resolved,
             track_filter: None,
             include_summary: false,
@@ -757,7 +969,7 @@ fn build_revision_overview(
         let _guard = span.enter();
         project_validation_checks(ValidationCheckProjectionOptions {
             backend,
-            events,
+            events: fact_events,
             revision_id: &resolved.revision_id,
             track_filter: None,
             status_filter: None,
@@ -766,18 +978,19 @@ fn build_revision_overview(
         })?
     };
 
-    // Recompute the summary exactly as `show_revision` does: the snapshot rows seed
-    // `file_count` + `snapshot_remainder_row_count`, the narrative builders
-    // seed `narrative_row_count`, and `row_count` is their sum. The built rows are
-    // only counted here (the overview keeps no rows), so they are discarded.
-    let (_snapshot_rows, mut summary) = {
-        let span = tracing::debug_span!("shore.revisions.overviews.build_snapshot_rows");
-        let _guard = span.enter();
-        if removed_snapshot_content_hash.is_some() {
-            (Vec::new(), RevisionProjectionSummary::default())
-        } else {
-            build_snapshot_rows(&snapshot, &revision.id)
-        }
+    // Recompute the summary exactly as `show_revision` does: the snapshot counts
+    // seed `file_count` + `snapshot_remainder_row_count`, the narrative builders
+    // seed `narrative_row_count`, and `row_count` is their sum. An operative
+    // removal seeds the same default (empty) summary the resolve path produced.
+    let mut summary = match seed {
+        SnapshotSeed::Present(counts) => RevisionProjectionSummary {
+            file_count: counts.file_count,
+            row_count: counts.snapshot_row_count,
+            snapshot_row_count: counts.snapshot_row_count,
+            snapshot_remainder_row_count: counts.snapshot_row_count,
+            ..RevisionProjectionSummary::default()
+        },
+        SnapshotSeed::Removed => RevisionProjectionSummary::default(),
     };
     {
         let span = tracing::debug_span!("shore.revisions.overviews.build_narrative_counts");
@@ -903,11 +1116,11 @@ mod tests {
 
         let overviews = revision_overviews_from_store(
             &read_store,
-            repo.path(),
             &revision_ids,
             &TrustSet::default(),
             RemovalPolicy::default(),
             true,
+            None,
         )
         .unwrap();
 
@@ -916,6 +1129,54 @@ mod tests {
             store.list_event_entries_call_count(),
             1,
             "the batch reads the log once, not revision_count + 1"
+        );
+    }
+
+    /// A shared summary cache makes rebuilds skip the snapshot artifact decode
+    /// entirely: after a first build fills it, the bound blob can vanish from
+    /// disk and a cache-bearing rebuild still serves the same counts, while a
+    /// cold build hard-fails on the missing artifact — proving the hit really
+    /// skipped the read rather than re-deriving the counts.
+    #[test]
+    fn shared_summary_cache_serves_snapshot_counts_without_rereading_artifacts() {
+        let repo = TestRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+        repo.commit_all("base");
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+        let captured = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let cache = Arc::new(SnapshotSummaryCache::new());
+        let cached_options = || {
+            RevisionOverviewsOptions::new(repo.path())
+                .with_revisions(vec![captured.revision_id.clone()])
+                .with_read_for_display(true)
+                .with_snapshot_summary_cache(Arc::clone(&cache))
+        };
+
+        let first = show_revision_overviews(cached_options()).unwrap();
+        let summary = first[&captured.revision_id].summary.clone();
+        assert!(
+            summary.file_count > 0,
+            "the capture produced a non-empty snapshot"
+        );
+
+        let blob = crate::session::object_artifact::object_artifact_path_for_hash(
+            &resolved_store_dir(repo.path()),
+            &captured.object_artifact_content_hash,
+        );
+        fs::remove_file(blob).expect("delete bound snapshot blob");
+
+        let rebuilt = show_revision_overviews(cached_options()).unwrap();
+        assert_eq!(rebuilt[&captured.revision_id].summary, summary);
+
+        let cold = show_revision_overviews(
+            RevisionOverviewsOptions::new(repo.path())
+                .with_revisions(vec![captured.revision_id.clone()])
+                .with_read_for_display(true),
+        );
+        assert!(
+            cold.is_err(),
+            "without the warm cache the missing blob still hard-fails"
         );
     }
 

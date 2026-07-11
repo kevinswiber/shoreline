@@ -85,8 +85,8 @@ pub use revision_list::{
 pub use revision_projection::{
     MemberReadback, RevisionOverview, RevisionOverviewsOptions, RevisionProjectionIdentity,
     RevisionProjectionRow, RevisionProjectionSummary, RevisionShowFilters, RevisionShowOptions,
-    RevisionShowResult, SnapshotContentState, SnapshotOrder, show_revision,
-    show_revision_overviews,
+    RevisionShowResult, SnapshotContentState, SnapshotOrder, SnapshotSummaryCache,
+    SnapshotSummaryCounts, show_revision, show_revision_overviews,
 };
 pub use store_family::{
     StoreForgetOptions, StoreForgetResult, StoreListEntry, StoreListResult, forget_family_store,

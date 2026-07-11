@@ -1,48 +1,57 @@
-//! One-slot projection cache for the inspect server (#255).
+//! One-slot, head-marker-keyed projection caches for the inspect server (#255,
+//! #426).
 //!
 //! Server-side `q` search needs the full body-hydrated haystack, so it cannot
 //! slice-before-hydrate; without a cache every `/api/history` query would re-read,
-//! re-fold, and re-hydrate the whole log. This cache amortizes the full build to
-//! once per store version: it detects change with the cheap monotonic
-//! `event_log_head_marker` (plan 0090, no event-byte decode) and serves the cached
-//! `Arc<BaseHistoryProjection>` (whose `eventSetHash` is the confirm stamp) until
-//! the marker moves, then drops and rebuilds. Single-slot (one store version),
-//! read-side lazy, no store-dir lock (INV-5). This is ADR-0024 D4's
-//! detect-vs-confirm model applied WITHOUT building the deferred redb index.
+//! re-fold, and re-hydrate the whole log. `/api/revisions` has the same shape:
+//! every request rebuilds every revision's overview. Both amortize the full
+//! build to once per store version: change is detected with the cheap monotonic
+//! `event_log_head_marker` (plan 0090, no event-byte decode) and the cached
+//! `Arc` value is served until the marker moves, then dropped and rebuilt.
+//! Single-slot (one store version), read-side lazy, no store-dir lock (INV-5).
+//! This is ADR-0024 D4's detect-vs-confirm model applied WITHOUT building the
+//! deferred redb index.
 
 use std::sync::{Arc, RwLock};
 
 use pointbreak::session::BaseHistoryProjection;
 
-/// A single-slot cache of the fully-hydrated base projection, keyed by the store
-/// head marker.
-pub(super) struct HistoryProjectionCache {
-    slot: RwLock<Option<Cached>>,
+/// The history base projection cache: one fully-hydrated base per store version.
+pub(super) type HistoryProjectionCache = MarkerCache<BaseHistoryProjection>;
+
+/// The `/api/revisions` response cache: the endpoint takes no query parameters,
+/// so the serialized payload itself is the cacheable unit (#426).
+pub(super) type RevisionsResponseCache = MarkerCache<String>;
+
+/// A single-slot cache of one expensive derivation, keyed by the store head
+/// marker.
+pub(super) struct MarkerCache<T> {
+    slot: RwLock<Option<Cached<T>>>,
 }
 
-struct Cached {
+struct Cached<T> {
     marker: u64,
-    base: Arc<BaseHistoryProjection>,
+    value: Arc<T>,
 }
 
-impl HistoryProjectionCache {
+impl<T> MarkerCache<T> {
     pub(super) fn new() -> Self {
         Self {
             slot: RwLock::new(None),
         }
     }
 
-    /// Return the cached base when `marker` matches; otherwise run `build`, store
-    /// it under `marker`, and return it. A build error caches nothing.
+    /// Return the cached value when `marker` matches; otherwise run `build`,
+    /// store it under `marker`, and return it. A build error caches nothing.
     pub(super) fn get_or_build(
         &self,
         marker: u64,
-        build: impl FnOnce() -> Result<BaseHistoryProjection, String>,
-    ) -> Result<Arc<BaseHistoryProjection>, String> {
+        build: impl FnOnce() -> Result<T, String>,
+    ) -> Result<Arc<T>, String> {
         if let Some(cached) = self.slot.read().unwrap().as_ref()
             && cached.marker == marker
         {
-            return Ok(Arc::clone(&cached.base));
+            return Ok(Arc::clone(&cached.value));
         }
         let mut guard = self.slot.write().unwrap();
         // Re-check under the write lock: another thread may have rebuilt between
@@ -50,23 +59,24 @@ impl HistoryProjectionCache {
         if let Some(cached) = guard.as_ref()
             && cached.marker == marker
         {
-            return Ok(Arc::clone(&cached.base));
+            return Ok(Arc::clone(&cached.value));
         }
-        let base = Arc::new(build()?);
+        let value = Arc::new(build()?);
         *guard = Some(Cached {
             marker,
-            base: Arc::clone(&base),
+            value: Arc::clone(&value),
         });
-        Ok(base)
+        Ok(value)
     }
 
-    /// Return the cached base for `marker` only when it is immediately available.
-    /// If a background warm is holding the write lock, this deliberately returns
-    /// `None` so first-paint paths can avoid waiting for the full haystack build.
-    pub(super) fn try_get(&self, marker: u64) -> Option<Arc<BaseHistoryProjection>> {
+    /// Return the cached value for `marker` only when it is immediately
+    /// available. If a background warm is holding the write lock, this
+    /// deliberately returns `None` so first-paint paths can avoid waiting for
+    /// the full build.
+    pub(super) fn try_get(&self, marker: u64) -> Option<Arc<T>> {
         let guard = self.slot.try_read().ok()?;
         let cached = guard.as_ref()?;
-        (cached.marker == marker).then(|| Arc::clone(&cached.base))
+        (cached.marker == marker).then(|| Arc::clone(&cached.value))
     }
 }
 
@@ -148,5 +158,22 @@ mod tests {
         let hit = cache.try_get(7).expect("matching marker hits");
         assert!(Arc::ptr_eq(&built, &hit));
         assert!(cache.try_get(8).is_none(), "stale marker misses");
+    }
+
+    #[test]
+    fn string_payload_cache_serves_the_same_arc_until_the_marker_moves() {
+        let cache = RevisionsResponseCache::new();
+        let v1 = cache
+            .get_or_build(1, || Ok("{\"entries\":[]}".to_owned()))
+            .unwrap();
+        let hit = cache
+            .get_or_build(1, || panic!("unchanged marker must not rebuild"))
+            .unwrap();
+        assert!(Arc::ptr_eq(&v1, &hit));
+
+        let v2 = cache
+            .get_or_build(2, || Ok("{\"entries\":[1]}".to_owned()))
+            .unwrap();
+        assert_eq!(*v2, "{\"entries\":[1]}");
     }
 }

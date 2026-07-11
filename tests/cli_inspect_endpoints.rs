@@ -300,6 +300,44 @@ fn api_units_include_additive_overview_summary() {
     }
 }
 
+/// `/api/revisions` is served from a head-marker-keyed response cache (#426):
+/// an unchanged store version serves the identical payload again, and a store
+/// write moves the marker so the next request reflects the new revision — never
+/// a stale hit.
+#[test]
+fn api_revisions_cache_serves_fresh_payload_after_store_writes() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let first_revision = capture(repo.path());
+
+    let inspector = Inspector::spawn(repo.path());
+    let initial = inspector.get_json("/api/revisions");
+    assert_eq!(initial["revisionCount"], 1);
+    assert_eq!(initial["entries"][0]["revisionId"], first_revision.as_str());
+
+    // Unchanged store version: the identical payload serves again.
+    let repeat = inspector.get_json("/api/revisions");
+    assert_eq!(repeat, initial);
+
+    // A store write moves the head marker: the cache rebuilds and the new
+    // revision appears.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let second_revision = capture(repo.path());
+    let refreshed = inspector.get_json("/api/revisions");
+    assert_eq!(refreshed["revisionCount"], 2);
+    let ids: Vec<&str> = refreshed["entries"]
+        .as_array()
+        .expect("entries is an array")
+        .iter()
+        .filter_map(|entry| entry["revisionId"].as_str())
+        .collect();
+    assert!(ids.contains(&first_revision.as_str()), "{ids:?}");
+    assert!(ids.contains(&second_revision.as_str()), "{ids:?}");
+    assert_ne!(refreshed["eventSetHash"], initial["eventSetHash"]);
+}
+
 #[test]
 fn api_snapshot_returns_snapshot_scoped_artifact() {
     let store = representative_store();
