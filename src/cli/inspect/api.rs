@@ -1012,26 +1012,7 @@ pub(super) fn threads_json(repo: &Path) -> Result<String, String> {
         let _guard = span.enter();
         view.components
             .iter()
-            .map(|component| {
-                let heads: Vec<String> = component
-                    .intersection(&view.heads)
-                    .map(|revision| revision.as_str().to_owned())
-                    .collect();
-                let superseded: Vec<String> = component
-                    .intersection(&view.superseded)
-                    .map(|revision| revision.as_str().to_owned())
-                    .collect();
-                Ok(ThreadDocument {
-                    revisions: component
-                        .iter()
-                        .map(|revision| revision.as_str().to_owned())
-                        .collect(),
-                    competing: heads.len() > 1,
-                    heads,
-                    superseded,
-                    laid_out: thread_layout(component, &view)?,
-                })
-            })
+            .map(|component| thread_document(component, &view))
             .collect::<Result<Vec<_>, String>>()?
     };
 
@@ -1056,6 +1037,33 @@ pub(super) fn threads_json(repo: &Path) -> Result<String, String> {
     let span = tracing::debug_span!("shore.inspect.threads.serialize_json");
     let _guard = span.enter();
     serde_json::to_string(&payload).map_err(|error| error.to_string())
+}
+
+/// The wire document for one supersession component: the one spelling of
+/// heads/superseded/competing/layout, shared by the `/api/threads` payload and
+/// the fork-gated `revisionSupersession` block on `/api/revisions/{id}`.
+fn thread_document(
+    component: &BTreeSet<RevisionId>,
+    view: &SupersessionView,
+) -> Result<ThreadDocument, String> {
+    let heads: Vec<String> = component
+        .intersection(&view.heads)
+        .map(|revision| revision.as_str().to_owned())
+        .collect();
+    let superseded: Vec<String> = component
+        .intersection(&view.superseded)
+        .map(|revision| revision.as_str().to_owned())
+        .collect();
+    Ok(ThreadDocument {
+        revisions: component
+            .iter()
+            .map(|revision| revision.as_str().to_owned())
+            .collect(),
+        competing: heads.len() > 1,
+        heads,
+        superseded,
+        laid_out: thread_layout(component, view)?,
+    })
 }
 
 /// The attention projection served to the web client. Re-derives per request from
@@ -1479,6 +1487,41 @@ fn splice_fact_supersession(
     Ok(())
 }
 
+/// The revision's supersession component as a wire document, or `None` when the
+/// component is a singleton (fork-gated: an absent key keeps a linear,
+/// never-recaptured revision's wire byte-identical).
+fn revision_supersession_document(
+    view: &SupersessionView,
+    revision_id: &RevisionId,
+) -> Result<Option<ThreadDocument>, String> {
+    let Some(component) = view.component_of(revision_id) else {
+        return Ok(None);
+    };
+    if component.len() <= 1 {
+        return Ok(None);
+    }
+    thread_document(component, view).map(Some)
+}
+
+/// Splice the inspector-private `revisionSupersession` field into the composite
+/// value. A no-op (omits the key) when the block is `None`, so the wire stays
+/// byte-identical for the singleton-component case.
+fn splice_revision_supersession(
+    value: &mut serde_json::Value,
+    block: Option<ThreadDocument>,
+) -> Result<(), String> {
+    let Some(block) = block else {
+        return Ok(());
+    };
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "revisionSupersession".to_owned(),
+            serde_json::to_value(&block).map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(())
+}
+
 /// Reuses the exact `pointbreak.review-revision` document the `shore revision show`
 /// command builds (`revision_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
@@ -1518,12 +1561,26 @@ pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, St
     };
     let commit_range = result.commit_range.clone();
     // Build the inspector-private fact graphs while `result` is still live; it is
-    // moved into `revision_show_document` on the next line.
+    // moved into `revision_show_document` below.
     let fact_supersession = fact_supersession_document(&result);
+    // The revision-level supersession component, from the same event read
+    // `threads_json` performs. Advisory like the fact graphs: a read or layout
+    // failure omits the block, never fails the composite page.
+    let revision_supersession = read_events_for_display(repo)
+        .map_err(|error| error.to_string())
+        .and_then(|(events, _)| {
+            SupersessionView::from_events(&events).map_err(|error| error.to_string())
+        })
+        .and_then(|view| revision_supersession_document(&view, &result.revision.id))
+        .unwrap_or_else(|error| {
+            tracing::debug!(error = %error, revision = revision_id, "revision_supersession_block_failed");
+            None
+        });
     let document = revision_show_document(result);
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     splice_target_display(&mut value, target_display)?;
     splice_fact_supersession(&mut value, fact_supersession)?;
+    splice_revision_supersession(&mut value, revision_supersession)?;
 
     // Current/live enrichment is best-effort: a missing or unreadable repo leaves
     // `liveBranch` omitted ("reachability unknown"), never an error.
@@ -1917,6 +1974,45 @@ mod tests {
             root,
             result.object_id.as_str().to_owned(),
             result.object_artifact_content_hash,
+        )
+    }
+
+    /// A repo whose store holds a forked supersession component: one root
+    /// revision superseded by two competing head revisions. Returns the repo and
+    /// the (root, head_b, head_c) revision ids.
+    fn captured_fork_repo() -> (tempfile::TempDir, String, String, String) {
+        let dir = tempfile::tempdir().expect("create temp repo");
+        let path = dir.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(path.join("src.txt"), "base\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+
+        std::fs::write(path.join("src.txt"), "root change\n").unwrap();
+        let root = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
+        )
+        .expect("capture root revision");
+        std::fs::write(path.join("src.txt"), "head b change\n").unwrap();
+        let head_b = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path)
+                .with_supersedes(vec![root.revision_id.clone()]),
+        )
+        .expect("capture first competing head");
+        std::fs::write(path.join("src.txt"), "head c change\n").unwrap();
+        let head_c = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path)
+                .with_supersedes(vec![root.revision_id.clone()]),
+        )
+        .expect("capture second competing head");
+        (
+            dir,
+            root.revision_id.as_str().to_owned(),
+            head_b.revision_id.as_str().to_owned(),
+            head_c.revision_id.as_str().to_owned(),
         )
     }
 
@@ -2579,6 +2675,58 @@ mod tests {
             value["revision"]["targetDisplay"]["head"]["liveBranch"].is_null(),
             "commit objects absent → reachability unknown → liveBranch omitted, request still 200s"
         );
+    }
+
+    #[test]
+    fn revision_json_carries_fork_gated_revision_supersession() {
+        let (repo, root_id, head_b, head_c) = captured_fork_repo();
+
+        // ADR-0021 D6: the block renders from component data identically under
+        // EVERY member's document — never hosted under one head.
+        let mut blocks = Vec::new();
+        for member in [&root_id, &head_b, &head_c] {
+            let doc: serde_json::Value =
+                serde_json::from_str(&revision_json(repo.path(), member).unwrap()).unwrap();
+            let sup = doc
+                .get("revisionSupersession")
+                .unwrap_or_else(|| panic!("fork-gated block present for {member}"));
+
+            assert_eq!(sup["competing"], true);
+            let heads: Vec<&str> = sup["heads"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|head| head.as_str().unwrap())
+                .collect();
+            assert_eq!(heads.len(), 2);
+            assert!(heads.contains(&head_b.as_str()) && heads.contains(&head_c.as_str()));
+            // Heads are id-ordered (BTreeSet iteration) — same bytes regardless
+            // of which member's page requests them.
+            assert!(heads.windows(2).all(|pair| pair[0] <= pair[1]));
+            assert_eq!(
+                sup["superseded"],
+                serde_json::json!([root_id.as_str()]),
+                "the root is the one superseded member"
+            );
+            assert_eq!(sup["revisions"].as_array().unwrap().len(), 3);
+            assert!(sup["laidOut"]["nodes"].as_array().unwrap().len() >= 3);
+
+            blocks.push(serde_json::to_string(sup).unwrap());
+        }
+        assert_eq!(blocks[0], blocks[1], "byte-equal under every member");
+        assert_eq!(blocks[1], blocks[2], "byte-equal under every member");
+    }
+
+    #[test]
+    fn revision_json_omits_revision_supersession_for_singleton_component() {
+        let (repo, revision_id, _branch) = captured_commit_range_repo();
+
+        let doc: serde_json::Value =
+            serde_json::from_str(&revision_json(repo.path(), &revision_id).unwrap()).unwrap();
+
+        // Fork-gated: a linear, never-recaptured revision's wire is byte-identical
+        // to today — the key is absent, mirroring the factSupersession gating.
+        assert!(doc.get("revisionSupersession").is_none());
     }
 
     fn copy_dir_all(from: &Path, to: &Path) {
