@@ -421,7 +421,36 @@ export function jumpChange(dir: number): void {
  */
 export function initControls(): void {
   const modal = $<HTMLElement>("#diff-modal");
-  if (modal) register("diff", { node: modal, onClose: closeDiff });
+  if (modal)
+    register("diff", {
+      node: modal,
+      onClose: closeDiff,
+      // The diff's own jump keys, run through the overlay manager's delegation:
+      // ]/[ step changes, n/p step review facts. Escape is not here — the
+      // manager owns it universally.
+      onKey: (ev) => {
+        switch (ev.key) {
+          case "]":
+            ev.preventDefault();
+            jumpChange(1);
+            return true;
+          case "[":
+            ev.preventDefault();
+            jumpChange(-1);
+            return true;
+          case "n":
+            ev.preventDefault();
+            jumpFact(1);
+            return true;
+          case "p":
+            ev.preventDefault();
+            jumpFact(-1);
+            return true;
+          default:
+            return false;
+        }
+      },
+    });
   $("#diff-close")?.addEventListener("click", () => closeDiff());
   modal?.addEventListener("click", (ev) => {
     if (ev.target === modal) closeDiff();

@@ -1,7 +1,9 @@
 // The global keydown layer: selection stepping, activation, search focus,
-// lens switching, the layered Escape, and the diff-local jump keys. Ported from the served
-// app.js keyboard cluster (`onKey` / `handleEscape` / `stepSelection` /
-// `activateSelection` / `focusSearch` / `isTypingTarget`).
+// lens switching, and the layered Escape. Ported from the served app.js
+// keyboard cluster (`onKey` / `handleEscape` / `stepSelection` /
+// `activateSelection` / `focusSearch` / `isTypingTarget`). Overlay-local keys
+// (the diff's jump keys, help's toggle) live in each overlay's registration,
+// not here.
 //
 // `keyboard` is top-of-graph — nothing imports it; the composition root wires
 // `onKey` to `document.keydown`. Every state change routes through `router.navigate`
@@ -13,7 +15,7 @@
 // scoped to the record, and keyboard imports no sibling overlay module.
 
 import { fetchHistoryPage, HISTORY_PAGE } from "./data";
-import { jumpChange, jumpFact, openRevisionDiff } from "./diff/controller";
+import { openRevisionDiff } from "./diff/controller";
 import { $ } from "./dom";
 import { loadedWindow, timelineRowHeight } from "./lenses/timeline";
 import { attentionEntryKeys, lensEntryIds } from "./model";
@@ -461,31 +463,6 @@ export function onKey(ev: KeyboardEvent): void {
     return;
   }
   if (isTypingTarget(document.activeElement)) return;
-
-  // Diff-local jumps, active only while the overlay is open: ]/[ step changes,
-  // n/p step review facts.
-  if (getState().diff) {
-    if (ev.key === "]") {
-      ev.preventDefault();
-      jumpChange(1);
-      return;
-    }
-    if (ev.key === "[") {
-      ev.preventDefault();
-      jumpChange(-1);
-      return;
-    }
-    if (ev.key === "n") {
-      ev.preventDefault();
-      jumpFact(1);
-      return;
-    }
-    if (ev.key === "p") {
-      ev.preventDefault();
-      jumpFact(-1);
-      return;
-    }
-  }
 
   switch (ev.key) {
     case "1":

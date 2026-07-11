@@ -531,9 +531,22 @@ describe("overlay keyboard scope (#455)", () => {
     store.commit({ diff: OBJ, diffHash: ARTIFACT, focus: null });
     await controller.renderDiffOverlay();
     expect(overlay.activeName()).toBe("diff");
-    // The diff's own jump keys (]/[/n/p) are asserted with its registered key
-    // map, not here — this table is the lens family only.
+    // The diff's own jump keys (]/[/n/p) act through its registered key map —
+    // asserted below — so this table is the lens family only.
     await assertKeysInert(["j", "k", "1", "2", "3", "4", "g", "G", "Enter"]);
+  });
+
+  it("delegates the diff overlay's jump keys through its registered key map", async () => {
+    controller.initControls();
+    store.commit({ diff: OBJ, diffHash: ARTIFACT, focus: null });
+    await controller.renderDiffOverlay();
+    expect(overlay.activeName()).toBe("diff");
+    key({ key: "n" });
+    const firstAnno = document.querySelector<HTMLElement>(
+      "#diff-body .anno[data-anno]",
+    );
+    expect(firstAnno).not.toBeNull();
+    expect(store.getState().focus).toBe(firstAnno?.dataset.anno);
   });
 
   it("keeps Escape closing the active overlay", async () => {

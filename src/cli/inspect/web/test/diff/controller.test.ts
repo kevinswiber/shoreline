@@ -245,6 +245,75 @@ describe("the file/fact navigator", () => {
   });
 });
 
+// The jump keys are owned by the diff's overlay registration: while the diff is
+// the active overlay, the global keydown layer hands ]/[/n/p to the diff's own
+// key map through the manager's delegation; with no overlay active they are dead.
+describe("diff overlay key ownership", () => {
+  let onKey: (ev: KeyboardEvent) => void;
+
+  beforeEach(async () => {
+    const keyboard = await import("../../src/keyboard");
+    onKey = keyboard.onKey;
+    document.addEventListener("keydown", onKey);
+  });
+
+  afterEach(() => {
+    document.removeEventListener("keydown", onKey);
+  });
+
+  function press(key: string): KeyboardEvent {
+    const ev = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(ev);
+    return ev;
+  }
+
+  it("jumps to the next change on ']' while the diff overlay is active", async () => {
+    await openCommitted();
+    expect(overlay.activeName()).toBe("diff");
+    const scrollSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    try {
+      const ev = press("]");
+      expect(ev.defaultPrevented).toBe(true);
+      const jumped = scrollSpy.mock.instances.at(-1);
+      expect(
+        jumped instanceof HTMLElement && jumped.classList.contains("dhunk"),
+      ).toBe(true);
+    } finally {
+      scrollSpy.mockRestore();
+    }
+  });
+
+  it("jumps to the next review fact on 'n', syncing the focus route", async () => {
+    await openCommitted();
+    press("n");
+    const firstAnno = document.querySelector<HTMLElement>(
+      "#diff-body .anno[data-anno]",
+    );
+    expect(firstAnno).not.toBeNull();
+    expect(store.getState().focus).toBe(firstAnno?.dataset.anno);
+  });
+
+  it("keeps ']' inert when no overlay is active", async () => {
+    const before = structuredClone(store.getState());
+    const scrollSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    try {
+      press("]");
+      expect(store.getState()).toEqual(before);
+      expect(scrollSpy).not.toHaveBeenCalled();
+    } finally {
+      scrollSpy.mockRestore();
+    }
+  });
+});
+
 describe("fact / change jump keys", () => {
   it("jumpFact advances to the next fact and replaces the route focus", async () => {
     await openCommitted();
