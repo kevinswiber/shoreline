@@ -1338,6 +1338,9 @@
         await load();
         setTimeout(() => setLiveness("watching"), 1200);
       } else {
+        if (f.commitGraphStamp != null && s.lastCommitGraphStamp == null) {
+          commit({ lastCommitGraphStamp: f.commitGraphStamp });
+        }
         setLiveness("watching");
       }
     } catch {

@@ -392,6 +392,34 @@ describe("pollFreshness", () => {
     expect(store.getState().lastCommitGraphStamp).toBe("stamp-moved");
   });
 
+  it("adopts a late stamp baseline without reloading, then detects the next move", async () => {
+    // A degraded load (server could not derive the stamp) seeds a null
+    // baseline. The first stamped poll must ADOPT the stamp silently — nothing
+    // is known to have changed — and the next stamp move must then reload.
+    setFreshnessResponse({ eventCount: HISTORY_EVENT_COUNT });
+    await data.load();
+    expect(store.getState().lastCommitGraphStamp).toBeNull();
+
+    setFreshnessResponse({
+      eventCount: HISTORY_EVENT_COUNT,
+      commitGraphStamp: "stamp-recovered",
+    });
+    await data.pollFreshness();
+    expect(document.querySelector("#refresh")?.getAttribute("data-state")).toBe(
+      "watching",
+    );
+    expect(store.getState().lastCommitGraphStamp).toBe("stamp-recovered");
+
+    setFreshnessResponse({
+      eventCount: HISTORY_EVENT_COUNT,
+      commitGraphStamp: "stamp-moved-again",
+    });
+    await data.pollFreshness();
+    expect(document.querySelector("#refresh")?.getAttribute("data-state")).toBe(
+      "updated",
+    );
+  });
+
   it("does not reload when the stamp is omitted while the marker is steady", async () => {
     await data.load();
     // A transient server-side stamp failure omits the field. Absence is not a

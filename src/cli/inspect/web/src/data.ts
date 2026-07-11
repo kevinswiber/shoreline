@@ -399,6 +399,13 @@ export async function pollFreshness(): Promise<void> {
       await load();
       setTimeout(() => setLiveness("watching"), 1200);
     } else {
+      // Recovery from a degraded load: a baseline seeded while the stamp was
+      // unavailable is null, and a null baseline can never satisfy
+      // stampChanged — adopt the first stamp the poll sees (no reload; nothing
+      // is known to have changed) so the NEXT move is detected.
+      if (f.commitGraphStamp != null && s.lastCommitGraphStamp == null) {
+        commit({ lastCommitGraphStamp: f.commitGraphStamp });
+      }
       setLiveness("watching");
     }
   } catch {
