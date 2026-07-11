@@ -164,6 +164,19 @@ pub fn resolve_default_integration_ref(repo: &Path) -> Option<String> {
     git_default_branch_ref(repo).ok().flatten()
 }
 
+/// The effective reachability target for a merged/open/orphaned readout: the
+/// caller's explicit integration ref when given, else the repository's detected
+/// default branch, else `None` (broad reachability — any live tip). The single
+/// policy point for the narrow-by-default merge answer, so every read surface
+/// (`revision show`, `revision list`, the association digest) agrees on what
+/// "merged" means (#466).
+pub fn effective_integration_ref(repo: &Path, explicit: Option<&str>) -> Option<String> {
+    match explicit {
+        Some(reference) => Some(reference.to_owned()),
+        None => resolve_default_integration_ref(repo),
+    }
+}
+
 /// Reachability resolved **once** for an entire revision list, so classifying each
 /// revision's commits is in-memory set membership rather than a git ancestry probe
 /// per (commit, tip) pair. The live tips and the set of commits reachable from them

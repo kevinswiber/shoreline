@@ -11,7 +11,7 @@ use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::association::normalize_ref;
 use crate::session::workflow::commit_range_liveness::{
-    CommitGraphCondition, LivenessBatch, enrich_liveness,
+    CommitGraphCondition, LivenessBatch, effective_integration_ref, enrich_liveness,
 };
 use crate::session::workflow::observation::{CurrentRevisionContext, revision_ids_in_worktree};
 use crate::session::{
@@ -86,7 +86,10 @@ impl RevisionListOptions {
     }
 
     /// Reachability target for the "merged" merge-status: a unit is merged only
-    /// when an ancestor of this ref. Defaults to broad reachability (any live tip).
+    /// when an ancestor of this ref (equality counts). Defaults to the
+    /// repository's detected default branch — `revision show`'s narrow default —
+    /// falling back to broad reachability (any live tip) when no default branch
+    /// is detectable.
     pub fn with_integration_ref(mut self, integration_ref: impl Into<String>) -> Self {
         self.integration_ref = Some(integration_ref.into());
         self
@@ -211,7 +214,17 @@ pub fn list_revisions(options: RevisionListOptions) -> Result<RevisionListResult
     let liveness = {
         let span = tracing::debug_span!("shore.revisions.list.liveness_batch");
         let _guard = span.enter();
-        LivenessBatch::build(&options.repo, options.integration_ref.as_deref()).ok()
+        // Merge-status defaults to the repository's detected default branch —
+        // the narrow default `revision show` applies — so the two surfaces
+        // agree that a capture sitting at the default branch's tip has landed
+        // (#466; under broad reachability the most recently landed revision
+        // reads "open" until the next commit lands). An explicit integration
+        // ref overrides; an undetectable default keeps broad reachability.
+        // Orphan visibility is unaffected: it reads `enrich_broad`, which
+        // ignores the batch's integration set.
+        let integration_ref =
+            effective_integration_ref(&options.repo, options.integration_ref.as_deref());
+        LivenessBatch::build(&options.repo, integration_ref.as_deref()).ok()
     };
 
     {

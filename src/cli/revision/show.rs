@@ -8,8 +8,8 @@ use pointbreak::model::{EventId, ReviewEndpoint, RevisionId};
 use pointbreak::session::event::AssertionMode;
 use pointbreak::session::{
     CurrentAssessmentStatus, EventVerificationPolicy, EventVerificationStatus, InputRequestStatus,
-    InputRequestView, RemovalPolicy, RevisionShowOptions, RevisionShowResult, enrich_liveness,
-    resolve_default_integration_ref, show_revision,
+    InputRequestView, RemovalPolicy, RevisionShowOptions, RevisionShowResult,
+    effective_integration_ref, enrich_liveness, show_revision,
 };
 
 use crate::cli::output;
@@ -72,10 +72,7 @@ pub(super) fn run(
     // so the block answers "did this land on the default branch?" (#445); an
     // explicit `--integration-ref` overrides, and an undetectable default falls
     // back to broad reachability.
-    let integration_ref = match &args.integration_ref {
-        Some(explicit) => Some(explicit.clone()),
-        None => resolve_default_integration_ref(&args.repo),
-    };
+    let integration_ref = effective_integration_ref(&args.repo, args.integration_ref.as_deref());
     let liveness =
         enrich_liveness(&result.commit_range, &args.repo, integration_ref.as_deref()).ok();
     // `revision_show_document` consumes `result` by value; the text digest reads

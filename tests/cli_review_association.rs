@@ -426,7 +426,9 @@ fn unit_show_includes_commit_range_and_liveness_block() {
 fn text_association_digest_treats_successive_landings_as_history() {
     // HEAD~1 is an ancestor of HEAD: two landings forming a chain are ordinary
     // accretion, so the digest carries no divergence warning and the landing
-    // headline follows the tip claim (a live branch tip → open).
+    // headline follows the tip claim — HEAD is the default branch's tip, and
+    // tip equality counts as landed under the detected-default integration
+    // ref (#466), so the chain reads merged.
     let repo = divergent_repo();
     capture(&repo);
     record_commit(&repo, "HEAD");
@@ -456,8 +458,8 @@ fn text_association_digest_treats_successive_landings_as_history() {
         "a landing chain is history, not a warning: {stdout}"
     );
     assert!(
-        stdout.contains("landing: open"),
-        "the headline follows the tip claim: {stdout}"
+        stdout.contains("landing: merged"),
+        "the landed default-branch tip reads merged: {stdout}"
     );
 }
 

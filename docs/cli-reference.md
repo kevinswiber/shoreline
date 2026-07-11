@@ -1020,7 +1020,10 @@ endpoints, and `objectArtifactContentHash`.
   supersession DAG and a thread's competing heads) is reported by this same projection; there is no
   separate lineage surface.
 - `--integration-ref <name>` sets the reachability target for the `merged` status: a revision is
-  `merged` only when it is an ancestor of this ref. It defaults to broad reachability (any live tip).
+  `merged` only when it is an ancestor of this ref (equality counts). It defaults to the repository's
+  detected default branch (`origin/HEAD`, else local `main`/`master`) — the same narrow default
+  `shore revision show` applies — so the status answers "did this land on the default branch?". When
+  no default branch is detected it falls back to broad reachability (any live tip).
 - `--worktree <path>` scopes the listing to captures belonging to the worktree at that path.
 - `--all` / `--orphans` control whether revisions whose anchored commits are all unreachable
   (orphaned) are shown or shown exclusively; by default orphaned revisions are hidden.

@@ -39,7 +39,10 @@ pub(super) struct RevisionListArgs {
     orphans: bool,
 
     /// Reachability target for the "merged" status: a revision is merged only when
-    /// an ancestor of this ref. Defaults to broad reachability (any live tip).
+    /// an ancestor of this ref (equality counts). Defaults to the repository's
+    /// detected default branch (`origin/HEAD`, else local `main`/`master`), so the
+    /// status answers "did this land on the default branch?"; when no default
+    /// branch is detected it falls back to broad reachability (any live tip).
     #[arg(long = "integration-ref")]
     integration_ref: Option<String>,
 

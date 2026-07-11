@@ -10,8 +10,8 @@ use pointbreak::model::{CommitAssociationId, RefAssociationId, RevisionId};
 use pointbreak::session::{
     AssociateCommitOptions, AssociateRefOptions, AssociationAxis, CommitEdgeSource,
     CommitGraphCondition, ListAssociationsOptions, ListAssociationsResult, RevisionCommitRangeView,
-    WithdrawCommitOptions, WithdrawRefOptions, associate_commit, associate_ref, enrich_liveness,
-    list_associations, withdraw_commit, withdraw_ref,
+    WithdrawCommitOptions, WithdrawRefOptions, associate_commit, associate_ref,
+    effective_integration_ref, enrich_liveness, list_associations, withdraw_commit, withdraw_ref,
 };
 
 use crate::cli::common::{SignableOptions, SigningSkip};
@@ -290,13 +290,16 @@ struct LandingDigest {
 }
 
 /// Best-effort landing readout for the current commit set, derived from the same
-/// liveness machinery `revision show` uses and mapped exactly like the revision
-/// list's `merge_status_for`: `merged|open|orphaned`, and `unknown` on any git
-/// failure or withheld headline. Runs only on the text lane (the sole caller is
-/// the text renderer) and never propagates a liveness error to the exit code
-/// (INV-10). The machine lanes gain nothing — the JSON document is untouched.
+/// liveness machinery `revision show` uses — including the detected-default-branch
+/// integration ref, so a landed tip reads `merged` on every surface (#466) — and
+/// mapped exactly like the revision list's `merge_status_for`:
+/// `merged|open|orphaned`, and `unknown` on any git failure or withheld headline.
+/// Runs only on the text lane (the sole caller is the text renderer) and never
+/// propagates a liveness error to the exit code (INV-10). The machine lanes gain
+/// nothing — the JSON document is untouched.
 fn landing_digest(result: &ListAssociationsResult, repo: &Path) -> LandingDigest {
-    match enrich_liveness(&commit_range_view(result), repo, None) {
+    let integration_ref = effective_integration_ref(repo, None);
+    match enrich_liveness(&commit_range_view(result), repo, integration_ref.as_deref()) {
         Ok(enrichment) => LandingDigest {
             landing: match enrichment.headline {
                 Some(CommitGraphCondition::Merged) => "merged",

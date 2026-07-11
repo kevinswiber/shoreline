@@ -344,7 +344,10 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
     repo.commit_all("second");
     let repo_arg = repo.path().to_str().unwrap();
 
-    // A range capture anchored to HEAD (a live tip) reads "open".
+    // A range capture anchored to HEAD — the default branch's tip — reads
+    // "merged": with no explicit --integration-ref the list narrows to the
+    // repository's detected default branch, the same default `revision show`
+    // applies, and tip equality counts as landed (#466).
     let range = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
     let range_id = range["revision"]["id"].as_str().unwrap().to_owned();
 
@@ -367,7 +370,7 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
             .unwrap()
             .to_owned()
     };
-    assert_eq!(status_for(&range_id), "open");
+    assert_eq!(status_for(&range_id), "merged");
     assert_eq!(status_for(&worktree_id), "unknown");
 
     // --integration-ref and --worktree parse; the worktree-identity scope keeps
@@ -394,6 +397,120 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
         .map(|entry| entry["revisionId"].as_str().unwrap().to_owned())
         .collect();
     assert!(scoped_ids.contains(&worktree_id));
+}
+
+/// The merge-status `revision list` reports for `revision_id`.
+fn unit_list_merge_status(repo: &GitRepo, revision_id: &str) -> String {
+    let listed =
+        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["revisionId"] == revision_id)
+        .unwrap_or_else(|| panic!("revision {revision_id} not listed: {listed}"))["mergeStatus"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn unit_list_reads_merged_for_landed_capture_with_deleted_source_branch() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    let repo_arg = repo.path().to_str().unwrap();
+
+    // Capture a committed range on a feature branch.
+    repo.git(["checkout", "-b", "feature"]);
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+    let captured = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
+    let revision_id = captured["revision"]["id"].as_str().unwrap().to_owned();
+
+    // Land it: a follow-up commit, fast-forward main to the branch tip, record
+    // the landed commit on the same revision, delete the source branch. The
+    // associated commit IS main's tip and no other ref contains it — the most
+    // recently landed revision, which broad reachability misreads as a live tip.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    repo.commit_all("follow-up");
+    repo.git(["checkout", "main"]);
+    repo.git(["merge", "--ff-only", "feature"]);
+    let record = shore([
+        "association",
+        "record",
+        "--repo",
+        repo_arg,
+        "--track",
+        "agent:codex",
+        "--revision",
+        &revision_id,
+        "--commit",
+        "HEAD",
+    ]);
+    assert!(
+        record.status.success(),
+        "association record failed: {}",
+        String::from_utf8_lossy(&record.stderr)
+    );
+    repo.git(["branch", "-D", "feature"]);
+
+    // The default list narrows to the detected default branch, so the landed
+    // tip reads "merged" — agreeing with `revision show`'s liveness headline.
+    assert_eq!(unit_list_merge_status(&repo, &revision_id), "merged");
+
+    // A live unmerged branch still reads "open" under the narrow default.
+    repo.git(["checkout", "-b", "unmerged"]);
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 4 }\n");
+    repo.commit_all("unmerged change");
+    let open = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
+    let open_id = open["revision"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(unit_list_merge_status(&repo, &open_id), "open");
+}
+
+#[test]
+fn unit_list_keeps_broad_merge_status_without_a_detectable_default_branch() {
+    let repo = support::committed_repo();
+    // No origin/HEAD and neither `main` nor `master` exists: there is no
+    // detectable default branch, so merge-status keeps broad reachability.
+    repo.git(["branch", "-m", "main", "trunk"]);
+    let repo_arg = repo.path().to_str().unwrap();
+
+    let range = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
+    let range_id = range["revision"]["id"].as_str().unwrap().to_owned();
+
+    // The trunk tip is live and no other ref contains it → broad reads "open".
+    assert_eq!(unit_list_merge_status(&repo, &range_id), "open");
+}
+
+#[test]
+fn unit_list_reads_side_branch_only_landing_as_orphaned_but_still_shown() {
+    // A commit landed only onto a NON-default live branch: orphan visibility
+    // stays broad (reachable from develop → the entry is shown), while the
+    // narrow default integration ref classifies it off the default branch —
+    // the same answer `revision show` gives. Locks the intended semantics.
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    let repo_arg = repo.path().to_str().unwrap();
+
+    // Capture commit C at develop's tip, then advance develop past C so C is
+    // interior: reachable from develop, not from main, and not itself a tip.
+    repo.git(["checkout", "-b", "develop"]);
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+    let captured = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
+    let revision_id = captured["revision"]["id"].as_str().unwrap().to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    repo.commit_all("develop advance");
+    repo.git(["checkout", "main"]);
+
+    // Shown by the default list (the helper panics when the entry is absent),
+    // with the narrow merge-status.
+    assert_eq!(unit_list_merge_status(&repo, &revision_id), "orphaned");
+
+    // Not a broad orphan: `--orphans` (broad reachability) excludes it.
+    assert!(!unit_list_ids(&repo, &["--orphans"]).contains(&revision_id));
 }
 
 /// Run `revision list` with extra flags and return the entry ids in order.
