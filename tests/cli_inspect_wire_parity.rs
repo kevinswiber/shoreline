@@ -12,16 +12,21 @@
 //! per-test tempdir worktree path and its display label, the base git object
 //! ids, the rolling `eventSetHash`/`payloadHash`, and the text-metric'd DAG node
 //! geometry (which further differs across platforms, so it must not be pinned on
-//! the Linux/Windows CI legs). Both the live payload and the committed fixture
-//! pass through the same [`Normalizer`] before comparison: content-addressed ids
-//! are canonicalized to first-seen tokens (so cross-references stay meaningful),
-//! timestamps collapse to a single token, environment-derived fields are blanked
-//! by key, and DAG geometry is zeroed. The gate therefore asserts the wire
-//! *shape* and every stable value while ignoring the volatile ones.
+//! the Linux/Windows CI legs), and the producer version compiled into the binary.
+//! Both the live payload and the committed fixture pass through the same
+//! [`Normalizer`] before comparison: content-addressed ids are canonicalized to
+//! first-seen tokens (so cross-references stay meaningful), timestamps collapse
+//! to a single token, environment-derived fields are blanked by key, producer
+//! versions are masked in their object context, and DAG geometry is zeroed. The
+//! gate therefore asserts the wire *shape* and every stable value while ignoring
+//! the volatile ones.
 //!
 //! The five fixtures are captured from one store build so their ids and
 //! timestamps are mutually consistent (a coherent snapshot the JS tests can join
-//! across). Re-capture them from the live wire with `BLESS_WIRE_FIXTURES=1`.
+//! across). Refresh them with `BLESS_WIRE_FIXTURES=1`. When only normalized-away
+//! values drift, blessing preserves the committed volatile identities and updates
+//! the producer version; any stable wire-shape change refreshes the complete set
+//! from one live store and requires its coupled front-end consumers to be updated.
 
 mod support;
 
@@ -153,37 +158,218 @@ impl Normalizer {
     }
 }
 
+fn replace_producer_versions(value: &mut Value, replacement: &str) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                replace_producer_versions(item, replacement);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(Value::Object(producer)) = map.get_mut("producer")
+                && producer.get("version").is_some_and(Value::is_string)
+            {
+                producer.insert("version".to_owned(), Value::String(replacement.to_owned()));
+            }
+            for child in map.values_mut() {
+                replace_producer_versions(child, replacement);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn normalized(value: &Value) -> Value {
     let mut clone = value.clone();
+    replace_producer_versions(&mut clone, "<producerVersion>");
     Normalizer::new().walk(&mut clone);
     clone
 }
 
-/// Compare a live `/api` payload against its committed fixture (both normalized),
-/// or rewrite the fixture from the live wire when `BLESS_WIRE_FIXTURES` is set.
-fn assert_or_bless(inspector: &Inspector, path: &str, fixture: &str) {
-    let live: Value = serde_json::from_str(&inspector.get_text(path))
-        .unwrap_or_else(|error| panic!("parse live {path}: {error}"));
-    let fixture_path = fixtures_dir().join(fixture);
-
-    if std::env::var_os("BLESS_WIRE_FIXTURES").is_some() {
-        std::fs::create_dir_all(fixtures_dir()).expect("create fixtures dir");
-        let mut pretty = serde_json::to_string_pretty(&live).expect("serialize fixture");
-        pretty.push('\n');
-        std::fs::write(&fixture_path, pretty).expect("write fixture");
+/// Preserve the coherent identity set consumed by the web tests when all live
+/// payloads differ only in normalized-away values. One stable wire change makes
+/// the entire coupled set refresh from the same live store.
+fn fixtures_for_bless(payloads: &[(Value, Option<Value>)]) -> Vec<Value> {
+    if payloads.iter().any(|(live, committed)| match committed {
+        Some(committed) => normalized(live) != normalized(committed),
+        None => true,
+    }) {
+        return payloads.iter().map(|(live, _)| live.clone()).collect();
     }
 
-    let committed: Value = serde_json::from_str(
-        &std::fs::read_to_string(&fixture_path)
-            .unwrap_or_else(|error| panic!("read fixture {}: {error}", fixture_path.display())),
-    )
-    .unwrap_or_else(|error| panic!("parse fixture {fixture}: {error}"));
+    payloads
+        .iter()
+        .map(|(_, committed)| {
+            let mut blessed = committed
+                .as_ref()
+                .expect("preserve mode requires every committed fixture")
+                .clone();
+            replace_producer_versions(&mut blessed, env!("CARGO_PKG_VERSION"));
+            blessed
+        })
+        .collect()
+}
 
+fn fixture_for_bless(live: &Value, committed: &Value) -> Value {
+    fixtures_for_bless(&[(live.clone(), Some(committed.clone()))])
+        .pop()
+        .expect("one fixture produces one blessed payload")
+}
+
+#[test]
+fn normalizer_masks_producer_version_without_masking_schema_version() {
+    let old = serde_json::json!({
+        "version": 1,
+        "writer": {
+            "producer": {
+                "name": "shore",
+                "version": "0.5.0"
+            }
+        }
+    });
+    let current = serde_json::json!({
+        "version": 1,
+        "writer": {
+            "producer": {
+                "name": "shore",
+                "version": "0.6.0"
+            }
+        }
+    });
+
+    assert_eq!(normalized(&old), normalized(&current));
+    assert_eq!(normalized(&current)["version"], 1);
+}
+
+#[test]
+fn bless_preserves_volatile_identity_when_only_producer_version_changes() {
+    let committed = serde_json::json!({
+        "version": 1,
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "writer": {"producer": {"name": "shore", "version": "0.5.0"}}
+    });
+    let live = serde_json::json!({
+        "version": 1,
+        "revisionId": "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "writer": {"producer": {"name": "shore", "version": env!("CARGO_PKG_VERSION")}}
+    });
+
+    let blessed = fixture_for_bless(&live, &committed);
+    assert_eq!(blessed["revisionId"], committed["revisionId"]);
     assert_eq!(
-        normalized(&live),
-        normalized(&committed),
-        "live {path} drifted from committed fixture {fixture}"
+        blessed["writer"]["producer"]["version"],
+        env!("CARGO_PKG_VERSION")
     );
+    assert_eq!(blessed["version"], 1);
+}
+
+#[test]
+fn bless_uses_live_payload_when_normalized_wire_shape_changes() {
+    let committed = serde_json::json!({
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stable": "old"
+    });
+    let live = serde_json::json!({
+        "revisionId": "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "stable": "new"
+    });
+
+    assert_eq!(fixture_for_bless(&live, &committed), live);
+}
+
+#[test]
+fn bless_refreshes_every_coupled_fixture_when_one_wire_shape_changes() {
+    let committed_id =
+        "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let live_id = "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let payloads = vec![
+        (
+            serde_json::json!({"revisionId": live_id, "stable": "new"}),
+            Some(serde_json::json!({"revisionId": committed_id, "stable": "old"})),
+        ),
+        (
+            serde_json::json!({"revisionId": live_id, "stable": "same"}),
+            Some(serde_json::json!({"revisionId": committed_id, "stable": "same"})),
+        ),
+    ];
+
+    let blessed = fixtures_for_bless(&payloads);
+    assert_eq!(blessed[0], payloads[0].0);
+    assert_eq!(blessed[1], payloads[1].0);
+}
+
+#[test]
+fn bless_refreshes_every_coupled_fixture_when_one_is_missing() {
+    let committed_id =
+        "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let live_id = "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let payloads = vec![
+        (
+            serde_json::json!({"revisionId": live_id, "stable": "same"}),
+            Some(serde_json::json!({"revisionId": committed_id, "stable": "same"})),
+        ),
+        (
+            serde_json::json!({"revisionId": live_id, "stable": "same"}),
+            None,
+        ),
+    ];
+
+    let blessed = fixtures_for_bless(&payloads);
+    assert_eq!(blessed[0], payloads[0].0);
+    assert_eq!(blessed[1], payloads[1].0);
+}
+
+/// Compare the coupled live `/api` payloads against their committed fixtures,
+/// or refresh the complete fixture set with the aggregate safe-bless policy.
+fn assert_or_bless(inspector: &Inspector, fixtures: &[(String, &str)]) {
+    let bless = std::env::var_os("BLESS_WIRE_FIXTURES").is_some();
+    let mut payloads = fixtures
+        .iter()
+        .map(|(path, fixture)| {
+            let live: Value = serde_json::from_str(&inspector.get_text(path))
+                .unwrap_or_else(|error| panic!("parse live {path}: {error}"));
+            let fixture_path = fixtures_dir().join(fixture);
+            let committed = match std::fs::read_to_string(&fixture_path) {
+                Ok(raw) => Some(
+                    serde_json::from_str(&raw)
+                        .unwrap_or_else(|error| panic!("parse fixture {fixture}: {error}")),
+                ),
+                Err(error) if bless && error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => panic!("read fixture {}: {error}", fixture_path.display()),
+            };
+            (path, fixture, live, committed)
+        })
+        .collect::<Vec<_>>();
+
+    if bless {
+        std::fs::create_dir_all(fixtures_dir()).expect("create fixtures dir");
+        let pairs = payloads
+            .iter()
+            .map(|(_, _, live, committed)| (live.clone(), committed.clone()))
+            .collect::<Vec<_>>();
+        for ((_, fixture, _, committed), blessed) in
+            payloads.iter_mut().zip(fixtures_for_bless(&pairs))
+        {
+            *committed = Some(blessed);
+            let mut pretty = serde_json::to_string_pretty(
+                committed
+                    .as_ref()
+                    .expect("bless produces a committed fixture"),
+            )
+            .expect("serialize fixture");
+            pretty.push('\n');
+            std::fs::write(fixtures_dir().join(fixture), pretty).expect("write fixture");
+        }
+    }
+
+    for (path, fixture, live, committed) in payloads {
+        let committed = committed.expect("non-bless mode requires every committed fixture");
+        assert_eq!(
+            normalized(&live),
+            normalized(&committed),
+            "live {path} drifted from committed fixture {fixture}"
+        );
+    }
 }
 
 /// Every read-only `/api` payload the front-end unit tests draw on, captured
@@ -193,17 +379,18 @@ fn api_payloads_match_committed_fixtures() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
-    assert_or_bless(&inspector, "/api/threads", "threads.json");
-    assert_or_bless(&inspector, "/api/history", "history.json");
-    assert_or_bless(&inspector, "/api/revisions", "revisions.json");
-    assert_or_bless(
-        &inspector,
-        &format!("/api/revisions/{}", urlencode(&store.revision_id)),
-        "revision.json",
-    );
-    assert_or_bless(
-        &inspector,
-        &format!("/api/snapshots/{}", urlencode(&store.snapshot_id)),
-        "snapshot.json",
-    );
+    let fixtures = [
+        ("/api/threads".to_owned(), "threads.json"),
+        ("/api/history".to_owned(), "history.json"),
+        ("/api/revisions".to_owned(), "revisions.json"),
+        (
+            format!("/api/revisions/{}", urlencode(&store.revision_id)),
+            "revision.json",
+        ),
+        (
+            format!("/api/snapshots/{}", urlencode(&store.snapshot_id)),
+            "snapshot.json",
+        ),
+    ];
+    assert_or_bless(&inspector, &fixtures);
 }

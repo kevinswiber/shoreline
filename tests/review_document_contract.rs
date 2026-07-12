@@ -3,9 +3,9 @@
 //! These tests drive the real `shore` binary against a deterministic fixture
 //! repository and assert that the ENTIRE serialized document (the normalized
 //! stdout string, preserving key order) stays stable. Because the documents are
-//! content-addressed, the only nondeterministic substrings are content hashes,
-//! timestamps, and the absolute repository path, which are normalized to fixed
-//! placeholders before comparison.
+//! content-addressed, the nondeterministic substrings are content hashes,
+//! timestamps, the absolute repository path, and the producer version compiled
+//! into the binary, which are normalized to fixed placeholders before comparison.
 //!
 //! Snapshots live under `tests/fixtures/review_documents/<command>.snap`. Run
 //! with `BLESS=1` to (re)generate them from the current binary; otherwise the
@@ -174,6 +174,18 @@ fn normalize_worktree_root(text: &str) -> String {
     )
 }
 
+/// Mask the version in the compact JSON shape emitted for `Producer` while
+/// leaving top-level schema versions and every surrounding byte untouched.
+fn normalize_producer_versions(text: &str) -> String {
+    const PREFIX: &str = r#""producer":{"name":"shore","version":""#;
+    replace_prefixed(
+        text,
+        PREFIX,
+        r#""producer":{"name":"shore","version":"<producerVersion>"#,
+        |rest| rest.find('"'),
+    )
+}
+
 /// Normalize the nondeterministic substrings while preserving every key and the
 /// document's exact serialized field order.
 fn normalize(raw: &str, repo_path: &str) -> String {
@@ -186,11 +198,21 @@ fn normalize(raw: &str, repo_path: &str) -> String {
     let text = normalize_worktree_root(&text);
     let text = normalize_hashes(&text);
     let text = normalize_timestamps(&text);
+    let text = normalize_producer_versions(&text);
     let text = normalize_git_oid(&text, "commitOid");
     let text = normalize_git_oid(&text, "treeOid");
     // `headOid` rides on auto-recorded ref associations (the capture-time branch
     // head), a real commit OID that varies run to run like the others.
     normalize_git_oid(&text, "headOid")
+}
+
+#[test]
+fn normalizer_masks_producer_version_without_masking_schema_version() {
+    let old = r#"{"version":1,"writer":{"producer":{"name":"shore","version":"0.5.0"}}}"#;
+    let current = r#"{"version":1,"writer":{"producer":{"name":"shore","version":"0.6.0"}}}"#;
+
+    assert_eq!(normalize(old, "<absent>"), normalize(current, "<absent>"));
+    assert!(normalize(current, "<absent>").contains(r#""version":1"#));
 }
 
 #[track_caller]
