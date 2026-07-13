@@ -419,6 +419,19 @@ fn render_file_header(out: &mut String, file: &DiffFile) {
             out.push_str(&format!("copy from {}\n", old.unwrap_or(a)));
             out.push_str(&format!("copy to {}\n", new.unwrap_or(b)));
         }
+        // A `/dev/null`-sided file needs its captured mode so `git apply` reads
+        // the header as an add/delete rather than a `/dev/null` repo path (#514).
+        // Emit only when the capture carries the mode; never synthesize one.
+        FileStatus::Added => {
+            if let Some(new_mode) = &file.new_mode {
+                out.push_str(&format!("new file mode {new_mode}\n"));
+            }
+        }
+        FileStatus::Deleted => {
+            if let Some(old_mode) = &file.old_mode {
+                out.push_str(&format!("deleted file mode {old_mode}\n"));
+            }
+        }
         _ => {}
     }
 
@@ -642,6 +655,70 @@ mod tests {
         let deleted = render_unified_diff(&snapshot_with(vec![deleted_file("gone.txt")]));
         assert!(deleted.contains("--- a/gone.txt"));
         assert!(deleted.contains("+++ /dev/null"));
+    }
+
+    #[test]
+    fn added_and_deleted_files_emit_captured_file_mode_metadata() {
+        // Git needs `new file mode` / `deleted file mode` to apply a
+        // /dev/null-sided patch; without them `git apply` reads `/dev/null` as a
+        // repo path and fails (#514). The mode line precedes the `---`/`+++` pair.
+        let added = DiffFile {
+            new_mode: Some("100644".to_owned()),
+            ..added_file("new.txt")
+        };
+        let out = render_unified_diff(&snapshot_with(vec![added]));
+        let mode_at = out
+            .find("new file mode 100644")
+            .expect("new file mode line");
+        let devnull_at = out.find("--- /dev/null").expect("--- /dev/null header");
+        assert!(
+            mode_at < devnull_at,
+            "mode line must precede the ---:\n{out}"
+        );
+
+        let deleted = DiffFile {
+            old_mode: Some("100755".to_owned()),
+            ..deleted_file("gone.sh")
+        };
+        let out = render_unified_diff(&snapshot_with(vec![deleted]));
+        let mode_at = out
+            .find("deleted file mode 100755")
+            .expect("deleted file mode line");
+        let devnull_at = out.find("+++ /dev/null").expect("+++ /dev/null header");
+        assert!(
+            mode_at < devnull_at,
+            "mode line must precede the +++:\n{out}"
+        );
+    }
+
+    #[test]
+    fn file_mode_metadata_is_omitted_when_the_capture_carries_no_mode() {
+        // Never synthesize a mode the capture did not record.
+        let added = render_unified_diff(&snapshot_with(vec![added_file("new.txt")]));
+        assert!(!added.contains("new file mode"), "stdout:\n{added}");
+
+        let deleted = render_unified_diff(&snapshot_with(vec![deleted_file("gone.txt")]));
+        assert!(!deleted.contains("deleted file mode"), "stdout:\n{deleted}");
+    }
+
+    #[test]
+    fn colored_added_deleted_mode_headers_strip_to_plain() {
+        // The mode lines are uncolored metadata emitted identically in both
+        // lanes (INV-D): stripping SGR reproduces the plain bytes.
+        let added = DiffFile {
+            new_mode: Some("100644".to_owned()),
+            ..added_file("new.txt")
+        };
+        let deleted = DiffFile {
+            old_mode: Some("100644".to_owned()),
+            ..deleted_file("gone.txt")
+        };
+        let snapshot = snapshot_with(vec![added, deleted]);
+        let colored = render_unified_diff_colored(
+            &snapshot,
+            &ColorLane::Truecolor(Box::new(DiffPalette::builtin_light())),
+        );
+        assert_eq!(strip_ansi(&colored), render_unified_diff(&snapshot));
     }
 
     #[test]

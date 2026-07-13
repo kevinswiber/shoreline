@@ -165,6 +165,13 @@ revision recorded; its subject is always the captured snapshot, never the live w
   (machine consumers read the review documents, e.g. `shore revision show --format json`). Its output
   is **disposable** — wording, layout, and ordering may change between releases, so nothing should
   parse it.
+- File headers carry the captured mode for `/dev/null`-sided changes: an added file with a recorded
+  mode gets a `new file mode <mode>` line and a deleted file a `deleted file mode <mode>` line, next
+  to the existing `old mode`/`new mode` pair for mode changes. This lets a saved `change.diff` read
+  as a genuine add/delete instead of a `/dev/null` repository path, so ordinary textual changes
+  replay with `git apply`. It is a fidelity improvement, **not** a guaranteed patch-export format:
+  binary payloads, missing-final-newline markers, unusual path quoting, submodules, and object-ID
+  index lines are out of scope, so treat `shore diff` as human-oriented captured-diff readback.
 - When a revision's captured content has been removed from the store, `shore diff` prints a short
   "content is unavailable" line (with the removed content's short id) instead of a diff body.
 

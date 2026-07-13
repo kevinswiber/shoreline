@@ -75,6 +75,61 @@ fn shore_diff_prints_the_captured_unified_diff() {
 }
 
 #[test]
+fn shore_diff_output_applies_to_the_clean_captured_base() {
+    // The saved plain diff must carry `new file mode` / `deleted file mode` so
+    // `git apply` does not read the `/dev/null` side as a repo path (#514). We
+    // capture a change that adds an untracked file, edits a tracked one, and
+    // deletes another, then replay the saved patch against the clean base.
+    let repo = GitRepo::new();
+    repo.write("keep.txt", "line one\nline two\n");
+    repo.write("gone.txt", "delete me\n");
+    repo.commit_all("base");
+
+    repo.write("new.txt", "brand new\n"); // untracked add
+    repo.write("keep.txt", "line one\nline two changed\n");
+    repo.remove("gone.txt");
+
+    // Untracked files are only captured with --include-untracked (the source
+    // that carries the added file whose mode header this test exercises).
+    let captured = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--include-untracked",
+    ]);
+    assert!(
+        captured.status.success(),
+        "capture failed:\n{}",
+        err_text(&captured)
+    );
+
+    let diff = shore([
+        "diff",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--color",
+        "never",
+    ]);
+    assert!(diff.status.success(), "stderr:\n{}", err_text(&diff));
+    let patch = out_text(&diff);
+    assert!(
+        patch.contains("new file mode 100644"),
+        "added file must carry its mode:\n{patch}"
+    );
+    assert!(
+        patch.contains("deleted file mode 100644"),
+        "deleted file must carry its mode:\n{patch}"
+    );
+
+    // Return to the clean captured base (the committed HEAD), then the saved
+    // patch must apply. `run_git` asserts success, so a bad patch fails here.
+    repo.git(["reset", "--hard", "HEAD"]);
+    repo.git(["clean", "-fd"]);
+    repo.write("change.diff", &patch);
+    repo.git(["apply", "--check", "change.diff"]);
+}
+
+#[test]
 fn shore_diff_stat_omits_the_body() {
     let repo = modified_repo();
     capture(repo.path());
