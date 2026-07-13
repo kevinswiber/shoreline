@@ -58,6 +58,7 @@ const INDEX_BODY = `
       type="search"
       placeholder="search — text or field:value"
     />
+    <ul id="filter-suggestions" class="filter-suggestions hidden" aria-label="search suggestions"></ul>
     <div id="filter-chips" class="filter-chips" aria-label="applied filters"></div>
     <div id="filter-types" class="type-facet">
       <button

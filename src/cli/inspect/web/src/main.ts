@@ -11,6 +11,7 @@
 // emit flip) invokes `main()` and ignores the return — the port stays parallel and
 // unserved here, so nothing calls `main()` automatically yet.
 
+import { initControls as initAutocomplete } from "./autocomplete";
 import {
   load,
   loadIdentity,
@@ -106,6 +107,7 @@ export function main(): Promise<void> {
   initRender();
   initDetail();
   initSplit();
+  initAutocomplete();
   wireToolbar();
   document.addEventListener("keydown", onKey);
   document.addEventListener("click", onDocumentClick);

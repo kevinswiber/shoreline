@@ -201,6 +201,128 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     expect(store.getState().filterText).toBe("keepme");
   });
 
+  it("typing paints search suggestions; Escape dismisses without blurring or clearing the query", async () => {
+    // Only this harness can observe a leak: main() wires the document-level
+    // onKey, whose global Escape would blur the focused field (and a stray
+    // clear-query rung would wipe filterText) if the suggestion handler's
+    // locally-consumed Escape ever propagated past #filter-text.
+    await main.main();
+    const input = document.querySelector<HTMLInputElement>("#filter-text");
+    if (!input) throw new Error("#filter-text missing");
+    input.focus();
+    input.value = "tra";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const list = document.querySelector("#filter-suggestions");
+    expect(list?.classList.contains("hidden")).toBe(false);
+    expect(list?.textContent).toContain("track:");
+    expect(store.getState().filterText).toBe("tra");
+    const escapeKeydown = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    const notCancelled = input.dispatchEvent(escapeKeydown);
+    expect(list?.classList.contains("hidden")).toBe(true);
+    expect(store.getState().filterText).toBe("tra"); // the query survived…
+    expect(document.activeElement).toBe(input); // …and the field kept focus
+    // input[type=search] has a NATIVE Escape default (clear the field) that
+    // stopPropagation cannot suppress — the handler must cancel it, which
+    // dispatchEvent reports by returning false.
+    expect(notCancelled).toBe(false);
+  });
+
+  it("clicking a suggestion row inserts the completed clause from the payload's distinct values", async () => {
+    await main.main();
+    const input = document.querySelector<HTMLInputElement>("#filter-text");
+    if (!input) throw new Error("#filter-text missing");
+    input.focus();
+    input.value = "track:cod";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const row = document.querySelector<HTMLElement>(
+      '#filter-suggestions [data-index="0"]',
+    );
+    expect(row?.textContent).toBe("track:agent:codex");
+    row?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(store.getState().filterText).toBe("track:agent:codex ");
+    expect(input.value).toBe("track:agent:codex ");
+    expect(
+      document
+        .querySelector("#filter-suggestions")
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+  });
+
+  it("an outside click dismisses the suggestion popover", async () => {
+    await main.main();
+    const input = document.querySelector<HTMLInputElement>("#filter-text");
+    if (!input) throw new Error("#filter-text missing");
+    input.focus();
+    input.value = "tra";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const list = document.querySelector("#filter-suggestions");
+    expect(list?.classList.contains("hidden")).toBe(false);
+    document
+      .querySelector<HTMLElement>("#master")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(list?.classList.contains("hidden")).toBe(true);
+  });
+
+  it("ArrowDown + Enter accepts the highlighted suggestion without the global Enter running", async () => {
+    // Enter on the timeline search input normally moves focus to the timeline
+    // (onKey's "done searching" case) — a consumed suggestion-accept Enter
+    // must not also do that.
+    await main.main();
+    const input = document.querySelector<HTMLInputElement>("#filter-text");
+    if (!input) throw new Error("#filter-text missing");
+    input.focus();
+    input.value = "is:";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    );
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    expect(store.getState().filterText).toBe("is:open ");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("type: suggestions offer only types present in the loaded store", async () => {
+    // The fixture has observations but no review_initialized events — a
+    // `type:init` suggestion would complete a clause that can only match
+    // nothing.
+    await main.main();
+    const input = document.querySelector<HTMLInputElement>("#filter-text");
+    if (!input) throw new Error("#filter-text missing");
+    input.focus();
+    input.value = "type:";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const labels = [
+      ...document.querySelectorAll("#filter-suggestions [data-index]"),
+    ].map((el) => el.textContent);
+    expect(labels).toContain("type:observation");
+    expect(labels).not.toContain("type:init");
+  });
+
+  it("Enter without a highlighted suggestion moves focus onward and dismisses the popover", async () => {
+    // The global "done searching" Enter still runs (no row is highlighted),
+    // and the popover must not linger over the list once focus has left the
+    // input.
+    await main.main();
+    const input = document.querySelector<HTMLInputElement>("#filter-text");
+    if (!input) throw new Error("#filter-text missing");
+    input.focus();
+    input.value = "tra";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const list = document.querySelector("#filter-suggestions");
+    expect(list?.classList.contains("hidden")).toBe(false);
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    expect(document.activeElement).not.toBe(input);
+    expect(list?.classList.contains("hidden")).toBe(true);
+  });
+
   it("a sort-picker change on the list lens navigates with the new sortKey", async () => {
     await main.main();
     document

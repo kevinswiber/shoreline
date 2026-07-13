@@ -1,5 +1,10 @@
 {
   "diagnostics": [],
+  "distinctValues": {
+    "track": ["agent:codex", "human:kevin"],
+    "actor": ["actor:git-email:shore-tests@example.com"],
+    "tag": []
+  },
   "entries": [
     {
       "eventId": "evt:sha256:5c73d1aed5e1f2e68520faf19a6468f6ee2eb691038eb620d54d48f403a03b95",

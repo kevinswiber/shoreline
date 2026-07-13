@@ -18,9 +18,9 @@ use pointbreak::model::{ObjectId, ReviewEndpoint, RevisionId, RevisionSource, Va
 use pointbreak::session::event::ReviewAssessment;
 use pointbreak::session::{
     AssessmentRecordStatus, AssessmentView, AttentionItem, AttentionListOptions,
-    BaseHistoryProjection, BaseProjectionConfig, CurrentAssessmentStatus, EventVerificationPolicy,
-    HistoryPage, HistoryQuery, InputRequestStatus, LivenessEnrichment, ObservationStatus,
-    ObservationView, ProjectionDiagnostic, QueryDiagnostic, ReviewHistoryEntry,
+    BaseHistoryProjection, BaseProjectionConfig, CurrentAssessmentStatus, DistinctValues,
+    EventVerificationPolicy, HistoryPage, HistoryQuery, InputRequestStatus, LivenessEnrichment,
+    ObservationStatus, ObservationView, ProjectionDiagnostic, QueryDiagnostic, ReviewHistoryEntry,
     RevisionCommitRangeView, RevisionListEntry, RevisionListOptions, RevisionOverview,
     RevisionOverviewsOptions, RevisionShowOptions, RevisionShowResult, SessionState,
     SnapshotSummaryCache, StoreIdentity, StoreIdentityOptions, SupersessionView, TrustSet,
@@ -63,6 +63,9 @@ struct HistoryPayload {
     /// Parse diagnostics for the applied `q` (deprecation hints on a 200) — a
     /// sibling of the store-integrity `diagnostics`, never mixed in.
     query_notices: Vec<QueryDiagnostic>,
+    /// Store-wide completion vocabulary — always the unfiltered base's values,
+    /// never the matched set's. Additive, always present.
+    distinct_values: DistinctValues,
 }
 
 #[derive(Serialize)]
@@ -772,6 +775,7 @@ fn serialize_history_payload(out: pointbreak::session::QueriedHistory) -> Result
         match_index: out.match_index,
         diagnostics: out.diagnostics,
         query_notices: out.query_notices,
+        distinct_values: out.distinct_values,
     };
     let span = tracing::debug_span!("shore.inspect.history.serialize_json");
     let _guard = span.enter();

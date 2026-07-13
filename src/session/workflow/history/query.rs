@@ -3,9 +3,10 @@ use std::ops::Range;
 
 use super::projection::{BaseEntry, BaseHistoryProjection};
 use super::search::{
-    QueryDiagnostic, QuerySurface, event_type_wire, matches_query, parse_search_query_for,
+    QueryDiagnostic, QuerySurface, entry_actor, entry_track, event_type_wire, matches_query,
+    parse_search_query_for, tag_completion_key,
 };
-use super::summary::ReviewHistoryEntry;
+use super::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 use crate::model::EventId;
 use crate::session::ProjectionDiagnostic;
 
@@ -43,6 +44,29 @@ pub struct HistoryPage {
     pub at: Option<EventId>,
 }
 
+/// Distinct values across the whole base projection — store-wide vocabulary,
+/// independent of the live q/track/snapshot/types query (unlike `facets`,
+/// which narrows with it). Computing this under the live query would
+/// self-defeat completion: typing `track:cod` would filter out every record
+/// carrying the very value being completed, and a query whose clauses
+/// jointly match nothing (a committed clause plus a partially-typed second
+/// one) would report an empty vocabulary altogether. Values are derived from
+/// the raw DOMAIN fields (`entry_track`/`entry_actor`/observation tags),
+/// never from the space-wrapped search-record encoding — a fallback Git-name
+/// actor id legally contains spaces, and splitting the encoded set would
+/// fragment it into junk completions that also diverge from the cold
+/// default-page path's raw-envelope reads. `tag` carries first-colon KEYS
+/// only (e.g. "issue", not "issue:191") — the useful completion vocabulary;
+/// the full string still matches via the existing set-membership `tag`
+/// field, this struct is additive autocomplete input, not a matching change.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DistinctValues {
+    pub track: Vec<String>,
+    pub actor: Vec<String>,
+    pub tag: Vec<String>,
+}
+
 /// The result of `apply_history_query`: the windowed page plus the facet counts,
 /// the full filtered size (`match_count`), the window start (`offset`), the located
 /// index for an `at` request (`match_index`), and the FULL-set identity (never the
@@ -59,6 +83,9 @@ pub struct QueriedHistory {
     /// Parse diagnostics for the applied `q` (deprecation hints on a 200) — a
     /// sibling of the store-integrity `diagnostics`, never mixed in.
     pub query_notices: Vec<QueryDiagnostic>,
+    /// Store-wide completion vocabulary (see [`DistinctValues`]) — always the
+    /// unfiltered base's values, never the matched set's.
+    pub distinct_values: DistinctValues,
 }
 
 /// Run the query over the cached base projection, purely (no I/O): filter (q +
@@ -97,6 +124,43 @@ pub fn apply_history_query(
             *facets.entry(event_type_wire(&entry.entry)).or_default() += 1;
         }
         facets
+    };
+
+    // Iterates `base.entries` directly, never `.filter(facet_match)` — the
+    // completion vocabulary is store-wide by contract (see `DistinctValues`).
+    // Domain values, not record tokens: the space-wrapped set encoding cannot
+    // carry a space-bearing id losslessly, and the cold default-page path
+    // reads raw envelope/payload values — the two must agree byte-for-byte.
+    let distinct_values = {
+        let span = tracing::debug_span!("shore.history.query.distinct_values");
+        let _guard = span.enter();
+        let mut track = BTreeSet::new();
+        let mut actor = BTreeSet::new();
+        let mut tag = BTreeSet::new();
+        for entry in &base.entries {
+            let track_value = entry_track(&entry.entry);
+            if !track_value.is_empty() {
+                track.insert(track_value.to_lowercase());
+            }
+            let actor_value = entry_actor(&entry.entry);
+            if !actor_value.is_empty() {
+                actor.insert(actor_value.to_lowercase());
+            }
+            if let ReviewHistorySummary::ReviewObservationRecorded { tags, .. } =
+                &entry.entry.summary
+            {
+                for full in tags {
+                    if let Some(key) = tag_completion_key(full) {
+                        tag.insert(key);
+                    }
+                }
+            }
+        }
+        DistinctValues {
+            track: track.into_iter().collect(),
+            actor: actor.into_iter().collect(),
+            tag: tag.into_iter().collect(),
+        }
     };
 
     let mut filtered: Vec<&BaseEntry> = {
@@ -143,6 +207,7 @@ pub fn apply_history_query(
         event_count: base.event_count,
         diagnostics: base.diagnostics.clone(),
         query_notices: parsed.diagnostics,
+        distinct_values,
     }
 }
 
@@ -382,6 +447,32 @@ mod tests {
         ])
     }
 
+    /// Observation entries titled and tagged per `specs`, ascending.
+    fn base_with_tags(specs: &[(&str, &[&str])]) -> BaseHistoryProjection {
+        let entries = specs
+            .iter()
+            .enumerate()
+            .map(|(i, (title, tags))| {
+                let mut e = entry(
+                    &format!("2026-05-13T10:00:{:02}Z", i + 1),
+                    &format!("evt:sha256:{:02}", i + 1),
+                    EventType::ReviewObservationRecorded,
+                    title,
+                    "agent:codex",
+                    "rev:sha256:one",
+                );
+                if let ReviewHistorySummary::ReviewObservationRecorded {
+                    tags: entry_tags, ..
+                } = &mut e.summary
+                {
+                    *entry_tags = tags.iter().map(|tag| (*tag).to_owned()).collect();
+                }
+                (e, "obj:sha256:one")
+            })
+            .collect();
+        base_from(entries)
+    }
+
     fn page(limit: Option<usize>) -> HistoryPage {
         HistoryPage {
             limit,
@@ -485,6 +576,110 @@ mod tests {
         let out = apply_history_query(&base, &q, &HistoryPage::default());
         assert_eq!(out.facets.get("review_assessment_recorded"), None);
         assert_eq!(out.facets.get("review_observation_recorded"), Some(&2));
+    }
+
+    #[test]
+    fn distinct_values_are_independent_of_q_track_snapshot_and_types() {
+        // mixed_base(): two observations on "agent:codex", one assessment on
+        // "human:kevin". The unfiltered baseline and a second query that narrows
+        // q, track, snapshot, AND the types page set all at once — together
+        // matching nothing — must report the IDENTICAL distinct values: none of
+        // those params may narrow the completion vocabulary.
+        let base = mixed_base();
+        let baseline =
+            apply_history_query(&base, &HistoryQuery::default(), &HistoryPage::default());
+
+        let mut types = BTreeSet::new();
+        types.insert("review_observation_recorded".to_owned());
+        let narrow = HistoryQuery {
+            q: "pinned".into(),
+            track: Some("agent:codex".into()),
+            snapshot: Some("obj:sha256:one".into()),
+            types: Some(types),
+            ..Default::default()
+        };
+        let out = apply_history_query(&base, &narrow, &HistoryPage::default());
+        assert_eq!(
+            out.match_count, 0,
+            "sanity check: the narrowed query matches nothing"
+        );
+        assert_eq!(out.distinct_values, baseline.distinct_values);
+    }
+
+    #[test]
+    fn distinct_values_survive_a_query_whose_clauses_jointly_match_no_records() {
+        // A committed clause (track:agent:codex) plus a partially-typed second
+        // qualifier (tag:co, matching no complete tag on these tag-less entries)
+        // together match ZERO records. If distinct values were still scoped to
+        // the matched set, this would surface an EMPTY vocabulary — filtering the
+        // very value a reader is mid-typing out of its own suggestion list.
+        let base = mixed_base();
+        let q = HistoryQuery {
+            q: "track:agent:codex tag:co".into(),
+            ..Default::default()
+        };
+        let out = apply_history_query(&base, &q, &HistoryPage::default());
+        assert_eq!(
+            out.match_count, 0,
+            "sanity check: the committed query matches nothing"
+        );
+        assert!(
+            out.distinct_values
+                .track
+                .contains(&"agent:codex".to_owned())
+        );
+        assert!(
+            out.distinct_values
+                .track
+                .contains(&"human:kevin".to_owned())
+        );
+    }
+
+    #[test]
+    fn distinct_values_keep_whitespace_bearing_actor_and_tag_values_whole() {
+        // Fallback Git-name actor ids legally contain spaces, and tags are free
+        // strings. The completion vocabulary must carry the whole domain value:
+        // fragmenting on the encoded set's internal spaces would offer junk
+        // completions and diverge from the cold default-page path, which reads
+        // the raw envelope/payload values.
+        let mut e = entry(
+            "2026-05-13T10:00:01Z",
+            "evt:sha256:01",
+            EventType::ReviewObservationRecorded,
+            "obs",
+            "agent:codex",
+            "rev:sha256:one",
+        );
+        e.writer.actor_id = crate::model::ActorId::new("actor:git-name:Kevin Swiber");
+        if let ReviewHistorySummary::ReviewObservationRecorded { tags, .. } = &mut e.summary {
+            *tags = vec!["needs follow up".to_owned()];
+        }
+        let base = base_from(vec![(e, "obj:sha256:one")]);
+        let out = apply_history_query(&base, &HistoryQuery::default(), &HistoryPage::default());
+        assert_eq!(
+            out.distinct_values.actor,
+            vec!["actor:git-name:kevin swiber".to_owned()],
+            "the whole lowercased actor id, never its space-split fragments"
+        );
+        assert_eq!(
+            out.distinct_values.tag,
+            vec!["needs follow up".to_owned()],
+            "the whole lowercased tag, never its space-split fragments"
+        );
+    }
+
+    #[test]
+    fn distinct_tag_values_are_first_colon_keys_not_full_strings() {
+        let base = base_with_tags(&[("issue:191", &["issue:191"]), ("bare", &["correctness"])]);
+        let out = apply_history_query(&base, &HistoryQuery::default(), &HistoryPage::default());
+        assert!(out.distinct_values.tag.contains(&"issue".to_owned()));
+        assert!(out.distinct_values.tag.contains(&"correctness".to_owned()));
+        assert!(
+            !out.distinct_values.tag.contains(&"issue:191".to_owned()),
+            "the full tag string is not a distinct VALUE — only its first-colon key is (the useful \
+             completion vocabulary); `tag:issue:191` still MATCHES via the set-membership field, \
+             this is only about what's offered as an autocomplete suggestion"
+        );
     }
 
     #[test]

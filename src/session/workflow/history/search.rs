@@ -667,6 +667,20 @@ pub(crate) fn tag_index_tokens<'a>(tags: impl IntoIterator<Item = &'a String>) -
     tokens
 }
 
+/// The completion-vocabulary key for one tag: its first-colon key (the whole
+/// string when it has no colon), lowercased; `None` for a leading-colon tag
+/// (no usable key). Shared by the warm and cold distinct-value derivations so
+/// the two paths cannot disagree — both read the raw domain string, never the
+/// space-wrapped set encoding (a tag is a free string and may contain spaces).
+pub(super) fn tag_completion_key(tag: &str) -> Option<String> {
+    let key = tag.split(':').next().unwrap_or(tag);
+    if key.is_empty() {
+        None
+    } else {
+        Some(key.to_lowercase())
+    }
+}
+
 /// The `assessment` field — the verdict wire value on assessment entries, else "".
 fn entry_assessment(entry: &ReviewHistoryEntry) -> String {
     match &entry.summary {

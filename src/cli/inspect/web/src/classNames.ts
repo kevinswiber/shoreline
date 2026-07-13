@@ -148,6 +148,12 @@ export const CLASS = {
   typeFacetToggle: "type-facet-toggle",
   typeFacetMenu: "type-facet-menu",
 
+  // The search-bar suggestion popover: static list container in index.html;
+  // the rows are emitted via suggestionClass below.
+  filterSuggestions: "filter-suggestions",
+  suggestion: "suggestion",
+  suggestionActive: "suggestion-active",
+
   // The command palette.
   cmdEmpty: "cmd-empty",
   cmdGroup: "cmd-group",
@@ -387,6 +393,10 @@ export const filterChipClass = (negated: boolean): string =>
 export const typeFacetRowClass = (enabled: boolean): string =>
   `type-facet-row${enabled ? "" : " type-facet-row-off"}`;
 
+/** `suggestion[ suggestion-active]` — a row inside the search suggestion popover. */
+export const suggestionClass = (active: boolean): string =>
+  `suggestion${active ? " suggestion-active" : ""}`;
+
 // ---------------------------------------------------------------------------
 // The exhaustive emitted-class set: every `CLASS` value plus every dynamic-family
 // member through its helper, split on spaces and deduped. The cross-artifact
@@ -414,6 +424,7 @@ export const ALL_EMITTABLE_CLASSES: readonly string[] = [
       filterChipClass(true),
       typeFacetRowClass(true),
       typeFacetRowClass(false),
+      suggestionClass(true),
       dagNodeClass({ isHead: true, isSuperseded: true }),
       bodyClass("anno-body", true),
       bodyClass("verdict-summary", true),

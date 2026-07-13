@@ -1496,6 +1496,134 @@ fn api_history_q_full_text_search_narrows_the_page() {
 }
 
 #[test]
+fn api_history_reports_distinct_track_actor_and_tag_key_values() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    // This is the FIRST request against a freshly spawned inspector with no
+    // params — the cold-cache bootstrap path. It must carry the store's REAL
+    // vocabulary already: first-load autocomplete is exactly this cold case, so
+    // an empty placeholder here would be a lie on the wire, not a harmless gap.
+    let full = inspector.get_json("/api/history");
+    let track = full["distinctValues"]["track"].as_array().unwrap();
+    let actor = full["distinctValues"]["actor"].as_array().unwrap();
+    assert!(
+        !track.is_empty(),
+        "the fixture store has entries with a track"
+    );
+    assert!(
+        !actor.is_empty(),
+        "the fixture store has entries with a writer actor"
+    );
+    assert!(full["distinctValues"]["tag"].is_array());
+}
+
+#[test]
+fn api_history_distinct_values_survive_a_narrowing_query() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+
+    let unfiltered = inspector.get_json("/api/history");
+    let track_values: Vec<String> = unfiltered["distinctValues"]["track"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        !track_values.is_empty(),
+        "the fixture store has entries with a track"
+    );
+    let some_track = track_values[0].clone();
+
+    // A free-text term that matches no entry narrows `matchCount` to zero —
+    // if distinct values were scoped to the matched set, this response would
+    // report an EMPTY vocabulary. It must instead still surface `some_track`.
+    let narrowed = inspector.get_json("/api/history?q=zzz-no-such-token-zzz");
+    assert_eq!(
+        narrowed["matchCount"], 0,
+        "sanity check: the query matches nothing"
+    );
+    let narrowed_track_values: Vec<String> = narrowed["distinctValues"]["track"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    assert!(narrowed_track_values.contains(&some_track));
+}
+
+#[test]
+fn api_history_distinct_values_are_lowercased_identically_cold_and_warm() {
+    // A store built with MIXED-case actor/tag values, so the two computation
+    // paths' casing can actually diverge if they disagree. (Track ids cannot
+    // carry mixed case — the CLI validates them lowercase at write time — so
+    // actor and tag are the two live casing axes.)
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 {\n    1\n}\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 {\n    2\n}\n");
+    let repo_arg = repo.path().to_str().unwrap();
+
+    support::shore(["capture", "--repo", repo_arg]);
+    let written = shore_env(
+        [
+            "observation",
+            "add",
+            "--repo",
+            repo_arg,
+            "--track",
+            "agent:codex",
+            "--title",
+            "Mixed-case actor and tag",
+            "--body",
+            "checking cold/warm casing parity",
+            "--tag",
+            "Issue:191",
+        ],
+        // The override must start with the literal, case-sensitive `actor:`
+        // scheme or it's rejected and the writer silently falls back to Git
+        // identity — the mixed casing has to live in the remainder, not the
+        // prefix.
+        &[("SHORE_ACTOR_ID", "actor:Mixed:Case")],
+    );
+    assert!(
+        written.status.success(),
+        "the fixture observation write must succeed: {}",
+        String::from_utf8_lossy(&written.stderr)
+    );
+
+    let inspector = Inspector::spawn(repo.path());
+    // The very FIRST request is the cold-cache default path.
+    let cold = inspector.get_json("/api/history");
+    // A query param forces the general, record-built path.
+    let warm = inspector.get_json("/api/history?q=checking");
+
+    assert_eq!(
+        cold["distinctValues"], warm["distinctValues"],
+        "the cold default response and a queried response must report identical distinct values"
+    );
+    let track = cold["distinctValues"]["track"].as_array().unwrap();
+    assert!(
+        track.iter().any(|v| v == "agent:codex"),
+        "the explicit track is in the vocabulary: {track:?}"
+    );
+    let actor = cold["distinctValues"]["actor"].as_array().unwrap();
+    assert!(
+        actor.iter().any(|v| v == "actor:mixed:case"),
+        "actor must be lowercased: {actor:?}"
+    );
+    assert!(
+        !actor.iter().any(|v| v == "actor:Mixed:Case"),
+        "the raw-case actor must not also appear as a separate value: {actor:?}"
+    );
+    let tag = cold["distinctValues"]["tag"].as_array().unwrap();
+    assert!(
+        tag.iter().any(|v| v == "issue"),
+        "the tag key must be lowercased: {tag:?}"
+    );
+}
+
+#[test]
 fn api_history_rejects_an_unsupported_qualifier_with_400() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());

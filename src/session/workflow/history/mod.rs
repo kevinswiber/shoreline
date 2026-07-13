@@ -16,7 +16,7 @@ use self::projection::{
     history_base_from_events, history_default_page_from_events, history_from_events,
 };
 pub use self::query::{
-    HistoryOrder, HistoryPage, HistoryQuery, QueriedHistory, apply_history_query,
+    DistinctValues, HistoryOrder, HistoryPage, HistoryQuery, QueriedHistory, apply_history_query,
 };
 pub use self::result::ReviewHistoryResult;
 pub use self::search::{

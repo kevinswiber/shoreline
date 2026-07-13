@@ -3,37 +3,6 @@
   var __defProp = Object.defineProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-  // src/dom.ts
-  function $(sel) {
-    return document.querySelector(sel);
-  }
-  __name($, "$");
-
-  // src/http.ts
-  function payloadError(data) {
-    if (typeof data === "object" && data !== null && "error" in data && data.error) {
-      return typeof data.error === "string" ? data.error : String(data.error);
-    }
-    return "";
-  }
-  __name(payloadError, "payloadError");
-  async function fetchJSON(path) {
-    const res = await fetch(path, { cache: "no-store" });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`${path}: non-JSON response (${res.status})`);
-    }
-    const error = payloadError(data);
-    if (!res.ok || error) {
-      throw new Error(error || `${path}: HTTP ${res.status}`);
-    }
-    return data;
-  }
-  __name(fetchJSON, "fetchJSON");
-
   // src/classNames.ts
   var CLASS = {
     // App chrome, master-detail panes, lens containers, and shared chips.
@@ -155,6 +124,11 @@
     typeFacet: "type-facet",
     typeFacetToggle: "type-facet-toggle",
     typeFacetMenu: "type-facet-menu",
+    // The search-bar suggestion popover: static list container in index.html;
+    // the rows are emitted via suggestionClass below.
+    filterSuggestions: "filter-suggestions",
+    suggestion: "suggestion",
+    suggestionActive: "suggestion-active",
     // The command palette.
     cmdEmpty: "cmd-empty",
     cmdGroup: "cmd-group",
@@ -281,6 +255,7 @@
   var cmdItemClass = /* @__PURE__ */ __name((active) => `cmd-item${active ? " active" : ""}`, "cmdItemClass");
   var filterChipClass = /* @__PURE__ */ __name((negated) => `filter-chip${negated ? " filter-chip-negated" : ""}`, "filterChipClass");
   var typeFacetRowClass = /* @__PURE__ */ __name((enabled) => `type-facet-row${enabled ? "" : " type-facet-row-off"}`, "typeFacetRowClass");
+  var suggestionClass = /* @__PURE__ */ __name((active) => `suggestion${active ? " suggestion-active" : ""}`, "suggestionClass");
   var tokensOf = /* @__PURE__ */ __name((classStrings) => classStrings.flatMap((s) => s.split(" ")), "tokensOf");
   var ALL_EMITTABLE_CLASSES = [
     ...new Set(
@@ -300,6 +275,7 @@
         filterChipClass(true),
         typeFacetRowClass(true),
         typeFacetRowClass(false),
+        suggestionClass(true),
         dagNodeClass({ isHead: true, isSuperseded: true }),
         bodyClass("anno-body", true),
         bodyClass("verdict-summary", true),
@@ -307,6 +283,25 @@
       ])
     )
   ];
+
+  // src/dom.ts
+  function $(sel) {
+    return document.querySelector(sel);
+  }
+  __name($, "$");
+
+  // src/escape.ts
+  var ENTITIES = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  };
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (char) => ENTITIES[char]);
+  }
+  __name(escapeHtml, "escapeHtml");
 
   // src/format.ts
   var RFC3339_UTC = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/;
@@ -385,19 +380,6 @@
     return new Date(ms).toLocaleDateString();
   }
   __name(fmtDate, "fmtDate");
-
-  // src/escape.ts
-  var ENTITIES = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  };
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, (char) => ENTITIES[char]);
-  }
-  __name(escapeHtml, "escapeHtml");
 
   // src/types.ts
   var TYPES = [
@@ -1312,6 +1294,31 @@
   }
   __name(eventExists, "eventExists");
 
+  // src/http.ts
+  function payloadError(data) {
+    if (typeof data === "object" && data !== null && "error" in data && data.error) {
+      return typeof data.error === "string" ? data.error : String(data.error);
+    }
+    return "";
+  }
+  __name(payloadError, "payloadError");
+  async function fetchJSON(path) {
+    const res = await fetch(path, { cache: "no-store" });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`${path}: non-JSON response (${res.status})`);
+    }
+    const error = payloadError(data);
+    if (!res.ok || error) {
+      throw new Error(error || `${path}: HTTP ${res.status}`);
+    }
+    return data;
+  }
+  __name(fetchJSON, "fetchJSON");
+
   // src/data.ts
   var HISTORY_PAGE = 100;
   function historyQueryParams(s) {
@@ -1539,6 +1546,519 @@
     }
   }
   __name(pollFreshness, "pollFreshness");
+
+  // src/router.ts
+  var LENSES2 = ["timeline", "list", "attention"];
+  var DEFAULT_LENS2 = "timeline";
+  function selectionKind(id) {
+    const info = refInfo(id);
+    if (info && (info.kind === "rev" || info.kind === "review-unit"))
+      return "revision";
+    return "event";
+  }
+  __name(selectionKind, "selectionKind");
+  function parseQuery(queryString) {
+    const params = {};
+    for (const pair of queryString.split("&")) {
+      if (!pair) continue;
+      const eq = pair.indexOf("=");
+      const key = decodeURIComponent(eq < 0 ? pair : pair.slice(0, eq));
+      params[key] = eq < 0 ? "" : decodeURIComponent(pair.slice(eq + 1));
+    }
+    return params;
+  }
+  __name(parseQuery, "parseQuery");
+  function parseHash(hash, presentTypes2) {
+    const raw = hash.replace(/^#/, "");
+    const q = raw.indexOf("?");
+    const path = q < 0 ? raw : raw.slice(0, q);
+    const p = parseQuery(q < 0 ? "" : raw.slice(q + 1));
+    const patch = {
+      lens: DEFAULT_LENS2,
+      filterTrack: p.track != null ? p.track : "",
+      // The filter param is `snapshot`; legacy `object` is still parsed for old
+      // bookmarks during the transition (#334).
+      filterSnapshot: p.snapshot != null ? p.snapshot : p.object != null ? p.object : "",
+      order: p.order === "asc" || p.order === "desc" ? p.order : "desc",
+      sortKey: p.sort === "activity" ? "activity" : "captured",
+      filterText: p.q != null ? p.q : "",
+      enabledTypes: p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes2),
+      diff: p.diff || null,
+      diffHash: p.diffHash || null,
+      focus: p.focus ? p.focus : null,
+      diffPage: false,
+      diffRevision: null,
+      diffFile: p.file ? p.file : null,
+      unsupportedAsOf: p.asof != null ? p.asof || true : null,
+      unsupportedJournal: p.journal != null ? p.journal || true : null,
+      unknownPath: null,
+      migrated: null
+    };
+    const segs = path.split("/").filter(Boolean);
+    const lensParam = p.lens ?? "";
+    if (segs[0] === "revision" && segs[1] && segs[2] === "diff") {
+      patch.diffPage = true;
+      patch.diffRevision = decodeURIComponent(segs[1]);
+      if (p.fq != null) {
+        patch.diffFileQuery = p.fq;
+      } else {
+        switch (p.nav) {
+          case "with-facts":
+            patch.diffFileQuery = "has:facts";
+            patch.migrated = "legacy-diff-nav";
+            break;
+          case "unanchored":
+            patch.diffFileQuery = "is:unanchored";
+            patch.migrated = "legacy-diff-nav";
+            break;
+          case "all":
+            patch.diffFileQuery = "";
+            patch.migrated = "legacy-diff-nav";
+            break;
+          default:
+            patch.diffFileQuery = "";
+        }
+      }
+      return patch;
+    }
+    patch.selected = { kind: null, id: null };
+    patch.open = false;
+    if (segs.length === 0) {
+      patch.lens = DEFAULT_LENS2;
+    } else if (segs[0] === "revision" && segs[1]) {
+      patch.selected = { kind: "revision", id: decodeURIComponent(segs[1]) };
+      patch.open = true;
+      patch.lens = LENSES2.includes(lensParam) ? lensParam : DEFAULT_LENS2;
+    } else if (segs[0] === "event" && segs[1]) {
+      patch.selected = { kind: "event", id: decodeURIComponent(segs[1]) };
+      patch.open = true;
+      patch.lens = LENSES2.includes(lensParam) ? lensParam : DEFAULT_LENS2;
+    } else if (LENSES2.includes(segs[0]) || segs[0] === "threads") {
+      patch.lens = segs[0] === "threads" ? "list" : segs[0];
+      if (segs[0] === "threads") patch.migrated = "threads-alias";
+      if (p.sel) patch.selected = { kind: selectionKind(p.sel), id: p.sel };
+    } else {
+      patch.lens = DEFAULT_LENS2;
+      patch.unknownPath = path;
+    }
+    return patch;
+  }
+  __name(parseHash, "parseHash");
+  function serializeState(snapshot, presentTypes2) {
+    if (snapshot.diffPage && snapshot.diffRevision) {
+      const pageParams = [];
+      if (snapshot.focus)
+        pageParams.push(`focus=${encodeURIComponent(snapshot.focus)}`);
+      if (snapshot.diffFile)
+        pageParams.push(`file=${encodeURIComponent(snapshot.diffFile)}`);
+      if (snapshot.diffFileQuery)
+        pageParams.push(`fq=${encodeURIComponent(snapshot.diffFileQuery)}`);
+      const pagePath = `#/revision/${encodeURIComponent(snapshot.diffRevision)}/diff`;
+      return pageParams.length ? `${pagePath}?${pageParams.join("&")}` : pagePath;
+    }
+    const params = [];
+    const sel = snapshot.selected ?? { kind: null, id: null };
+    let path = snapshot.lens === DEFAULT_LENS2 ? "#/timeline" : `#/${snapshot.lens}`;
+    if (sel.id && snapshot.open && (sel.kind === "revision" || sel.kind === "event")) {
+      path = sel.kind === "revision" ? `#/revision/${encodeURIComponent(sel.id)}` : `#/event/${encodeURIComponent(sel.id)}`;
+      if (snapshot.lens && snapshot.lens !== DEFAULT_LENS2)
+        params.push(`lens=${encodeURIComponent(snapshot.lens)}`);
+    } else if (sel.id) {
+      params.push(`sel=${encodeURIComponent(sel.id)}`);
+    }
+    if (snapshot.filterTrack)
+      params.push(`track=${encodeURIComponent(snapshot.filterTrack)}`);
+    if (snapshot.filterSnapshot)
+      params.push(`snapshot=${encodeURIComponent(snapshot.filterSnapshot)}`);
+    if (snapshot.order && snapshot.order !== "desc")
+      params.push(`order=${encodeURIComponent(snapshot.order)}`);
+    if (snapshot.lens === "list" && snapshot.sortKey !== "captured")
+      params.push(`sort=${encodeURIComponent(snapshot.sortKey)}`);
+    if (presentTypes2.some((id) => !snapshot.enabledTypes.has(id))) {
+      params.push(
+        `types=${encodeURIComponent(
+          presentTypes2.filter((id) => snapshot.enabledTypes.has(id)).join(",")
+        )}`
+      );
+    }
+    if (snapshot.filterText)
+      params.push(`q=${encodeURIComponent(snapshot.filterText)}`);
+    if (snapshot.diff) params.push(`diff=${encodeURIComponent(snapshot.diff)}`);
+    if (snapshot.diff && snapshot.diffHash)
+      params.push(`diffHash=${encodeURIComponent(snapshot.diffHash)}`);
+    if (snapshot.focus)
+      params.push(`focus=${encodeURIComponent(snapshot.focus)}`);
+    return params.length ? `${path}?${params.join("&")}` : path;
+  }
+  __name(serializeState, "serializeState");
+  function navigate(patch, opts = {}) {
+    commit(patch);
+    const hash = serializeState(getState(), presentTypes());
+    if (opts.replace) history.replaceState({}, "", hash);
+    else history.pushState({}, "", hash);
+  }
+  __name(navigate, "navigate");
+  function applyHash() {
+    const parsed = parseHash(location.hash, presentTypes());
+    const patch = resolve(parsed);
+    commit(patch);
+    if (parsed.migrated === "threads-alias") {
+      history.replaceState(
+        {},
+        "",
+        location.hash.replace(/^#\/threads/, "#/list")
+      );
+    } else if (parsed.migrated === "legacy-diff" || parsed.migrated === "legacy-diff-nav") {
+      history.replaceState({}, "", serializeState(getState(), presentTypes()));
+    }
+    const sel = getState().selected;
+    if (sel.kind === "event" && sel.id && !eventExists(sel.id)) {
+      void revealSelectedEvent(sel.id, patch.lens ?? DEFAULT_LENS2);
+    }
+  }
+  __name(applyHash, "applyHash");
+  async function revealSelectedEvent(eventId, lens) {
+    const page = await fetchRevealPage(eventId);
+    if (!page) return;
+    if (page.present) {
+      commit(revealPatch(page, eventId));
+      clearRouteDiagnostic();
+      return;
+    }
+    commit({ selected: { kind: null, id: null } });
+    showRouteDiagnostic(
+      `fell back to the ${lens} lens — event ${shortRef(eventId)} is not in this store`
+    );
+  }
+  __name(revealSelectedEvent, "revealSelectedEvent");
+  function resolve(patch) {
+    const freshnessDiagnostic = liveStateDiagnostic(patch);
+    const next = statePatchFrom(patch);
+    if (patch.unknownPath != null) {
+      showRouteDiagnostic(
+        routeDiagnostic(
+          `fell back to the timeline — unknown route ${patch.unknownPath}`,
+          freshnessDiagnostic
+        )
+      );
+      next.lens = DEFAULT_LENS2;
+      next.selected = { kind: null, id: null };
+      return next;
+    }
+    if (patch.diff && !patch.diffPage) {
+      next.diffPage = true;
+      const mapped = revisionIdForSnapshot(patch.diff, patch.diffHash);
+      if (mapped) {
+        next.diffRevision = mapped;
+        patch.migrated = "legacy-diff";
+      }
+    }
+    const sel = patch.selected ?? { kind: null, id: null };
+    if (sel.kind === "revision" && sel.id && !revisionExists(sel.id)) {
+      if (revisionInAnyThread(sel.id)) {
+        next.open = true;
+      } else {
+        const lens = patch.lens || DEFAULT_LENS2;
+        showRouteDiagnostic(
+          routeDiagnostic(
+            `fell back to the ${lens} lens — revision ${shortRef(sel.id)} is not in this store`,
+            freshnessDiagnostic
+          )
+        );
+        next.lens = lens;
+        next.selected = { kind: null, id: null };
+        return next;
+      }
+    }
+    if (freshnessDiagnostic) {
+      showRouteDiagnostic(freshnessDiagnostic);
+      return next;
+    }
+    clearRouteDiagnostic();
+    return next;
+  }
+  __name(resolve, "resolve");
+  function statePatchFrom(patch) {
+    const next = {
+      lens: patch.lens,
+      filterTrack: patch.filterTrack,
+      filterSnapshot: patch.filterSnapshot,
+      order: patch.order,
+      // sortKey, like order/filterText, is set in parseHash's base patch object
+      // before any path-arm branches (including the diff-page early return), so it
+      // is always present on a full parse — unlike selected/open, which the
+      // diff-page branch deliberately omits. Unconditional copy is therefore correct.
+      sortKey: patch.sortKey,
+      filterText: patch.filterText,
+      enabledTypes: patch.enabledTypes,
+      diff: patch.diff,
+      diffHash: patch.diffHash,
+      focus: patch.focus,
+      diffPage: patch.diffPage,
+      diffRevision: patch.diffRevision,
+      diffFile: patch.diffFile
+    };
+    if (patch.selected !== void 0) next.selected = patch.selected;
+    if (patch.open !== void 0) next.open = patch.open;
+    if (patch.diffFileQuery !== void 0)
+      next.diffFileQuery = patch.diffFileQuery;
+    return next;
+  }
+  __name(statePatchFrom, "statePatchFrom");
+  function liveStateDiagnostic(patch) {
+    const unsupported = [];
+    if (patch.unsupportedAsOf != null)
+      unsupported.push("as-of links are not supported by this server");
+    if (patch.unsupportedJournal != null)
+      unsupported.push("journal links are not supported by this server");
+    return unsupported.length ? `showing live state — ${unsupported.join("; ")}` : "";
+  }
+  __name(liveStateDiagnostic, "liveStateDiagnostic");
+  function routeDiagnostic(primary, secondary) {
+    return secondary ? `${primary} — ${secondary}` : primary;
+  }
+  __name(routeDiagnostic, "routeDiagnostic");
+  function showRouteDiagnostic(message) {
+    const el = $("#route-diagnostic");
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove("hidden");
+  }
+  __name(showRouteDiagnostic, "showRouteDiagnostic");
+  function clearRouteDiagnostic() {
+    const el = $("#route-diagnostic");
+    if (!el) return;
+    el.textContent = "";
+    el.classList.add("hidden");
+  }
+  __name(clearRouteDiagnostic, "clearRouteDiagnostic");
+
+  // src/autocomplete.ts
+  var CHECK_VALUES = ["passed", "failed", "errored", "skipped"];
+  var EVENT_IS_VALUES = ["open", "answered"];
+  var REVISION_IS_VALUES = [
+    "open",
+    "answered",
+    "unassessed",
+    "stale",
+    "follow-up",
+    "contested",
+    "superseded"
+  ];
+  function keysFor(surface) {
+    return surface === "revision" ? REVISION_QUERY_FIELDS : EVENT_QUERY_FIELDS;
+  }
+  __name(keysFor, "keysFor");
+  function valuesForKey(field, surface, distinct, presentTypeIds) {
+    switch (field) {
+      case "type": {
+        if (!presentTypeIds) return TYPES.map((t) => t.label);
+        const labels = TYPES.filter((t) => presentTypeIds.has(t.id)).map(
+          (t) => t.label
+        );
+        for (const id of presentTypeIds) {
+          if (!TYPES.some((t) => t.id === id)) labels.push(id);
+        }
+        return labels;
+      }
+      case "track":
+        return distinct.track;
+      case "actor":
+        return distinct.actor;
+      case "tag":
+        return distinct.tag;
+      case "check":
+        return CHECK_VALUES;
+      case "assessment":
+        return Object.keys(ASSESSMENT_LABELS);
+      case "is":
+        return surface === "revision" ? REVISION_IS_VALUES : EVENT_IS_VALUES;
+      case "attention":
+        return REVISION_ATTENTION_VALUES;
+      default:
+        return [];
+    }
+  }
+  __name(valuesForKey, "valuesForKey");
+  function suggestionsFor(filterText, surface, distinct, presentTypeIds) {
+    const tokens = filterText.split(/\s+/);
+    const active = tokens[tokens.length - 1] ?? "";
+    if (!active) return [];
+    const colon = active.indexOf(":");
+    if (colon < 0) {
+      const prefix = active.toLowerCase();
+      return keysFor(surface).filter((k) => k.startsWith(prefix)).map((k) => ({ insertText: `${k}:`, label: `${k}:` }));
+    }
+    const field = active.slice(0, colon).toLowerCase();
+    const valuePrefix = active.slice(colon + 1).toLowerCase().replace(/^"/, "");
+    if (!keysFor(surface).includes(field)) return [];
+    return valuesForKey(field, surface, distinct, presentTypeIds).flatMap(
+      (full) => {
+        const value = field === "actor" ? full.replace(/^actor:/, "") : full;
+        const matches = value.toLowerCase().includes(valuePrefix) || field === "actor" && full.toLowerCase().includes(valuePrefix);
+        if (!matches) return [];
+        const clause = /\s/.test(value) ? `${field}:"${value}"` : `${field}:${value}`;
+        return [{ insertText: clause, label: clause }];
+      }
+    );
+  }
+  __name(suggestionsFor, "suggestionsFor");
+  function acceptSuggestion(filterText, insertText) {
+    const tokens = filterText.split(/\s+/);
+    tokens[tokens.length - 1] = insertText;
+    return `${tokens.join(" ")} `;
+  }
+  __name(acceptSuggestion, "acceptSuggestion");
+  function currentSurface() {
+    return getState().lens === "list" ? "revision" : "event";
+  }
+  __name(currentSurface, "currentSurface");
+  function distinctValuesFromRevisions() {
+    const track = /* @__PURE__ */ new Set();
+    const actor = /* @__PURE__ */ new Set();
+    const tag = /* @__PURE__ */ new Set();
+    for (const r of getState().revisions?.entries ?? []) {
+      const overview = r.overview ?? {};
+      for (const id of overview.tracks ?? []) if (id) track.add(id.toLowerCase());
+      for (const id of overview.actors ?? []) if (id) actor.add(id.toLowerCase());
+      for (const full of overview.tags ?? []) {
+        const key = full.split(":")[0] ?? full;
+        if (key) tag.add(key.toLowerCase());
+      }
+    }
+    return { track: [...track], actor: [...actor], tag: [...tag] };
+  }
+  __name(distinctValuesFromRevisions, "distinctValuesFromRevisions");
+  function activeDistinctValues() {
+    if (currentSurface() === "event") {
+      return getState().history?.distinctValues ?? { track: [], actor: [], tag: [] };
+    }
+    return distinctValuesFromRevisions();
+  }
+  __name(activeDistinctValues, "activeDistinctValues");
+  var seenPresentTypeIds = /* @__PURE__ */ new Set();
+  function presentTypeVocabulary() {
+    for (const id of presentTypes()) seenPresentTypeIds.add(id);
+    return seenPresentTypeIds;
+  }
+  __name(presentTypeVocabulary, "presentTypeVocabulary");
+  function currentSuggestions(input) {
+    return suggestionsFor(
+      input.value,
+      currentSurface(),
+      activeDistinctValues(),
+      presentTypeVocabulary()
+    );
+  }
+  __name(currentSuggestions, "currentSuggestions");
+  var activeIndex = -1;
+  function suggestionListEl() {
+    return $("#filter-suggestions");
+  }
+  __name(suggestionListEl, "suggestionListEl");
+  function dismiss() {
+    const list = suggestionListEl();
+    if (list) {
+      list.classList.add("hidden");
+      list.innerHTML = "";
+    }
+    activeIndex = -1;
+  }
+  __name(dismiss, "dismiss");
+  function paint(input) {
+    const list = suggestionListEl();
+    const suggestions = currentSuggestions(input);
+    if (!list) return suggestions;
+    activeIndex = -1;
+    if (!suggestions.length) {
+      dismiss();
+      return suggestions;
+    }
+    list.classList.remove("hidden");
+    list.innerHTML = suggestions.map(
+      (s, i) => `<li class="${suggestionClass(false)}" data-index="${i}">${escapeHtml(s.label)}</li>`
+    ).join("");
+    return suggestions;
+  }
+  __name(paint, "paint");
+  function updateActive(items) {
+    items.forEach((el, i) => {
+      el.classList.toggle(CLASS.suggestionActive, i === activeIndex);
+    });
+  }
+  __name(updateActive, "updateActive");
+  function accept(input, suggestion) {
+    const next = acceptSuggestion(input.value, suggestion.insertText);
+    input.value = next;
+    navigate({ filterText: next }, { replace: true });
+    dismiss();
+    input.focus();
+  }
+  __name(accept, "accept");
+  function onDocumentClickForSuggestions(ev) {
+    const list = suggestionListEl();
+    if (!list || list.classList.contains("hidden")) return;
+    if (ev.target instanceof Node && (list.contains(ev.target) || $("#filter-text")?.contains(ev.target))) {
+      return;
+    }
+    dismiss();
+  }
+  __name(onDocumentClickForSuggestions, "onDocumentClickForSuggestions");
+  function onSuggestionListClick(input, ev) {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const row = t.closest("[data-index]");
+    const indexAttr = row?.dataset.index;
+    if (indexAttr == null) return;
+    const chosen = currentSuggestions(input)[Number(indexAttr)];
+    if (chosen) accept(input, chosen);
+  }
+  __name(onSuggestionListClick, "onSuggestionListClick");
+  function initControls() {
+    const input = $("#filter-text");
+    if (!input) return;
+    input.addEventListener("input", () => paint(input));
+    input.addEventListener("keydown", (ev) => {
+      const list2 = suggestionListEl();
+      if (!list2 || list2.classList.contains("hidden")) {
+        return;
+      }
+      const items = list2.querySelectorAll(`.${CLASS.suggestion}`);
+      if (ev.key === "ArrowDown") {
+        ev.preventDefault();
+        activeIndex = Math.min(items.length - 1, activeIndex + 1);
+        updateActive(items);
+      } else if (ev.key === "ArrowUp") {
+        ev.preventDefault();
+        activeIndex = Math.max(0, activeIndex - 1);
+        updateActive(items);
+      } else if (ev.key === "Enter" || ev.key === "Tab") {
+        if (activeIndex < 0) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const chosen = currentSuggestions(input)[activeIndex];
+        if (chosen) accept(input, chosen);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dismiss();
+      }
+    });
+    input.addEventListener("blur", (ev) => {
+      const list2 = suggestionListEl();
+      if (list2 && ev.relatedTarget instanceof Node && list2.contains(ev.relatedTarget)) {
+        return;
+      }
+      dismiss();
+    });
+    const list = suggestionListEl();
+    list?.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+    });
+    list?.addEventListener("click", (ev) => onSuggestionListClick(input, ev));
+    document.addEventListener("click", onDocumentClickForSuggestions, true);
+  }
+  __name(initControls, "initControls");
 
   // src/markdown.ts
   function renderBodyContent(text, contentType) {
@@ -1899,292 +2419,6 @@
     return `<figure class="${CLASS.factDag}"><figcaption>${escapeHtml(caption)}</figcaption>${svg}</figure>`;
   }
   __name(renderFactSupersessionBlock, "renderFactSupersessionBlock");
-
-  // src/router.ts
-  var LENSES2 = ["timeline", "list", "attention"];
-  var DEFAULT_LENS2 = "timeline";
-  function selectionKind(id) {
-    const info = refInfo(id);
-    if (info && (info.kind === "rev" || info.kind === "review-unit"))
-      return "revision";
-    return "event";
-  }
-  __name(selectionKind, "selectionKind");
-  function parseQuery(queryString) {
-    const params = {};
-    for (const pair of queryString.split("&")) {
-      if (!pair) continue;
-      const eq = pair.indexOf("=");
-      const key = decodeURIComponent(eq < 0 ? pair : pair.slice(0, eq));
-      params[key] = eq < 0 ? "" : decodeURIComponent(pair.slice(eq + 1));
-    }
-    return params;
-  }
-  __name(parseQuery, "parseQuery");
-  function parseHash(hash, presentTypes2) {
-    const raw = hash.replace(/^#/, "");
-    const q = raw.indexOf("?");
-    const path = q < 0 ? raw : raw.slice(0, q);
-    const p = parseQuery(q < 0 ? "" : raw.slice(q + 1));
-    const patch = {
-      lens: DEFAULT_LENS2,
-      filterTrack: p.track != null ? p.track : "",
-      // The filter param is `snapshot`; legacy `object` is still parsed for old
-      // bookmarks during the transition (#334).
-      filterSnapshot: p.snapshot != null ? p.snapshot : p.object != null ? p.object : "",
-      order: p.order === "asc" || p.order === "desc" ? p.order : "desc",
-      sortKey: p.sort === "activity" ? "activity" : "captured",
-      filterText: p.q != null ? p.q : "",
-      enabledTypes: p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes2),
-      diff: p.diff || null,
-      diffHash: p.diffHash || null,
-      focus: p.focus ? p.focus : null,
-      diffPage: false,
-      diffRevision: null,
-      diffFile: p.file ? p.file : null,
-      unsupportedAsOf: p.asof != null ? p.asof || true : null,
-      unsupportedJournal: p.journal != null ? p.journal || true : null,
-      unknownPath: null,
-      migrated: null
-    };
-    const segs = path.split("/").filter(Boolean);
-    const lensParam = p.lens ?? "";
-    if (segs[0] === "revision" && segs[1] && segs[2] === "diff") {
-      patch.diffPage = true;
-      patch.diffRevision = decodeURIComponent(segs[1]);
-      if (p.fq != null) {
-        patch.diffFileQuery = p.fq;
-      } else {
-        switch (p.nav) {
-          case "with-facts":
-            patch.diffFileQuery = "has:facts";
-            patch.migrated = "legacy-diff-nav";
-            break;
-          case "unanchored":
-            patch.diffFileQuery = "is:unanchored";
-            patch.migrated = "legacy-diff-nav";
-            break;
-          case "all":
-            patch.diffFileQuery = "";
-            patch.migrated = "legacy-diff-nav";
-            break;
-          default:
-            patch.diffFileQuery = "";
-        }
-      }
-      return patch;
-    }
-    patch.selected = { kind: null, id: null };
-    patch.open = false;
-    if (segs.length === 0) {
-      patch.lens = DEFAULT_LENS2;
-    } else if (segs[0] === "revision" && segs[1]) {
-      patch.selected = { kind: "revision", id: decodeURIComponent(segs[1]) };
-      patch.open = true;
-      patch.lens = LENSES2.includes(lensParam) ? lensParam : DEFAULT_LENS2;
-    } else if (segs[0] === "event" && segs[1]) {
-      patch.selected = { kind: "event", id: decodeURIComponent(segs[1]) };
-      patch.open = true;
-      patch.lens = LENSES2.includes(lensParam) ? lensParam : DEFAULT_LENS2;
-    } else if (LENSES2.includes(segs[0]) || segs[0] === "threads") {
-      patch.lens = segs[0] === "threads" ? "list" : segs[0];
-      if (segs[0] === "threads") patch.migrated = "threads-alias";
-      if (p.sel) patch.selected = { kind: selectionKind(p.sel), id: p.sel };
-    } else {
-      patch.lens = DEFAULT_LENS2;
-      patch.unknownPath = path;
-    }
-    return patch;
-  }
-  __name(parseHash, "parseHash");
-  function serializeState(snapshot, presentTypes2) {
-    if (snapshot.diffPage && snapshot.diffRevision) {
-      const pageParams = [];
-      if (snapshot.focus)
-        pageParams.push(`focus=${encodeURIComponent(snapshot.focus)}`);
-      if (snapshot.diffFile)
-        pageParams.push(`file=${encodeURIComponent(snapshot.diffFile)}`);
-      if (snapshot.diffFileQuery)
-        pageParams.push(`fq=${encodeURIComponent(snapshot.diffFileQuery)}`);
-      const pagePath = `#/revision/${encodeURIComponent(snapshot.diffRevision)}/diff`;
-      return pageParams.length ? `${pagePath}?${pageParams.join("&")}` : pagePath;
-    }
-    const params = [];
-    const sel = snapshot.selected ?? { kind: null, id: null };
-    let path = snapshot.lens === DEFAULT_LENS2 ? "#/timeline" : `#/${snapshot.lens}`;
-    if (sel.id && snapshot.open && (sel.kind === "revision" || sel.kind === "event")) {
-      path = sel.kind === "revision" ? `#/revision/${encodeURIComponent(sel.id)}` : `#/event/${encodeURIComponent(sel.id)}`;
-      if (snapshot.lens && snapshot.lens !== DEFAULT_LENS2)
-        params.push(`lens=${encodeURIComponent(snapshot.lens)}`);
-    } else if (sel.id) {
-      params.push(`sel=${encodeURIComponent(sel.id)}`);
-    }
-    if (snapshot.filterTrack)
-      params.push(`track=${encodeURIComponent(snapshot.filterTrack)}`);
-    if (snapshot.filterSnapshot)
-      params.push(`snapshot=${encodeURIComponent(snapshot.filterSnapshot)}`);
-    if (snapshot.order && snapshot.order !== "desc")
-      params.push(`order=${encodeURIComponent(snapshot.order)}`);
-    if (snapshot.lens === "list" && snapshot.sortKey !== "captured")
-      params.push(`sort=${encodeURIComponent(snapshot.sortKey)}`);
-    if (presentTypes2.some((id) => !snapshot.enabledTypes.has(id))) {
-      params.push(
-        `types=${encodeURIComponent(
-          presentTypes2.filter((id) => snapshot.enabledTypes.has(id)).join(",")
-        )}`
-      );
-    }
-    if (snapshot.filterText)
-      params.push(`q=${encodeURIComponent(snapshot.filterText)}`);
-    if (snapshot.diff) params.push(`diff=${encodeURIComponent(snapshot.diff)}`);
-    if (snapshot.diff && snapshot.diffHash)
-      params.push(`diffHash=${encodeURIComponent(snapshot.diffHash)}`);
-    if (snapshot.focus)
-      params.push(`focus=${encodeURIComponent(snapshot.focus)}`);
-    return params.length ? `${path}?${params.join("&")}` : path;
-  }
-  __name(serializeState, "serializeState");
-  function navigate(patch, opts = {}) {
-    commit(patch);
-    const hash = serializeState(getState(), presentTypes());
-    if (opts.replace) history.replaceState({}, "", hash);
-    else history.pushState({}, "", hash);
-  }
-  __name(navigate, "navigate");
-  function applyHash() {
-    const parsed = parseHash(location.hash, presentTypes());
-    const patch = resolve(parsed);
-    commit(patch);
-    if (parsed.migrated === "threads-alias") {
-      history.replaceState(
-        {},
-        "",
-        location.hash.replace(/^#\/threads/, "#/list")
-      );
-    } else if (parsed.migrated === "legacy-diff" || parsed.migrated === "legacy-diff-nav") {
-      history.replaceState({}, "", serializeState(getState(), presentTypes()));
-    }
-    const sel = getState().selected;
-    if (sel.kind === "event" && sel.id && !eventExists(sel.id)) {
-      void revealSelectedEvent(sel.id, patch.lens ?? DEFAULT_LENS2);
-    }
-  }
-  __name(applyHash, "applyHash");
-  async function revealSelectedEvent(eventId, lens) {
-    const page = await fetchRevealPage(eventId);
-    if (!page) return;
-    if (page.present) {
-      commit(revealPatch(page, eventId));
-      clearRouteDiagnostic();
-      return;
-    }
-    commit({ selected: { kind: null, id: null } });
-    showRouteDiagnostic(
-      `fell back to the ${lens} lens — event ${shortRef(eventId)} is not in this store`
-    );
-  }
-  __name(revealSelectedEvent, "revealSelectedEvent");
-  function resolve(patch) {
-    const freshnessDiagnostic = liveStateDiagnostic(patch);
-    const next = statePatchFrom(patch);
-    if (patch.unknownPath != null) {
-      showRouteDiagnostic(
-        routeDiagnostic(
-          `fell back to the timeline — unknown route ${patch.unknownPath}`,
-          freshnessDiagnostic
-        )
-      );
-      next.lens = DEFAULT_LENS2;
-      next.selected = { kind: null, id: null };
-      return next;
-    }
-    if (patch.diff && !patch.diffPage) {
-      next.diffPage = true;
-      const mapped = revisionIdForSnapshot(patch.diff, patch.diffHash);
-      if (mapped) {
-        next.diffRevision = mapped;
-        patch.migrated = "legacy-diff";
-      }
-    }
-    const sel = patch.selected ?? { kind: null, id: null };
-    if (sel.kind === "revision" && sel.id && !revisionExists(sel.id)) {
-      if (revisionInAnyThread(sel.id)) {
-        next.open = true;
-      } else {
-        const lens = patch.lens || DEFAULT_LENS2;
-        showRouteDiagnostic(
-          routeDiagnostic(
-            `fell back to the ${lens} lens — revision ${shortRef(sel.id)} is not in this store`,
-            freshnessDiagnostic
-          )
-        );
-        next.lens = lens;
-        next.selected = { kind: null, id: null };
-        return next;
-      }
-    }
-    if (freshnessDiagnostic) {
-      showRouteDiagnostic(freshnessDiagnostic);
-      return next;
-    }
-    clearRouteDiagnostic();
-    return next;
-  }
-  __name(resolve, "resolve");
-  function statePatchFrom(patch) {
-    const next = {
-      lens: patch.lens,
-      filterTrack: patch.filterTrack,
-      filterSnapshot: patch.filterSnapshot,
-      order: patch.order,
-      // sortKey, like order/filterText, is set in parseHash's base patch object
-      // before any path-arm branches (including the diff-page early return), so it
-      // is always present on a full parse — unlike selected/open, which the
-      // diff-page branch deliberately omits. Unconditional copy is therefore correct.
-      sortKey: patch.sortKey,
-      filterText: patch.filterText,
-      enabledTypes: patch.enabledTypes,
-      diff: patch.diff,
-      diffHash: patch.diffHash,
-      focus: patch.focus,
-      diffPage: patch.diffPage,
-      diffRevision: patch.diffRevision,
-      diffFile: patch.diffFile
-    };
-    if (patch.selected !== void 0) next.selected = patch.selected;
-    if (patch.open !== void 0) next.open = patch.open;
-    if (patch.diffFileQuery !== void 0)
-      next.diffFileQuery = patch.diffFileQuery;
-    return next;
-  }
-  __name(statePatchFrom, "statePatchFrom");
-  function liveStateDiagnostic(patch) {
-    const unsupported = [];
-    if (patch.unsupportedAsOf != null)
-      unsupported.push("as-of links are not supported by this server");
-    if (patch.unsupportedJournal != null)
-      unsupported.push("journal links are not supported by this server");
-    return unsupported.length ? `showing live state — ${unsupported.join("; ")}` : "";
-  }
-  __name(liveStateDiagnostic, "liveStateDiagnostic");
-  function routeDiagnostic(primary, secondary) {
-    return secondary ? `${primary} — ${secondary}` : primary;
-  }
-  __name(routeDiagnostic, "routeDiagnostic");
-  function showRouteDiagnostic(message) {
-    const el = $("#route-diagnostic");
-    if (!el) return;
-    el.textContent = message;
-    el.classList.remove("hidden");
-  }
-  __name(showRouteDiagnostic, "showRouteDiagnostic");
-  function clearRouteDiagnostic() {
-    const el = $("#route-diagnostic");
-    if (!el) return;
-    el.textContent = "";
-    el.classList.add("hidden");
-  }
-  __name(clearRouteDiagnostic, "clearRouteDiagnostic");
 
   // src/diff/highlight.ts
   function validChannel(spans, len) {
@@ -2984,7 +3218,7 @@
     }
   }
   __name(onDiffNavClick, "onDiffNavClick");
-  function initControls() {
+  function initControls2() {
     $("#diff-page-close")?.addEventListener("click", () => closeDiff());
     const body = $(PAGE_SURFACE.body);
     body?.addEventListener("click", onDiffBodyClick);
@@ -2996,7 +3230,7 @@
       void renderDiffPage();
     });
   }
-  __name(initControls, "initControls");
+  __name(initControls2, "initControls");
 
   // src/lenses/attention.ts
   function partitionAttentionTiers(items) {
@@ -3700,7 +3934,7 @@
     }
   }
   __name(copyRawEvent, "copyRawEvent");
-  function initControls2() {
+  function initControls3() {
     const el = $("#detail");
     el?.addEventListener("click", (ev) => {
       const t = ev.target;
@@ -3722,7 +3956,7 @@
       }
     });
   }
-  __name(initControls2, "initControls");
+  __name(initControls3, "initControls");
 
   // src/overlay.ts
   var registry = /* @__PURE__ */ new Map();
@@ -3841,7 +4075,7 @@
     close("help", opts);
   }
   __name(closeKeyHelp, "closeKeyHelp");
-  function initControls3() {
+  function initControls4() {
     const node = $("#key-help");
     if (!node) return;
     register("help", {
@@ -3862,7 +4096,7 @@
       if (ev.target === node) closeKeyHelp();
     });
   }
-  __name(initControls3, "initControls");
+  __name(initControls4, "initControls");
 
   // src/lenses/timeline.ts
   var ROW_H = 52;
@@ -4245,12 +4479,12 @@
     });
   }
   __name(watchColorScheme, "watchColorScheme");
-  function initControls4() {
+  function initControls5() {
     $("#theme-toggle")?.addEventListener("click", cycleTheme);
     $("#density-toggle")?.addEventListener("click", toggleDensity);
     watchColorScheme();
   }
-  __name(initControls4, "initControls");
+  __name(initControls5, "initControls");
 
   // src/split.ts
   var MIN_PCT = 25;
@@ -4272,7 +4506,7 @@
     return w > 0 ? 24 / w * 100 : 3;
   }
   __name(stepPct, "stepPct");
-  function initControls5() {
+  function initControls6() {
     const split = $(".split");
     const divider = $(".divider");
     if (!split || !divider) return;
@@ -4319,7 +4553,7 @@
       }
     });
   }
-  __name(initControls5, "initControls");
+  __name(initControls6, "initControls");
   function stepSplit(dir) {
     if (!getState().open) return false;
     const split = $(".split");
@@ -4624,7 +4858,7 @@
     if (cmd) cmd.run();
   }
   __name(run, "run");
-  function initControls6() {
+  function initControls7() {
     const node = $("#cmd-palette");
     if (node)
       register("palette", {
@@ -4661,7 +4895,7 @@
       }
     });
   }
-  __name(initControls6, "initControls");
+  __name(initControls7, "initControls");
 
   // src/keyboard.ts
   var lastTimelineViewportRows = 10;
@@ -5385,7 +5619,7 @@ click to open the revision page">
     const text = $("#filter-text");
     if (text && text.value !== state2.filterText) text.value = state2.filterText;
     if (text)
-      text.placeholder = `search — text or field:value (${keysFor(state2.lens).map((k) => `${k}:`).join(" ")})`;
+      text.placeholder = `search — text or field:value (${keysFor2(state2.lens).map((k) => `${k}:`).join(" ")})`;
     const order = $("#order-toggle");
     if (order) {
       order.textContent = state2.order === "desc" ? "↓ newest first" : "↑ oldest first";
@@ -5405,10 +5639,10 @@ click to open the revision page">
     if (toolbar) toolbar.classList.toggle("hidden", state2.lens === "attention");
   }
   __name(syncControls, "syncControls");
-  function keysFor(lens) {
+  function keysFor2(lens) {
     return lens === "list" ? REVISION_QUERY_FIELDS : EVENT_QUERY_FIELDS;
   }
-  __name(keysFor, "keysFor");
+  __name(keysFor2, "keysFor");
   function currentQuerySurface() {
     return getState().lens === "list" ? "revision" : "event";
   }
@@ -5616,7 +5850,7 @@ click to open the revision page">
     }
   }
   __name(onMasterClick, "onMasterClick");
-  function initControls7() {
+  function initControls8() {
     $("#master")?.addEventListener("click", onMasterClick);
     $("#filter-types")?.addEventListener("click", onTypeToggleClick);
     $("#filter-types-toggle")?.addEventListener(
@@ -5649,7 +5883,7 @@ click to open the revision page">
       () => commit({ reading: false })
     );
   }
-  __name(initControls7, "initControls");
+  __name(initControls8, "initControls");
 
   // src/main.ts
   function wireToolbar() {
@@ -5697,13 +5931,14 @@ click to open the revision page">
     applyPrefs();
     subscribe(render);
     subscribe(maybeReloadForQuery);
-    initControls4();
-    initControls();
-    initControls6();
-    initControls3();
-    initControls7();
-    initControls2();
     initControls5();
+    initControls2();
+    initControls7();
+    initControls4();
+    initControls8();
+    initControls3();
+    initControls6();
+    initControls();
     wireToolbar();
     document.addEventListener("keydown", onKey);
     document.addEventListener("click", onDocumentClick);

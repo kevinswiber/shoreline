@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::cursor::{HistoryCursor, HistoryWindow, cmp_key};
 use super::options::ResolvedHistoryFilters;
-use super::query::{HistoryOrder, QueriedHistory};
+use super::query::{DistinctValues, HistoryOrder, QueriedHistory};
 use super::result::ReviewHistoryResult;
-use super::search::{EventRecordExtras, SearchRecord, entry_revision_id};
+use super::search::{EventRecordExtras, SearchRecord, entry_revision_id, tag_completion_key};
 use super::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 use crate::error::{Result, ShoreError};
 use crate::model::{InputRequestId, ReviewEndpoint, ReviewTargetRef, RevisionId, TargetRef};
@@ -410,6 +410,49 @@ pub(super) fn history_default_page_from_events(
         }
         facets
     };
+    // The store-wide completion vocabulary, over the same full matched set as
+    // `facets`. This fast path never builds `SearchRecord`s, so it reads raw
+    // envelope/payload fields instead of record tokens — and must apply the
+    // record builders' lowercasing convention itself at insert time, or a
+    // mixed-case store would report different vocabulary depending on whether
+    // the cache happened to be warm yet.
+    let distinct_values = {
+        let span = tracing::debug_span!("shore.history.default_page.distinct_values");
+        let _guard = span.enter();
+        let mut track = BTreeSet::new();
+        let mut actor = BTreeSet::new();
+        let mut tag = BTreeSet::new();
+        for event in &matched {
+            if let Some(track_id) = &event.target.track_id
+                && !track_id.as_str().is_empty()
+            {
+                track.insert(track_id.as_str().to_lowercase());
+            }
+            let actor_id = event.writer.actor_id.as_str();
+            if !actor_id.is_empty() {
+                actor.insert(actor_id.to_lowercase());
+            }
+            if event.event_type == EventType::ReviewObservationRecorded {
+                // Cheap per-event decode of just this payload — no body fetch,
+                // no verification, no removal lens; the expensive parts of
+                // `history_entry_from_event` this fast path exists to skip.
+                if let Ok(payload) = serde_json::from_value::<ReviewObservationRecordedPayload>(
+                    event.payload.clone(),
+                ) {
+                    for full in &payload.tags {
+                        if let Some(key) = tag_completion_key(full) {
+                            tag.insert(key);
+                        }
+                    }
+                }
+            }
+        }
+        DistinctValues {
+            track: track.into_iter().collect(),
+            actor: actor.into_iter().collect(),
+            tag: tag.into_iter().collect(),
+        }
+    };
     let match_count = matched.len();
     let end = limit.min(matched.len());
 
@@ -448,6 +491,7 @@ pub(super) fn history_default_page_from_events(
         event_count: events.len(),
         diagnostics,
         query_notices: Vec::new(),
+        distinct_values,
     })
 }
 

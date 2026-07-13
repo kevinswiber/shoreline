@@ -20,6 +20,18 @@ import { TYPES } from "./types";
 // stay `unknown`-typed dynamic JSON rather than re-declaring the wire here.
 
 /**
+ * The store-wide completion vocabulary the history payload carries: distinct
+ * track/actor ids and tag first-colon keys over the UNFILTERED base — never
+ * narrowed by the live query (a query-scoped vocabulary would filter out the
+ * very value being typed). Mirrors the Rust `DistinctValues`.
+ */
+export interface DistinctValues {
+  track: string[];
+  actor: string[];
+  tag: string[];
+}
+
+/**
  * The `/api/history` document: the loaded page of timeline entries plus load-time
  * diagnostics. The server owns the query now — `entries` is a window of the
  * filtered result, sized/placed by `matchCount`/`offset`, with `facets` carrying
@@ -50,6 +62,9 @@ export interface HistoryDoc {
   // Parse diagnostics for the applied `q` (deprecation hints on a 200) — a
   // sibling of the store-integrity `diagnostics`, never mixed in.
   queryNotices?: QueryDiagnostic[];
+  // Store-wide completion vocabulary — always the unfiltered base's values,
+  // never the matched set's.
+  distinctValues?: DistinctValues;
 }
 
 /** The `/api/revisions` document: one entry per captured revision. */

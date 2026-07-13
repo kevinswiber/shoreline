@@ -244,6 +244,9 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
   flex: 0 0 auto;
+  /* Anchors the search-suggestion popover (the input is a flex child, so its
+     sibling list positions against the toolbar box). */
+  position: relative;
 }
 .toolbar input[type="search"], .toolbar select {
   background: var(--bg);
@@ -297,6 +300,40 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 }
 .filter-chip-remove:hover { color: var(--fg); }
 .filter-chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The search suggestion popover: key/value completions for the trailing
+   token, a dropdown under the search input (anchored to the toolbar box at
+   the input's left edge). Rows share the facet-row scan-token treatment;
+   ArrowUp/Down highlight via .suggestion-active. */
+.filter-suggestions {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 16px;
+  z-index: 30;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  min-width: 220px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.suggestion {
+  font-size: var(--fs-xs);
+  font-family: var(--mono);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--fg-dim);
+}
+.suggestion:hover { background: var(--bg-row); }
+.suggestion-active { background: var(--bg-row); color: var(--fg); }
 
 /* The type facet menu: the ?type= page-set collapsed into one count-badged
    toggle button opening a popover of per-type rows. The rows keep the scan-token
