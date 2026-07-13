@@ -469,6 +469,17 @@ describe("the density toggle re-measures the timeline rows", () => {
       vi.useRealTimers();
     }
   });
+
+  it("a density click notifies every registered density listener", async () => {
+    await main.main();
+    const prefs = await import("../../src/prefs");
+    const listener = vi.fn();
+    prefs.registerDensityListener(listener);
+    document
+      .querySelector<HTMLElement>("#density-toggle")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("advisory framing (rendered DOM, reader-relative, never a gate)", () => {

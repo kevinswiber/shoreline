@@ -24,6 +24,18 @@ const SPLIT_MAX = 75;
 // reference here keeps the query alive (Chromium/Firefox retain it regardless).
 const liveMediaQueries: MediaQueryList[] = [];
 
+const densityListeners: Array<() => void> = [];
+
+/** Register a callback to reconcile layout after a density change. */
+export function registerDensityListener(listener: () => void): void {
+  densityListeners.push(listener);
+}
+
+/** Notify every layout consumer that the density changed. */
+export function notifyDensityListeners(): void {
+  for (const listener of densityListeners) listener();
+}
+
 // The three theme modes the toggle cycles through. `system` follows the OS color
 // scheme live (see watchColorScheme); `light`/`dark` pin an explicit choice.
 // Persisted under THEME_KEY — anything else (unset or junk) reads as `system`, so

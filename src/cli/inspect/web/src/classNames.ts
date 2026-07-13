@@ -24,6 +24,7 @@ export const CLASS = {
   timeline: "timeline",
   empty: "empty",
   badge: "badge",
+  tierMedium: "tier-medium",
   body: "body",
   title: "title",
   time: "time",

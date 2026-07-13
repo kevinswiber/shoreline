@@ -10,6 +10,7 @@
     timeline: "timeline",
     empty: "empty",
     badge: "badge",
+    tierMedium: "tier-medium",
     body: "body",
     title: "title",
     time: "time",
@@ -3296,12 +3297,14 @@
     const subject = anchor ? shortRef(anchor) : "thread";
     const freshness = item.freshness?.state === "superseded" ? `<span class="${CLASS.attentionFreshness}">superseded${item.freshness.supersededBy?.length ? ` by ${item.freshness.supersededBy.map((id) => linkify(id)).join(", ")}` : ""}</span>` : "";
     const rows = [];
-    const push = /* @__PURE__ */ __name((k, v) => {
-      rows.push(`<span>${escapeHtml(k)}</span><b>${v}</b>`);
+    const push = /* @__PURE__ */ __name((k, v, medium = false) => {
+      const tier = medium ? ` class="${CLASS.tierMedium}"` : "";
+      rows.push(`<span${tier}>${escapeHtml(k)}</span><b${tier}>${v}</b>`);
     }, "push");
     push("subject", escapeHtml(subject));
-    for (const [k, v] of detailRows(item)) push(k, v);
-    push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
+    for (const [k, v] of detailRows(item))
+      push(k, v, k === "reason" || k === "track" || k === "actor");
+    push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")), true);
     return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}${focusClass}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
       <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>
       ${freshness}
@@ -4124,6 +4127,133 @@
   }
   __name(initControls4, "initControls");
 
+  // src/prefs.ts
+  var THEME_KEY = "shore-inspect-theme";
+  var DENSITY_KEY = "shore-inspect-density";
+  var SPLIT_KEY = "shore-inspect-split";
+  var SPLIT_MIN = 25;
+  var SPLIT_MAX = 75;
+  var liveMediaQueries = [];
+  var densityListeners = [];
+  function registerDensityListener(listener) {
+    densityListeners.push(listener);
+  }
+  __name(registerDensityListener, "registerDensityListener");
+  function notifyDensityListeners() {
+    for (const listener of densityListeners) listener();
+  }
+  __name(notifyDensityListeners, "notifyDensityListeners");
+  var THEME_CYCLE = {
+    system: "light",
+    light: "dark",
+    dark: "system"
+  };
+  function preferredThemeMode() {
+    const stored = localStorage.getItem(THEME_KEY);
+    return stored === "light" || stored === "dark" ? stored : "system";
+  }
+  __name(preferredThemeMode, "preferredThemeMode");
+  function hasPinnedTheme() {
+    return preferredThemeMode() !== "system";
+  }
+  __name(hasPinnedTheme, "hasPinnedTheme");
+  function osTheme() {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  __name(osTheme, "osTheme");
+  function preferredTheme() {
+    const mode = preferredThemeMode();
+    return mode === "system" ? osTheme() : mode;
+  }
+  __name(preferredTheme, "preferredTheme");
+  var THEME_GLYPH = {
+    light: "☼",
+    dark: "☾",
+    system: "◐"
+  };
+  var DENSITY_GLYPH = "≡";
+  function labelControl(id, dimension, glyph, value, ariaValue = value) {
+    const btn = $(`#${id}`);
+    if (!btn) return;
+    btn.textContent = `${glyph} ${value}`;
+    btn.setAttribute("aria-label", `${dimension}: ${ariaValue}`);
+  }
+  __name(labelControl, "labelControl");
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    const mode = preferredThemeMode();
+    const ariaValue = mode === "system" ? `system (${theme})` : theme;
+    labelControl(
+      "theme-toggle",
+      "Color theme",
+      THEME_GLYPH[mode],
+      theme,
+      ariaValue
+    );
+  }
+  __name(applyTheme, "applyTheme");
+  function cycleTheme() {
+    const next = THEME_CYCLE[preferredThemeMode()];
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(preferredTheme());
+  }
+  __name(cycleTheme, "cycleTheme");
+  function preferredDensity() {
+    return localStorage.getItem(DENSITY_KEY) || "comfortable";
+  }
+  __name(preferredDensity, "preferredDensity");
+  function applyDensity(mode) {
+    const value = mode === "compact" ? "compact" : "comfortable";
+    document.documentElement.classList.toggle("compact", value === "compact");
+    labelControl("density-toggle", "Density", DENSITY_GLYPH, value);
+  }
+  __name(applyDensity, "applyDensity");
+  function toggleDensity() {
+    const next = document.documentElement.classList.contains("compact") ? "comfortable" : "compact";
+    localStorage.setItem(DENSITY_KEY, next);
+    applyDensity(next);
+  }
+  __name(toggleDensity, "toggleDensity");
+  function preferredSplit() {
+    const raw = localStorage.getItem(SPLIT_KEY);
+    const n = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+    return Number.isInteger(n) && n >= SPLIT_MIN && n <= SPLIT_MAX ? n : null;
+  }
+  __name(preferredSplit, "preferredSplit");
+  function applySplit(pct) {
+    if (pct === null) {
+      document.documentElement.style.removeProperty("--split-master");
+      localStorage.removeItem(SPLIT_KEY);
+      return;
+    }
+    const clamped = Math.round(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)));
+    document.documentElement.style.setProperty("--split-master", `${clamped}%`);
+    localStorage.setItem(SPLIT_KEY, String(clamped));
+  }
+  __name(applySplit, "applySplit");
+  function applyPrefs() {
+    applyTheme(preferredTheme());
+    applyDensity(preferredDensity());
+    const split = preferredSplit();
+    if (split !== null) applySplit(split);
+  }
+  __name(applyPrefs, "applyPrefs");
+  function watchColorScheme() {
+    const query = window.matchMedia("(prefers-color-scheme: light)");
+    liveMediaQueries.push(query);
+    query.addEventListener("change", () => {
+      if (hasPinnedTheme()) return;
+      applyTheme(preferredTheme());
+    });
+  }
+  __name(watchColorScheme, "watchColorScheme");
+  function initControls5() {
+    $("#theme-toggle")?.addEventListener("click", cycleTheme);
+    $("#density-toggle")?.addEventListener("click", toggleDensity);
+    watchColorScheme();
+  }
+  __name(initControls5, "initControls");
+
   // src/lenses/timeline.ts
   var ROW_H = 52;
   var rowH = ROW_H;
@@ -4173,6 +4303,7 @@
     remeasureTimer = setTimeout(remeasureTimelineRows, REMEASURE_SETTLE_MS);
   }
   __name(scheduleTimelineRemeasure, "scheduleTimelineRemeasure");
+  registerDensityListener(scheduleTimelineRemeasure);
   function timelineRows() {
     return getState().history?.entries ?? [];
   }
@@ -4211,8 +4342,11 @@
     li.dataset.eventId = e.eventId ?? "";
     if (e.eventId && e.eventId === selected)
       li.setAttribute("aria-selected", "true");
-    const tags = entryTags(e).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
+    const tags = entryTags(e).map(
+      (t) => `<span class="${CLASS.badge} ${CLASS.tierMedium}">${escapeHtml(t)}</span>`
+    ).join(" ");
     const revisionId = entryRevisionId(e);
+    const verification = verificationChip(e.verificationStatus ?? "");
     const staleTag = supersessionStaleBadge(e, { tabIndex: -1 });
     const supersedesTag = captureSupersedesBadge(e, { tabIndex: -1 });
     const factTag = factSupersessionBadge(e);
@@ -4225,9 +4359,9 @@
           <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
           ${entryActor(e) ? actorChip(entryActor(e), { tabIndex: -1 }) : ""}
-          ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
-          ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
-          ${verificationChip(e.verificationStatus ?? "")}
+          ${revisionId ? `<span class="${CLASS.tierMedium}">revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
+          ${entryAnchor(e) ? `<span class="${CLASS.tierMedium}">${escapeHtml(entryAnchor(e))}</span>` : ""}
+          ${verification ? `<span class="${CLASS.tierMedium}">${verification}</span>` : ""}
         </span>
       </span>`;
     return li;
@@ -4393,124 +4527,6 @@
     }
   }
   __name(onDocumentClick, "onDocumentClick");
-
-  // src/prefs.ts
-  var THEME_KEY = "shore-inspect-theme";
-  var DENSITY_KEY = "shore-inspect-density";
-  var SPLIT_KEY = "shore-inspect-split";
-  var SPLIT_MIN = 25;
-  var SPLIT_MAX = 75;
-  var liveMediaQueries = [];
-  var THEME_CYCLE = {
-    system: "light",
-    light: "dark",
-    dark: "system"
-  };
-  function preferredThemeMode() {
-    const stored = localStorage.getItem(THEME_KEY);
-    return stored === "light" || stored === "dark" ? stored : "system";
-  }
-  __name(preferredThemeMode, "preferredThemeMode");
-  function hasPinnedTheme() {
-    return preferredThemeMode() !== "system";
-  }
-  __name(hasPinnedTheme, "hasPinnedTheme");
-  function osTheme() {
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-  }
-  __name(osTheme, "osTheme");
-  function preferredTheme() {
-    const mode = preferredThemeMode();
-    return mode === "system" ? osTheme() : mode;
-  }
-  __name(preferredTheme, "preferredTheme");
-  var THEME_GLYPH = {
-    light: "☼",
-    dark: "☾",
-    system: "◐"
-  };
-  var DENSITY_GLYPH = "≡";
-  function labelControl(id, dimension, glyph, value, ariaValue = value) {
-    const btn = $(`#${id}`);
-    if (!btn) return;
-    btn.textContent = `${glyph} ${value}`;
-    btn.setAttribute("aria-label", `${dimension}: ${ariaValue}`);
-  }
-  __name(labelControl, "labelControl");
-  function applyTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    const mode = preferredThemeMode();
-    const ariaValue = mode === "system" ? `system (${theme})` : theme;
-    labelControl(
-      "theme-toggle",
-      "Color theme",
-      THEME_GLYPH[mode],
-      theme,
-      ariaValue
-    );
-  }
-  __name(applyTheme, "applyTheme");
-  function cycleTheme() {
-    const next = THEME_CYCLE[preferredThemeMode()];
-    localStorage.setItem(THEME_KEY, next);
-    applyTheme(preferredTheme());
-  }
-  __name(cycleTheme, "cycleTheme");
-  function preferredDensity() {
-    return localStorage.getItem(DENSITY_KEY) || "comfortable";
-  }
-  __name(preferredDensity, "preferredDensity");
-  function applyDensity(mode) {
-    const value = mode === "compact" ? "compact" : "comfortable";
-    document.documentElement.classList.toggle("compact", value === "compact");
-    labelControl("density-toggle", "Density", DENSITY_GLYPH, value);
-  }
-  __name(applyDensity, "applyDensity");
-  function toggleDensity() {
-    const next = document.documentElement.classList.contains("compact") ? "comfortable" : "compact";
-    localStorage.setItem(DENSITY_KEY, next);
-    applyDensity(next);
-  }
-  __name(toggleDensity, "toggleDensity");
-  function preferredSplit() {
-    const raw = localStorage.getItem(SPLIT_KEY);
-    const n = raw === null ? Number.NaN : Number.parseInt(raw, 10);
-    return Number.isInteger(n) && n >= SPLIT_MIN && n <= SPLIT_MAX ? n : null;
-  }
-  __name(preferredSplit, "preferredSplit");
-  function applySplit(pct) {
-    if (pct === null) {
-      document.documentElement.style.removeProperty("--split-master");
-      localStorage.removeItem(SPLIT_KEY);
-      return;
-    }
-    const clamped = Math.round(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)));
-    document.documentElement.style.setProperty("--split-master", `${clamped}%`);
-    localStorage.setItem(SPLIT_KEY, String(clamped));
-  }
-  __name(applySplit, "applySplit");
-  function applyPrefs() {
-    applyTheme(preferredTheme());
-    applyDensity(preferredDensity());
-    const split = preferredSplit();
-    if (split !== null) applySplit(split);
-  }
-  __name(applyPrefs, "applyPrefs");
-  function watchColorScheme() {
-    const query = window.matchMedia("(prefers-color-scheme: light)");
-    liveMediaQueries.push(query);
-    query.addEventListener("change", () => {
-      if (hasPinnedTheme()) return;
-      applyTheme(preferredTheme());
-    });
-  }
-  __name(watchColorScheme, "watchColorScheme");
-  function initControls5() {
-    $("#theme-toggle")?.addEventListener("click", cycleTheme);
-    $("#density-toggle")?.addEventListener("click", toggleDensity);
-    watchColorScheme();
-  }
-  __name(initControls5, "initControls");
 
   // src/split.ts
   var MIN_PCT = 25;
@@ -5481,7 +5497,7 @@ click to open the revision page">
       <h3>${escapeHtml(shortId(revisionId))}</h3>
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
-      <div class="${CLASS.kv}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
+      <div class="${CLASS.kv} ${CLASS.tierMedium}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
       <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button></div>
     </div>`;
     }).join("");
@@ -5950,7 +5966,7 @@ click to open the revision page">
         { replace: true }
       );
     });
-    $("#density-toggle")?.addEventListener("click", scheduleTimelineRemeasure);
+    $("#density-toggle")?.addEventListener("click", notifyDensityListeners);
   }
   __name(wireToolbar, "wireToolbar");
   function main() {

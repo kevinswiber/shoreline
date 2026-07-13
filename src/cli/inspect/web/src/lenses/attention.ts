@@ -90,12 +90,14 @@ function renderAttentionCard(
         }</span>`
       : "";
   const rows: string[] = [];
-  const push = (k: string, v: string): void => {
-    rows.push(`<span>${escapeHtml(k)}</span><b>${v}</b>`);
+  const push = (k: string, v: string, medium = false): void => {
+    const tier = medium ? ` class="${CLASS.tierMedium}"` : "";
+    rows.push(`<span${tier}>${escapeHtml(k)}</span><b${tier}>${v}</b>`);
   };
   push("subject", escapeHtml(subject));
-  for (const [k, v] of detailRows(item)) push(k, v);
-  push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
+  for (const [k, v] of detailRows(item))
+    push(k, v, k === "reason" || k === "track" || k === "actor");
+  push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")), true);
 
   return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}${focusClass}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
       <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>

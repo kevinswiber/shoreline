@@ -475,6 +475,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .event .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .event .meta { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono); margin-top: 2px; display: flex; gap: 10px; flex-wrap: wrap; }
 .event .type { font-family: var(--mono); font-size: var(--fs-xs); }
+.compact .tier-medium { display: none; }
 
 .detail { min-width: 0; overflow-y: auto; padding: 14px 16px; }
 /* The persistent pane chrome: the ghost controls (close, and later reading
@@ -587,7 +588,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 12px 14px;
+  padding: var(--card-pad);
   cursor: pointer;
 }
 .unit-card:hover { border-color: var(--accent); }
@@ -627,7 +628,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   font-family: var(--mono);
   color: var(--warning);
 }
-.attention-empty { padding: 12px 14px; }
+.attention-empty { padding: var(--card-pad); }
 .attention-card.attention-focus { border-color: var(--accent); background: var(--sel-bg); }
 
 /* The detail page's per-revision outstanding set: the scoped attention items,

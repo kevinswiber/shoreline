@@ -190,6 +190,7 @@
 
   /* Vertical rhythm — comfortable defaults; .compact tightens them */
   --row-pad: 8px 14px;
+  --card-pad: 12px 14px; /* @kind other */
   --line: 1.45; /* @kind other */
 
   /* Type stacks — merged. The product ships no webfont: --mono keeps
@@ -212,6 +213,7 @@
  */
 .compact {
   --row-pad: 4px 12px;
+  --card-pad: 8px 12px;
   --line: 1.3; /* @kind other */
 }
 

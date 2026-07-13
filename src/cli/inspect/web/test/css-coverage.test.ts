@@ -7,6 +7,13 @@ import { ALL_EMITTABLE_CLASSES } from "../src/classNames";
 // directory is `src/cli/inspect/web`, where this suite always runs). This reads
 // the committed source CSS, not the bundle.
 const APP_CSS_PATH = resolve(process.cwd(), "../assets/app.css");
+const TOKENS_CSS_PATH = resolve(process.cwd(), "../assets/tokens.css");
+
+const COMPACT_ALLOWED_PROPERTIES = new Set([
+  "--row-pad",
+  "--line",
+  "--card-pad",
+]);
 
 // Classes the inspector can emit that have no `app.css` rule and fall back to
 // their base class, each with a one-line reason. Whether any is a real styling
@@ -86,4 +93,41 @@ test("detail key/value rows reserve a content-sized label track", () => {
   expect(css).toMatch(/\.detail \.kv dt \{[^}]*white-space: nowrap;/s);
   expect(css).toMatch(/\.detail \.kv dd \{[^}]*min-width: 0;/s);
   expect(css).toMatch(/\.detail \.kv dd \{[^}]*overflow-wrap: anywhere;/s);
+});
+
+test("unit cards read their padding from the density-aware card token", () => {
+  const css = readFileSync(APP_CSS_PATH, "utf8");
+  expect(css).toMatch(/\.unit-card \{[^}]*padding: var\(--card-pad\);/s);
+});
+
+test("the compact preset overrides the card token", () => {
+  const tokens = readFileSync(TOKENS_CSS_PATH, "utf8");
+  expect(tokens).toMatch(/\.compact \{[^}]*--card-pad:/s);
+});
+
+test("the compact preset declares only the non-color rhythm tokens", () => {
+  const tokens = readFileSync(TOKENS_CSS_PATH, "utf8");
+  const block = tokens.match(/\.compact \{([^}]*)\}/s)?.[1] ?? "";
+  const declared = [...block.matchAll(/(--[a-z-]+)\s*:/g)].map(
+    (match) => match[1],
+  );
+  expect(declared.length).toBeGreaterThan(0);
+  for (const property of declared) {
+    expect(
+      COMPACT_ALLOWED_PROPERTIES.has(property),
+      `unexpected .compact property ${property}`,
+    ).toBe(true);
+  }
+  for (const property of COMPACT_ALLOWED_PROPERTIES) {
+    expect(declared).toContain(property);
+  }
+});
+
+test("the lens row/card layout tracks are pinned", () => {
+  const css = readFileSync(APP_CSS_PATH, "utf8");
+  expect(css).toMatch(/\.event \{[^}]*grid-template-columns: 96px 14px 1fr;/s);
+  expect(css).toMatch(
+    /\.unit-card \.kv \{[^}]*grid-template-columns: 110px 1fr;/s,
+  );
+  expect(css).toMatch(/\.compact \.tier-medium \{[^}]*display: none;/s);
 });

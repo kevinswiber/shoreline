@@ -7,6 +7,7 @@ import type {
   RevisionsDoc,
   ThreadsDoc,
 } from "../src/store";
+import attentionJson from "./fixtures/attention.json";
 import historyJson from "./fixtures/history.json";
 import revisionsJson from "./fixtures/revisions.json";
 import threadsJson from "./fixtures/threads.json";
@@ -357,6 +358,117 @@ describe("renderLensSwitcher + renderMaster (lens dispatch + scaffold)", () => {
     expect((master?.querySelectorAll("#timeline .event").length ?? 0) > 0).toBe(
       true,
     );
+  });
+});
+
+describe("density field tiers", () => {
+  it("marks exactly the medium-tier timeline fields for compact hiding", () => {
+    const withTags = structuredClone(historyJson) as unknown as HistoryDoc;
+    withTags.entries = withTags.entries.map((entry) =>
+      entry.eventId === OBS_EVENT
+        ? {
+            ...entry,
+            summary: { ...entry.summary, tags: ["issue:463", "density"] },
+          }
+        : entry,
+    );
+    store.commit({ lens: "timeline", history: withTags });
+    render.render();
+
+    const row = document.querySelector<HTMLElement>(
+      `#timeline li.event[data-event-id="${OBS_EVENT}"]`,
+    );
+    const medium = row?.querySelectorAll(".tier-medium") ?? [];
+    const badges = row?.querySelectorAll(".title .badge") ?? [];
+    expect(badges).toHaveLength(2);
+    for (const badge of badges)
+      expect(badge.classList).toContain("tier-medium");
+
+    const metaItems = Array.from(
+      row?.querySelectorAll<HTMLElement>(".meta > span") ?? [],
+    );
+    const revision = metaItems.find((item) =>
+      item.textContent?.startsWith("revision "),
+    );
+    const anchor = metaItems.find((item) =>
+      item.textContent?.startsWith("src/lib.rs:"),
+    );
+    expect(revision?.classList).toContain("tier-medium");
+    expect(anchor?.classList).toContain("tier-medium");
+    expect(row?.querySelector(".meta > .tier-medium .verify")).not.toBeNull();
+    expect(medium).toHaveLength(5);
+
+    for (const selector of [".time", ".rail", ".title", ".type"]) {
+      expect(row?.querySelector(`${selector}.tier-medium`)).toBeNull();
+    }
+    const track = metaItems.find((item) => item.textContent === "agent:codex");
+    expect(track?.closest(".tier-medium")).toBeNull();
+    expect(
+      row?.querySelector(".ref-actor")?.closest(".tier-medium"),
+    ).toBeNull();
+  });
+
+  it("hides the revision card kv block at compact but never the attention-cue set", () => {
+    store.commit({ lens: "list" });
+    render.render();
+
+    const card = document.querySelector("#units .unit-card");
+    expect(card?.querySelector(":scope > .kv")?.classList).toContain(
+      "tier-medium",
+    );
+    for (const selector of [
+      ":scope > h3",
+      ":scope > .supersession-badges",
+      ":scope > .overview-summary",
+      ":scope > .actions",
+    ]) {
+      expect(card?.querySelector(selector)?.classList).not.toContain(
+        "tier-medium",
+      );
+    }
+    expect(card?.querySelector(".overview-summary .tier-medium")).toBeNull();
+  });
+
+  it("keeps mode and the judge-the-ask extras on attention cards at compact", () => {
+    store.commit({
+      lens: "attention",
+      attention: attentionJson as unknown as AttentionDoc,
+    });
+    render.render();
+
+    const openRequest = document.querySelector(
+      '.attention-card[data-entry-id^="open_input_request:"]',
+    );
+    const cells = Array.from(
+      openRequest?.querySelectorAll<HTMLElement>(":scope > .kv > *") ?? [],
+    );
+    const pair = (key: string): HTMLElement[] => {
+      const index = cells.findIndex((cell) => cell.textContent === key);
+      return index < 0 ? [] : cells.slice(index, index + 2);
+    };
+    for (const key of ["reason", "track", "actor", "observed"]) {
+      expect(pair(key)).toHaveLength(2);
+      for (const cell of pair(key))
+        expect(cell.classList).toContain("tier-medium");
+    }
+    for (const key of ["subject", "mode"]) {
+      expect(pair(key)).toHaveLength(2);
+      for (const cell of pair(key))
+        expect(cell.classList).not.toContain("tier-medium");
+    }
+
+    for (const key of ["heads", "assessments", "exit"]) {
+      const label = Array.from(
+        document.querySelectorAll<HTMLElement>(".attention-card .kv > span"),
+      ).find((cell) => cell.textContent === key);
+      expect(label).not.toBeUndefined();
+      expect(label?.classList).not.toContain("tier-medium");
+      expect(label?.nextElementSibling?.classList).not.toContain("tier-medium");
+    }
+    expect(openRequest?.querySelector("h3 .tier-medium")).toBeNull();
+    expect(
+      document.querySelector(".attention-freshness.tier-medium"),
+    ).toBeNull();
   });
 });
 

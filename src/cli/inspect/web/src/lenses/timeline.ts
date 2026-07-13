@@ -26,6 +26,7 @@ import {
   selectedEventId,
   supersessionStaleBadge,
 } from "../model";
+import { registerDensityListener } from "../prefs";
 import {
   entryActor,
   entryAnchor,
@@ -140,6 +141,8 @@ export function scheduleTimelineRemeasure(): void {
   remeasureTimer = setTimeout(remeasureTimelineRows, REMEASURE_SETTLE_MS);
 }
 
+registerDensityListener(scheduleTimelineRemeasure);
+
 /** The loaded page entries — the server already filtered and ordered them. */
 export function timelineRows(): HistoryEntry[] {
   return getState().history?.entries ?? [];
@@ -205,9 +208,13 @@ function eventRow(e: HistoryEntry, selected: string | null): HTMLLIElement {
   if (e.eventId && e.eventId === selected)
     li.setAttribute("aria-selected", "true");
   const tags = entryTags(e)
-    .map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`)
+    .map(
+      (t) =>
+        `<span class="${CLASS.badge} ${CLASS.tierMedium}">${escapeHtml(t)}</span>`,
+    )
     .join(" ");
   const revisionId = entryRevisionId(e);
+  const verification = verificationChip(e.verificationStatus ?? "");
   const staleTag = supersessionStaleBadge(e, { tabIndex: -1 });
   const supersedesTag = captureSupersedesBadge(e, { tabIndex: -1 });
   const factTag = factSupersessionBadge(e);
@@ -220,9 +227,9 @@ function eventRow(e: HistoryEntry, selected: string | null): HTMLLIElement {
           <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
           ${entryActor(e) ? actorChip(entryActor(e), { tabIndex: -1 }) : ""}
-          ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
-          ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
-          ${verificationChip(e.verificationStatus ?? "")}
+          ${revisionId ? `<span class="${CLASS.tierMedium}">revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
+          ${entryAnchor(e) ? `<span class="${CLASS.tierMedium}">${escapeHtml(entryAnchor(e))}</span>` : ""}
+          ${verification ? `<span class="${CLASS.tierMedium}">${verification}</span>` : ""}
         </span>
       </span>`;
   return li;
