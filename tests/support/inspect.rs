@@ -267,7 +267,7 @@ impl Inspector {
     /// GET a path expected to succeed, returning the raw 200 response body.
     ///
     /// The inspector is a blocking HTTP/1.1 server that closes each connection
-    /// after responding. Under load (notably on Linux CI) the close can race
+    /// after responding. Under load (notably on Windows and Linux CI) the close can race
     /// ahead of the client's read and surface as a connection reset before the
     /// body is drained. GETs are idempotent, so retry a few times with a short
     /// backoff before giving up.
@@ -299,24 +299,7 @@ impl Inspector {
     /// GET a path returning the raw status line and body, with no status
     /// assertion — for socket-level route/error coverage.
     pub fn raw_get(&self, path: &str) -> (String, String) {
-        let mut last_error = String::new();
-        for attempt in 0..12 {
-            match self.try_raw_get(path) {
-                Ok(response) => return response,
-                Err(error) => {
-                    last_error = error;
-                    thread::sleep(Duration::from_millis(20 * (attempt + 1)));
-                }
-            }
-        }
-        panic!(
-            "GET {path} failed after retries: {last_error}; server stderr: {}",
-            drained(&self.stderr)
-        );
-    }
-
-    fn try_raw_get(&self, path: &str) -> Result<(String, String), String> {
-        self.try_request("GET", path, &self.default_headers())
+        self.request_with_retry("GET", path, &self.default_headers())
     }
 
     pub fn raw_request(
@@ -329,8 +312,32 @@ impl Inspector {
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
             .collect::<Vec<_>>();
-        self.try_request(method, path, &headers)
-            .unwrap_or_else(|error| panic!("{method} {path} failed: {error}"))
+        self.request_with_retry(method, path, &headers)
+    }
+
+    /// Retry transport failures while draining responses from the read-only
+    /// inspector. Non-GET methods are rejected before any application action,
+    /// so replaying these harness requests cannot duplicate a write.
+    fn request_with_retry(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(String, String)],
+    ) -> (String, String) {
+        let mut last_error = String::new();
+        for attempt in 0..12 {
+            match self.try_request(method, path, headers) {
+                Ok(response) => return response,
+                Err(error) => {
+                    last_error = error;
+                    thread::sleep(Duration::from_millis(20 * (attempt + 1)));
+                }
+            }
+        }
+        panic!(
+            "{method} {path} failed after retries: {last_error}; server stderr: {}",
+            drained(&self.stderr)
+        );
     }
 
     fn try_request(
@@ -374,9 +381,7 @@ impl Inspector {
     /// Issue a raw request line (method + target) and return the status line,
     /// for exercising non-GET routes.
     pub fn request(&self, method: &str, path: &str) -> String {
-        let (head, _) = self
-            .try_request(method, path, &self.default_headers())
-            .expect("send request");
+        let (head, _) = self.request_with_retry(method, path, &self.default_headers());
         head.lines().next().unwrap_or_default().to_owned()
     }
 
