@@ -137,6 +137,17 @@ export const CLASS = {
   upStat: "up-stat",
   upStats: "up-stats",
 
+  // The applied-filter chip row (the toolbar's pure view of filterText).
+  filterChips: "filter-chips",
+  filterChipRemove: "filter-chip-remove",
+
+  // The type facet menu (the Timeline-only ?type= page-set control): static
+  // container/toggle/popover classes in index.html; the rows are emitted via
+  // typeFacetRowClass below.
+  typeFacet: "type-facet",
+  typeFacetToggle: "type-facet-toggle",
+  typeFacetMenu: "type-facet-menu",
+
   // The command palette.
   cmdEmpty: "cmd-empty",
   cmdGroup: "cmd-group",
@@ -368,6 +379,14 @@ export const bodyClass = (
 export const cmdItemClass = (active: boolean): string =>
   `cmd-item${active ? " active" : ""}`;
 
+/** `filter-chip[ filter-chip-negated]` — an applied-filter chip's container class. */
+export const filterChipClass = (negated: boolean): string =>
+  `filter-chip${negated ? " filter-chip-negated" : ""}`;
+
+/** `type-facet-row[ type-facet-row-off]` — a per-type row inside the facet menu. */
+export const typeFacetRowClass = (enabled: boolean): string =>
+  `type-facet-row${enabled ? "" : " type-facet-row-off"}`;
+
 // ---------------------------------------------------------------------------
 // The exhaustive emitted-class set: every `CLASS` value plus every dynamic-family
 // member through its helper, split on spaces and deduped. The cross-artifact
@@ -392,6 +411,9 @@ export const ALL_EMITTABLE_CLASSES: readonly string[] = [
       ...FACT_STATUSES.map((s) => factStatusClass(s)),
       ...REF_KINDS.map((k) => refClass(k)),
       dfileClass(true),
+      filterChipClass(true),
+      typeFacetRowClass(true),
+      typeFacetRowClass(false),
       dagNodeClass({ isHead: true, isSuperseded: true }),
       bodyClass("anno-body", true),
       bodyClass("verdict-summary", true),

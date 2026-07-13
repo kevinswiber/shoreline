@@ -146,6 +146,15 @@
     upIdentity: "up-identity",
     upStat: "up-stat",
     upStats: "up-stats",
+    // The applied-filter chip row (the toolbar's pure view of filterText).
+    filterChips: "filter-chips",
+    filterChipRemove: "filter-chip-remove",
+    // The type facet menu (the Timeline-only ?type= page-set control): static
+    // container/toggle/popover classes in index.html; the rows are emitted via
+    // typeFacetRowClass below.
+    typeFacet: "type-facet",
+    typeFacetToggle: "type-facet-toggle",
+    typeFacetMenu: "type-facet-menu",
     // The command palette.
     cmdEmpty: "cmd-empty",
     cmdGroup: "cmd-group",
@@ -270,6 +279,8 @@
   var dagNodeClass = /* @__PURE__ */ __name((o) => `dag-node${o.isHead ? " head" : ""}${o.isSuperseded ? " superseded" : ""}`, "dagNodeClass");
   var bodyClass = /* @__PURE__ */ __name((base, markdown) => `${base}${markdown ? " markdown-body" : ""}`, "bodyClass");
   var cmdItemClass = /* @__PURE__ */ __name((active) => `cmd-item${active ? " active" : ""}`, "cmdItemClass");
+  var filterChipClass = /* @__PURE__ */ __name((negated) => `filter-chip${negated ? " filter-chip-negated" : ""}`, "filterChipClass");
+  var typeFacetRowClass = /* @__PURE__ */ __name((enabled) => `type-facet-row${enabled ? "" : " type-facet-row-off"}`, "typeFacetRowClass");
   var tokensOf = /* @__PURE__ */ __name((classStrings) => classStrings.flatMap((s) => s.split(" ")), "tokensOf");
   var ALL_EMITTABLE_CLASSES = [
     ...new Set(
@@ -286,6 +297,9 @@
         ...FACT_STATUSES.map((s) => factStatusClass(s)),
         ...REF_KINDS.map((k) => refClass(k)),
         dfileClass(true),
+        filterChipClass(true),
+        typeFacetRowClass(true),
+        typeFacetRowClass(false),
         dagNodeClass({ isHead: true, isSuperseded: true }),
         bodyClass("anno-body", true),
         bodyClass("verdict-summary", true),
@@ -5057,6 +5071,30 @@
   }
   __name(onKey, "onKey");
 
+  // src/chips.ts
+  function filterChipsFor(filterText, surface) {
+    const chips = [];
+    tokenizeQuery(filterText).forEach((raw, tokenIndex) => {
+      const clause = parseSearchQueryFor(raw, surface).clauses[0];
+      if (clause && clause.kind === "field") {
+        chips.push({
+          tokenIndex,
+          field: clause.field,
+          value: clause.value,
+          negate: clause.negate
+        });
+      }
+    });
+    return chips;
+  }
+  __name(filterChipsFor, "filterChipsFor");
+  function removeFilterChipToken(filterText, tokenIndex) {
+    const tokens = tokenizeQuery(filterText);
+    tokens.splice(tokenIndex, 1);
+    return tokens.join(" ");
+  }
+  __name(removeFilterChipToken, "removeFilterChipToken");
+
   // src/lenses/revisions.ts
   function renderRevisionList() {
     const el = $("#units");
@@ -5162,22 +5200,33 @@ click to open the revision page">
     }).join("");
   }
   __name(renderDiagnostics, "renderDiagnostics");
+  var typeMenuOpen = false;
   function renderTypeToggles() {
     const container = $("#filter-types");
-    if (!container) return;
-    container.innerHTML = "";
+    const menu = $("#filter-types-menu");
+    const toggle2 = $("#filter-types-toggle");
+    if (!container || !menu || !toggle2) return;
+    const visible = getState().lens === "timeline";
+    container.classList.toggle("hidden", !visible);
+    if (!visible) {
+      if (typeMenuOpen) closeTypeMenu();
+      return;
+    }
+    menu.innerHTML = "";
     const counts = getState().history?.facets ?? {};
     const state2 = getState();
-    for (const id of presentTypes()) {
+    const present = presentTypes();
+    for (const id of present) {
       if (!state2.seenTypes.has(id)) {
         state2.seenTypes.add(id);
         state2.enabledTypes.add(id);
       }
       const enabled = state2.enabledTypes.has(id);
       const count = counts[id] ?? 0;
+      const li = document.createElement("li");
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = `type-toggle${enabled ? "" : " off"}`;
+      btn.className = typeFacetRowClass(enabled);
       btn.dataset.type = id;
       btn.setAttribute("aria-pressed", String(enabled));
       btn.setAttribute(
@@ -5186,10 +5235,33 @@ click to open the revision page">
       );
       btn.innerHTML = `<span class="${CLASS.dot}" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="${CLASS.typeCount}">${count}</span>`;
       btn.title = id;
-      container.appendChild(btn);
+      li.appendChild(btn);
+      menu.appendChild(li);
     }
+    const enabledCount = present.filter(
+      (id) => state2.enabledTypes.has(id)
+    ).length;
+    toggle2.textContent = enabledCount === present.length ? `types · ${present.length}` : `types · ${enabledCount}/${present.length}`;
+    toggle2.setAttribute(
+      "aria-label",
+      `event type filter — ${enabledCount} of ${present.length} shown`
+    );
+    menu.classList.toggle("hidden", !typeMenuOpen);
+    toggle2.setAttribute("aria-expanded", String(typeMenuOpen));
   }
   __name(renderTypeToggles, "renderTypeToggles");
+  function openTypeMenu() {
+    typeMenuOpen = true;
+    $("#filter-types-menu")?.classList.remove("hidden");
+    $("#filter-types-toggle")?.setAttribute("aria-expanded", "true");
+  }
+  __name(openTypeMenu, "openTypeMenu");
+  function closeTypeMenu() {
+    typeMenuOpen = false;
+    $("#filter-types-menu")?.classList.add("hidden");
+    $("#filter-types-toggle")?.setAttribute("aria-expanded", "false");
+  }
+  __name(closeTypeMenu, "closeTypeMenu");
   function renderLensSwitcher() {
     const lens = getState().lens;
     for (const tab of document.querySelectorAll(".lens-tab")) {
@@ -5224,8 +5296,6 @@ click to open the revision page">
     if (text && text.value !== state2.filterText) text.value = state2.filterText;
     if (text)
       text.placeholder = `search — text or field:value (${keysFor(state2.lens).map((k) => `${k}:`).join(" ")})`;
-    const onTimeline = state2.lens === "timeline";
-    $("#filter-types")?.classList.toggle("hidden", !onTimeline);
     const order = $("#order-toggle");
     if (order) {
       order.textContent = state2.order === "desc" ? "↓ newest first" : "↑ oldest first";
@@ -5249,13 +5319,27 @@ click to open the revision page">
     return lens === "list" ? REVISION_QUERY_FIELDS : EVENT_QUERY_FIELDS;
   }
   __name(keysFor, "keysFor");
+  function currentQuerySurface() {
+    return getState().lens === "list" ? "revision" : "event";
+  }
+  __name(currentQuerySurface, "currentQuerySurface");
+  function renderFilterChips() {
+    const container = $("#filter-chips");
+    if (!container) return;
+    const chips = filterChipsFor(getState().filterText, currentQuerySurface());
+    container.innerHTML = chips.map((c) => {
+      const value = c.field === "actor" ? c.value.replace(/^actor:/, "") : c.value;
+      const label = `${escapeHtml(c.field)}:${escapeHtml(value)}`;
+      return `<span class="${filterChipClass(c.negate)}" data-token-index="${c.tokenIndex}">${c.negate ? "− " : ""}${label}<button type="button" class="${CLASS.filterChipRemove}" data-token-index="${c.tokenIndex}" aria-label="remove ${label} filter">✕</button></span>`;
+    }).join("");
+  }
+  __name(renderFilterChips, "renderFilterChips");
   var lastQueryNotice = "";
   function syncQueryNotices() {
     const el = $("#route-diagnostic");
     if (!el) return;
     const state2 = getState();
-    const surface = state2.lens === "list" ? "revision" : "event";
-    const parsed = parseSearchQueryFor(state2.filterText, surface);
+    const parsed = parseSearchQueryFor(state2.filterText, currentQuerySurface());
     const server = state2.history?.queryNotices ?? [];
     const message = dedupeNotices([...parsed.diagnostics, ...server]).map((d) => d.message).join(" · ");
     const current = el.classList.contains("hidden") ? "" : el.textContent ?? "";
@@ -5360,6 +5444,7 @@ click to open the revision page">
     }
     syncControls();
     syncQueryNotices();
+    renderFilterChips();
     renderTypeToggles();
     applySplitMode();
     renderMaster();
@@ -5380,6 +5465,37 @@ click to open the revision page">
     navigate({ enabledTypes: types }, { replace: true });
   }
   __name(onTypeToggleClick, "onTypeToggleClick");
+  function onFilterTypesToggleClick(ev) {
+    ev.stopPropagation();
+    if (typeMenuOpen) closeTypeMenu();
+    else openTypeMenu();
+  }
+  __name(onFilterTypesToggleClick, "onFilterTypesToggleClick");
+  function onDocumentClickForTypeMenu(ev) {
+    if (!typeMenuOpen) return;
+    const container = $("#filter-types");
+    if (ev.target instanceof Node && container?.contains(ev.target)) return;
+    closeTypeMenu();
+  }
+  __name(onDocumentClickForTypeMenu, "onDocumentClickForTypeMenu");
+  function onFilterTypesKeydown(ev) {
+    if (ev.key === "Escape" && typeMenuOpen) {
+      ev.stopPropagation();
+      closeTypeMenu();
+      $("#filter-types-toggle")?.focus();
+    }
+  }
+  __name(onFilterTypesKeydown, "onFilterTypesKeydown");
+  function onFilterChipsClick(ev) {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(`.${CLASS.filterChipRemove}`);
+    const indexAttr = btn?.dataset.tokenIndex;
+    if (indexAttr == null) return;
+    const next = removeFilterChipToken(getState().filterText, Number(indexAttr));
+    navigate({ filterText: next }, { replace: true });
+  }
+  __name(onFilterChipsClick, "onFilterChipsClick");
   function onMasterClick(ev) {
     const t = ev.target;
     if (!(t instanceof Element)) return;
@@ -5413,6 +5529,19 @@ click to open the revision page">
   function initControls7() {
     $("#master")?.addEventListener("click", onMasterClick);
     $("#filter-types")?.addEventListener("click", onTypeToggleClick);
+    $("#filter-types-toggle")?.addEventListener(
+      "click",
+      onFilterTypesToggleClick
+    );
+    $("#filter-types")?.addEventListener(
+      "keydown",
+      onFilterTypesKeydown
+    );
+    document.addEventListener("click", onDocumentClickForTypeMenu, true);
+    $("#filter-chips")?.addEventListener(
+      "click",
+      onFilterChipsClick
+    );
     $("#detail-close")?.addEventListener(
       "click",
       () => navigate({ open: false })

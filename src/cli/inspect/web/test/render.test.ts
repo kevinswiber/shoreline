@@ -95,15 +95,16 @@ describe("render is a no-arg projection of getState()", () => {
   });
 });
 
-describe("renderTypeToggles (facet distribution + aria-pressed)", () => {
-  it("renders one toggle per present type with its facet count and pressed state", () => {
+describe("the type facet menu (facet distribution + aria-pressed, moved off the toolbar)", () => {
+  it("renders one row per present type, inside the popover, with its facet count and pressed state", () => {
     render.render();
-    const container = $("#filter-types");
-    expect((container?.querySelectorAll(".type-toggle").length ?? 0) > 0).toBe(
+    const menu = $("#filter-types-menu");
+    expect((menu?.querySelectorAll(".type-facet-row").length ?? 0) > 0).toBe(
       true,
     );
     const obs = $<HTMLElement>('[data-type="review_observation_recorded"]');
     expect(obs).not.toBeNull();
+    expect(obs?.closest("#filter-types-menu")).not.toBeNull();
     expect(obs?.getAttribute("aria-pressed")).toBe("true");
     expect(obs?.querySelector(".type-count")?.textContent).toBe("1");
     const assess = $<HTMLElement>('[data-type="review_assessment_recorded"]');
@@ -112,7 +113,7 @@ describe("renderTypeToggles (facet distribution + aria-pressed)", () => {
 
   it("reads the per-type counts from the server facets, not a client recount", () => {
     // Distinct facet numbers the client could not have derived from the loaded
-    // entries prove the toggles read the server-computed distribution.
+    // entries prove the rows read the server-computed distribution.
     store.commit({
       history: {
         ...(historyJson as unknown as HistoryDoc),
@@ -131,7 +132,7 @@ describe("renderTypeToggles (facet distribution + aria-pressed)", () => {
     ).toBe("3");
   });
 
-  it("the #filter-types delegate toggles a type and navigates (replace)", () => {
+  it("toggling a type via the menu produces the same ?type= navigation as today (regression pin)", () => {
     render.render();
     const obs = $<HTMLElement>('[data-type="review_observation_recorded"]');
     expect(
@@ -141,6 +142,161 @@ describe("renderTypeToggles (facet distribution + aria-pressed)", () => {
     expect(
       store.getState().enabledTypes.has("review_observation_recorded"),
     ).toBe(false);
+  });
+
+  it("the pills markup is gone — no bare .type-toggle rows sit directly in #filter-types", () => {
+    render.render();
+    expect(document.querySelectorAll(".type-toggle").length).toBe(0);
+    expect(
+      document.querySelectorAll("#filter-types > .type-facet-row").length,
+    ).toBe(0); // rows live inside the popover, not the container itself
+  });
+
+  it("the toggle button shows a count badge reflecting the enabled/present split", () => {
+    render.render();
+    const btn = $("#filter-types-toggle");
+    expect(btn?.textContent).toMatch(/types/i);
+    // Every present type is enabled by default (render.ts's default-seeding), so
+    // the label shows the total with no fraction.
+    expect(btn?.textContent).not.toMatch(/\d+\/\d+/);
+  });
+
+  it("shows the enabled/present fraction once a type is toggled off", () => {
+    render.render();
+    $<HTMLElement>('[data-type="review_observation_recorded"]')?.dispatchEvent(
+      new Event("click", { bubbles: true }),
+    );
+    render.render();
+    expect($("#filter-types-toggle")?.textContent).toMatch(/\d+\/\d+/);
+  });
+
+  it("opens the popover on click, closes on outside click without committing anything", () => {
+    render.render();
+    const toggle = $<HTMLElement>("#filter-types-toggle");
+    const menu = $("#filter-types-menu");
+    toggle?.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(menu?.classList.contains("hidden")).toBe(false);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    document.body.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(menu?.classList.contains("hidden")).toBe(true);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(store.getState().enabledTypes.size).toBeGreaterThan(0); // unchanged, nothing committed
+  });
+
+  it("keeps an open popover open across a repaint (a facet refresh never slams it shut)", () => {
+    render.render();
+    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
+      new Event("click", { bubbles: true }),
+    );
+    render.render();
+    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(false);
+  });
+
+  it("closes on Escape without committing anything or leaking the key to the global handler", () => {
+    render.render();
+    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
+      new Event("click", { bubbles: true }),
+    );
+    const before = store.getState().filterText;
+    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+    $("#filter-types")?.dispatchEvent(ev);
+    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(true);
+    expect(store.getState().filterText).toBe(before); // the global Escape ladder never ran
+  });
+
+  it("Escape returns focus to the toggle (never strands it inside the hidden menu)", () => {
+    render.render();
+    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
+      new Event("click", { bubbles: true }),
+    );
+    const row = $<HTMLElement>(
+      "#filter-types-menu .type-facet-row",
+    ) as HTMLElement;
+    row.focus();
+    row.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(true);
+    expect(document.activeElement).toBe($("#filter-types-toggle"));
+  });
+
+  it("is Timeline-lens-only visible, and a lens switch forces an open popover shut", () => {
+    store.commit({ lens: "timeline" });
+    render.render();
+    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
+      new Event("click", { bubbles: true }),
+    );
+    store.commit({ lens: "list" });
+    render.render();
+    expect($("#filter-types")?.classList.contains("hidden")).toBe(true);
+    store.commit({ lens: "timeline" });
+    render.render();
+    expect($("#filter-types")?.classList.contains("hidden")).toBe(false);
+    // Coming back, the popover is shut — the switch closed it, not just hid it.
+    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(true);
+  });
+});
+
+describe("applied-filter chips (pure view of filterText)", () => {
+  it("renders one chip per parsed qualifier clause and none for free text", () => {
+    store.commit({ filterText: "type:observation pinned track:codex" });
+    render.render();
+    const chips = document.querySelectorAll("#filter-chips .filter-chip");
+    expect(chips.length).toBe(2);
+    expect(document.querySelector("#filter-chips")?.textContent).not.toContain(
+      "pinned",
+    );
+  });
+
+  it("a chip's ✕ removes exactly that clause and preserves the rest, incl. a duplicate key", () => {
+    store.commit({ filterText: "tag:a pinned tag:b" });
+    render.render();
+    const removeButtons = document.querySelectorAll<HTMLElement>(
+      "#filter-chips .filter-chip-remove",
+    );
+    expect(removeButtons.length).toBe(2);
+    removeButtons[1]?.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(store.getState().filterText).toBe("tag:a pinned");
+  });
+
+  it("chips are derived from filterText on every render, never stored separately", () => {
+    store.commit({ filterText: "track:codex" });
+    render.render();
+    expect(document.querySelectorAll("#filter-chips .filter-chip").length).toBe(
+      1,
+    );
+    store.commit({ filterText: "" });
+    render.render();
+    expect(document.querySelectorAll("#filter-chips .filter-chip").length).toBe(
+      0,
+    );
+  });
+
+  it("labels an actor chip with the short spelling, not the doubled scheme prefix", () => {
+    // The parser canonicalizes actor values to the stored full id
+    // (actor:agent:codex); rendering that verbatim after the `actor:` key would
+    // read `actor:actor:agent:codex`. The chip label uses the short spelling —
+    // the same form the actor-ref click mints into filterText.
+    store.commit({ filterText: "actor:agent:codex" });
+    render.render();
+    const chip = document.querySelector("#filter-chips .filter-chip");
+    expect(chip?.textContent).toContain("actor:agent:codex");
+    expect(chip?.textContent).not.toContain("actor:actor:");
+  });
+
+  it("marks a negated clause's chip with the negated modifier class", () => {
+    store.commit({ filterText: "-check:failed" });
+    render.render();
+    const chip = document.querySelector("#filter-chips .filter-chip");
+    expect(chip?.classList.contains("filter-chip-negated")).toBe(true);
+  });
+
+  it("parses against the revision surface on the list lens (no chip for type:)", () => {
+    store.commit({ lens: "list", filterText: "type:observation actor:codex" });
+    render.render();
+    const chips = document.querySelectorAll("#filter-chips .filter-chip");
+    expect(chips.length).toBe(1);
+    expect(chips[0]?.textContent).toContain("actor");
   });
 });
 

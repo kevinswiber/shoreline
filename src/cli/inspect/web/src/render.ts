@@ -13,7 +13,8 @@
 // served per-render row / card / type-toggle listeners collapse into those two
 // delegates: `initControls` installs them once, never per render.
 
-import { CLASS } from "./classNames";
+import { filterChipsFor, removeFilterChipToken } from "./chips";
+import { CLASS, filterChipClass, typeFacetRowClass } from "./classNames";
 import { renderDetail, showComposite } from "./detail";
 import { openDiff, renderDiffPage } from "./diff/controller";
 import { $ } from "./dom";
@@ -137,16 +138,39 @@ function renderDiagnostics(): void {
     .join("");
 }
 
-/** Paint the per-type filter toggles with their live facet counts and pressed state. */
+// Module-local: whether the type-facet popover is open. Transient view state
+// (like `lastMasterLens`) — never on the store; a render must not force it
+// shut just because facet counts changed underneath an open menu.
+let typeMenuOpen = false;
+
+/** Paint the per-type facet rows inside the popover, and the toggle button's
+ * label/badge. Preserves whether the popover is currently open across a
+ * render (a facet-count refresh must not slam an open menu shut). The whole
+ * control is Timeline-lens-only visible — `type:` is an event-surface-only
+ * qualifier, so the menu has nothing to filter on the list/attention lenses. */
 function renderTypeToggles(): void {
   const container = $("#filter-types");
-  if (!container) return;
-  container.innerHTML = "";
+  const menu = $("#filter-types-menu");
+  const toggle = $("#filter-types-toggle");
+  if (!container || !menu || !toggle) return;
+  // Only the timeline consumes enabledTypes — leaving this visible on the
+  // revision list would let a click silently mutate the timeline's ?type=
+  // with no visible effect where the click happened.
+  const visible = getState().lens === "timeline";
+  container.classList.toggle("hidden", !visible);
+  if (!visible) {
+    // Force the popover shut with the control — a lens switch must not leave
+    // it silently open for when the reader switches back later.
+    if (typeMenuOpen) closeTypeMenu();
+    return;
+  }
+  menu.innerHTML = "";
   // Server-computed facet counts: how many events each type contributes under the
-  // rest of the current query (the toggle distribution, excluding the type filter).
+  // rest of the current query (the row distribution, excluding the type filter).
   const counts = getState().history?.facets ?? {};
   const state = getState();
-  for (const id of presentTypes()) {
+  const present = presentTypes();
+  for (const id of present) {
     // Default a newly-seen type (e.g. an unknown event type) to enabled once;
     // after that the user's toggle sticks instead of being re-enabled here. This
     // is the served default-seeding (a transient set mutation, not a commit, so it
@@ -157,9 +181,10 @@ function renderTypeToggles(): void {
     }
     const enabled = state.enabledTypes.has(id);
     const count = counts[id] ?? 0;
+    const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `type-toggle${enabled ? "" : " off"}`;
+    btn.className = typeFacetRowClass(enabled);
     // The delegated #filter-types handler reads the toggled type off this dataset.
     btn.dataset.type = id;
     btn.setAttribute("aria-pressed", String(enabled));
@@ -169,8 +194,34 @@ function renderTypeToggles(): void {
     );
     btn.innerHTML = `<span class="${CLASS.dot}" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="${CLASS.typeCount}">${count}</span>`;
     btn.title = id;
-    container.appendChild(btn);
+    li.appendChild(btn);
+    menu.appendChild(li);
   }
+  const enabledCount = present.filter((id) =>
+    state.enabledTypes.has(id),
+  ).length;
+  toggle.textContent =
+    enabledCount === present.length
+      ? `types · ${present.length}`
+      : `types · ${enabledCount}/${present.length}`;
+  toggle.setAttribute(
+    "aria-label",
+    `event type filter — ${enabledCount} of ${present.length} shown`,
+  );
+  menu.classList.toggle("hidden", !typeMenuOpen);
+  toggle.setAttribute("aria-expanded", String(typeMenuOpen));
+}
+
+function openTypeMenu(): void {
+  typeMenuOpen = true;
+  $("#filter-types-menu")?.classList.remove("hidden");
+  $("#filter-types-toggle")?.setAttribute("aria-expanded", "true");
+}
+
+function closeTypeMenu(): void {
+  typeMenuOpen = false;
+  $("#filter-types-menu")?.classList.add("hidden");
+  $("#filter-types-toggle")?.setAttribute("aria-expanded", "false");
 }
 
 // ---------------------------------------------------------------------------
@@ -235,11 +286,8 @@ function syncControls(): void {
       .map((k) => `${k}:`)
       .join(" ")})`;
 
-  // Only the timeline consumes enabledTypes — leaving this visible on the
-  // revision list would let a click silently mutate the timeline's ?type=
-  // with no visible effect where the click happened.
-  const onTimeline = state.lens === "timeline";
-  $("#filter-types")?.classList.toggle("hidden", !onTimeline);
+  // (#filter-types' own per-lens visibility is owned by renderTypeToggles,
+  // which also has to force its popover shut on the same lens switch.)
 
   const order = $("#order-toggle");
   if (order) {
@@ -273,6 +321,40 @@ function keysFor(lens: string): readonly string[] {
   return lens === "list" ? REVISION_QUERY_FIELDS : EVENT_QUERY_FIELDS;
 }
 
+// The surface `filterText` parses against for the active lens: the list lens
+// filters client-side over revisions; every other lens (including attention,
+// which has no filterText affordance of its own — the toolbar hides there)
+// defaults to the event surface.
+function currentQuerySurface(): QuerySurface {
+  return getState().lens === "list" ? "revision" : "event";
+}
+
+/** Paint the applied-filter chips: one per parsed qualifier clause in the
+ * active filterText, for the active lens's surface. A pure view — chips carry
+ * no state of their own; removing one re-derives filterText from the
+ * remaining tokens (see chips.ts). */
+function renderFilterChips(): void {
+  const container = $("#filter-chips");
+  if (!container) return;
+  const chips = filterChipsFor(getState().filterText, currentQuerySurface());
+  container.innerHTML = chips
+    .map((c) => {
+      // The parser canonicalizes actor values to the stored full id; labeling
+      // that after the `actor:` key would double the scheme prefix, so the
+      // label uses the short spelling (the form the actor-ref click mints).
+      const value =
+        c.field === "actor" ? c.value.replace(/^actor:/, "") : c.value;
+      const label = `${escapeHtml(c.field)}:${escapeHtml(value)}`;
+      return (
+        `<span class="${filterChipClass(c.negate)}" data-token-index="${c.tokenIndex}">` +
+        `${c.negate ? "− " : ""}${label}` +
+        `<button type="button" class="${CLASS.filterChipRemove}" data-token-index="${c.tokenIndex}" aria-label="remove ${label} filter">✕</button>` +
+        `</span>`
+      );
+    })
+    .join("");
+}
+
 // The exact string this module last wrote to the region; "" when it wrote nothing.
 // Ownership is by CONTENT: if the region no longer holds our string, a router write
 // owns it and we must not touch it.
@@ -285,8 +367,7 @@ function syncQueryNotices(): void {
   const el = $("#route-diagnostic");
   if (!el) return;
   const state = getState();
-  const surface: QuerySurface = state.lens === "list" ? "revision" : "event";
-  const parsed = parseSearchQueryFor(state.filterText, surface);
+  const parsed = parseSearchQueryFor(state.filterText, currentQuerySurface());
   const server = (state.history?.queryNotices ?? []) as QueryDiagnostic[];
   const message = dedupeNotices([...parsed.diagnostics, ...server])
     .map((d) => d.message)
@@ -435,6 +516,7 @@ export function render(): void {
   }
   syncControls();
   syncQueryNotices();
+  renderFilterChips();
   renderTypeToggles();
   applySplitMode();
   renderMaster();
@@ -460,6 +542,60 @@ function onTypeToggleClick(ev: Event): void {
   if (types.has(id)) types.delete(id);
   else types.add(id);
   navigate({ enabledTypes: types }, { replace: true });
+}
+
+function onFilterTypesToggleClick(ev: Event): void {
+  ev.stopPropagation(); // keep the toggle's click out of the container's row delegate
+  if (typeMenuOpen) closeTypeMenu();
+  else openTypeMenu();
+}
+
+// A lightweight, non-overlay popover: it deliberately does NOT register with
+// the overlay manager (overlay.ts). The manager's mutual exclusion + Tab-trap
+// + "every lens/selection/paging key is inert while active" contract
+// (keyboard.ts's `activeName() !== null` branch) is built for content that
+// takes over reading focus — the help sheet, the command palette. This menu
+// is an auxiliary toolbar control: a reader should still be able to press j/k
+// or Escape-to-clear-the-query while it happens to be open. A plain
+// document-level click-outside listener plus a locally-scoped Escape (below)
+// give it exactly the two behaviors it needs without borrowing the heavier
+// modal machinery.
+// Installed CAPTURE-phase (see initControls): a row click commits via
+// navigate, whose synchronous repaint replaces the menu rows before the click
+// finishes propagating — checked at bubble time, the clicked row is already
+// detached and containment would misread every in-menu selection as an
+// outside click, slamming the menu shut. At capture time the tree is intact.
+function onDocumentClickForTypeMenu(ev: MouseEvent): void {
+  if (!typeMenuOpen) return;
+  const container = $("#filter-types");
+  if (ev.target instanceof Node && container?.contains(ev.target)) return;
+  closeTypeMenu();
+}
+
+// Scoped to `#filter-types` itself (not `document`): stopPropagation keeps this
+// Escape from ever reaching keyboard.ts's document-level `onKey`, so opening
+// this menu never disturbs the global Escape ladder (clear query / close pane /
+// close overlay) for a keystroke this popover already owns.
+function onFilterTypesKeydown(ev: KeyboardEvent): void {
+  if (ev.key === "Escape" && typeMenuOpen) {
+    ev.stopPropagation();
+    closeTypeMenu();
+    // Focus may sit on a row inside the now-hidden popover; strand it there
+    // and a keyboard user loses visible focus entirely.
+    $<HTMLElement>("#filter-types-toggle")?.focus();
+  }
+}
+
+// Delete the removed chip's raw token from filterText and navigate (replace) —
+// the chip row is a pure view, so the route stays the single source of truth.
+function onFilterChipsClick(ev: Event): void {
+  const t = ev.target;
+  if (!(t instanceof Element)) return;
+  const btn = t.closest<HTMLElement>(`.${CLASS.filterChipRemove}`);
+  const indexAttr = btn?.dataset.tokenIndex;
+  if (indexAttr == null) return;
+  const next = removeFilterChipToken(getState().filterText, Number(indexAttr));
+  navigate({ filterText: next }, { replace: true });
 }
 
 // The single master-pane delegate (replacing the served per-row / per-card
@@ -508,6 +644,19 @@ function onMasterClick(ev: Event): void {
 export function initControls(): void {
   $<HTMLElement>("#master")?.addEventListener("click", onMasterClick);
   $<HTMLElement>("#filter-types")?.addEventListener("click", onTypeToggleClick);
+  $<HTMLElement>("#filter-types-toggle")?.addEventListener(
+    "click",
+    onFilterTypesToggleClick,
+  );
+  $<HTMLElement>("#filter-types")?.addEventListener(
+    "keydown",
+    onFilterTypesKeydown,
+  );
+  document.addEventListener("click", onDocumentClickForTypeMenu, true);
+  $<HTMLElement>("#filter-chips")?.addEventListener(
+    "click",
+    onFilterChipsClick,
+  );
   // The pane's close control: closing is deselection of the *pane*, not the
   // cursor — the selection survives so Enter/j/k resume from it.
   $<HTMLElement>("#detail-close")?.addEventListener("click", () =>

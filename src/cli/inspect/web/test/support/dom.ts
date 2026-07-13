@@ -58,7 +58,18 @@ const INDEX_BODY = `
       type="search"
       placeholder="search — text or field:value"
     />
-    <div id="filter-types" class="type-toggles"></div>
+    <div id="filter-chips" class="filter-chips" aria-label="applied filters"></div>
+    <div id="filter-types" class="type-facet">
+      <button
+        id="filter-types-toggle"
+        type="button"
+        class="ghost type-facet-toggle"
+        aria-haspopup="true"
+        aria-expanded="false"
+        aria-controls="filter-types-menu"
+      >types</button>
+      <ul id="filter-types-menu" class="type-facet-menu hidden" aria-label="event types"></ul>
+    </div>
     <label id="sort-label" for="sort-picker" class="toolbar-label hidden">sort by</label>
     <select id="sort-picker" class="hidden" aria-label="sort revisions by">
       <option value="captured">captured</option>

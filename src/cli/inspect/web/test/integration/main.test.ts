@@ -147,6 +147,60 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     ).toBe(false);
   });
 
+  it("selecting a type row leaves the open facet menu open (repaint detaches the clicked row mid-propagation)", async () => {
+    // The row click commits via navigate, whose subscribe(render) repaint
+    // replaces the menu rows BEFORE the same click bubbles to the document
+    // outside-click listener — the detached target must still classify as an
+    // in-container click, or every selection slams the menu shut.
+    await main.main();
+    document
+      .querySelector<HTMLElement>("#filter-types-toggle")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(
+      document
+        .querySelector("#filter-types-menu")
+        ?.classList.contains("hidden"),
+    ).toBe(false);
+    document
+      .querySelector<HTMLElement>('[data-type="review_observation_recorded"]')
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(
+      store.getState().enabledTypes.has("review_observation_recorded"),
+    ).toBe(false); // the toggle committed…
+    expect(
+      document
+        .querySelector("#filter-types-menu")
+        ?.classList.contains("hidden"),
+    ).toBe(false); // …and the menu stayed open for the next selection
+  });
+
+  it("the type facet menu's Escape closes it without reaching the global Escape ladder", async () => {
+    // Only this harness can observe a leak: main() wires the document-level
+    // onKey, whose Escape ladder would clear the query if the popover's
+    // locally-scoped Escape ever propagated past #filter-types.
+    await main.main();
+    store.commit({ filterText: "keepme" });
+    document
+      .querySelector<HTMLElement>("#filter-types-toggle")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(
+      document
+        .querySelector("#filter-types-menu")
+        ?.classList.contains("hidden"),
+    ).toBe(false);
+    document
+      .querySelector<HTMLElement>("#filter-types")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    expect(
+      document
+        .querySelector("#filter-types-menu")
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+    expect(store.getState().filterText).toBe("keepme");
+  });
+
   it("a sort-picker change on the list lens navigates with the new sortKey", async () => {
     await main.main();
     document
