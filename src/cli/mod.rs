@@ -27,6 +27,7 @@ mod revision;
 mod store;
 mod theme;
 mod validation;
+mod version;
 
 #[cfg(test)]
 mod about_bleed_guard;
@@ -69,6 +70,7 @@ enum Command {
     Revision(revision::RevisionArgs),
     Store(store::StoreArgs),
     Validation(validation::ValidationArgs),
+    Version(version::VersionArgs),
 }
 
 pub(crate) fn run_main() -> ExitCode {
@@ -296,5 +298,6 @@ fn run_cli(
         Command::Revision(args) => revision::run(args, stdout),
         Command::Store(args) => store::run(args, stdout, stderr),
         Command::Validation(args) => validation::run(args, stdout, stderr),
+        Command::Version(args) => version::run(args, stdout),
     }
 }

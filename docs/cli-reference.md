@@ -44,6 +44,22 @@ Tracing writes to stderr by default. When stdout is piped into JSON tools, prefe
 When `--log-file <path>` points inside the repository, Pointbreak treats that path as command-helper
 plumbing for the current command and excludes it from the reviewed snapshot and fingerprint.
 
+## `shore version`
+
+```bash
+shore version [--format <fmt>]
+```
+
+`shore version` emits the `pointbreak.version` version 1 compatibility document. Its hard core is
+`cliVersion`, the version of the running CLI, and `documents`, a schema-to-version map covering every
+CLI document in the handshake surface. Inspector API payloads are versioned separately. Clients use this
+handshake before decoding other command output.
+
+The `documents` map is sorted by schema. New entries are additive soft-shell growth, so consumers
+must select the schemas they require and tolerate additional entries. `--format text` prints a short
+human digest; compact JSON remains the default machine contract. The separate `shore --version` flag
+continues to print the human-facing CLI version.
+
 ## Actor Identity and Delegation
 
 Every write records a writer `actorId`. By default it derives from the local Git identity
@@ -362,6 +378,10 @@ the machine-wide **user-level family store tier** with `shore store link` (see b
   carries `repositoryFamilyRef`, `cloneRef`, `liveCloneCount`, `orphaned`, and `lastWrite`; the other
   two tiers omit them. These family fields sit outside the frozen hard core under this document's
   tiered stability promise.
+- `storeIdentity` and `contextIdentity` are opaque, machine-local identifiers for the resolved store
+  and current worktree context. Consumers may compare them for equality but must not parse them. Nested
+  paths in one worktree report the same pair; linked worktrees sharing a store have the same
+  `storeIdentity` and different `contextIdentity` values.
 - `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
   optional `untrackedBytes`, `largestArtifacts`, and `revisionObjects`. Artifact entries use
   opaque artifact refs rather than filesystem paths. Each `revisionObjects` entry carries a

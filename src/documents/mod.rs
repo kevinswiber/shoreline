@@ -27,6 +27,7 @@ mod input_request;
 mod observation;
 mod revision;
 mod validation;
+mod version;
 mod view;
 
 pub use assessment::{
@@ -54,11 +55,58 @@ pub use revision::{
 pub use validation::{
     ValidationAddBody, ValidationListBody, validation_add_document, validation_list_document,
 };
+pub use version::{VERSION_SCHEMA, VersionBody};
 pub use view::{
     AssessmentViewDocument, CurrentAssessmentDocument, InputRequestAssertionModeDocument,
     InputRequestResponseViewDocument, InputRequestViewDocument, ObservationViewDocument,
     ValidationCheckViewDocument,
 };
+
+/// Every CLI-emitted document schema and its current version.
+pub fn document_registry() -> &'static [(&'static str, u32)] {
+    &[
+        ("pointbreak.attention-list", 1),
+        ("pointbreak.identity-attest", 1),
+        ("pointbreak.identity-delegate", 1),
+        ("pointbreak.key-discover", 1),
+        ("pointbreak.key-enroll", 1),
+        ("pointbreak.key-init", 1),
+        ("pointbreak.key-list", 1),
+        ("pointbreak.key-show", 1),
+        ("pointbreak.key-use-ssh", 1),
+        ("pointbreak.review-assessment-add", 1),
+        ("pointbreak.review-assessment-show", 1),
+        ("pointbreak.review-association-commit", 1),
+        ("pointbreak.review-association-commit-withdrawn", 1),
+        ("pointbreak.review-association-list", 1),
+        ("pointbreak.review-association-ref", 1),
+        ("pointbreak.review-association-ref-withdrawn", 1),
+        ("pointbreak.review-capture", 1),
+        ("pointbreak.review-endorse", 1),
+        ("pointbreak.review-history", 1),
+        ("pointbreak.review-input-request-list", 1),
+        ("pointbreak.review-input-request-open", 1),
+        ("pointbreak.review-input-request-respond", 1),
+        ("pointbreak.review-input-request-show", 1),
+        ("pointbreak.review-observation-add", 1),
+        ("pointbreak.review-observation-list", 1),
+        ("pointbreak.review-revision", 2),
+        ("pointbreak.review-revision-list", 1),
+        ("pointbreak.review-validation-add", 1),
+        ("pointbreak.review-validation-list", 1),
+        ("pointbreak.store-compact", 1),
+        ("pointbreak.store-forget", 1),
+        ("pointbreak.store-link", 1),
+        ("pointbreak.store-link-preview", 1),
+        ("pointbreak.store-list", 1),
+        ("pointbreak.store-migrate", 1),
+        ("pointbreak.store-mode", 1),
+        ("pointbreak.store-remove", 1),
+        ("pointbreak.store-status", 1),
+        ("pointbreak.store-unlink", 1),
+        (version::VERSION_SCHEMA, 1),
+    ]
+}
 
 /// Envelope for a read/diagnostic document: `{ schema, version, <flattened
 /// body>, diagnostics }`.

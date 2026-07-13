@@ -10,6 +10,76 @@ use support::git_repo::GitRepo;
 use support::{common_dir_store, shore};
 
 #[test]
+fn store_status_json_carries_path_private_opaque_identities() {
+    let repo = GitRepo::new();
+    let store_dir = common_dir_store(repo.path());
+
+    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json = parse_json(stdout.as_bytes());
+
+    assert!(
+        json["storeIdentity"]
+            .as_str()
+            .is_some_and(|identity| identity.starts_with("store:sha256:"))
+    );
+    assert!(
+        json["contextIdentity"]
+            .as_str()
+            .is_some_and(|identity| identity.starts_with("context:sha256:"))
+    );
+    assert!(!stdout.contains(store_dir.to_str().unwrap()));
+    assert!(!stdout.contains(repo.path().to_str().unwrap()));
+}
+
+#[test]
+fn linked_worktrees_share_store_identity_but_not_context_identity() {
+    let fixture = LinkedWorktreeFixture::new();
+    let main = store_status_json(fixture.main.path());
+    let linked = store_status_json(&fixture.linked_path);
+
+    assert_eq!(main["storeIdentity"], linked["storeIdentity"]);
+    assert_ne!(main["contextIdentity"], linked["contextIdentity"]);
+}
+
+#[test]
+fn nested_directory_reports_the_worktree_identities() {
+    let repo = GitRepo::new();
+    repo.write("nested/directory/file.txt", "fixture\n");
+    let nested = repo.path().join("nested/directory");
+
+    let root = store_status_json(repo.path());
+    let nested = store_status_json(&nested);
+
+    assert_eq!(
+        root["storeIdentity"].as_str().expect("root store identity"),
+        nested["storeIdentity"]
+            .as_str()
+            .expect("nested store identity")
+    );
+    assert_eq!(
+        root["contextIdentity"]
+            .as_str()
+            .expect("root context identity"),
+        nested["contextIdentity"]
+            .as_str()
+            .expect("nested context identity")
+    );
+}
+
+#[test]
+fn empty_repository_without_store_directory_reports_identities() {
+    let repo = GitRepo::new();
+    assert!(!common_dir_store(repo.path()).exists());
+
+    let json = store_status_json(repo.path());
+
+    assert!(json["storeIdentity"].as_str().is_some());
+    assert!(json["contextIdentity"].as_str().is_some());
+}
+
+#[test]
 fn store_status_emits_local_json_without_storage_paths() {
     let repo = GitRepo::new();
 
@@ -551,6 +621,16 @@ where
     I: IntoIterator<Item = OsString>,
 {
     run_git(cwd, args);
+}
+
+fn store_status_json(repo: &Path) -> Value {
+    let output = shore(["store", "status", "--repo", repo.to_str().unwrap()]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    parse_json(&output.stdout)
 }
 
 fn directory_file_stats(dir: &Path) -> (usize, u64) {

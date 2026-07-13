@@ -322,6 +322,8 @@ struct StoreListEntryBody {
 struct StoreStatusBody {
     mode: String,
     store_ref: String,
+    store_identity: String,
+    context_identity: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     clone_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -972,6 +974,8 @@ impl From<StoreStatusResult> for StoreStatusBody {
         Self {
             mode: result.mode,
             store_ref: result.store_ref,
+            store_identity: result.store_identity,
+            context_identity: result.context_identity,
             clone_ref: result.clone_ref,
             repository_family_ref: result.repository_family_ref,
             live_clone_count: result.live_clone_count,

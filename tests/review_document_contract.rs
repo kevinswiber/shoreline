@@ -186,6 +186,17 @@ fn normalize_producer_versions(text: &str) -> String {
     )
 }
 
+/// Mask the CLI release version in the version-handshake body without touching
+/// the envelope's numeric document version.
+fn normalize_cli_version(text: &str) -> String {
+    replace_prefixed(
+        text,
+        r#""cliVersion":""#,
+        r#""cliVersion":"<cliVersion>"#,
+        |rest| rest.find('"'),
+    )
+}
+
 /// Normalize the nondeterministic substrings while preserving every key and the
 /// document's exact serialized field order.
 fn normalize(raw: &str, repo_path: &str) -> String {
@@ -199,6 +210,7 @@ fn normalize(raw: &str, repo_path: &str) -> String {
     let text = normalize_hashes(&text);
     let text = normalize_timestamps(&text);
     let text = normalize_producer_versions(&text);
+    let text = normalize_cli_version(&text);
     let text = normalize_git_oid(&text, "commitOid");
     let text = normalize_git_oid(&text, "treeOid");
     // `headOid` rides on auto-recorded ref associations (the capture-time branch
@@ -207,12 +219,37 @@ fn normalize(raw: &str, repo_path: &str) -> String {
 }
 
 #[test]
-fn normalizer_masks_producer_version_without_masking_schema_version() {
-    let old = r#"{"version":1,"writer":{"producer":{"name":"shore","version":"0.5.0"}}}"#;
-    let current = r#"{"version":1,"writer":{"producer":{"name":"shore","version":"0.6.0"}}}"#;
+fn normalizer_masks_release_versions_without_masking_schema_version() {
+    let old = r#"{"version":1,"cliVersion":"0.5.0","writer":{"producer":{"name":"shore","version":"0.5.0"}}}"#;
+    let current = r#"{"version":1,"cliVersion":"0.6.0","writer":{"producer":{"name":"shore","version":"0.6.0"}}}"#;
 
     assert_eq!(normalize(old, "<absent>"), normalize(current, "<absent>"));
     assert!(normalize(current, "<absent>").contains(r#""version":1"#));
+}
+
+#[test]
+fn normalizer_masks_store_and_context_identity_hashes() {
+    let hash = "1".repeat(64);
+    let document = format!(
+        r#"{{"storeIdentity":"store:sha256:{hash}","contextIdentity":"context:sha256:{hash}"}}"#
+    );
+
+    let normalized = normalize(&document, "<absent>");
+
+    assert!(normalized.contains(r#""storeIdentity":"store:sha256:<h>""#));
+    assert!(normalized.contains(r#""contextIdentity":"context:sha256:<h>""#));
+    assert!(!normalized.contains(&hash));
+}
+
+#[test]
+fn version_flag_remains_available() {
+    let output = shore(["--version"]);
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .starts_with("shore ")
+    );
 }
 
 #[track_caller]
@@ -250,6 +287,13 @@ fn assert_snapshot(name: &str, normalized: &str) {
          If this change is intentional, re-run with BLESS=1 to regenerate.",
         path.display()
     );
+}
+
+#[test]
+fn version_document_is_byte_stable() {
+    let repo = GitRepo::new();
+    let output = run_command(&repo, &["version"]);
+    assert_snapshot("version", &output);
 }
 
 /// Build the deterministic fixture repo and capture a single Revision, returning

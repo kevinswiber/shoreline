@@ -1,8 +1,11 @@
+use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
-use crate::error::Result;
+use crate::error::{Result, ShoreError};
 use crate::git::git_worktree_root;
 use crate::session::store::inventory::{
     ArtifactInventoryEntry, RevisionObjectInventory, StoreInventory, scan_store_inventory,
@@ -30,6 +33,8 @@ impl StoreStatusOptions {
 pub struct StoreStatusResult {
     pub mode: String,
     pub store_ref: String,
+    pub store_identity: String,
+    pub context_identity: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clone_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -113,6 +118,8 @@ pub struct StoreStatusSensitivityFinding {
 pub fn store_status(options: StoreStatusOptions) -> Result<StoreStatusResult> {
     let worktree_root = git_worktree_root(&options.repo)?;
     let resolution = resolve_store(&options.repo)?;
+    let store_identity = opaque_path_identity("store", resolution.store_dir())?;
+    let context_identity = opaque_path_identity("context", &worktree_root)?;
     let inventory = scan_store_inventory(resolution.store_dir(), Some(&worktree_root))?;
     let sensitivity = scan_worktree_sensitivity(&worktree_root)?;
     let view = resolution.command_view();
@@ -123,6 +130,8 @@ pub fn store_status(options: StoreStatusOptions) -> Result<StoreStatusResult> {
     Ok(StoreStatusResult {
         mode: view.mode.to_owned(),
         store_ref: view.store_ref,
+        store_identity,
+        context_identity,
         clone_ref: view.clone_ref,
         repository_family_ref: view.repository_family_ref,
         live_clone_count: lifecycle.as_ref().map(|fields| fields.live_clone_count),
@@ -134,6 +143,60 @@ pub fn store_status(options: StoreStatusOptions) -> Result<StoreStatusResult> {
         inventory: StoreStatusInventory::from(inventory),
         sensitivity: StoreStatusSensitivity::from(sensitivity),
     })
+}
+
+fn opaque_path_identity(namespace: &str, path: &Path) -> Result<String> {
+    let normalized = normalize_path_without_requiring_leaf(path)?;
+    let digest = Sha256::digest(normalized.as_os_str().as_encoded_bytes());
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut hex, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    Ok(format!("{namespace}:sha256:{hex}"))
+}
+
+fn normalize_path_without_requiring_leaf(path: &Path) -> Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| ShoreError::Message(format!("resolve current directory: {error}")))?
+            .join(path)
+    };
+    let mut existing = absolute.as_path();
+    let mut missing = Vec::<OsString>::new();
+
+    while !existing.try_exists().map_err(|error| {
+        ShoreError::Message(format!(
+            "inspect identity path {}: {error}",
+            existing.display()
+        ))
+    })? {
+        let name = existing.file_name().ok_or_else(|| {
+            ShoreError::Message(format!(
+                "cannot find an existing ancestor for identity path {}",
+                absolute.display()
+            ))
+        })?;
+        missing.push(name.to_owned());
+        existing = existing.parent().ok_or_else(|| {
+            ShoreError::Message(format!(
+                "cannot find an existing ancestor for identity path {}",
+                absolute.display()
+            ))
+        })?;
+    }
+
+    let mut normalized = existing.canonicalize().map_err(|error| {
+        ShoreError::Message(format!(
+            "canonicalize identity path ancestor {}: {error}",
+            existing.display()
+        ))
+    })?;
+    for component in missing.into_iter().rev() {
+        normalized.push(component);
+    }
+    Ok(normalized)
 }
 
 /// Per-finding real matched paths for the local-only `store status --show-paths`
