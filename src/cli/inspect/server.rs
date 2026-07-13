@@ -24,19 +24,17 @@ use pointbreak::session::{
     SnapshotSummaryCache, parse_search_query_for,
 };
 
-use super::{StartupFormatArg, api};
+use super::{StartupOutputFormat, api};
 
 const TOKEN_BYTES: usize = 32;
 const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
 const MAX_HEADER_COUNT: usize = 64;
 const MAX_HEADER_BYTES: usize = 32 * 1024;
 
-enum InspectAuth {
-    Human,
-    Bearer {
-        canonical_host: String,
-        token: SecretToken,
-    },
+struct RequestPolicy {
+    canonical_host: String,
+    token: SecretToken,
+    serve_static: bool,
 }
 
 struct SecretToken(String);
@@ -101,6 +99,9 @@ pub(super) struct InspectState {
     /// `/api/revisions` rebuild (#426): each snapshot artifact is decoded once
     /// per server process, not once per rebuild.
     pub snapshot_summaries: Arc<SnapshotSummaryCache>,
+    /// The eager cache warm is delayed until the first authenticated API request,
+    /// so serving the recovery shell never opens the store.
+    initial_warm_started: AtomicBool,
     /// Dedup flag for the background `/api/revisions` rewarm: at most one warm
     /// thread runs at a time, no matter how many freshness polls observe a
     /// moved marker.
@@ -115,6 +116,7 @@ impl InspectState {
             history_cache: super::cache::HistoryProjectionCache::new(),
             revisions_cache: super::cache::RevisionsResponseCache::new(),
             snapshot_summaries: Arc::new(SnapshotSummaryCache::new()),
+            initial_warm_started: AtomicBool::new(false),
             revisions_warm_in_flight: AtomicBool::new(false),
         }
     }
@@ -176,6 +178,7 @@ struct Response {
     status: &'static str,
     content_type: &'static str,
     body: Vec<u8>,
+    content_security_policy: bool,
 }
 
 impl Response {
@@ -184,11 +187,18 @@ impl Response {
             status,
             content_type,
             body,
+            content_security_policy: false,
         }
     }
 
     fn asset(content_type: &'static str, body: &str) -> Self {
         Self::new("200 OK", content_type, body.as_bytes().to_vec())
+    }
+
+    fn shell(body: &str) -> Self {
+        let mut response = Self::asset("text/html; charset=utf-8", body);
+        response.content_security_policy = true;
+        response
     }
 
     fn asset_bytes(content_type: &'static str, body: &[u8]) -> Self {
@@ -225,7 +235,8 @@ pub(super) fn serve(
     addr: SocketAddr,
     repo: PathBuf,
     open: bool,
-    startup_format: StartupFormatArg,
+    api_only: bool,
+    output_format: StartupOutputFormat,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener =
@@ -234,26 +245,35 @@ pub(super) fn serve(
     // is shown and opened correctly rather than `:0`.
     let bound = listener.local_addr().unwrap_or(addr);
     let url = format!("http://{bound}/");
-    let auth = Arc::new(match startup_format {
-        StartupFormatArg::Human => InspectAuth::Human,
-        StartupFormatArg::Json => InspectAuth::Bearer {
-            canonical_host: bound.to_string(),
-            token: SecretToken::generate()
-                .map_err(|error| format!("could not generate inspect bearer: {error}"))?,
-        },
+    let policy = Arc::new(RequestPolicy {
+        canonical_host: bound.to_string(),
+        token: SecretToken::generate()
+            .map_err(|error| format!("could not generate inspect bearer: {error}"))?,
+        serve_static: !api_only,
     });
+    let capability_url = format!("{url}#/timeline?token={}", policy.token.expose());
 
-    match auth.as_ref() {
-        InspectAuth::Human => {
+    match (api_only, output_format) {
+        (false, StartupOutputFormat::Text) => {
             writeln!(stdout, "Pointbreak Review inspector")?;
             writeln!(stdout, "  store: {}", repo.display())?;
-            writeln!(stdout, "  url:   {url}")?;
+            writeln!(stdout, "  url:   {capability_url}")?;
             writeln!(stdout, "  stop:  Ctrl-C")?;
         }
-        InspectAuth::Bearer { token, .. } => {
+        (true, StartupOutputFormat::Text) => {
+            writeln!(stdout, "Pointbreak Review inspector API")?;
+            writeln!(stdout, "  endpoint: {url}")?;
+            writeln!(stdout, "  token: {}", policy.token.expose())?;
+            writeln!(stdout, "  stop:  Ctrl-C")?;
+        }
+        (_, StartupOutputFormat::Json) => {
             serde_json::to_writer(
                 &mut *stdout,
-                &InspectStartupDocument::new(bound.ip().to_string(), bound.port(), token.expose()),
+                &InspectStartupDocument::new(
+                    bound.ip().to_string(),
+                    bound.port(),
+                    policy.token.expose(),
+                ),
             )?;
             writeln!(stdout)?;
         }
@@ -261,19 +281,18 @@ pub(super) fn serve(
     stdout.flush().ok();
 
     let state = Arc::new(InspectState::new(repo));
-    warm_caches(Arc::clone(&state));
 
-    if open && matches!(auth.as_ref(), InspectAuth::Human) {
-        open_browser(&url);
+    if open {
+        open_browser(&capability_url);
     }
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 let state = Arc::clone(&state);
-                let auth = Arc::clone(&auth);
+                let policy = Arc::clone(&policy);
                 thread::spawn(move || {
-                    if let Err(error) = handle_connection(stream, &state, &auth) {
+                    if let Err(error) = handle_connection(stream, &state, &policy) {
                         tracing::debug!(error = %error, "inspect_connection_error");
                     }
                 });
@@ -285,29 +304,6 @@ pub(super) fn serve(
     }
 
     Ok(())
-}
-
-/// Warm both store-version caches in the background at startup: history first
-/// (the timeline is the first paint), then the `/api/revisions` payload (the
-/// expensive one — every revision's overview). Best-effort: endpoint requests
-/// use the same cache paths and surface any real error to the client.
-fn warm_caches(state: Arc<InspectState>) {
-    thread::spawn(move || {
-        if let Err(error) = api::warm_history_cache(state.repo.as_path(), &state.history_cache) {
-            tracing::debug!(error = %error, "inspect_history_cache_warm_failed");
-        } else {
-            tracing::debug!("inspect_history_cache_warmed");
-        }
-        if let Err(error) = api::warm_revisions_cache(
-            state.repo.as_path(),
-            &state.revisions_cache,
-            &state.snapshot_summaries,
-        ) {
-            tracing::debug!(error = %error, "inspect_revisions_cache_warm_failed");
-        } else {
-            tracing::debug!("inspect_revisions_cache_warmed");
-        }
-    });
 }
 
 /// Kick a deduped background rebuild of the `/api/revisions` payload when the
@@ -344,7 +340,7 @@ fn maybe_warm_revisions_cache(state: &Arc<InspectState>, commit_graph_stamp: Opt
 fn handle_connection(
     stream: TcpStream,
     state: &Arc<InspectState>,
-    auth: &InspectAuth,
+    policy: &RequestPolicy,
 ) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
@@ -370,13 +366,37 @@ fn handle_connection(
         }
     };
 
-    if !is_authorized(auth, &request) {
+    let (path, query) = split_target(&request.target);
+    if !has_exact_host(policy, &request)
+        || (is_api_path(path) && !has_exact_bearer(policy, &request))
+    {
         return write_response(stream, &Response::unauthorized());
     }
+    if is_api_path(path) {
+        warm_caches_after_auth(state);
+    }
 
-    let (path, query) = split_target(&request.target);
-    let response = route(state, &request.method, path, query);
+    let response = route(state, policy.serve_static, &request.method, path, query);
     write_response(stream, &response)
+}
+
+fn warm_caches_after_auth(state: &Arc<InspectState>) {
+    if state.initial_warm_started.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let state = Arc::clone(state);
+    thread::spawn(move || {
+        if let Err(error) = api::warm_history_cache(state.repo.as_path(), &state.history_cache) {
+            tracing::debug!(error = %error, "inspect_history_cache_warm_failed");
+        }
+        if let Err(error) = api::warm_revisions_cache(
+            state.repo.as_path(),
+            &state.revisions_cache,
+            &state.snapshot_summaries,
+        ) {
+            tracing::debug!(error = %error, "inspect_revisions_cache_warm_failed");
+        }
+    });
 }
 
 fn parse_request_head(reader: &mut impl BufRead) -> Result<Option<RequestHead>, RequestParseError> {
@@ -448,28 +468,25 @@ fn read_bounded_line(
         .map_err(|_| RequestParseError::BadRequest)
 }
 
-fn is_authorized(auth: &InspectAuth, request: &RequestHead) -> bool {
-    let InspectAuth::Bearer {
-        canonical_host,
-        token,
-    } = auth
-    else {
-        return true;
-    };
-
+fn has_exact_host(policy: &RequestPolicy, request: &RequestHead) -> bool {
     let [host] = request.hosts.as_slice() else {
         return false;
     };
+    host == &policy.canonical_host
+}
+
+fn has_exact_bearer(policy: &RequestPolicy, request: &RequestHead) -> bool {
     let [authorization] = request.authorizations.as_slice() else {
         return false;
     };
-    if host != canonical_host {
-        return false;
-    }
     let Some(presented) = authorization.strip_prefix("Bearer ") else {
         return false;
     };
-    secret_eq(presented.as_bytes(), token.expose().as_bytes())
+    secret_eq(presented.as_bytes(), policy.token.expose().as_bytes())
+}
+
+fn is_api_path(path: &str) -> bool {
+    path == "/api" || path.starts_with("/api/")
 }
 
 fn secret_eq(left: &[u8], right: &[u8]) -> bool {
@@ -484,23 +501,26 @@ fn secret_eq(left: &[u8], right: &[u8]) -> bool {
         == 0
 }
 
-fn route(state: &Arc<InspectState>, method: &str, path: &str, query: Option<&str>) -> Response {
+fn route(
+    state: &Arc<InspectState>,
+    serve_static: bool,
+    method: &str,
+    path: &str,
+    query: Option<&str>,
+) -> Response {
     if method != "GET" {
         return Response::text("405 Method Not Allowed", "method not allowed");
     }
 
+    if serve_static && let Some(response) = static_response(path) {
+        return response;
+    }
+    if !is_api_path(path) {
+        return Response::json_error("404 Not Found", "no such route");
+    }
+
     let repo = state.repo.as_path();
     match path {
-        "/" | "/index.html" => Response::asset("text/html; charset=utf-8", INDEX_HTML),
-        "/tokens.css" => Response::asset("text/css; charset=utf-8", TOKENS_CSS),
-        "/app.css" => Response::asset("text/css; charset=utf-8", APP_CSS),
-        "/app.js" => Response::asset("application/javascript; charset=utf-8", APP_JS),
-        "/pointbreak-logo-mono.svg" => {
-            Response::asset_bytes("image/svg+xml; charset=utf-8", POINTBREAK_LOGO_MONO_SVG)
-        }
-        "/favicon.svg" => Response::asset_bytes("image/svg+xml; charset=utf-8", FAVICON_SVG),
-        "/favicon.png" => Response::asset_bytes("image/png", FAVICON_PNG),
-        "/favicon-dark.png" => Response::asset_bytes("image/png", FAVICON_DARK_PNG),
         // The poll probe shares `/api/history` filtering but returns no entries.
         "/api/history/new-count" => match history_query(query) {
             Ok(request) => {
@@ -555,9 +575,25 @@ fn route(state: &Arc<InspectState>, method: &str, path: &str, query: Option<&str
             serde_json::to_string(&version_document()).map_err(|error| error.to_string()),
         ),
         "/api/identity" => api_response(api::identity_json(repo)),
-        "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
         _ => route_member(state, path, query),
     }
+}
+
+fn static_response(path: &str) -> Option<Response> {
+    Some(match path {
+        "/" | "/index.html" => Response::shell(INDEX_HTML),
+        "/tokens.css" => Response::asset("text/css; charset=utf-8", TOKENS_CSS),
+        "/app.css" => Response::asset("text/css; charset=utf-8", APP_CSS),
+        "/app.js" => Response::asset("application/javascript; charset=utf-8", APP_JS),
+        "/pointbreak-logo-mono.svg" => {
+            Response::asset_bytes("image/svg+xml; charset=utf-8", POINTBREAK_LOGO_MONO_SVG)
+        }
+        "/favicon.svg" => Response::asset_bytes("image/svg+xml; charset=utf-8", FAVICON_SVG),
+        "/favicon.png" => Response::asset_bytes("image/png", FAVICON_PNG),
+        "/favicon-dark.png" => Response::asset_bytes("image/png", FAVICON_DARK_PNG),
+        "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
+        _ => return None,
+    })
 }
 
 /// Path-member routes: `/api/revisions/{id}` and `/api/snapshots/{id}`. An empty
@@ -737,12 +773,18 @@ fn api_response(result: Result<String, String>) -> Response {
 }
 
 fn write_response(mut stream: TcpStream, response: &Response) -> std::io::Result<()> {
-    let header = format!(
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
+    let mut header = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n",
         response.status,
         response.content_type,
         response.body.len(),
     );
+    if response.content_security_policy {
+        header.push_str(
+            "Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n",
+        );
+    }
+    header.push_str("Connection: close\r\n\r\n");
     stream.write_all(header.as_bytes())?;
     stream.write_all(&response.body)?;
     stream.flush()
@@ -775,7 +817,7 @@ mod tests {
         let state = Arc::new(InspectState::new(PathBuf::from(
             "/inspect-routing-test-unused",
         )));
-        route(&state, method, path, None)
+        route(&state, true, method, path, None)
     }
 
     fn parse(raw: impl AsRef<[u8]>) -> Result<Option<RequestHead>, RequestParseError> {

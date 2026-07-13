@@ -527,10 +527,16 @@ describe("the per-revision outstanding block (scoped attention on the detail pag
         return new Promise<Response>((resolve) => {
           deferred.push((data) =>
             resolve(
-              new Response(JSON.stringify(data), {
-                status: 200,
-                headers: { "content-type": "application/json" },
-              }),
+              new Response(
+                JSON.stringify({
+                  schema: "pointbreak.inspect-attention",
+                  ...(data as Record<string, unknown>),
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
             ),
           );
         });

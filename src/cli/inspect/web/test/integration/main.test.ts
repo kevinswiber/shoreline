@@ -50,12 +50,47 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  main.stopPolling();
   uninstallFetchMock();
+  vi.restoreAllMocks();
   localStorage.clear();
+  sessionStorage.clear();
   resetDom();
 });
 
 describe("first paint + bootstrap tail", () => {
+  it("scrubs the capability before routing and attaches it to every API request", async () => {
+    const token = "bootstrap_secret_0123456789";
+    history.replaceState(
+      { safe: true },
+      "",
+      `/#/attention?types=observation&token=${token}`,
+    );
+    const inner = globalThis.fetch;
+    let requests = 0;
+    let cleanBeforeFetch = true;
+    let authorized = true;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      requests += 1;
+      cleanBeforeFetch &&= !location.href.includes(token);
+      const headers = new Headers(init?.headers);
+      authorized &&= headers.get("Authorization") === `Bearer ${token}`;
+      return inner(input, init);
+    }) as typeof fetch;
+    try {
+      await main.main();
+      expect(requests).toBeGreaterThan(0);
+      expect(cleanBeforeFetch).toBe(true);
+      expect(authorized).toBe(true);
+      expect(location.hash).toBe("#/attention?types=observation");
+      expect(location.href.includes(token)).toBe(false);
+      expect(document.body.textContent?.includes(token)).toBe(false);
+      expect(JSON.stringify(history.state).includes(token)).toBe(false);
+    } finally {
+      globalThis.fetch = inner;
+    }
+  });
+
   it("applies prefs, loads, and paints the master/detail from the routed state", async () => {
     await main.main();
     // Prefs applied (before first paint).
@@ -72,6 +107,36 @@ describe("first paint + bootstrap tail", () => {
     expect(document.querySelector("#refresh")?.getAttribute("data-state")).toBe(
       "watching",
     );
+  });
+
+  it("starts freshness polling after Retry recovers an initial outage", async () => {
+    const interval = vi.spyOn(globalThis, "setInterval");
+    const inner = globalThis.fetch;
+    let unavailable = true;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (unavailable) return Promise.reject(new Error("offline"));
+      return inner(input, init);
+    }) as typeof fetch;
+    try {
+      await main.main();
+      expect(interval).not.toHaveBeenCalled();
+      expect(document.querySelector("#connection-action")?.textContent).toBe(
+        "Retry",
+      );
+
+      unavailable = false;
+      document.querySelector<HTMLButtonElement>("#connection-action")?.click();
+
+      await vi.waitFor(() => {
+        expect(
+          document.querySelector("#refresh")?.getAttribute("data-state"),
+        ).toBe("watching");
+        expect(interval).toHaveBeenCalledTimes(1);
+      });
+      expect(interval).toHaveBeenCalledWith(expect.any(Function), 3000);
+    } finally {
+      globalThis.fetch = inner;
+    }
   });
 
   it("paints the timeline before revisions and threads finish loading", async () => {

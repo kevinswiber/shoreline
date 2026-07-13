@@ -60,15 +60,17 @@ let lastMasterLens: string | null = null;
 /**
  * Paint the top-bar repo/store identity and the browser tab `<title>` (issue #391).
  * Static per session; the sole writer of `#store-identity` and `document.title`. Left
- * empty (title reset to the default) until the one-shot identity fetch lands.
+ * neutral until the one-shot identity fetch lands.
  */
 function renderIdentity(): void {
   const root = $("#store-identity");
   if (!root) return;
   const id = getState().identity;
   if (!id) {
-    // Hide the store chip until the one-shot identity fetch lands.
-    root.classList.add("hidden");
+    root.classList.remove("hidden");
+    const repoEl = $("#store-chip-repo");
+    if (repoEl) repoEl.textContent = "local server";
+    $("#store-chip")?.setAttribute("aria-label", "local review server");
     document.title = INSPECTOR_TITLE;
     return;
   }

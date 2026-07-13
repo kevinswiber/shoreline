@@ -9,8 +9,8 @@ mod cache;
 mod server;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum StartupFormatArg {
-    Human,
+enum StartupOutputFormat {
+    Text,
     Json,
 }
 
@@ -39,9 +39,13 @@ pub(super) struct InspectArgs {
     #[arg(long)]
     open: bool,
 
-    /// Startup output and request-authentication mode.
-    #[arg(long, value_enum, default_value_t = StartupFormatArg::Human)]
-    startup_format: StartupFormatArg,
+    /// Serve only the authenticated API, without the browser inspector shell.
+    #[arg(long)]
+    api_only: bool,
+
+    /// Startup output encoding.
+    #[arg(long, value_enum, default_value_t = StartupOutputFormat::Text)]
+    format: StartupOutputFormat,
 }
 
 pub(super) fn run(
@@ -59,9 +63,37 @@ pub(super) fn run(
     if !ip.is_loopback() {
         return Err(format!("--host must be a loopback IP address: {ip}").into());
     }
-    if args.startup_format == StartupFormatArg::Json && args.open {
-        return Err("--open cannot be used with --startup-format json".into());
-    }
+    validate_flag_compatibility(args.api_only, args.open)?;
     let addr = SocketAddr::new(ip, args.port);
-    server::serve(addr, args.repo, args.open, args.startup_format, stdout)
+    server::serve(
+        addr,
+        args.repo,
+        args.open,
+        args.api_only,
+        args.format,
+        stdout,
+    )
+}
+
+fn validate_flag_compatibility(
+    api_only: bool,
+    open: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if api_only && open {
+        return Err("--open cannot be used with --api-only".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_flag_compatibility;
+
+    #[test]
+    fn open_depends_only_on_the_served_surface() {
+        assert!(validate_flag_compatibility(false, false).is_ok());
+        assert!(validate_flag_compatibility(false, true).is_ok());
+        assert!(validate_flag_compatibility(true, false).is_ok());
+        assert!(validate_flag_compatibility(true, true).is_err());
+    }
 }

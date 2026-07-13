@@ -15,7 +15,6 @@ use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
 use pointbreak::documents::{
     InspectFreshnessDocument, review_snapshot_document, revision_show_document,
 };
-use pointbreak::highlight::{emphasis_file, highlight_file};
 use pointbreak::model::{
     EventId, ObjectId, ReviewEndpoint, RevisionId, RevisionSource, ValidationStatus,
 };

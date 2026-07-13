@@ -62,20 +62,48 @@ pub struct Inspector {
     _stdout_drain: thread::JoinHandle<()>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectSurface {
+    Web,
+    ApiOnly,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectOutput {
+    Text,
+    Json,
+}
+
 impl Inspector {
     pub fn spawn(repo: &Path) -> Self {
-        Self::spawn_human(repo)
+        Self::spawn_web_text(repo)
     }
 
     pub fn spawn_human(repo: &Path) -> Self {
-        Self::spawn_with(repo, false)
+        Self::spawn_web_text(repo)
     }
 
     pub fn spawn_authenticated(repo: &Path) -> Self {
-        Self::spawn_with(repo, true)
+        Self::spawn_api_json(repo)
     }
 
-    fn spawn_with(repo: &Path, authenticated: bool) -> Self {
+    pub fn spawn_web_text(repo: &Path) -> Self {
+        Self::spawn_with(repo, InspectSurface::Web, InspectOutput::Text)
+    }
+
+    pub fn spawn_web_json(repo: &Path) -> Self {
+        Self::spawn_with(repo, InspectSurface::Web, InspectOutput::Json)
+    }
+
+    pub fn spawn_api_text(repo: &Path) -> Self {
+        Self::spawn_with(repo, InspectSurface::ApiOnly, InspectOutput::Text)
+    }
+
+    pub fn spawn_api_json(repo: &Path) -> Self {
+        Self::spawn_with(repo, InspectSurface::ApiOnly, InspectOutput::Json)
+    }
+
+    fn spawn_with(repo: &Path, surface: InspectSurface, output: InspectOutput) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
         command.args([
             "inspect",
@@ -86,8 +114,11 @@ impl Inspector {
             "--port",
             "0",
         ]);
-        if authenticated {
-            command.args(["--startup-format", "json"]);
+        if surface == InspectSurface::ApiOnly {
+            command.arg("--api-only");
+        }
+        if output == InspectOutput::Json {
+            command.args(["--format", "json"]);
         }
         let mut child = command
             .env_remove("SHORE_LOG")
@@ -117,7 +148,7 @@ impl Inspector {
         let stdout = child.stdout.take().expect("inspector stdout");
         let mut reader = BufReader::new(stdout);
         let mut startup_output = String::new();
-        let line_count = if authenticated { 1 } else { 4 };
+        let line_count = if output == InspectOutput::Json { 1 } else { 4 };
         for _ in 0..line_count {
             let mut line = String::new();
             match reader.read_line(&mut line) {
@@ -126,11 +157,11 @@ impl Inspector {
             }
         }
 
-        let (addr, bearer) = if authenticated {
+        let (addr, bearer) = if output == InspectOutput::Json {
             let startup: Value =
                 serde_json::from_str(startup_output.trim()).unwrap_or_else(|error| {
                     panic!(
-                        "parse authenticated inspector startup: {error}; stderr: {}",
+                        "parse JSON inspector startup: {error}; stderr: {}",
                         drained(&stderr)
                     )
                 });
@@ -138,13 +169,36 @@ impl Inspector {
             let port = startup["port"].as_u64().expect("startup port");
             let token = startup["token"].as_str().expect("startup token").to_owned();
             (format!("{host}:{port}"), Some(token))
+        } else if surface == InspectSurface::Web {
+            let capability = startup_output
+                .lines()
+                .find_map(|line| line.split_once("http://").map(|(_, value)| value.trim()))
+                .unwrap_or_default();
+            let (addr, fragment) = capability
+                .split_once("/#")
+                .expect("text capability has a fragment route");
+            let token = fragment
+                .split_once('?')
+                .map(|(_, query)| query)
+                .and_then(|query| {
+                    query
+                        .split('&')
+                        .find_map(|pair| pair.strip_prefix("token="))
+                })
+                .map(str::to_owned)
+                .expect("text web startup capability token");
+            (addr.to_owned(), Some(token))
         } else {
             let addr = startup_output
                 .lines()
-                .find_map(|line| line.split_once("http://").map(|(_, value)| value))
+                .find_map(|line| line.strip_prefix("  endpoint: http://"))
                 .map(|value| value.trim().trim_end_matches('/').to_owned())
                 .unwrap_or_default();
-            (addr, None)
+            let token = startup_output
+                .lines()
+                .find_map(|line| line.strip_prefix("  token: "))
+                .map(str::to_owned);
+            (addr, token)
         };
         let stdout_drain = thread::spawn(move || {
             let mut sink = String::new();

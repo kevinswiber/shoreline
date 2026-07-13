@@ -14,6 +14,7 @@
 // the composition root, so a filter/search/order change re-fetches page 1 without
 // the controls having to reach the network themselves.
 
+import { setRefreshState } from "./connection";
 import { $ } from "./dom";
 import { fetchJSON } from "./http";
 import { presentTypes } from "./model";
@@ -119,7 +120,7 @@ export async function loadHistoryHead(): Promise<boolean> {
 }
 
 /** Fetch and commit the full revisions, threads, and attention documents. */
-export async function loadWholeDocuments(): Promise<void> {
+export async function loadWholeDocuments(): Promise<boolean> {
   try {
     const [revisionsRaw, threadsRaw, attentionRaw] = await Promise.all([
       fetchJSON("/api/revisions"),
@@ -132,8 +133,10 @@ export async function loadWholeDocuments(): Promise<void> {
       threads: threadsRaw as ThreadsDoc,
       attention: attentionRaw as AttentionDoc,
     });
+    return true;
   } catch (err) {
     showLoadError(err);
+    return false;
   }
 }
 
@@ -141,9 +144,9 @@ export async function loadWholeDocuments(): Promise<void> {
  * Bootstrap both loader halves in their existing order. Never calls render — the
  * store subscriber repaints. A load failure surfaces in `#error` rather than throwing.
  */
-export async function load(): Promise<void> {
-  if (!(await loadHistoryHead())) return;
-  await loadWholeDocuments();
+export async function load(): Promise<boolean> {
+  if (!(await loadHistoryHead())) return false;
+  return loadWholeDocuments();
 }
 
 /**
@@ -377,38 +380,13 @@ export async function fetchEventIdForQuery(q: string): Promise<string | null> {
   return doc?.entries?.[0]?.eventId ?? null;
 }
 
-/** The auto-refresh poll's health, surfaced on the store chip (issue #257). */
-type Liveness = "idle" | "watching" | "updated" | "stalled";
-
-/**
- * Reflect the poll health onto the store chip: a calm status dot (`#refresh`,
- * state on `data-state` so it stays off the emittable-class ledger), a degraded
- * word beside the chip that is empty unless stalled (`#refresh-word`, a polite
- * live region so a stall is announced), and the word in the chip's detail popover
- * (`#stat-live`). Every liveness writer goes through here.
- */
-export function setLiveness(state: Liveness): void {
-  const dot = $("#refresh");
-  if (dot) {
-    dot.setAttribute("data-state", state);
-    dot.setAttribute("title", `Auto-refresh: ${state}`);
-  }
-  const word = $("#refresh-word");
-  if (word) word.textContent = state === "stalled" ? "stalled" : "";
-  const line = $("#stat-live");
-  if (line) {
-    line.textContent = state;
-    line.setAttribute("data-state", state);
-  }
-}
-
 /**
  * Probe `/api/freshness` and reload when the event-log head marker or the
  * commit-graph stamp changed, updating the liveness indicator. The stamp
  * catches a pure-git landing — a fast-forward flips merge statuses without
  * appending an event (#467). A parked timeline window is preserved so its
  * selected event remains available to the detail pane (#461). A probe failure
- * marks it stalled.
+ * degrades refresh independently of the classified connection state.
  */
 export async function pollFreshness(): Promise<void> {
   try {
@@ -427,16 +405,21 @@ export async function pollFreshness(): Promise<void> {
         f.commitGraphStamp !== s.lastCommitGraphStamp);
     const changed = (f.eventCount ?? null) !== s.lastEventCount || stampChanged;
     if (changed) {
-      setLiveness("updated");
-      await loadWholeDocuments();
+      setRefreshState("updated");
+      const documentsLoaded = await loadWholeDocuments();
       // Follow mode will replace this geometric gate with its explicit follow flag.
-      if ((getState().history?.offset ?? 0) === 0) await loadHistoryHead();
+      const historyLoaded =
+        (getState().history?.offset ?? 0) !== 0 || (await loadHistoryHead());
+      if (!documentsLoaded || !historyLoaded) {
+        setRefreshState("degraded");
+        return;
+      }
       commitFreshnessBaseline(f);
-      setTimeout(() => setLiveness("watching"), 1200);
+      setTimeout(() => setRefreshState("watching"), 1200);
     } else {
-      setLiveness("watching");
+      setRefreshState("watching");
     }
   } catch {
-    setLiveness("stalled");
+    setRefreshState("degraded");
   }
 }

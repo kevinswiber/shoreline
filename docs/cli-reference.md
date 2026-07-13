@@ -172,7 +172,7 @@ revision recorded; its subject is always the captured snapshot, never the live w
 
 ```bash
 shore inspect [--repo <path>] [--host <loopback-ip>] [--port <n>] [--open] \
-  [--startup-format <human|json>]
+  [--api-only] [--format <text|json>]
 ```
 
 `shore inspect` starts a small local web server that visualizes the worktree's resolved store for
@@ -183,13 +183,22 @@ files or per-command output.
 - `--host <loopback-ip>` defaults to `127.0.0.1`. Non-loopback binds are rejected before the
   server attempts to listen. `--port <n>` defaults to `7878`; use `--port 0` to bind an ephemeral
   port, which is then printed.
-- `--open` launches the inspector in the default browser after the server starts.
-- `--startup-format human` is the default and retains the four-line browser banner. Explicit
-  `--startup-format json` is the authenticated machine mode: it rejects `--open`, prints exactly
-  one compact `pointbreak.inspect-startup` v1 JSON line with the actual loopback host/port and a
-  process-local bearer, and requires requests to send the exact advertised `Host` plus
-  `Authorization: Bearer <token>`. Authentication failures return an empty `401` before route or
-  store work. The bearer is ephemeral and must not be logged or persisted.
+- `--api-only` omits the static browser shell and assets. `--open` launches the browser shell and is
+  rejected only with `--api-only`.
+- `--format text|json` controls startup output independently of the served surface. Text output is
+  the default: the browser surface prints a fragment capability URL, while `--api-only` prints
+  labeled endpoint and token fields. JSON output is exactly one compact
+  `pointbreak.inspect-startup` v1 line with the actual loopback host/port and process-local bearer.
+- Every process generates a distinct bearer. All requests require the exact advertised `Host`, and
+  every `/api/*` request also requires exactly one `Authorization: Bearer <token>` before routing,
+  store, projection, or cache work. Authentication failures return an empty `401`. The fixed static
+  shell and assets need no bearer and never touch the store; they are the recovery surface when a
+  browser lacks or loses its credential.
+- The browser moves the fragment token into origin-scoped `sessionStorage` and scrubs it before
+  routing. Its connection chrome distinguishes authentication failure, an unreachable server, and
+  an authenticated protocol/data error, with route-preserving Reconnect and Retry actions. The
+  bearer must not be logged, placed in a request target or referrer, or persisted outside the
+  documented startup/session credential carriers.
 - The server runs until interrupted with Ctrl-C.
 
 The page provides a chronological event timeline (filterable by track, revision, thread, and
@@ -215,7 +224,7 @@ validated projections as `shore history` and `shore revision show` rather than p
 storage, and it serves over a synchronous, dependency-free HTTP server with no async runtime. The
 Most of the small JSON API remains an internal surface for the bundled page. Three v1 bundled-pair
 documents are compatibility-advertised by `shore version`: `/api/snapshots/{id}` returns
-`pointbreak.review-snapshot`, `/api/freshness` returns `pointbreak.inspect-freshness`, and machine
+`pointbreak.review-snapshot`, `/api/freshness` returns `pointbreak.inspect-freshness`, and JSON
 startup emits `pointbreak.inspect-startup`. `/api/version` mirrors the exact `pointbreak.version`
 v1 document emitted by `shore version`. The remaining endpoints and inspector-private payloads are
 not promoted contracts.

@@ -8,7 +8,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::inspect::{Inspector, representative_store, urlencode};
+use support::inspect::{InspectOutput, InspectSurface, Inspector, representative_store, urlencode};
 
 fn inspect_output(repo: &std::path::Path, extra: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_shore"))
@@ -27,27 +27,41 @@ fn inspect_output(repo: &std::path::Path, extra: &[&str]) -> std::process::Outpu
 }
 
 #[test]
-fn human_startup_keeps_the_browser_banner() {
+fn text_web_startup_carries_a_fragment_capability() {
     let repo = GitRepo::new();
-    let inspector = Inspector::spawn_human(repo.path());
+    let inspector = Inspector::spawn_web_text(repo.path());
     let lines = inspector.startup_output().lines().collect::<Vec<_>>();
 
     assert_eq!(lines.len(), 4);
     assert_eq!(lines[0], "Pointbreak Review inspector");
     assert!(lines[1].starts_with("  store: "));
-    assert_eq!(
-        lines[2],
-        format!("  url:   http://{}/", inspector.canonical_host())
+    let url = lines[2].strip_prefix("  url:   ").expect("web URL label");
+    let capability = url
+        .strip_prefix(&format!(
+            "http://{}/#/timeline?token=",
+            inspector.canonical_host()
+        ))
+        .expect("web capability URL");
+    assert!(
+        inspector.token().is_some_and(|token| token == capability),
+        "startup URL and retained bearer differ"
     );
     assert_eq!(lines[3], "  stop:  Ctrl-C");
+    assert!(
+        !lines[2]
+            .split('#')
+            .next()
+            .unwrap_or_default()
+            .contains("token")
+    );
     assert!(!inspector.get_text("/").is_empty());
 }
 
 #[test]
-fn authenticated_startup_is_one_compact_v1_line_with_fresh_entropy() {
+fn json_startup_is_one_compact_v1_line_with_fresh_entropy() {
     let repo = GitRepo::new();
-    let first = Inspector::spawn_authenticated(repo.path());
-    let second = Inspector::spawn_authenticated(repo.path());
+    let first = Inspector::spawn_web_json(repo.path());
+    let second = Inspector::spawn_api_json(repo.path());
 
     for inspector in [&first, &second] {
         let output = inspector.startup_output();
@@ -78,9 +92,47 @@ fn authenticated_startup_is_one_compact_v1_line_with_fresh_entropy() {
 }
 
 #[test]
-fn inspect_rejects_non_loopback_before_bind_in_both_modes() {
+fn all_surface_and_output_combinations_select_independently() {
     let repo = GitRepo::new();
-    for extra in [&[][..], &["--startup-format", "json"][..]] {
+    for (surface, output) in [
+        (InspectSurface::Web, InspectOutput::Text),
+        (InspectSurface::Web, InspectOutput::Json),
+        (InspectSurface::ApiOnly, InspectOutput::Text),
+        (InspectSurface::ApiOnly, InspectOutput::Json),
+    ] {
+        let inspector = match (surface, output) {
+            (InspectSurface::Web, InspectOutput::Text) => Inspector::spawn_web_text(repo.path()),
+            (InspectSurface::Web, InspectOutput::Json) => Inspector::spawn_web_json(repo.path()),
+            (InspectSurface::ApiOnly, InspectOutput::Text) => {
+                Inspector::spawn_api_text(repo.path())
+            }
+            (InspectSurface::ApiOnly, InspectOutput::Json) => {
+                Inspector::spawn_api_json(repo.path())
+            }
+        };
+        assert!(inspector.token().is_some(), "every process has a bearer");
+        assert_eq!(
+            inspector.startup_output().lines().count(),
+            if output == InspectOutput::Json { 1 } else { 4 }
+        );
+        let (head, _) = inspector.raw_get("/");
+        assert_eq!(
+            head.starts_with("HTTP/1.1 200"),
+            surface == InspectSurface::Web,
+            "served surface must not depend on output encoding"
+        );
+    }
+}
+
+#[test]
+fn inspect_rejects_non_loopback_before_bind_in_every_combination() {
+    let repo = GitRepo::new();
+    for extra in [
+        &[][..],
+        &["--format", "json"][..],
+        &["--api-only"][..],
+        &["--api-only", "--format", "json"][..],
+    ] {
         let output = inspect_output(repo.path(), extra);
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -90,26 +142,28 @@ fn inspect_rejects_non_loopback_before_bind_in_both_modes() {
 }
 
 #[test]
-fn authenticated_mode_rejects_open() {
+fn api_only_rejects_open_independently_of_output_format() {
     let repo = GitRepo::new();
-    let output = Command::new(env!("CARGO_BIN_EXE_shore"))
-        .args([
-            "inspect",
-            "--repo",
-            repo.path().to_str().unwrap(),
-            "--port",
-            "0",
-            "--startup-format",
-            "json",
-            "--open",
-        ])
-        .output()
-        .expect("run shore inspect");
+    for format in [&[][..], &["--format", "json"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_shore"))
+            .args([
+                "inspect",
+                "--repo",
+                repo.path().to_str().unwrap(),
+                "--port",
+                "0",
+                "--api-only",
+                "--open",
+            ])
+            .args(format)
+            .output()
+            .expect("run shore inspect");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("--open"), "stderr: {stderr}");
-    assert!(stderr.contains("json"), "stderr: {stderr}");
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("--open"), "stderr: {stderr}");
+        assert!(stderr.contains("--api-only"), "stderr: {stderr}");
+    }
 }
 
 fn assert_unauthorized(response: (String, String), token: &str) {
@@ -121,71 +175,124 @@ fn assert_unauthorized(response: (String, String), token: &str) {
 }
 
 #[test]
-fn machine_requests_require_one_exact_host_and_bearer_before_routing() {
+fn every_api_surface_requires_one_exact_host_and_bearer_before_routing() {
     let invalid_repo = tempfile::tempdir().unwrap();
-    let inspector = Inspector::spawn_authenticated(invalid_repo.path());
-    let host = inspector.canonical_host().to_owned();
-    let token = inspector.token().unwrap().to_owned();
-    let authorization = format!("Bearer {token}");
+    for inspector in [
+        Inspector::spawn_web_text(invalid_repo.path()),
+        Inspector::spawn_api_json(invalid_repo.path()),
+    ] {
+        let host = inspector.canonical_host().to_owned();
+        let token = inspector.token().unwrap().to_owned();
+        let authorization = format!("Bearer {token}");
 
-    assert_unauthorized(
-        inspector.raw_request(
-            "GET",
+        for path in [
+            "/api/history",
+            "/api/history/new-count",
+            "/api/revisions",
+            "/api/revisions/example",
+            "/api/snapshots/example",
+            "/api/threads",
+            "/api/attention",
             "/api/freshness",
-            &[("Authorization", &authorization)],
-        ),
-        &token,
-    );
-    assert_unauthorized(
-        inspector.raw_request(
-            "GET",
-            "/api/freshness",
-            &[("Host", "127.0.0.1:1"), ("Authorization", &authorization)],
-        ),
-        &token,
-    );
-    assert_unauthorized(
-        inspector.raw_request("GET", "/api/freshness", &[("Host", &host)]),
-        &token,
-    );
-    assert_unauthorized(
-        inspector.raw_request(
-            "GET",
-            "/api/freshness",
-            &[("Host", &host), ("Authorization", "Basic nope")],
-        ),
-        &token,
-    );
-    assert_unauthorized(
-        inspector.raw_request(
-            "GET",
-            "/api/freshness",
-            &[("Host", &host), ("Authorization", "Bearer wrong")],
-        ),
-        &token,
-    );
-    assert_unauthorized(
-        inspector.raw_request(
-            "GET",
+            "/api/version",
+            "/api/identity",
             "/api/nope",
-            &[
-                ("Host", &host),
-                ("Authorization", &authorization),
-                ("Authorization", &authorization),
-            ],
-        ),
-        &token,
-    );
-    assert_unauthorized(
-        inspector.raw_request("POST", "/api/history", &[("Host", &host)]),
-        &token,
-    );
+        ] {
+            assert_unauthorized(
+                inspector.raw_request("GET", path, &[("Host", &host)]),
+                &token,
+            );
+        }
+        assert_unauthorized(
+            inspector.raw_request(
+                "GET",
+                "/api/freshness",
+                &[("Authorization", &authorization)],
+            ),
+            &token,
+        );
+        assert_unauthorized(
+            inspector.raw_request(
+                "GET",
+                "/api/freshness",
+                &[("Host", "127.0.0.1:1"), ("Authorization", &authorization)],
+            ),
+            &token,
+        );
+        assert_unauthorized(
+            inspector.raw_request(
+                "GET",
+                "/api/freshness",
+                &[("Host", &host), ("Authorization", "Basic nope")],
+            ),
+            &token,
+        );
+        assert_unauthorized(
+            inspector.raw_request(
+                "GET",
+                "/api/freshness",
+                &[("Host", &host), ("Authorization", "Bearer wrong")],
+            ),
+            &token,
+        );
+        assert_unauthorized(
+            inspector.raw_request(
+                "GET",
+                "/api/nope",
+                &[
+                    ("Host", &host),
+                    ("Authorization", &authorization),
+                    ("Authorization", &authorization),
+                ],
+            ),
+            &token,
+        );
+        assert_unauthorized(
+            inspector.raw_request("POST", "/api/history", &[("Host", &host)]),
+            &token,
+        );
+    }
+}
+
+#[test]
+fn exact_host_is_global_while_web_assets_are_bearer_free_and_api_only_has_none() {
+    let invalid_repo = tempfile::tempdir().unwrap();
+    for web in [
+        Inspector::spawn_web_text(invalid_repo.path()),
+        Inspector::spawn_web_json(invalid_repo.path()),
+    ] {
+        let token = web.token().unwrap();
+        let host = web.canonical_host();
+
+        assert_unauthorized(web.raw_request("GET", "/", &[]), token);
+        assert_unauthorized(
+            web.raw_request("GET", "/app.js", &[("Host", "127.0.0.1:1")]),
+            token,
+        );
+        for path in ["/", "/index.html", "/tokens.css", "/app.css", "/app.js"] {
+            let (head, body) = web.raw_request("GET", path, &[("Host", host)]);
+            assert!(head.starts_with("HTTP/1.1 200"), "{path}: {head}");
+            assert!(!body.is_empty(), "{path} is a fixed asset");
+        }
+        let (index_head, _) = web.raw_request("GET", "/", &[("Host", host)]);
+        assert!(index_head.contains("Content-Security-Policy:"));
+    }
+
+    for api in [
+        Inspector::spawn_api_text(invalid_repo.path()),
+        Inspector::spawn_api_json(invalid_repo.path()),
+    ] {
+        for path in ["/", "/index.html", "/tokens.css", "/app.css", "/app.js"] {
+            let (head, _) = api.raw_request("GET", path, &[("Host", api.canonical_host())]);
+            assert!(head.starts_with("HTTP/1.1 404"), "{path}: {head}");
+        }
+    }
 }
 
 #[test]
 fn authenticated_routes_include_the_shared_version_without_secret_disclosure() {
     let store = representative_store();
-    let inspector = Inspector::spawn_authenticated(store.repo.path());
+    let inspector = Inspector::spawn_web_text(store.repo.path());
     let token = inspector.token().unwrap().to_owned();
 
     let version_text = inspector.get_text("/api/version");

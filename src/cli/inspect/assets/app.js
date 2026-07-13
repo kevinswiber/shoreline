@@ -3,6 +3,218 @@
   var __defProp = Object.defineProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
+  // src/auth.ts
+  var SESSION_TOKEN_PREFIX = "pointbreak.inspect-token.v1:";
+  var credentialVersion = 0;
+  function sessionTokenKey(origin = location.origin) {
+    return `${SESSION_TOKEN_PREFIX}${origin}`;
+  }
+  __name(sessionTokenKey, "sessionTokenKey");
+  function getSessionToken() {
+    return sessionStorage.getItem(sessionTokenKey());
+  }
+  __name(getSessionToken, "getSessionToken");
+  function setSessionToken(token) {
+    if (!token) throw new Error("invalid capability");
+    sessionStorage.setItem(sessionTokenKey(), token);
+    credentialVersion += 1;
+  }
+  __name(setSessionToken, "setSessionToken");
+  function sessionCredentialVersion() {
+    return credentialVersion;
+  }
+  __name(sessionCredentialVersion, "sessionCredentialVersion");
+  function decoded(value) {
+    try {
+      return decodeURIComponent(value.replace(/\+/g, "%20"));
+    } catch {
+      throw new Error("invalid capability");
+    }
+  }
+  __name(decoded, "decoded");
+  function extractCapability(hash) {
+    const prefixed = hash.startsWith("#") ? hash : `#${hash}`;
+    const queryAt = prefixed.indexOf("?");
+    if (queryAt < 0) return { token: null, cleanedHash: prefixed };
+    const route = prefixed.slice(0, queryAt);
+    const kept = [];
+    const tokens = [];
+    for (const pair of prefixed.slice(queryAt + 1).split("&")) {
+      if (!pair) continue;
+      const separator = pair.indexOf("=");
+      const rawKey = separator < 0 ? pair : pair.slice(0, separator);
+      const rawValue = separator < 0 ? "" : pair.slice(separator + 1);
+      if (decoded(rawKey) === "token") tokens.push(decoded(rawValue));
+      else kept.push(pair);
+    }
+    if (tokens.length > 1 || tokens.length === 1 && !tokens[0]) {
+      throw new Error("invalid capability");
+    }
+    return {
+      token: tokens[0] ?? null,
+      cleanedHash: kept.length ? `${route}?${kept.join("&")}` : route
+    };
+  }
+  __name(extractCapability, "extractCapability");
+  function bootstrapCapability() {
+    const result = extractCapability(location.hash);
+    if (result.token !== null) {
+      setSessionToken(result.token);
+      history.replaceState(
+        history.state,
+        "",
+        `${location.pathname}${location.search}${result.cleanedHash}`
+      );
+    }
+    return result;
+  }
+  __name(bootstrapCapability, "bootstrapCapability");
+  function isLoopbackLiteral(hostname) {
+    const unbracketed = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (unbracketed === "::1") return true;
+    const octets = unbracketed.split(".");
+    return octets.length === 4 && octets.every((octet) => /^\d+$/.test(octet) && Number(octet) <= 255) && Number(octets[0]) === 127;
+  }
+  __name(isLoopbackLiteral, "isLoopbackLiteral");
+  function routeWithToken(route, token) {
+    const cleaned = extractCapability(route).cleanedHash;
+    const separator = cleaned.includes("?") ? "&" : "?";
+    return `${cleaned}${separator}token=${encodeURIComponent(token)}`;
+  }
+  __name(routeWithToken, "routeWithToken");
+  function resolveReconnectInput(input, currentOrigin, currentRoute) {
+    const value = input.trim();
+    if (!value) throw new Error("invalid capability URL");
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+      return { kind: "retry", token: value };
+    }
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error("invalid capability URL");
+    }
+    if (url.protocol !== "http:" || !isLoopbackLiteral(url.hostname) || url.username || url.password) {
+      throw new Error("invalid capability URL");
+    }
+    let extraction;
+    try {
+      extraction = extractCapability(url.hash);
+    } catch {
+      throw new Error("invalid capability URL");
+    }
+    if (!extraction.token) throw new Error("invalid capability URL");
+    if (url.origin === currentOrigin) {
+      return { kind: "retry", token: extraction.token };
+    }
+    return {
+      kind: "navigate",
+      url: `${url.origin}/${routeWithToken(currentRoute, extraction.token)}`
+    };
+  }
+  __name(resolveReconnectInput, "resolveReconnectInput");
+  var AuthCoordinator = class {
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    static {
+      __name(this, "AuthCoordinator");
+    }
+    recovery = null;
+    recoverUnauthorized() {
+      if (this.recovery) return this.recovery;
+      this.recovery = this.promptAndApply().finally(() => {
+        this.recovery = null;
+      });
+      return this.recovery;
+    }
+    reconnect() {
+      return this.recoverUnauthorized();
+    }
+    async promptAndApply() {
+      while (true) {
+        const input = await this.options.prompt();
+        if (input === null) {
+          clearReconnectError();
+          return false;
+        }
+        let target;
+        try {
+          target = resolveReconnectInput(
+            input,
+            this.options.currentOrigin(),
+            this.options.currentRoute()
+          );
+        } catch {
+          showReconnectError("Enter a token or an HTTP loopback capability URL.");
+          continue;
+        }
+        clearReconnectError();
+        if (target.kind === "retry") {
+          setSessionToken(target.token);
+          return true;
+        }
+        this.options.navigate(target.url);
+        return false;
+      }
+    }
+  };
+  var installedCoordinator = null;
+  function installAuthCoordinator(coordinator) {
+    installedCoordinator = coordinator;
+  }
+  __name(installAuthCoordinator, "installAuthCoordinator");
+  function recoverUnauthorized() {
+    return installedCoordinator?.recoverUnauthorized() ?? Promise.resolve(false);
+  }
+  __name(recoverUnauthorized, "recoverUnauthorized");
+  function requestReconnect() {
+    return installedCoordinator?.reconnect() ?? Promise.resolve(false);
+  }
+  __name(requestReconnect, "requestReconnect");
+  function showReconnectError(message) {
+    const error = document.querySelector("#reconnect-error");
+    if (!error) return;
+    error.textContent = message;
+    error.classList.remove("hidden");
+  }
+  __name(showReconnectError, "showReconnectError");
+  function clearReconnectError() {
+    const error = document.querySelector("#reconnect-error");
+    if (!error) return;
+    error.textContent = "";
+    error.classList.add("hidden");
+  }
+  __name(clearReconnectError, "clearReconnectError");
+  function promptForCredential() {
+    const dialog = document.querySelector("#reconnect-dialog");
+    const input = document.querySelector("#reconnect-input");
+    const submit = document.querySelector("#reconnect-submit");
+    const cancel = document.querySelector("#reconnect-cancel");
+    if (!dialog || !input || !submit || !cancel) return Promise.resolve(null);
+    dialog.classList.remove("hidden");
+    input.value = "";
+    input.focus();
+    return new Promise((resolve2) => {
+      let settled = false;
+      const finish = /* @__PURE__ */ __name((value) => {
+        if (settled) return;
+        settled = true;
+        submit.removeEventListener("click", onSubmit);
+        cancel.removeEventListener("click", onCancel);
+        input.value = "";
+        dialog.classList.add("hidden");
+        resolve2(value);
+      }, "finish");
+      const onSubmit = /* @__PURE__ */ __name(() => finish(input.value), "onSubmit");
+      const onCancel = /* @__PURE__ */ __name(() => finish(null), "onCancel");
+      submit.addEventListener("click", onSubmit);
+      cancel.addEventListener("click", onCancel);
+    });
+  }
+  __name(promptForCredential, "promptForCredential");
+
   // src/classNames.ts
   var CLASS = {
     // App chrome, master-detail panes, lens containers, and shared chips.
@@ -1295,28 +1507,232 @@
   }
   __name(eventExists, "eventExists");
 
-  // src/http.ts
-  function payloadError(data) {
-    if (typeof data === "object" && data !== null && "error" in data && data.error) {
-      return typeof data.error === "string" ? data.error : String(data.error);
+  // src/connection.ts
+  var snapshot = {
+    connection: "connecting",
+    refresh: "idle"
+  };
+  function connectionPresentation(state2) {
+    const refreshLabel = state2.refresh === "degraded" ? "response error" : state2.refresh;
+    switch (state2.connection) {
+      case "unauthorized":
+        return {
+          serverLabel: "local server",
+          connectionLabel: "authentication required",
+          refreshLabel,
+          action: "Reconnect",
+          canConnectAnother: false
+        };
+      case "unreachable":
+        return {
+          serverLabel: "local server",
+          connectionLabel: "server unavailable",
+          refreshLabel,
+          action: "Retry",
+          canConnectAnother: true
+        };
+      case "connected":
+        return {
+          serverLabel: "local server",
+          connectionLabel: "connected",
+          refreshLabel,
+          action: state2.refresh === "degraded" ? "Retry" : null,
+          canConnectAnother: false
+        };
+      case "connecting":
+        return {
+          serverLabel: "local server",
+          connectionLabel: "connecting",
+          refreshLabel,
+          action: null,
+          canConnectAnother: false
+        };
     }
-    return "";
   }
-  __name(payloadError, "payloadError");
-  async function fetchJSON(path) {
-    const res = await fetch(path, { cache: "no-store" });
-    const text = await res.text();
+  __name(connectionPresentation, "connectionPresentation");
+  function markRequestSuccess() {
+    snapshot = {
+      connection: "connected",
+      refresh: snapshot.refresh
+    };
+    renderConnectionChrome();
+  }
+  __name(markRequestSuccess, "markRequestSuccess");
+  function markRequestFailure(kind) {
+    snapshot = kind === "protocol" ? { connection: "connected", refresh: "degraded" } : { ...snapshot, connection: kind };
+    renderConnectionChrome();
+  }
+  __name(markRequestFailure, "markRequestFailure");
+  function setRefreshState(refresh) {
+    snapshot = { ...snapshot, refresh };
+    renderConnectionChrome();
+  }
+  __name(setRefreshState, "setRefreshState");
+  var actions = null;
+  function configureConnectionActions(next) {
+    actions = next;
+  }
+  __name(configureConnectionActions, "configureConnectionActions");
+  function initConnectionControls() {
+    document.querySelector("#connection-action")?.addEventListener("click", () => {
+      if (!actions) return;
+      if (snapshot.connection === "unauthorized") void actions.reconnect();
+      else void actions.retry();
+    });
+    document.querySelector("#connect-another")?.addEventListener("click", () => {
+      if (actions) void actions.reconnect();
+    });
+    renderConnectionChrome();
+  }
+  __name(initConnectionControls, "initConnectionControls");
+  function renderConnectionChrome() {
+    const presentation = connectionPresentation(snapshot);
+    const root = document.querySelector("#store-identity");
+    root?.classList.remove("hidden");
+    const connection = document.querySelector("#connection-status");
+    if (connection) connection.textContent = presentation.connectionLabel;
+    const refresh = document.querySelector("#refresh-status");
+    if (refresh) refresh.textContent = presentation.refreshLabel;
+    const legacyRefresh = document.querySelector("#stat-live");
+    if (legacyRefresh) {
+      legacyRefresh.textContent = presentation.refreshLabel;
+      legacyRefresh.dataset.state = snapshot.refresh;
+    }
+    const dot = document.querySelector("#refresh");
+    if (dot) {
+      dot.dataset.connection = snapshot.connection;
+      dot.dataset.state = snapshot.refresh;
+      dot.title = `${presentation.connectionLabel}; refresh ${presentation.refreshLabel}`;
+    }
+    const action = document.querySelector("#connection-action");
+    if (action) {
+      action.textContent = presentation.action ?? "";
+      action.classList.toggle("hidden", presentation.action === null);
+    }
+    document.querySelector("#connect-another")?.classList.toggle("hidden", !presentation.canConnectAnother);
+    const word = document.querySelector("#refresh-word");
+    if (word) {
+      word.textContent = snapshot.connection === "unauthorized" ? "authentication required" : snapshot.connection === "unreachable" ? "server unavailable" : snapshot.refresh === "degraded" ? "response error" : "";
+    }
+  }
+  __name(renderConnectionChrome, "renderConnectionChrome");
+
+  // src/http.ts
+  var RequestFailure = class extends Error {
+    constructor(kind, status) {
+      super(
+        kind === "unauthorized" ? "authentication required" : kind === "unreachable" ? "server unavailable" : "server response error"
+      );
+      this.kind = kind;
+      this.status = status;
+      this.name = "RequestFailure";
+    }
+    kind;
+    status;
+    static {
+      __name(this, "RequestFailure");
+    }
+  };
+  function failure(kind, status) {
+    markRequestFailure(kind);
+    return new RequestFailure(kind, status);
+  }
+  __name(failure, "failure");
+  function expectedDocument(path) {
+    const pathname = new URL(path, location.origin).pathname;
+    const collections = {
+      "/api/attention": { schema: "pointbreak.inspect-attention" },
+      "/api/freshness": {
+        schema: "pointbreak.inspect-freshness",
+        version: 1
+      },
+      "/api/history": { schema: "pointbreak.inspect-history" },
+      "/api/history/new-count": {
+        schema: "pointbreak.inspect-history-new-count"
+      },
+      "/api/identity": { schema: "pointbreak.inspect-identity" },
+      "/api/revisions": { schema: "pointbreak.inspect-revisions" },
+      "/api/threads": { schema: "pointbreak.inspect-threads" },
+      "/api/version": { schema: "pointbreak.version", version: 1 }
+    };
+    if (collections[pathname]) return collections[pathname];
+    if (/^\/api\/revisions\/[^/]+$/.test(pathname)) {
+      return { schema: "pointbreak.review-revision", version: 2 };
+    }
+    if (/^\/api\/snapshots\/[^/]+$/.test(pathname)) {
+      return { schema: "pointbreak.review-snapshot", version: 1 };
+    }
+    return null;
+  }
+  __name(expectedDocument, "expectedDocument");
+  function isExpectedDocument(data, expected) {
+    if (typeof data !== "object" || data === null) return false;
+    const document2 = data;
+    return document2.schema === expected.schema && (expected.version === void 0 || document2.version === expected.version);
+  }
+  __name(isExpectedDocument, "isExpectedDocument");
+  function hasPayloadError(data) {
+    return typeof data === "object" && data !== null && "error" in data && Boolean(data.error);
+  }
+  __name(hasPayloadError, "hasPayloadError");
+  async function fetchOnce(path) {
+    const headers = {};
+    const token = getSessionToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let response;
+    try {
+      response = await fetch(path, {
+        cache: "no-store",
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        headers
+      });
+    } catch {
+      throw failure("unreachable");
+    }
+    if (response.status === 401) throw new RequestFailure("unauthorized", 401);
+    let text;
+    try {
+      text = await response.text();
+    } catch {
+      throw failure("protocol", response.status);
+    }
+    if (!response.ok) throw failure("protocol", response.status);
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(`${path}: non-JSON response (${res.status})`);
+      throw failure("protocol", response.status);
     }
-    const error = payloadError(data);
-    if (!res.ok || error) {
-      throw new Error(error || `${path}: HTTP ${res.status}`);
+    const expected = expectedDocument(path);
+    if (hasPayloadError(data) || expected !== null && !isExpectedDocument(data, expected)) {
+      throw failure("protocol", response.status);
     }
+    markRequestSuccess();
     return data;
+  }
+  __name(fetchOnce, "fetchOnce");
+  async function fetchJSON(path) {
+    const requestCredentialVersion = sessionCredentialVersion();
+    try {
+      return await fetchOnce(path);
+    } catch (error) {
+      if (!(error instanceof RequestFailure) || error.kind !== "unauthorized") {
+        throw error;
+      }
+    }
+    const credentialAlreadyRenewed = sessionCredentialVersion() !== requestCredentialVersion;
+    if (credentialAlreadyRenewed || await recoverUnauthorized()) {
+      try {
+        return await fetchOnce(path);
+      } catch (error) {
+        if (error instanceof RequestFailure && error.kind === "unauthorized") {
+          throw failure("unauthorized", 401);
+        }
+        throw error;
+      }
+    }
+    throw failure("unauthorized", 401);
   }
   __name(fetchJSON, "fetchJSON");
 
@@ -1389,14 +1805,16 @@
         threads: threadsRaw,
         attention: attentionRaw
       });
+      return true;
     } catch (err) {
       showLoadError(err);
+      return false;
     }
   }
   __name(loadWholeDocuments, "loadWholeDocuments");
   async function load() {
-    if (!await loadHistoryHead()) return;
-    await loadWholeDocuments();
+    if (!await loadHistoryHead()) return false;
+    return loadWholeDocuments();
   }
   __name(load, "load");
   async function loadIdentity() {
@@ -1538,21 +1956,6 @@
     return doc?.entries?.[0]?.eventId ?? null;
   }
   __name(fetchEventIdForQuery, "fetchEventIdForQuery");
-  function setLiveness(state2) {
-    const dot = $("#refresh");
-    if (dot) {
-      dot.setAttribute("data-state", state2);
-      dot.setAttribute("title", `Auto-refresh: ${state2}`);
-    }
-    const word = $("#refresh-word");
-    if (word) word.textContent = state2 === "stalled" ? "stalled" : "";
-    const line = $("#stat-live");
-    if (line) {
-      line.textContent = state2;
-      line.setAttribute("data-state", state2);
-    }
-  }
-  __name(setLiveness, "setLiveness");
   async function pollFreshness() {
     try {
       const f = await fetchJSON("/api/freshness");
@@ -1560,16 +1963,20 @@
       const stampChanged = f.commitGraphStamp != null && (s.lastCommitGraphStamp == null || f.commitGraphStamp !== s.lastCommitGraphStamp);
       const changed = (f.eventCount ?? null) !== s.lastEventCount || stampChanged;
       if (changed) {
-        setLiveness("updated");
-        await loadWholeDocuments();
-        if ((getState().history?.offset ?? 0) === 0) await loadHistoryHead();
+        setRefreshState("updated");
+        const documentsLoaded = await loadWholeDocuments();
+        const historyLoaded = (getState().history?.offset ?? 0) !== 0 || await loadHistoryHead();
+        if (!documentsLoaded || !historyLoaded) {
+          setRefreshState("degraded");
+          return;
+        }
         commitFreshnessBaseline(f);
-        setTimeout(() => setLiveness("watching"), 1200);
+        setTimeout(() => setRefreshState("watching"), 1200);
       } else {
-        setLiveness("watching");
+        setRefreshState("watching");
       }
     } catch {
-      setLiveness("stalled");
+      setRefreshState("degraded");
     }
   }
   __name(pollFreshness, "pollFreshness");
@@ -1671,50 +2078,50 @@
     return patch;
   }
   __name(parseHash, "parseHash");
-  function serializeState(snapshot, presentTypes2) {
-    if (snapshot.diffPage && snapshot.diffRevision) {
+  function serializeState(snapshot2, presentTypes2) {
+    if (snapshot2.diffPage && snapshot2.diffRevision) {
       const pageParams = [];
-      if (snapshot.focus)
-        pageParams.push(`focus=${encodeURIComponent(snapshot.focus)}`);
-      if (snapshot.diffFile)
-        pageParams.push(`file=${encodeURIComponent(snapshot.diffFile)}`);
-      if (snapshot.diffFileQuery)
-        pageParams.push(`fq=${encodeURIComponent(snapshot.diffFileQuery)}`);
-      const pagePath = `#/revision/${encodeURIComponent(snapshot.diffRevision)}/diff`;
+      if (snapshot2.focus)
+        pageParams.push(`focus=${encodeURIComponent(snapshot2.focus)}`);
+      if (snapshot2.diffFile)
+        pageParams.push(`file=${encodeURIComponent(snapshot2.diffFile)}`);
+      if (snapshot2.diffFileQuery)
+        pageParams.push(`fq=${encodeURIComponent(snapshot2.diffFileQuery)}`);
+      const pagePath = `#/revision/${encodeURIComponent(snapshot2.diffRevision)}/diff`;
       return pageParams.length ? `${pagePath}?${pageParams.join("&")}` : pagePath;
     }
     const params = [];
-    const sel = snapshot.selected ?? { kind: null, id: null };
-    let path = snapshot.lens === DEFAULT_LENS2 ? "#/timeline" : `#/${snapshot.lens}`;
-    if (sel.id && snapshot.open && (sel.kind === "revision" || sel.kind === "event")) {
+    const sel = snapshot2.selected ?? { kind: null, id: null };
+    let path = snapshot2.lens === DEFAULT_LENS2 ? "#/timeline" : `#/${snapshot2.lens}`;
+    if (sel.id && snapshot2.open && (sel.kind === "revision" || sel.kind === "event")) {
       path = sel.kind === "revision" ? `#/revision/${encodeURIComponent(sel.id)}` : `#/event/${encodeURIComponent(sel.id)}`;
-      if (snapshot.lens && snapshot.lens !== DEFAULT_LENS2)
-        params.push(`lens=${encodeURIComponent(snapshot.lens)}`);
+      if (snapshot2.lens && snapshot2.lens !== DEFAULT_LENS2)
+        params.push(`lens=${encodeURIComponent(snapshot2.lens)}`);
     } else if (sel.id) {
       params.push(`sel=${encodeURIComponent(sel.id)}`);
     }
-    if (snapshot.filterTrack)
-      params.push(`track=${encodeURIComponent(snapshot.filterTrack)}`);
-    if (snapshot.filterSnapshot)
-      params.push(`snapshot=${encodeURIComponent(snapshot.filterSnapshot)}`);
-    if (snapshot.order && snapshot.order !== "desc")
-      params.push(`order=${encodeURIComponent(snapshot.order)}`);
-    if (snapshot.lens === "list" && snapshot.sortKey !== "captured")
-      params.push(`sort=${encodeURIComponent(snapshot.sortKey)}`);
-    if (presentTypes2.some((id) => !snapshot.enabledTypes.has(id))) {
+    if (snapshot2.filterTrack)
+      params.push(`track=${encodeURIComponent(snapshot2.filterTrack)}`);
+    if (snapshot2.filterSnapshot)
+      params.push(`snapshot=${encodeURIComponent(snapshot2.filterSnapshot)}`);
+    if (snapshot2.order && snapshot2.order !== "desc")
+      params.push(`order=${encodeURIComponent(snapshot2.order)}`);
+    if (snapshot2.lens === "list" && snapshot2.sortKey !== "captured")
+      params.push(`sort=${encodeURIComponent(snapshot2.sortKey)}`);
+    if (presentTypes2.some((id) => !snapshot2.enabledTypes.has(id))) {
       params.push(
         `types=${encodeURIComponent(
-          presentTypes2.filter((id) => snapshot.enabledTypes.has(id)).join(",")
+          presentTypes2.filter((id) => snapshot2.enabledTypes.has(id)).join(",")
         )}`
       );
     }
-    if (snapshot.filterText)
-      params.push(`q=${encodeURIComponent(snapshot.filterText)}`);
-    if (snapshot.diff) params.push(`diff=${encodeURIComponent(snapshot.diff)}`);
-    if (snapshot.diff && snapshot.diffHash)
-      params.push(`diffHash=${encodeURIComponent(snapshot.diffHash)}`);
-    if (snapshot.focus)
-      params.push(`focus=${encodeURIComponent(snapshot.focus)}`);
+    if (snapshot2.filterText)
+      params.push(`q=${encodeURIComponent(snapshot2.filterText)}`);
+    if (snapshot2.diff) params.push(`diff=${encodeURIComponent(snapshot2.diff)}`);
+    if (snapshot2.diff && snapshot2.diffHash)
+      params.push(`diffHash=${encodeURIComponent(snapshot2.diffHash)}`);
+    if (snapshot2.focus)
+      params.push(`focus=${encodeURIComponent(snapshot2.focus)}`);
     return params.length ? `${path}?${params.join("&")}` : path;
   }
   __name(serializeState, "serializeState");
@@ -5512,7 +5919,10 @@ click to open the revision page">
     if (!root) return;
     const id = getState().identity;
     if (!id) {
-      root.classList.add("hidden");
+      root.classList.remove("hidden");
+      const repoEl2 = $("#store-chip-repo");
+      if (repoEl2) repoEl2.textContent = "local server";
+      $("#store-chip")?.setAttribute("aria-label", "local review server");
       document.title = INSPECTOR_TITLE;
       return;
     }
@@ -5928,6 +6338,25 @@ click to open the revision page">
   __name(initControls8, "initControls");
 
   // src/main.ts
+  var pollTimer = null;
+  var unsubscribers = [];
+  function stopPolling() {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    for (const unsubscribe of unsubscribers) unsubscribe();
+    unsubscribers = [];
+  }
+  __name(stopPolling, "stopPolling");
+  function startPolling() {
+    setRefreshState("watching");
+    if (pollTimer !== null) return;
+    pollTimer = setInterval(() => {
+      void pollFreshness();
+    }, 3e3);
+  }
+  __name(startPolling, "startPolling");
   function wireToolbar() {
     for (const tab of document.querySelectorAll(".lens-tab")) {
       tab.addEventListener("click", () => {
@@ -5970,9 +6399,11 @@ click to open the revision page">
   }
   __name(wireToolbar, "wireToolbar");
   function main() {
+    stopPolling();
+    bootstrapCapability();
     applyPrefs();
-    subscribe(render);
-    subscribe(maybeReloadForQuery);
+    unsubscribers.push(subscribe(render));
+    unsubscribers.push(subscribe(maybeReloadForQuery));
     initControls5();
     initControls2();
     initControls7();
@@ -5981,17 +6412,38 @@ click to open the revision page">
     initControls3();
     initControls6();
     initControls();
+    initConnectionControls();
     wireToolbar();
     document.addEventListener("keydown", onKey);
     document.addEventListener("click", onDocumentClick);
     window.addEventListener("popstate", applyHash);
     window.addEventListener("hashchange", applyHash);
-    return Promise.all([load(), loadIdentity()]).then(() => {
+    const coordinator = new AuthCoordinator({
+      prompt: promptForCredential,
+      navigate: /* @__PURE__ */ __name((url) => location.replace(url), "navigate"),
+      currentOrigin: /* @__PURE__ */ __name(() => location.origin, "currentOrigin"),
+      currentRoute: /* @__PURE__ */ __name(() => location.hash, "currentRoute")
+    });
+    installAuthCoordinator(coordinator);
+    const retry = /* @__PURE__ */ __name(async () => {
+      const [loaded] = await Promise.all([load(), loadIdentity()]);
+      if (loaded) {
+        applyHash();
+        startPolling();
+      }
+    }, "retry");
+    configureConnectionActions({
+      retry,
+      reconnect: /* @__PURE__ */ __name(async () => {
+        if (await requestReconnect()) await retry();
+      }, "reconnect")
+    });
+    render();
+    renderConnectionChrome();
+    return Promise.all([load(), loadIdentity()]).then(([loaded]) => {
+      if (!loaded) return;
       applyHash();
-      setLiveness("watching");
-      setInterval(() => {
-        void pollFreshness();
-      }, 3e3);
+      startPolling();
     });
   }
   __name(main, "main");

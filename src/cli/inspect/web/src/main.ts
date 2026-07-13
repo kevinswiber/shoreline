@@ -11,14 +11,21 @@
 // emit flip) invokes `main()` and ignores the return — the port stays parallel and
 // unserved here, so nothing calls `main()` automatically yet.
 
+import {
+  AuthCoordinator,
+  bootstrapCapability,
+  installAuthCoordinator,
+  promptForCredential,
+  requestReconnect,
+} from "./auth";
 import { initControls as initAutocomplete } from "./autocomplete";
 import {
-  load,
-  loadIdentity,
-  maybeReloadForQuery,
-  pollFreshness,
-  setLiveness,
-} from "./data";
+  configureConnectionActions,
+  initConnectionControls,
+  renderConnectionChrome,
+  setRefreshState,
+} from "./connection";
+import { load, loadIdentity, maybeReloadForQuery, pollFreshness } from "./data";
 import { initControls as initDetail } from "./detail";
 import {
   DIFF_ROUTE_CLEARED,
@@ -40,6 +47,26 @@ import { applyHash, navigate } from "./router";
 import { initControls as initSplit } from "./split";
 import { getState, subscribe } from "./store";
 import { DEFAULT_LENS, LENSES } from "./types";
+
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let unsubscribers: Array<() => void> = [];
+
+export function stopPolling(): void {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  for (const unsubscribe of unsubscribers) unsubscribe();
+  unsubscribers = [];
+}
+
+function startPolling(): void {
+  setRefreshState("watching");
+  if (pollTimer !== null) return;
+  pollTimer = setInterval(() => {
+    void pollFreshness();
+  }, 3000);
+}
 
 // The toolbar controls that aren't owned by a module's initControls: the lens tabs
 // and the timeline filter/order controls. All navigate through the router (commit →
@@ -96,11 +123,13 @@ function wireToolbar(): void {
  * start the poll). Returns the load chain for deterministic test await.
  */
 export function main(): Promise<void> {
+  stopPolling();
+  bootstrapCapability();
   applyPrefs();
-  subscribe(render);
+  unsubscribers.push(subscribe(render));
   // Subscribed after render so the query watcher observes render's type-toggle
   // seeding: a query change re-fetches page 1, and an unchanged query is a no-op.
-  subscribe(maybeReloadForQuery);
+  unsubscribers.push(subscribe(maybeReloadForQuery));
   initPrefs();
   initDiff();
   initPalette();
@@ -109,18 +138,39 @@ export function main(): Promise<void> {
   initDetail();
   initSplit();
   initAutocomplete();
+  initConnectionControls();
   wireToolbar();
   document.addEventListener("keydown", onKey);
   document.addEventListener("click", onDocumentClick);
   window.addEventListener("popstate", applyHash);
   window.addEventListener("hashchange", applyHash);
+  const coordinator = new AuthCoordinator({
+    prompt: promptForCredential,
+    navigate: (url) => location.replace(url),
+    currentOrigin: () => location.origin,
+    currentRoute: () => location.hash,
+  });
+  installAuthCoordinator(coordinator);
+  const retry = async () => {
+    const [loaded] = await Promise.all([load(), loadIdentity()]);
+    if (loaded) {
+      applyHash();
+      startPolling();
+    }
+  };
+  configureConnectionActions({
+    retry,
+    reconnect: async () => {
+      if (await requestReconnect()) await retry();
+    },
+  });
+  render();
+  renderConnectionChrome();
   // Identity is static per session — fetch it once here, in parallel with the first
   // data load, never on the freshness reload path.
-  return Promise.all([load(), loadIdentity()]).then(() => {
+  return Promise.all([load(), loadIdentity()]).then(([loaded]) => {
+    if (!loaded) return;
     applyHash();
-    setLiveness("watching");
-    setInterval(() => {
-      void pollFreshness();
-    }, 3000);
+    startPolling();
   });
 }

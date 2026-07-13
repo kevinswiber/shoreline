@@ -288,7 +288,7 @@ describe("load", () => {
     }
     expect(historyRequests).toBe(1);
     expect(document.querySelector("#error")?.textContent).toContain(
-      "history offline",
+      "server unavailable",
     );
   });
 
@@ -329,10 +329,10 @@ describe("load", () => {
     const restore = globalThis.fetch;
     globalThis.fetch = () => Promise.reject(new Error("network down"));
     try {
-      await expect(data.load()).resolves.toBeUndefined();
+      await expect(data.load()).resolves.toBe(false);
       const el = document.querySelector("#error");
       expect(el?.classList.contains("hidden")).toBe(false);
-      expect(el?.textContent).toContain("network down");
+      expect(el?.textContent).toContain("server unavailable");
     } finally {
       globalThis.fetch = restore;
     }
@@ -402,6 +402,8 @@ describe("pollFreshness", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
+              schema: "pointbreak.inspect-freshness",
+              version: 1,
               eventCount: HISTORY_EVENT_COUNT + freshnessRequests,
               commitGraphStamp: "stamp-fixture",
             }),
@@ -549,39 +551,21 @@ describe("pollFreshness", () => {
     );
   });
 
-  it("marks the indicator stalled when the freshness probe fails", async () => {
+  it("marks refresh degraded and connection unreachable when the probe fails", async () => {
     await data.load();
     const restore = globalThis.fetch;
     globalThis.fetch = () => Promise.reject(new Error("offline"));
     try {
       await data.pollFreshness();
       const refresh = document.querySelector("#refresh");
-      expect(refresh?.getAttribute("data-state")).toBe("stalled");
-      // Degraded: the word surfaces beside the chip so a stall is noticed.
+      expect(refresh?.getAttribute("data-state")).toBe("degraded");
+      expect(refresh?.getAttribute("data-connection")).toBe("unreachable");
       expect(document.querySelector("#refresh-word")?.textContent).toBe(
-        "stalled",
+        "server unavailable",
       );
     } finally {
       globalThis.fetch = restore;
     }
-  });
-});
-
-describe("setLiveness", () => {
-  it("drives the dot state + title and clears the degraded word on recovery", () => {
-    data.setLiveness("stalled");
-    expect(document.querySelector("#refresh-word")?.textContent).toBe(
-      "stalled",
-    );
-    data.setLiveness("watching");
-    const dot = document.querySelector("#refresh");
-    expect(dot?.getAttribute("data-state")).toBe("watching");
-    expect(dot?.getAttribute("title")).toBe("Auto-refresh: watching");
-    expect(document.querySelector("#refresh-word")?.textContent).toBe("");
-    // The detail-popover line mirrors the word AND the dot's state (for color).
-    const line = document.querySelector("#stat-live");
-    expect(line?.textContent).toBe("watching");
-    expect(line?.getAttribute("data-state")).toBe("watching");
   });
 });
 

@@ -27,6 +27,10 @@ const FIXED_IDS = [
   "stat-threads",
   "stat-hash",
   "stat-live",
+  "connection-status",
+  "refresh-status",
+  "connection-action",
+  "connect-another",
   "refresh",
   "refresh-word",
   "theme-toggle",
@@ -53,6 +57,11 @@ const FIXED_IDS = [
   "cmd-results",
   "key-help",
   "key-help-close",
+  "reconnect-dialog",
+  "reconnect-input",
+  "reconnect-error",
+  "reconnect-cancel",
+  "reconnect-submit",
 ];
 
 describe("mountInspectorDom", () => {

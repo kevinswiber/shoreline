@@ -7,7 +7,8 @@ import { installFetchMock, uninstallFetchMock } from "./support/fetch";
 // chip + detail popover (issue #391): the chip shows the repository name only, and
 // the popover holds the identity rows (renderIdentity), the store counts + hash
 // (renderStats, static spans), and the trust footnote (static). It also sets the
-// browser tab `<title>` and hides the chip until identity loads. Module singletons
+// browser tab `<title>` while leaving neutral connection chrome visible before
+// identity loads. Module singletons
 // (store, render), so reset and re-import before each test.
 type Store = typeof import("../src/store");
 type Render = typeof import("../src/render");
@@ -124,11 +125,35 @@ it("keeps the store counts and the trust footnote in the popover", () => {
   expect(note?.textContent).toContain("reader-relative");
 });
 
-it("hides the chip and resets the title when identity is null", () => {
+it("keeps neutral connection chrome visible when identity is null", () => {
   store.commit({ identity: null });
   render.render();
   expect(document.title).toBe("Pointbreak Review");
   expect(
     document.querySelector("#store-identity")?.classList.contains("hidden"),
-  ).toBe(true);
+  ).toBe(false);
+  expect(document.querySelector("#store-chip-repo")?.textContent).toBe(
+    "local server",
+  );
+});
+
+it("preserves the last verified identity while connection recovery is shown", async () => {
+  const connection = await import("../src/connection");
+  store.commit({ identity: CLONE });
+  connection.markRequestFailure("unreachable");
+  render.render();
+  connection.renderConnectionChrome();
+
+  expect(document.querySelector("#store-chip-repo")?.textContent).toBe(
+    "pointbreak",
+  );
+  expect(document.querySelector("#connection-status")?.textContent).toBe(
+    "server unavailable",
+  );
+  expect(document.querySelector("#connection-action")?.textContent).toBe(
+    "Retry",
+  );
+  expect(
+    document.querySelector("#connect-another")?.classList.contains("hidden"),
+  ).toBe(false);
 });

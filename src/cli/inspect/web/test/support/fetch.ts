@@ -31,7 +31,10 @@ let historyResponse: unknown = historyJson;
 
 /** Override the `/api/history` response the mock returns (paging / reveal tests). */
 export function setHistoryResponse(payload: unknown): void {
-  historyResponse = payload;
+  historyResponse = {
+    schema: "pointbreak.inspect-history",
+    ...(payload as Record<string, unknown>),
+  };
 }
 
 /** Restore the default `/api/history` response (the committed history fixture). */
@@ -47,6 +50,8 @@ const historyDoc = historyJson as {
   eventCount?: number;
 };
 const DEFAULT_FRESHNESS: unknown = {
+  schema: "pointbreak.inspect-freshness",
+  version: 1,
   eventCount: historyDoc.eventCount,
   commitGraphStamp: "stamp-fixture",
 };
@@ -54,7 +59,11 @@ let freshness: unknown = DEFAULT_FRESHNESS;
 
 /** Override the `/api/freshness` response the mock returns (changed-marker tests). */
 export function setFreshnessResponse(payload: unknown): void {
-  freshness = payload;
+  freshness = {
+    schema: "pointbreak.inspect-freshness",
+    version: 1,
+    ...(payload as Record<string, unknown>),
+  };
 }
 
 /** Restore the default freshness response (history.json's eventCount marker). */
@@ -69,7 +78,11 @@ let snapshotResponse: unknown = snapshotJson;
 
 /** Override the `/api/snapshots/{id}` response the mock returns (synthetic-snapshot tests). */
 export function setSnapshotResponse(payload: unknown): void {
-  snapshotResponse = payload;
+  snapshotResponse = {
+    schema: "pointbreak.review-snapshot",
+    version: 1,
+    ...(payload as Record<string, unknown>),
+  };
 }
 
 /** Restore the default `/api/snapshots/{id}` response (the committed snapshot fixture). */
@@ -82,13 +95,19 @@ export function resetSnapshotResponse(): void {
 // per-revision judgment view. Every `/api/attention` request target (path +
 // query) is recorded so a test can assert the scoped form was actually
 // requested rather than a client-side filter of the global document.
-let scopedAttentionResponse: unknown = { items: [] };
+let scopedAttentionResponse: unknown = {
+  schema: "pointbreak.inspect-attention",
+  items: [],
+};
 let scopedAttentionError: { status: number; message: string } | null = null;
 let attentionRequestLog: string[] = [];
 
 /** Override the scoped `/api/attention?revision=` response the mock returns. */
 export function setScopedAttentionResponse(payload: unknown): void {
-  scopedAttentionResponse = payload;
+  scopedAttentionResponse = {
+    schema: "pointbreak.inspect-attention",
+    ...(payload as Record<string, unknown>),
+  };
 }
 
 /** Make the scoped `/api/attention?revision=` read fail (degrade-to-omission tests). */
@@ -103,7 +122,10 @@ export function attentionRequests(): readonly string[] {
 
 /** Restore the default scoped-attention response and clear the request log. */
 export function resetScopedAttention(): void {
-  scopedAttentionResponse = { items: [] };
+  scopedAttentionResponse = {
+    schema: "pointbreak.inspect-attention",
+    items: [],
+  };
   scopedAttentionError = null;
   attentionRequestLog = [];
 }

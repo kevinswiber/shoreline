@@ -26,10 +26,10 @@
         <button class="lens-tab" type="button" data-lens="attention" aria-pressed="false">Attention</button>
       </nav>
       <div class="stats">
-        <div id="store-identity" class="store-identity hidden">
-          <span id="store-chip" class="store-identity-chip" tabindex="0" aria-label="">
+        <div id="store-identity" class="store-identity">
+          <span id="store-chip" class="store-identity-chip" tabindex="0" aria-label="local review server">
             <span id="refresh" class="store-live" data-state="idle" title="Auto-refresh status" aria-hidden="true"></span>
-            <span id="store-chip-repo" class="store-identity-repo"></span>
+            <span id="store-chip-repo" class="store-identity-repo">local server</span>
             <span class="store-identity-caret" aria-hidden="true">▾</span>
           </span>
           <div class="store-identity-detail" aria-hidden="true">
@@ -40,7 +40,15 @@
               <span id="stat-threads" class="stat" title="supersession threads">— threads</span>
               <span id="stat-hash" class="stat mono" title="eventSetHash">—</span>
             </div>
-            <p class="store-live-row">status <span id="stat-live" class="store-live-status" data-state="idle">idle</span></p>
+            <dl class="connection-status-rows">
+              <dt>connection</dt><dd id="connection-status">connecting</dd>
+              <dt>refresh</dt><dd id="refresh-status">idle</dd>
+            </dl>
+            <span id="stat-live" class="hidden" data-state="idle" aria-hidden="true">idle</span>
+            <div class="connection-actions">
+              <button id="connection-action" type="button" class="ghost hidden"></button>
+              <button id="connect-another" type="button" class="ghost hidden">Connect to another server</button>
+            </div>
             <p class="store-identity-note">Recorded state only — never gates writes; signature checks are reader-relative to your committed allow-list.</p>
           </div>
         </div>
@@ -165,6 +173,19 @@
           <dt><kbd>Esc</kbd></dt><dd>close the diff page or an overlay, restore the split, close the detail, clear the cursor, then the query</dd>
           <dt><kbd>?</kbd></dt><dd>toggle this cheat sheet</dd>
         </dl>
+      </div>
+    </div>
+
+    <div id="reconnect-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="reconnect-title">
+      <div class="modal-card reconnect-card">
+        <h2 id="reconnect-title">Connect to Pointbreak Review</h2>
+        <p>Enter a token or an HTTP loopback capability URL.</p>
+        <input id="reconnect-input" type="password" autocomplete="off" spellcheck="false" aria-label="token or capability URL" />
+        <p id="reconnect-error" class="error hidden" role="alert"></p>
+        <div class="reconnect-actions">
+          <button id="reconnect-cancel" type="button" class="ghost">Cancel</button>
+          <button id="reconnect-submit" type="button">Reconnect</button>
+        </div>
       </div>
     </div>
 

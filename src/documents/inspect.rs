@@ -75,7 +75,7 @@ impl InspectFreshnessDocument {
     }
 }
 
-/// The one-line stdout handshake emitted by authenticated machine mode.
+/// The one-line stdout handshake emitted when inspect startup output is JSON.
 ///
 /// This type intentionally does not implement `Debug` or `Display`: its token
 /// is serialized only for the single startup handoff.
