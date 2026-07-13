@@ -9,7 +9,6 @@
 // (the `if (!state.selected)` / `if (!state.diff)` reconciliation), with no DOM
 // access and no behaviour beyond the container contract.
 
-import type { DiffNavFilter } from "./diff/render";
 import type { Revision } from "./projection";
 import type { HistoryEntry, QueryDiagnostic } from "./types";
 import { TYPES } from "./types";
@@ -205,12 +204,12 @@ export interface State {
   // `diffRevision` is the revision the page displays — the page's OWN identity,
   // never stored in `selected`, so the parked cursor survives open/close by
   // construction. `diffFile` is the `?file=` scroll target (a stable file path,
-  // not an index); `diffNav` is the navigator filter, serialized only when
-  // non-default.
+  // not an index); `diffFileQuery` is the file-search query (`?fq=`), serialized
+  // only when non-empty.
   diffPage: boolean;
   diffRevision: string | null;
   diffFile: string | null;
-  diffNav: DiffNavFilter;
+  diffFileQuery: string;
   // Freshness baseline the poller diffs against to surface a refresh cue: the
   // event-log head marker (the event count) and the commit-graph stamp (the
   // git ref state the revision merge statuses read — a pure-git landing moves
@@ -244,7 +243,7 @@ const state: State = {
   diffPage: false,
   diffRevision: null,
   diffFile: null,
-  diffNav: "all",
+  diffFileQuery: "",
   lastEventCount: null,
   lastCommitGraphStamp: null,
 };

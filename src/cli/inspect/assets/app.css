@@ -721,6 +721,31 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   border-right: 1px solid var(--border);
   background: var(--bg-elev);
 }
+/* The static file-search input above the swapped nav list — matches the
+   toolbar search's look at the navigator's narrow width. */
+.diff-file-search {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 5px 8px;
+  font: var(--fs-xs)/var(--line) var(--mono);
+}
+.diff-file-search::placeholder { color: var(--fg-dim); opacity: 1; }
+/* The inline file-query diagnostic (an unsupported qualifier): a quiet notice
+   row, never an emptied list. */
+.diff-file-notice {
+  margin: 0 0 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-row);
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+}
 .diff-nav-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -736,27 +761,6 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   background: var(--bg-row);
 }
 .diff-nav-summary b { color: var(--fg); font-weight: 600; }
-.diff-nav-filters {
-  display: flex;
-  gap: 4px;
-  margin: 0 0 10px;
-}
-.diff-nav-filters button {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 4px 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--bg);
-  color: var(--fg-dim);
-  font: var(--fs-xs)/var(--line) var(--mono);
-  cursor: pointer;
-}
-.diff-nav-filters button[aria-pressed="true"] {
-  color: var(--fg);
-  border-color: var(--accent);
-  background: var(--bg-row-sel);
-}
 .diff-nav ol { list-style: none; margin: 0; padding: 0; }
 .diff-nav-files { margin-bottom: 10px; }
 .diff-nav-file,

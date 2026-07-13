@@ -457,14 +457,19 @@ export function onKey(ev: KeyboardEvent): void {
   }
   // While the routed diff page owns the frame, it owns the keyboard: its jump
   // keys run, Escape pushes back to the record, and every lens, selection,
-  // paging, and lens-switch key below is inert. Unowned keys are left to the
-  // browser default (no preventDefault), so typing targets keep their input.
+  // paging, and lens-switch key below is inert. Escape is global (it fires even
+  // while typing, mirroring the record's ladder below); the jump keys yield to
+  // a focused typing target (the file-search input), and unowned keys are left
+  // to the browser default (no preventDefault), so typing targets keep their
+  // input.
   if (getState().diffPage) {
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeDiff();
+      return;
+    }
+    if (isTypingTarget(document.activeElement)) return;
     switch (ev.key) {
-      case "Escape":
-        ev.preventDefault();
-        closeDiff();
-        return;
       case "]":
         ev.preventDefault();
         jumpChange(1);

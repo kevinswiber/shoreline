@@ -1,13 +1,13 @@
 // Pure diff/file/annotation renderers and classifiers. Ported from the served
 // app.js diff cluster. Every function is argument-driven (no DOM, no state, no
 // global reads or writes): the one shape change from app.js is that `renderDiff`
-// returns `{ html, ctx }` instead of writing the `diffCtx`/cursor globals, and
-// `renderDiffNavFilters` takes the active filter as a parameter. The transient
-// globals live in the diff controller (a later plan), which passes them in.
+// returns `{ html, ctx }` instead of writing the `diffCtx`/cursor globals. The
+// transient globals live in the diff controller (a later plan), which passes
+// them in.
 //
-// Imports the pure leaves only (escape, highlight, markdown, refs, types). This
-// module owns the diff-artifact/annotation view types and the
-// `DiffCtx`/`DiffNavFilter` seam.
+// Imports the pure leaves only (escape, highlight, markdown, query, refs,
+// types). This module owns the diff-artifact/annotation view types and the
+// `DiffCtx` seam (plus the file-scope query matcher, `matchDiffFiles`).
 
 import {
   annoContainerClass,
@@ -19,6 +19,7 @@ import {
 } from "../classNames";
 import { escapeHtml } from "../escape";
 import { renderBodyContent } from "../markdown";
+import { type QueryDiagnostic, tokenizeQuery } from "../query";
 import { linkify } from "../refs";
 import { DEFAULT_OPEN_FILES, LARGE_FILE_ROWS } from "../types";
 import { type EmphSpan, highlightRowText, type TokenSpan } from "./highlight";
@@ -110,21 +111,6 @@ export interface DiffCtx {
   anchored: Annotation[];
   unanchored: Annotation[];
   filePaths: Set<string>;
-}
-
-/** The diff navigator's file/fact filter. */
-export type DiffNavFilter = "all" | "with-facts" | "unanchored";
-
-/** The canonical nav-filter vocabulary (this module owns the type). */
-export const DIFF_NAV_FILTERS: readonly DiffNavFilter[] = [
-  "all",
-  "with-facts",
-  "unanchored",
-];
-
-/** Whether a string names a diff navigator filter (the `?nav=` validator). */
-export function isDiffNavFilter(value: string): value is DiffNavFilter {
-  return (DIFF_NAV_FILTERS as readonly string[]).includes(value);
 }
 
 /** The file/fact/unanchored counts the navigator summarizes. */
@@ -467,15 +453,6 @@ export function renderDiffNavSummary(summary: DiffNavSummary): string {
   </div>`;
 }
 
-/** The navigator's file/fact filter buttons, pressing the active one. */
-export function renderDiffNavFilters(activeFilter: DiffNavFilter): string {
-  return `<div class="${CLASS.diffNavFilters}" role="group" aria-label="diff navigator filters">
-    <button type="button" data-diff-nav-filter="all" aria-pressed="${activeFilter === "all"}">all</button>
-    <button type="button" data-diff-nav-filter="with-facts" aria-pressed="${activeFilter === "with-facts"}">with facts</button>
-    <button type="button" data-diff-nav-filter="unanchored" aria-pressed="${activeFilter === "unanchored"}">unanchored</button>
-  </div>`;
-}
-
 // Categorize why a fact did not anchor to a captured diff line, for the
 // navigator's unanchored panel.
 /** The reason a fact is unanchored (broad/revision-level/missing file/outside rows). */
@@ -491,4 +468,144 @@ export function unanchoredReason(
   }
   if (!filePaths.has(t.filePath)) return "file missing from snapshot";
   return "not anchored to a diff line";
+}
+
+/** The diff file-search grammar's supported keys — a client-only mini-grammar,
+ * distinct from and never re-minting the event/revision surfaces' key sets. */
+export const DIFF_FILE_QUERY_KEYS = ["path", "change", "has", "is"] as const;
+export type DiffFileQueryKey = (typeof DIFF_FILE_QUERY_KEYS)[number];
+
+// The real DiffFile.status enum (src/model/file.rs FileStatus, #[serde(rename_all =
+// "snake_case")]) — NOT the classifyLowSignal reason string ("binary"/"mode change
+// only"/"rename N%"/"large file"), which is a different, UI-only vocabulary. `change:`
+// binds to the file's actual change status; low-signal reasons have no qualifier here.
+const DIFF_FILE_CHANGE_VALUES = [
+  "added",
+  "deleted",
+  "modified",
+  "renamed",
+  "copied",
+] as const;
+const DIFF_FILE_HAS_VALUES = ["facts"] as const;
+const DIFF_FILE_IS_VALUES = ["unanchored"] as const;
+
+interface DiffFileClause {
+  field: DiffFileQueryKey;
+  value: string;
+}
+
+interface ParsedDiffFileQuery {
+  clauses: DiffFileClause[];
+  freeText: string[];
+  diagnostics: QueryDiagnostic[];
+}
+
+// Deliberately narrower than the shared parseSearchQueryFor: no negation, no
+// per-surface key-set import. `status:` is special-cased because it must never
+// resolve here even though it is a recognized key elsewhere in the app; every
+// other unrecognized key (including keys valid on the event/revision surfaces,
+// e.g. `track:`) falls through as free text rather than importing the global
+// key-set union just to detect them — this surface's grammar is four keys, not
+// the whole app's.
+function parseDiffFileQuery(query: string): ParsedDiffFileQuery {
+  const clauses: DiffFileClause[] = [];
+  const freeText: string[] = [];
+  const diagnostics: QueryDiagnostic[] = [];
+  for (const tok of tokenizeQuery(query || "")) {
+    const colon = tok.indexOf(":");
+    const field = colon > 0 ? tok.slice(0, colon).toLowerCase() : "";
+    const rawValue =
+      colon > 0
+        ? tok
+            .slice(colon + 1)
+            .replace(/^"|"$/g, "")
+            .toLowerCase()
+        : "";
+    if (field === "status") {
+      diagnostics.push({
+        code: "unsupported-qualifier",
+        key: "status",
+        message:
+          "status: isn't valid in the diff file search — use change: (added, deleted, modified, renamed, copied)",
+      });
+      continue;
+    }
+    if ((DIFF_FILE_QUERY_KEYS as readonly string[]).includes(field)) {
+      const key = field as DiffFileQueryKey;
+      if (
+        key === "change" &&
+        !(DIFF_FILE_CHANGE_VALUES as readonly string[]).includes(rawValue)
+      ) {
+        diagnostics.push({
+          code: "unsupported-value",
+          key: "change",
+          message: `change: has no value "${rawValue}" — expected one of ${DIFF_FILE_CHANGE_VALUES.join(", ")}`,
+        });
+        continue;
+      }
+      if (
+        key === "has" &&
+        !(DIFF_FILE_HAS_VALUES as readonly string[]).includes(rawValue)
+      ) {
+        diagnostics.push({
+          code: "unsupported-value",
+          key: "has",
+          message: `has: has no value "${rawValue}" — expected "facts"`,
+        });
+        continue;
+      }
+      if (
+        key === "is" &&
+        !(DIFF_FILE_IS_VALUES as readonly string[]).includes(rawValue)
+      ) {
+        diagnostics.push({
+          code: "unsupported-value",
+          key: "is",
+          message: `is: has no value "${rawValue}" — expected "unanchored"`,
+        });
+        continue;
+      }
+      clauses.push({ field: key, value: rawValue });
+      continue;
+    }
+    const term = tok.replace(/^"|"$/g, "").toLowerCase();
+    if (term) freeText.push(term);
+  }
+  return { clauses, freeText, diagnostics };
+}
+
+/** The result of {@link matchDiffFiles}: the matching files (in `ctx.files` order) plus
+ * any diagnostics for known-but-unsupported qualifiers — never silent-empty. */
+export interface DiffFileMatch {
+  files: DiffFile[];
+  diagnostics: QueryDiagnostic[];
+}
+
+/**
+ * Filter a diff's files by the file-scope query grammar: `path:` (substring on
+ * the file path label), `change:` (exact on the real change-status enum), `has:facts`
+ * (at least one anchored fact), `is:unanchored` (targeted by a fact classified
+ * unanchored — the same anchored/unanchored partition `renderDiff` already computes),
+ * and free text (path substring). `status:` is never valid here and yields a
+ * pointed diagnostic; any other unrecognized key is free text. Pure — reads
+ * only `ctx`, writes nothing.
+ */
+export function matchDiffFiles(ctx: DiffCtx, query: string): DiffFileMatch {
+  const { clauses, freeText, diagnostics } = parseDiffFileQuery(query);
+  const files = ctx.files.filter((f) => {
+    const label = filePathLabel(f).toLowerCase();
+    for (const term of freeText) {
+      if (!label.includes(term)) return false;
+    }
+    for (const c of clauses) {
+      if (c.field === "path" && !label.includes(c.value)) return false;
+      if (c.field === "change" && f.status !== c.value) return false;
+      if (c.field === "has" && fileFactCount(f, ctx.anchored) <= 0)
+        return false;
+      if (c.field === "is" && fileFactCount(f, ctx.unanchored) <= 0)
+        return false;
+    }
+    return true;
+  });
+  return { files, diagnostics };
 }

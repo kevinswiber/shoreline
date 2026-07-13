@@ -24,7 +24,7 @@
 // { html, ctx }`, assigning the returned `ctx` (and resetting the cursors the
 // pure renderer no longer writes) to module-local state. The diff cursors /
 // `diffCtx` / `shownDiff*` stay module-local — never on the store; the
-// navigator filter is route state (`state.diffNav`).
+// file-search query is route state (`state.diffFileQuery`).
 
 import { CLASS, diffStatusClass } from "../classNames";
 import { compositeAnnotations, ensureRevisionComposite } from "../detail";
@@ -39,14 +39,12 @@ import {
   type Annotation,
   type DiffArtifact,
   type DiffCtx,
-  type DiffNavFilter,
   type DiffNavSummary,
   fileFactCount,
   filePathLabel,
-  isDiffNavFilter,
+  matchDiffFiles,
   renderDiff,
   renderDiffFileBody,
-  renderDiffNavFilters,
   renderDiffNavSummary,
   unanchoredReason,
 } from "./render";
@@ -54,7 +52,8 @@ import {
 // The page's fixed-id hosts (the one diff surface).
 const PAGE_SURFACE = {
   title: "#diff-page-title",
-  nav: "#diff-page-nav",
+  nav: "#diff-page-nav", // outer host — click delegation only, never rebuilt
+  navList: "#diff-page-nav-list", // swappable content — renderDiffNav's target
   body: "#diff-page-body",
 };
 
@@ -62,8 +61,11 @@ function surfaceBody(): HTMLElement | null {
   return $(PAGE_SURFACE.body);
 }
 
-function surfaceNav(): HTMLElement | null {
-  return $(PAGE_SURFACE.nav);
+// The swappable navigator content. The outer host (PAGE_SURFACE.nav) carries
+// the static search input and the click delegation; it is never rebuilt —
+// only this inner list container is, so the input keeps focus across repaints.
+function surfaceNavList(): HTMLElement | null {
+  return $(PAGE_SURFACE.navList);
 }
 
 // The identity of the diff currently painted (its payload address), so a
@@ -77,14 +79,24 @@ let shownDiffKey: string | null = null;
 // page closes. NOT route state (state.diff stays the snapshot-id string|null).
 let diffCtx: DiffCtx | null = null;
 // Cursors for the diff-local jump keys (next/prev fact, next/prev change),
-// reset each time a new diff renders. The navigator filter is route state
-// (`state.diffNav`), never module-local.
+// reset each time a new diff renders. The file-search query is route state
+// (`state.diffFileQuery`), never module-local.
 let diffFactCursor = -1;
 let diffChangeCursor = -1;
-// The last-painted navigator filter and `?file=` target, so a repaint only
+// The last-painted file-search query and `?file=` target, so a repaint only
 // re-renders the navigator / re-scrolls when the route actually moved.
-let shownDiffNavFilter: DiffNavFilter = "all";
+let shownDiffFileQuery = "";
 let shownDiffFile: string | null = null;
+
+// Sync the static search input from route state (value only — the input is
+// never rebuilt, so it keeps focus and cursor position across repaints), and
+// stamp the shown marker the cheap-reconcile branch compares against.
+function syncDiffFileQueryInput(): void {
+  const input = $<HTMLInputElement>("#diff-file-query");
+  const value = getState().diffFileQuery;
+  if (input && input.value !== value) input.value = value;
+  shownDiffFileQuery = value;
+}
 
 // ---------------------------------------------------------------------------
 // Route-only open / close (the open/close DOM is the reconciler's job)
@@ -103,7 +115,7 @@ export const DIFF_ROUTE_CLEARED: Pick<
   | "diffPage"
   | "diffRevision"
   | "diffFile"
-  | "diffNav"
+  | "diffFileQuery"
 > = {
   diff: null,
   diffHash: null,
@@ -111,7 +123,7 @@ export const DIFF_ROUTE_CLEARED: Pick<
   diffPage: false,
   diffRevision: null,
   diffFile: null,
-  diffNav: "all",
+  diffFileQuery: "",
 };
 
 /**
@@ -187,7 +199,7 @@ async function paintDiffPage(opts: {
   if (title) title.textContent = opts.title;
   const body = surfaceBody();
   if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
-  const nav = surfaceNav();
+  const nav = surfaceNavList();
   if (nav) nav.innerHTML = "";
   let snapshotUrl = `/api/snapshots/${encodeURIComponent(opts.snapshotId)}`;
   if (opts.contentHash)
@@ -209,7 +221,7 @@ async function paintDiffPage(opts: {
     diffCtx = ctx;
     diffFactCursor = -1;
     diffChangeCursor = -1;
-    const liveNav = surfaceNav();
+    const liveNav = surfaceNavList();
     if (liveNav) liveNav.innerHTML = renderDiffNav();
     applyDiffFocus();
     return true;
@@ -277,7 +289,7 @@ async function renderDiffPageFromRevision(revisionId: string): Promise<void> {
     factsNote: null,
   });
   if (painted) {
-    shownDiffNavFilter = getState().diffNav;
+    syncDiffFileQueryInput();
     applyDiffFileScroll();
   }
 }
@@ -303,7 +315,7 @@ async function renderDiffPageFromSnapshot(
       "no review facts — this link names a snapshot the record cannot map to a revision",
   });
   if (painted) {
-    shownDiffNavFilter = getState().diffNav;
+    syncDiffFileQueryInput();
     applyDiffFileScroll();
   }
 }
@@ -338,9 +350,9 @@ export function renderDiffPage(): Promise<void> {
     return Promise.resolve();
   }
   if (key === shownDiffKey) {
-    if (getState().diffNav !== shownDiffNavFilter) {
-      shownDiffNavFilter = getState().diffNav;
-      const nav = surfaceNav();
+    if (getState().diffFileQuery !== shownDiffFileQuery) {
+      syncDiffFileQueryInput();
+      const nav = surfaceNavList();
       if (nav) nav.innerHTML = renderDiffNav();
     }
     if (getState().diffFile !== shownDiffFile) applyDiffFileScroll();
@@ -466,21 +478,22 @@ export function toggleDiffFile(section: HTMLElement): void {
 // The file/fact navigator
 // ---------------------------------------------------------------------------
 
-// The file/fact navigator sidebar: one entry per file (status + path + fact badge)
-// plus the unanchored-facts panel, so every fact — including those not anchored to
-// a captured diff line — is reachable on a large changeset.
+// The file/fact navigator sidebar: one entry per file (status + path + fact
+// badge), filtered purely through the file-scope query grammar, plus the
+// always-available unanchored-facts panel — never a mutually exclusive display
+// mode — so every fact, including those not anchored to a captured diff line,
+// is reachable on a large changeset.
 function renderDiffNav(): string {
   if (!diffCtx) return "";
-  const navFilter = getState().diffNav;
   const { files, anchored, unanchored, filePaths } = diffCtx;
-  const visibleFiles = files
+  const { files: matchedFiles, diagnostics } = matchDiffFiles(
+    diffCtx,
+    getState().diffFileQuery,
+  );
+  const matched = new Set(matchedFiles);
+  const fileItems = files
     .map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) }))
-    .filter((item) => {
-      if (navFilter === "with-facts") return item.factCount > 0;
-      if (navFilter === "unanchored") return false;
-      return true;
-    });
-  const fileItems = visibleFiles
+    .filter((item) => matched.has(item.f))
     .map(({ f, i, factCount: n }) => {
       const badge = n ? `<span class="${CLASS.dfileNotes}">${n}</span>` : "";
       return `<li><button class="${CLASS.diffNavFile}" data-nav-file="${i}">
@@ -488,12 +501,14 @@ function renderDiffNav(): string {
         <span class="${CLASS.dpath}">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
     })
     .join("");
-  let html =
-    renderDiffNavSummary(diffNavSummary()) + renderDiffNavFilters(navFilter);
-  if (navFilter !== "unanchored") {
-    html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
+  let html = renderDiffNavSummary(diffNavSummary());
+  if (diagnostics.length) {
+    html += `<div class="${CLASS.diffFileNotice}" role="status">${diagnostics
+      .map((d) => escapeHtml(d.message))
+      .join(" ")}</div>`;
   }
-  if (unanchored.length && navFilter !== "with-facts") {
+  html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
+  if (unanchored.length) {
     const entries = unanchored
       .map(
         (a) =>
@@ -514,16 +529,6 @@ function diffNavSummary(): DiffNavSummary {
     factCount: diffCtx.anchored.length + diffCtx.unanchored.length,
     unanchoredCount: diffCtx.unanchored.length,
   };
-}
-
-/**
- * Set the navigator's file/fact filter — route state (`?nav=`, a shareable
- * refinement: replace, not push). The store subscriber's repaint re-renders
- * the navigator.
- */
-export function setDiffNavFilter(filter: string): void {
-  if (!isDiffNavFilter(filter)) return;
-  navigate({ diffNav: filter }, { replace: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -632,18 +637,11 @@ function onDiffBodyKeydown(ev: KeyboardEvent): void {
   }
 }
 
-// The navigator sidebar delegate, shared by both surfaces: a filter button
-// re-renders the nav; a file entry expands + scrolls its section; an
-// unanchored-fact entry scrolls to its body.
+// The navigator sidebar delegate, shared by both surfaces: a file entry
+// expands + scrolls its section; an unanchored-fact entry scrolls to its body.
 function onDiffNavClick(ev: Event): void {
   const t = ev.target;
   if (!(t instanceof Element)) return;
-  const filterBtn = t.closest<HTMLElement>("[data-diff-nav-filter]");
-  if (filterBtn) {
-    const filter = filterBtn.dataset.diffNavFilter;
-    if (filter) setDiffNavFilter(filter);
-    return;
-  }
   const fileBtn = t.closest<HTMLElement>("[data-nav-file]");
   if (fileBtn) {
     const idx = Number(fileBtn.dataset.navFile);
@@ -676,4 +674,13 @@ export function initControls(): void {
   body?.addEventListener("click", onDiffBodyClick);
   body?.addEventListener("keydown", onDiffBodyKeydown);
   $(PAGE_SURFACE.nav)?.addEventListener("click", onDiffNavClick);
+  // The static file-search input (the #filter-text pattern): route state via a
+  // replace refinement, then the controller's own reconciler — idempotent, so
+  // when the store subscriber has already repainted, the direct call is a no-op
+  // (the cheap branch guards on the shown query).
+  $<HTMLInputElement>("#diff-file-query")?.addEventListener("input", (ev) => {
+    const value = (ev.target as HTMLInputElement).value;
+    navigate({ diffFileQuery: value }, { replace: true });
+    void renderDiffPage();
+  });
 }

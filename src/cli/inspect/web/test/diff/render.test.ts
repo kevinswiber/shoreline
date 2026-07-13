@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type { Annotation, DiffArtifact, DiffFile } from "../../src/diff/render";
+import type {
+  Annotation,
+  DiffArtifact,
+  DiffCtx,
+  DiffFile,
+} from "../../src/diff/render";
 import {
   classifyLowSignal,
   fileFactCount,
   fileForFact,
   filePathLabel,
   fileRowCount,
+  matchDiffFiles,
   rangeTouchesCapturedRows,
   renderAnnotation,
   renderDiff,
   renderDiffFactVicinity,
   renderDiffFileBody,
   renderDiffFileHeader,
-  renderDiffNavFilters,
   renderDiffNavSummary,
   unanchoredReason,
 } from "../../src/diff/render";
@@ -343,18 +348,6 @@ describe("renderDiffNavSummary", () => {
   });
 });
 
-describe("renderDiffNavFilters", () => {
-  it("renders the three filters and presses the active one", () => {
-    for (const active of ["all", "with-facts", "unanchored"] as const) {
-      const doc = parse(renderDiffNavFilters(active));
-      const buttons = doc.querySelectorAll("button[data-diff-nav-filter]");
-      expect(buttons).toHaveLength(3);
-      const pressed = doc.querySelector('button[aria-pressed="true"]');
-      expect(pressed?.getAttribute("data-diff-nav-filter")).toBe(active);
-    }
-  });
-});
-
 describe("renderDiff", () => {
   it("returns html plus a ctx partitioning the facts (no globals)", () => {
     const { html, ctx } = renderDiff("obj:sha256:lib", artifact, [
@@ -498,5 +491,145 @@ describe("renderDiffFileBody emphasis", () => {
     };
     const html = renderDiffFileBody(file, []);
     expect(html).toContain('<span class="emph">x</span>');
+  });
+});
+
+describe("matchDiffFiles", () => {
+  function ctxWith(
+    files: DiffFile[],
+    anchored: Annotation[] = [],
+    unanchored: Annotation[] = [],
+  ): DiffCtx {
+    const filePaths = new Set<string>();
+    for (const f of files) {
+      if (f.new_path) filePaths.add(f.new_path);
+      if (f.old_path) filePaths.add(f.old_path);
+    }
+    return {
+      snapshotId: "obj:sha256:test",
+      files,
+      anchored,
+      unanchored,
+      filePaths,
+    };
+  }
+
+  const fileAdded: DiffFile = { status: "added", new_path: "src/added.rs" };
+  const fileDeleted: DiffFile = {
+    status: "deleted",
+    old_path: "src/deleted.rs",
+  };
+  const fileRenamed: DiffFile = {
+    status: "renamed",
+    old_path: "src/old.rs",
+    new_path: "src/new.rs",
+  };
+
+  it("path: matches a substring of the file path label", () => {
+    const ctx = ctxWith([libFile, fileAdded]);
+    const { files } = matchDiffFiles(ctx, "path:lib");
+    expect(files).toHaveLength(1);
+    expect(files[0]).toBe(libFile);
+  });
+
+  it("free text with no colon matches the path substring too", () => {
+    const ctx = ctxWith([libFile, fileAdded]);
+    expect(matchDiffFiles(ctx, "lib").files).toEqual([libFile]);
+  });
+
+  it("change: matches exactly on the real DiffFile.status enum (added/deleted/modified/renamed/copied)", () => {
+    const ctx = ctxWith([fileAdded, fileDeleted, fileRenamed, libFile]);
+    expect(matchDiffFiles(ctx, "change:added").files).toEqual([fileAdded]);
+    expect(matchDiffFiles(ctx, "change:deleted").files).toEqual([fileDeleted]);
+    expect(matchDiffFiles(ctx, "change:renamed").files).toEqual([fileRenamed]);
+    expect(matchDiffFiles(ctx, "change:modified").files).toEqual([libFile]);
+  });
+
+  it("change: with an unrecognized value drops the clause with a diagnostic, never silent-empty", () => {
+    const ctx = ctxWith([libFile]);
+    const { files, diagnostics } = matchDiffFiles(ctx, "change:bogus");
+    expect(files).toEqual([libFile]); // the clause is not applied — not treated as always-false
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({
+      code: "unsupported-value",
+      key: "change",
+    });
+  });
+
+  it("has:facts matches files carrying at least one anchored fact", () => {
+    // anchoredObs targets src/lib.rs (module-level fixture, defined above).
+    const ctx = ctxWith([libFile, fileAdded], [anchoredObs]);
+    expect(matchDiffFiles(ctx, "has:facts").files).toEqual([libFile]);
+  });
+
+  it("has: with an unrecognized value drops the clause with a diagnostic", () => {
+    const ctx = ctxWith([libFile], [anchoredObs]);
+    const { files, diagnostics } = matchDiffFiles(ctx, "has:bogus");
+    expect(files).toEqual([libFile]);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ code: "unsupported-value", key: "has" }),
+    ]);
+  });
+
+  it("is:unanchored matches a file targeted by a fact that fell outside its captured rows", () => {
+    // A range fact whose file IS captured but whose line span is outside every
+    // captured row: renderDiff's own partition classifies it unanchored (see
+    // rangeTouchesCapturedRows) — this pins is:unanchored to that same partition
+    // rather than reinventing the anchored/unanchored split.
+    const outsideRowsFact: Annotation = {
+      ...anchoredObs,
+      id: "obs:sha256:outside",
+      target: {
+        kind: "range",
+        filePath: "src/lib.rs",
+        startLine: 999,
+        endLine: 999,
+      },
+    };
+    const { ctx } = renderDiff("obj:sha256:lib", artifact, [outsideRowsFact]);
+    expect(ctx.unanchored).toEqual([outsideRowsFact]); // pin: renderDiff already classifies this unanchored
+    expect(matchDiffFiles(ctx, "is:unanchored").files).toEqual([libFile]);
+  });
+
+  it("is:unanchored excludes files when the unanchored fact targets no captured file", () => {
+    // unanchoredAssessment is revision-level (target.kind === "revision") — it
+    // maps to no file, so no file should match is:unanchored from it.
+    const { ctx } = renderDiff("obj:sha256:lib", artifact, [
+      unanchoredAssessment,
+    ]);
+    expect(matchDiffFiles(ctx, "is:unanchored").files).toEqual([]);
+  });
+
+  it("is: with an unrecognized value drops the clause with a diagnostic", () => {
+    const ctx = ctxWith([libFile]);
+    const { files, diagnostics } = matchDiffFiles(ctx, "is:bogus");
+    expect(files).toEqual([libFile]);
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ code: "unsupported-value", key: "is" }),
+    ]);
+  });
+
+  it("status: is never valid at file scope — a pointed diagnostic, never silent-empty", () => {
+    const ctx = ctxWith([libFile]);
+    const { files, diagnostics } = matchDiffFiles(ctx, "status:modified");
+    expect(files).toEqual([libFile]); // the clause is dropped, not applied
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].key).toBe("status");
+    expect(diagnostics[0].code).toBe("unsupported-qualifier");
+    expect(diagnostics[0].message).toContain("change:");
+  });
+
+  it("an unrecognized key falls through as free text, unstripped of its colon", () => {
+    const ctx = ctxWith([libFile, fileAdded]);
+    const { files, diagnostics } = matchDiffFiles(ctx, "author:nobody");
+    expect(diagnostics).toEqual([]);
+    expect(files).toEqual([]); // "author:nobody" is not a substring of either path label
+  });
+
+  it("an empty query matches every file with no diagnostics", () => {
+    const ctx = ctxWith([libFile, fileAdded]);
+    const { files, diagnostics } = matchDiffFiles(ctx, "");
+    expect(files).toEqual([libFile, fileAdded]);
+    expect(diagnostics).toEqual([]);
   });
 });

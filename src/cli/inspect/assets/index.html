@@ -108,7 +108,16 @@
           <button id="diff-page-close" class="ghost" aria-label="Back to the record">‹ back</button>
         </header>
         <div class="diff-layout">
-          <nav id="diff-page-nav" class="diff-nav" aria-label="diff files"></nav>
+          <nav id="diff-page-nav" class="diff-nav" aria-label="diff files">
+            <input
+              id="diff-file-query"
+              type="search"
+              class="diff-file-search"
+              placeholder="filter files — path, change:, has:facts, is:unanchored"
+              aria-label="filter diff files"
+            />
+            <div id="diff-page-nav-list"></div>
+          </nav>
           <div id="diff-page-body" class="diff-body"></div>
         </div>
       </section>

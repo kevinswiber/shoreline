@@ -121,7 +121,7 @@ describe("closeDiff (a real push back to the record, never a replace)", () => {
   it("pushes the cleared route and never touches the parked cursor", async () => {
     store.commit({ selected: { kind: "revision", id: REV }, open: true });
     controller.openDiff(OBJ, "obs:focus", ARTIFACT);
-    store.commit({ diffFile: "src/lib.rs", diffNav: "with-facts" });
+    store.commit({ diffFile: "src/lib.rs", diffFileQuery: "has:facts" });
 
     const pushSpy = vi.spyOn(history, "pushState");
     const replaceSpy = vi.spyOn(history, "replaceState");
@@ -133,7 +133,7 @@ describe("closeDiff (a real push back to the record, never a replace)", () => {
       expect(store.getState().diffHash).toBeNull();
       expect(store.getState().focus).toBeNull();
       expect(store.getState().diffFile).toBeNull();
-      expect(store.getState().diffNav).toBe("all");
+      expect(store.getState().diffFileQuery).toBe("");
       expect(pushSpy).toHaveBeenCalledTimes(1); // close = push
       expect(replaceSpy).not.toHaveBeenCalled(); // never {replace: true}
       // The cursor (and its open pane) survives the round trip untouched.
@@ -196,57 +196,32 @@ describe("lazy file bodies", () => {
   });
 });
 
-describe("the file/fact navigator", () => {
-  it("renders a summary, filters, a file list, and the unanchored-facts panel", async () => {
+describe("the file/fact navigator (query-driven, no filter buttons)", () => {
+  it("renders a summary, the full file list, and the always-available unanchored-facts panel with no query", async () => {
     await openCommitted();
-    const nav = document.querySelector("#diff-page-nav");
-    expect(
-      nav
-        ?.querySelector('[data-diff-nav-filter="all"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
+    const nav = document.querySelector("#diff-page-nav-list");
+    expect(nav?.querySelector("[data-diff-nav-filter]")).toBeNull(); // the button row is gone
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
     // The three revision-level facts (an input request + two assessments) are
-    // unanchored and reachable in the navigator panel.
+    // unanchored and always reachable in the navigator panel.
     expect(nav?.querySelector(".diff-unanchored")).not.toBeNull();
   });
 
-  it("filters to unanchored facts only, hiding the file list", async () => {
+  it("typing has:facts narrows the file list the same way the old with-facts filter did", async () => {
     await openCommitted();
-    // On the page the filter is route state; the subscriber repaint (played
-    // here by the explicit renderDiffPage) re-renders the navigator.
-    controller.setDiffNavFilter("unanchored");
-    expect(store.getState().diffNav).toBe("unanchored");
+    store.commit({ diffFileQuery: "has:facts" });
     await controller.renderDiffPage();
-    const nav = document.querySelector("#diff-page-nav");
-    expect(
-      nav
-        ?.querySelector('[data-diff-nav-filter="unanchored"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
+    const nav = document.querySelector("#diff-page-nav-list");
+    expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
+  });
+
+  it("the unanchored-facts panel stays visible even when the file query narrows the file list to nothing", async () => {
+    await openCommitted();
+    store.commit({ diffFileQuery: "path:does-not-exist" });
+    await controller.renderDiffPage();
+    const nav = document.querySelector("#diff-page-nav-list");
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(0);
     expect(nav?.querySelector(".diff-unanchored")).not.toBeNull();
-  });
-
-  it("filters to files carrying facts only, hiding the unanchored panel", async () => {
-    await openCommitted();
-    controller.setDiffNavFilter("with-facts");
-    await controller.renderDiffPage();
-    const nav = document.querySelector("#diff-page-nav");
-    expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
-    expect(nav?.querySelector(".diff-unanchored")).toBeNull();
-  });
-
-  it("ignores an unrecognized filter value", async () => {
-    await openCommitted();
-    controller.setDiffNavFilter("bogus");
-    expect(store.getState().diffNav).toBe("all");
-    const nav = document.querySelector("#diff-page-nav");
-    expect(
-      nav
-        ?.querySelector('[data-diff-nav-filter="all"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
   });
 });
 
@@ -457,6 +432,79 @@ describe("fact / change jump keys", () => {
   });
 });
 
+describe("the file-search query (?fq=)", () => {
+  it("filters the nav file list through matchDiffFiles and clears on an empty query", async () => {
+    setSnapshotResponse(syntheticArtifact(12));
+    await openCommitted();
+    const input = document.querySelector<HTMLInputElement>("#diff-file-query");
+    expect(input).not.toBeNull();
+    if (input) {
+      input.value = "f11";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    expect(store.getState().diffFileQuery).toBe("f11");
+    const nav = document.querySelector("#diff-page-nav-list");
+    expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
+  });
+
+  it("syncs the input's value from route state on a cold diff-page load (?fq= deep link)", async () => {
+    store.commit({
+      diffPage: true,
+      diffRevision: REV,
+      diffFileQuery: "path:api",
+    });
+    await controller.renderDiffPage();
+    const input = document.querySelector<HTMLInputElement>("#diff-file-query");
+    expect(input?.value).toBe("path:api");
+  });
+
+  it("renders an inline diagnostic for an unsupported qualifier without emptying the list", async () => {
+    await openCommitted();
+    store.commit({ diffFileQuery: "status:modified" });
+    await controller.renderDiffPage();
+    const nav = document.querySelector("#diff-page-nav-list");
+    expect(nav?.textContent).toContain("status:");
+    expect(nav?.querySelectorAll(".diff-nav-file").length).toBeGreaterThan(0);
+  });
+
+  it("closing the page clears diffFileQuery (DIFF_ROUTE_CLEARED)", async () => {
+    await openCommitted();
+    store.commit({ diffFileQuery: "path:api" });
+    controller.closeDiff();
+    expect(store.getState().diffFileQuery).toBe("");
+  });
+
+  it("typing in the file-search input does not trigger n/p/]/[ file navigation", async () => {
+    const keyboard = await import("../../src/keyboard");
+    document.addEventListener("keydown", keyboard.onKey);
+    try {
+      await openCommitted();
+      const input =
+        document.querySelector<HTMLInputElement>("#diff-file-query");
+      input?.focus();
+      const scrollSpy = vi
+        .spyOn(Element.prototype, "scrollIntoView")
+        .mockImplementation(() => {});
+      try {
+        for (const key of ["n", "p", "]", "["]) {
+          const ev = new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          });
+          input?.dispatchEvent(ev);
+          expect(ev.defaultPrevented).toBe(false);
+        }
+        expect(scrollSpy).not.toHaveBeenCalled();
+      } finally {
+        scrollSpy.mockRestore();
+      }
+    } finally {
+      document.removeEventListener("keydown", keyboard.onKey);
+    }
+  });
+});
+
 // The routed diff page: a route surface (never an overlay — activeName() stays
 // null) painted from `state.diffPage`/`diffRevision`. Facts AND snapshot identity
 // come from the composite revision document, so cold and grouped-away deep links
@@ -514,21 +562,17 @@ describe("renderDiffPage (the routed page surface)", () => {
     expect(pageBody()?.textContent).toContain("no review facts");
   });
 
-  it("applies ?nav= from route state and expands the ?file= target", async () => {
+  it("applies ?fq= from route state and expands the ?file= target", async () => {
     setSnapshotResponse(syntheticArtifact(12));
     store.commit({
       diffPage: true,
       diffRevision: REV,
-      diffNav: "with-facts",
+      diffFileQuery: "has:facts",
       diffFile: "src/f11.rs",
     });
     await controller.renderDiffPage();
-    const nav = document.querySelector("#diff-page-nav");
-    expect(
-      nav
-        ?.querySelector('[data-diff-nav-filter="with-facts"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
+    const input = document.querySelector<HTMLInputElement>("#diff-file-query");
+    expect(input?.value).toBe("has:facts");
     // The ?file= target's body is ensured and its section expanded.
     const section = pageBody()?.querySelector('.dfile[data-dfile="11"]');
     expect(
@@ -537,20 +581,6 @@ describe("renderDiffPage (the routed page surface)", () => {
     expect(
       section?.querySelector<HTMLElement>("[data-dfile-body]")?.innerHTML,
     ).toContain("dhunk");
-  });
-
-  it("promotes the navigator filter to route state on the page", async () => {
-    store.commit({ diffPage: true, diffRevision: REV });
-    await controller.renderDiffPage();
-    controller.setDiffNavFilter("unanchored");
-    expect(store.getState().diffNav).toBe("unanchored");
-    // The repaint (the store subscriber in production) re-renders the navigator.
-    await controller.renderDiffPage();
-    expect(
-      document
-        .querySelector('#diff-page-nav [data-diff-nav-filter="unanchored"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
   });
 
   it("re-paints idempotently on a freshness-poll repaint", async () => {

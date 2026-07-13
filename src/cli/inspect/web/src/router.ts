@@ -11,9 +11,12 @@
 //                              verbatim; the address bar is replace-rewritten
 //   #/revision/<revisionId>    entity-primary: the named revision is open in the detail pane
 //   #/event/<eventId>          entity-primary: the named event is open in the detail pane
-//   #/revision/<revisionId>/diff[?focus=<factId>][&file=<path>][&nav=<filter>]
+//   #/revision/<revisionId>/diff[?focus=<factId>][&file=<path>][&fq=<query>]
 //                              the routed annotated-diff page (revision-primary;
-//                              never carries the lens/selection/filter params)
+//                              never carries the lens/selection/filter params);
+//                              legacy `&nav=<filter>` links forward to the
+//                              equivalent `fq=` clause (the address bar is
+//                              replace-rewritten)
 //   ?lens=<lens>               the master lens behind an entity-primary path
 //   ?track= ?snapshot=         cross-lens scope (survive a lens switch)
 //   ?order= ?types= ?q=        per-lens timeline controls
@@ -34,7 +37,6 @@
 // the router↔render cycle. This module imports neither render nor any lens.
 
 import { fetchRevealPage, revealPatch } from "./data";
-import { type DiffNavFilter, isDiffNavFilter } from "./diff/render";
 import { $ } from "./dom";
 import {
   eventExists,
@@ -81,7 +83,10 @@ export interface RoutePatch {
   diffPage: boolean;
   diffRevision: string | null;
   diffFile: string | null;
-  diffNav: DiffNavFilter;
+  // The diff page's file-search query (`?fq=`). OMITTED (like the cursor fields)
+  // by every non-diff path arm, so a lens navigation never clobbers it; the
+  // diff-page branch always assigns it (the URL is authoritative on that route).
+  diffFileQuery?: string;
   // Reserved forward-compat seam: a reserved param surfaces a live-state notice.
   unsupportedAsOf: string | boolean | null;
   unsupportedJournal: string | boolean | null;
@@ -92,8 +97,10 @@ export interface RoutePatch {
   // through the stale form. A parse-seam field like `unknownPath` — never State.
   // "threads-alias" swaps only the path segment (query kept verbatim);
   // "legacy-diff" re-serializes to the canonical page form (the grammar changed
-  // shape) and is set by resolve() only when the snapshot maps to a revision.
-  migrated: "threads-alias" | "legacy-diff" | null;
+  // shape) and is set by resolve() only when the snapshot maps to a revision;
+  // "legacy-diff-nav" re-serializes a diff-page `?nav=` filter into its `?fq=`
+  // equivalent.
+  migrated: "threads-alias" | "legacy-diff" | "legacy-diff-nav" | null;
 }
 
 /**
@@ -117,7 +124,7 @@ export interface SerializeSnapshot {
   diffPage: boolean;
   diffRevision: string | null;
   diffFile: string | null;
-  diffNav: DiffNavFilter;
+  diffFileQuery: string;
 }
 
 /** Options for {@link navigate}: `replace` swaps the history entry for a refinement. */
@@ -182,7 +189,6 @@ export function parseHash(
     diffPage: false,
     diffRevision: null,
     diffFile: p.file ? p.file : null,
-    diffNav: p.nav && isDiffNavFilter(p.nav) ? p.nav : "all",
     unsupportedAsOf: p.asof != null ? p.asof || true : null,
     unsupportedJournal: p.journal != null ? p.journal || true : null,
     unknownPath: null,
@@ -194,9 +200,36 @@ export function parseHash(
   if (segs[0] === "revision" && segs[1] && segs[2] === "diff") {
     // The routed diff page. The page's identity is `diffRevision`; the patch
     // deliberately omits `selected`/`open` so the parked cursor of either kind
-    // survives applying this hash (Back/forward, deep link).
+    // survives applying this hash (Back/forward, deep link). The file-search
+    // query is assigned here ONLY (the URL is authoritative on this route); an
+    // explicit `fq=` wins over any legacy `nav=`, and each of the three `nav=`
+    // values that ever existed forwards to its `fq=` equivalent with the
+    // canonical-URL rewrite — `nav=` itself is dead grammar.
     patch.diffPage = true;
     patch.diffRevision = decodeURIComponent(segs[1]);
+    if (p.fq != null) {
+      patch.diffFileQuery = p.fq;
+    } else {
+      switch (p.nav) {
+        case "with-facts":
+          patch.diffFileQuery = "has:facts";
+          patch.migrated = "legacy-diff-nav";
+          break;
+        case "unanchored":
+          patch.diffFileQuery = "is:unanchored";
+          patch.migrated = "legacy-diff-nav";
+          break;
+        case "all":
+          // The link's intent ("no filter") is already the grammar's default —
+          // still worth canonicalizing the now-dead nav= param off the URL.
+          patch.diffFileQuery = "";
+          patch.migrated = "legacy-diff-nav";
+          break;
+        default:
+          // No nav= at all, or a value that was never valid historically.
+          patch.diffFileQuery = "";
+      }
+    }
     return patch;
   }
   patch.selected = { kind: null, id: null };
@@ -247,8 +280,8 @@ export function serializeState(
       pageParams.push(`focus=${encodeURIComponent(snapshot.focus)}`);
     if (snapshot.diffFile)
       pageParams.push(`file=${encodeURIComponent(snapshot.diffFile)}`);
-    if (snapshot.diffNav !== "all")
-      pageParams.push(`nav=${encodeURIComponent(snapshot.diffNav)}`);
+    if (snapshot.diffFileQuery)
+      pageParams.push(`fq=${encodeURIComponent(snapshot.diffFileQuery)}`);
     const pagePath = `#/revision/${encodeURIComponent(snapshot.diffRevision)}/diff`;
     return pageParams.length ? `${pagePath}?${pageParams.join("&")}` : pagePath;
   }
@@ -336,10 +369,14 @@ export function applyHash(): void {
       "",
       location.hash.replace(/^#\/threads/, "#/list"),
     );
-  } else if (parsed.migrated === "legacy-diff") {
-    // A forwarded `?diff=` link intentionally changes query grammar (the diff
-    // became a revision-primary page path), so this mode re-serializes instead
-    // of patching the original string. Replace, never push.
+  } else if (
+    parsed.migrated === "legacy-diff" ||
+    parsed.migrated === "legacy-diff-nav"
+  ) {
+    // A forwarded `?diff=` or diff-page `?nav=` link intentionally changes query
+    // grammar (the diff became a revision-primary page path; the nav filter
+    // became the `?fq=` file query), so these modes re-serialize instead of
+    // patching the original string. Replace, never push.
     history.replaceState({}, "", serializeState(getState(), presentTypes()));
   }
   const sel = getState().selected;
@@ -458,12 +495,15 @@ function statePatchFrom(patch: RoutePatch): Partial<State> {
     diffPage: patch.diffPage,
     diffRevision: patch.diffRevision,
     diffFile: patch.diffFile,
-    diffNav: patch.diffNav,
   };
   // The cursor fields are copied only when the patch carries them: the diff-page
   // path omits them, and committing `undefined` would clear the parked cursor.
+  // `diffFileQuery` follows the same rule inverted: only the diff-page path
+  // carries it, so a lens navigation never clobbers a parked query.
   if (patch.selected !== undefined) next.selected = patch.selected;
   if (patch.open !== undefined) next.open = patch.open;
+  if (patch.diffFileQuery !== undefined)
+    next.diffFileQuery = patch.diffFileQuery;
   return next;
 }
 

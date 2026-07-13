@@ -75,7 +75,7 @@ function routeFields(p: RoutePatch) {
     diffPage: p.diffPage,
     diffRevision: p.diffRevision,
     diffFile: p.diffFile,
-    diffNav: p.diffNav,
+    diffFileQuery: p.diffFileQuery,
   };
 }
 
@@ -99,7 +99,7 @@ function snapshotFrom(p: RoutePatch): SerializeSnapshot {
     diffPage: p.diffPage,
     diffRevision: p.diffRevision,
     diffFile: p.diffFile,
-    diffNav: p.diffNav,
+    diffFileQuery: p.diffFileQuery ?? "",
   };
 }
 
@@ -286,7 +286,7 @@ describe("serializeState", () => {
       diffPage: false,
       diffRevision: null,
       diffFile: null,
-      diffNav: "all",
+      diffFileQuery: "",
       ...over,
     };
   }
@@ -433,7 +433,7 @@ describe("grammar round-trip (parseHash and serializeState are inverses)", () =>
     `#/list?sel=${encodeURIComponent(REV)}`,
     // The routed diff page (bare, and with its full param set).
     `#/revision/${encodeURIComponent(REV)}/diff`,
-    `#/revision/${encodeURIComponent(REV)}/diff?focus=evt:9&file=src%2Fmain.rs&nav=unanchored`,
+    `#/revision/${encodeURIComponent(REV)}/diff?focus=evt:9&file=src%2Fmain.rs&fq=is%3Aunanchored`,
   ];
 
   for (const hash of hashes) {
@@ -468,7 +468,7 @@ describe("diff page route", () => {
   }
 
   it("round-trips the canonical diff-page path", () => {
-    const hash = `#/revision/${encodeURIComponent(REV)}/diff?focus=${encodeURIComponent(FACT)}&file=${encodeURIComponent("src/cli/inspect/api.rs")}&nav=with-facts`;
+    const hash = `#/revision/${encodeURIComponent(REV)}/diff?focus=${encodeURIComponent(FACT)}&file=${encodeURIComponent("src/cli/inspect/api.rs")}&fq=${encodeURIComponent("has:facts")}`;
     const patch = router.parseHash(hash, PT);
     expect(patch.diffPage).toBe(true);
     expect(patch.diffRevision).toBe(REV); // the page's own identity
@@ -476,7 +476,7 @@ describe("diff page route", () => {
     expect(patch.open).toBeUndefined();
     expect(patch.focus).toBe(FACT);
     expect(patch.diffFile).toBe("src/cli/inspect/api.rs");
-    expect(patch.diffNav).toBe("with-facts");
+    expect(patch.diffFileQuery).toBe("has:facts");
     expect(router.serializeState(snapshotFrom(patch), PT)).toBe(hash);
   });
 
@@ -491,23 +491,105 @@ describe("diff page route", () => {
     expect(next.sortKey).toBe("captured");
   });
 
-  it("omits nav at its default and rejects a garbage nav value", () => {
+  it("omits fq= at its default", () => {
     const bare = router.parseHash(
       `#/revision/${encodeURIComponent(REV)}/diff`,
       PT,
     );
-    expect(bare.diffNav).toBe("all");
+    expect(bare.diffFileQuery).toBe("");
     expect(router.serializeState(snapshotFrom(bare), PT)).toBe(
       `#/revision/${encodeURIComponent(REV)}/diff`,
     );
-    const garbage = router.parseHash(
+  });
+
+  it("never parses ?fq= off the diff-page path", () => {
+    const timeline = router.parseHash("#/timeline?fq=path:ignored", PT);
+    expect(timeline.diffFileQuery).toBeUndefined();
+  });
+
+  it("a bare diff-page route resets diffFileQuery to its default — the URL is authoritative on the diff route", async () => {
+    seedDiff();
+    mountInspectorDom();
+    store.commit({
+      diffPage: true,
+      diffRevision: REV,
+      diffFileQuery: "path:api",
+    });
+    history.replaceState(
+      null,
+      "",
+      `#/revision/${encodeURIComponent(REV)}/diff`,
+    );
+    router.applyHash();
+    await flush();
+    expect(store.getState().diffFileQuery).toBe(""); // no fq= on the URL — reset, not carried over
+  });
+
+  it("a non-diff-page route never clobbers a parked diffFileQuery (conditional copy)", async () => {
+    seedDiff();
+    mountInspectorDom();
+    store.commit({
+      diffPage: true,
+      diffRevision: REV,
+      diffFileQuery: "path:api",
+    });
+    // A lens navigation's patch never mentions diffFileQuery (it is diff-page-only
+    // route state) — applying it must not clobber the value with an implicit "" the
+    // way an unconditional copy would.
+    history.replaceState(null, "", "#/timeline");
+    router.applyHash();
+    await flush();
+    expect(store.getState().diffFileQuery).toBe("path:api");
+  });
+
+  it("legacy ?nav= forwards to the equivalent ?fq= clause for all three historical values, with the canonical-URL rewrite", async () => {
+    seedDiff();
+    mountInspectorDom();
+    const cases: Array<[string, string]> = [
+      ["with-facts", "has:facts"],
+      ["unanchored", "is:unanchored"],
+      ["all", ""],
+    ];
+    for (const [legacyNav, expectedFq] of cases) {
+      history.replaceState(
+        null,
+        "",
+        `#/revision/${encodeURIComponent(REV)}/diff?nav=${legacyNav}`,
+      );
+      router.applyHash();
+      await flush();
+      expect(store.getState().diffFileQuery).toBe(expectedFq);
+      const expectedHash = expectedFq
+        ? `#/revision/${encodeURIComponent(REV)}/diff?fq=${encodeURIComponent(expectedFq)}`
+        : `#/revision/${encodeURIComponent(REV)}/diff`;
+      expect(location.hash).toBe(expectedHash);
+    }
+  });
+
+  it("an explicit fq= wins over a legacy nav= on the same URL, with no migration rewrite needed", async () => {
+    seedDiff();
+    mountInspectorDom();
+    history.replaceState(
+      null,
+      "",
+      `#/revision/${encodeURIComponent(REV)}/diff?nav=unanchored&fq=path:api`,
+    );
+    router.applyHash();
+    await flush();
+    expect(store.getState().diffFileQuery).toBe("path:api");
+  });
+
+  it("a garbage nav= value is ignored, same as no nav= at all", async () => {
+    seedDiff();
+    mountInspectorDom();
+    history.replaceState(
+      null,
+      "",
       `#/revision/${encodeURIComponent(REV)}/diff?nav=bogus`,
-      PT,
     );
-    expect(garbage.diffNav).toBe("all");
-    expect(router.serializeState(snapshotFrom(garbage), PT)).not.toContain(
-      "nav=",
-    );
+    router.applyHash();
+    await flush();
+    expect(store.getState().diffFileQuery).toBe("");
   });
 
   it("never emits the legacy diff params alongside the canonical path", () => {
