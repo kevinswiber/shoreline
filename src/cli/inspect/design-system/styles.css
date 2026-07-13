@@ -435,13 +435,14 @@ body {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 12px 14px;
+  padding: var(--card-pad);
   cursor: pointer;
 }
 .unit-card:hover { border-color: var(--accent); }
 .unit-card h3 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); }
 .unit-card .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 10px; font-size: 12px; font-family: var(--mono); color: var(--fg-dim); }
 .unit-card .kv b { color: var(--fg); font-weight: 500; }
+.compact .tier-medium { display: none; }
 .thread-card h3 { word-break: break-all; }
 .supersession-badges { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 8px; }
 .thread-competing { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }

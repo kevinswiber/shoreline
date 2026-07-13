@@ -18,6 +18,7 @@ stays in the live inspector.
 | `_bodies/*.body.html` | Per-card markup fragments (the authored content of each card). |
 | `<group>/<card>.html` | **Generated, git-ignored.** Run the baker to produce them. |
 | `contrast-check.mjs` | Product-local text-contrast audit of record; parses the live token source for both themes. |
+| `density-check.mjs` | Manual density fingerprint gate; audits compact overrides and bakes local comfortable/compact pairs. |
 | `pointbreak-brand.lock.json` | Immutable source commit, manifest digest, and local destinations for vendored brand assets. |
 | `brand-check.mjs` | Offline verification of every locked local byte digest and SVG geometry digest. |
 | `logo/pointbreak-logo.svg` | Locked multiband logo for large identity patterns; live compact chrome remains mono. |
@@ -44,6 +45,24 @@ The command keeps the live token file read-only. Every light-theme
 syntax-on-tinted-row pair, including intraline emphasis, is a release gate.
 The CLI diff palettes in `../../theme.rs` remain compatibility-frozen and do
 not mechanically follow web inspector token changes.
+
+## Density fingerprint
+
+From `src/cli/inspect`, run the manual density release gate with:
+
+```sh
+node design-system/density-check.mjs
+```
+
+The command audits the live `.compact` token block in both directions: compact
+may declare only `--row-pad`, `--line`, and `--card-pad`, and it must declare all
+three. It prints the comfortable-to-compact values, then writes dark/light
+comfortable/compact pairs for Timeline, Revisions, and Attention plus a
+side-by-side index to the git-ignored `output-density/` directory.
+
+This is a manual release gate, not part of CI or `just check`. A passing audit
+is evidence for the required human browser pass, never an automatic promotion
+decision.
 
 ## Workflow
 
