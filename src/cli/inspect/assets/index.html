@@ -232,16 +232,16 @@
     </div>
 
     <div id="reconnect-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="reconnect-title">
-      <div class="modal-card reconnect-card">
+      <form class="modal-card reconnect-card">
         <h2 id="reconnect-title">Connect to Pointbreak Review</h2>
         <p>Enter a token or an HTTP loopback capability URL.</p>
         <input id="reconnect-input" type="password" autocomplete="off" spellcheck="false" aria-label="token or capability URL" />
         <p id="reconnect-error" class="error hidden" role="alert"></p>
         <div class="reconnect-actions">
           <button id="reconnect-cancel" type="button" class="ghost">Cancel</button>
-          <button id="reconnect-submit" type="button">Reconnect</button>
+          <button id="reconnect-submit" type="submit">Reconnect</button>
         </div>
-      </div>
+      </form>
     </div>
 
     <script src="/app.js"></script>

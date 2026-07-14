@@ -224,10 +224,10 @@ function clearReconnectError(): void {
 /** Resolve with a credential without ever rendering or retaining its value. */
 export function promptForCredential(): Promise<string | null> {
   const dialog = document.querySelector<HTMLElement>("#reconnect-dialog");
+  const form = dialog?.querySelector<HTMLFormElement>("form");
   const input = document.querySelector<HTMLInputElement>("#reconnect-input");
-  const submit = document.querySelector<HTMLButtonElement>("#reconnect-submit");
   const cancel = document.querySelector<HTMLButtonElement>("#reconnect-cancel");
-  if (!dialog || !input || !submit || !cancel) return Promise.resolve(null);
+  if (!dialog || !form || !input || !cancel) return Promise.resolve(null);
 
   dialog.classList.remove("hidden");
   input.value = "";
@@ -238,15 +238,18 @@ export function promptForCredential(): Promise<string | null> {
     const finish = (value: string | null) => {
       if (settled) return;
       settled = true;
-      submit.removeEventListener("click", onSubmit);
+      form.removeEventListener("submit", onSubmit);
       cancel.removeEventListener("click", onCancel);
       input.value = "";
       dialog.classList.add("hidden");
       resolve(value);
     };
-    const onSubmit = () => finish(input.value);
+    const onSubmit = (event: SubmitEvent) => {
+      event.preventDefault();
+      finish(input.value);
+    };
     const onCancel = () => finish(null);
-    submit.addEventListener("click", onSubmit);
+    form.addEventListener("submit", onSubmit);
     cancel.addEventListener("click", onCancel);
   });
 }

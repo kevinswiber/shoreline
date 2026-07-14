@@ -225,6 +225,19 @@ describe("single-flight authentication recovery", () => {
     expect(document.body.textContent?.includes(TOKEN)).toBe(false);
   });
 
+  it("submits the credential through the reconnect form", async () => {
+    const pending = promptForCredential();
+    const input = document.querySelector<HTMLInputElement>("#reconnect-input");
+    const submit =
+      document.querySelector<HTMLButtonElement>("#reconnect-submit");
+    expect(input?.form).not.toBeNull();
+    expect(submit?.type).toBe("submit");
+    if (input) input.value = TOKEN;
+    input?.form?.requestSubmit();
+
+    await expect(pending).resolves.toBe(TOKEN);
+  });
+
   it("keeps recovery open after a generic invalid-input error", async () => {
     const coordinator = new AuthCoordinator({
       prompt: promptForCredential,

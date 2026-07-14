@@ -189,10 +189,10 @@
   __name(clearReconnectError, "clearReconnectError");
   function promptForCredential() {
     const dialog = document.querySelector("#reconnect-dialog");
+    const form = dialog?.querySelector("form");
     const input = document.querySelector("#reconnect-input");
-    const submit = document.querySelector("#reconnect-submit");
     const cancel = document.querySelector("#reconnect-cancel");
-    if (!dialog || !input || !submit || !cancel) return Promise.resolve(null);
+    if (!dialog || !form || !input || !cancel) return Promise.resolve(null);
     dialog.classList.remove("hidden");
     input.value = "";
     input.focus();
@@ -201,15 +201,18 @@
       const finish = /* @__PURE__ */ __name((value) => {
         if (settled) return;
         settled = true;
-        submit.removeEventListener("click", onSubmit);
+        form.removeEventListener("submit", onSubmit);
         cancel.removeEventListener("click", onCancel);
         input.value = "";
         dialog.classList.add("hidden");
         resolve2(value);
       }, "finish");
-      const onSubmit = /* @__PURE__ */ __name(() => finish(input.value), "onSubmit");
+      const onSubmit = /* @__PURE__ */ __name((event) => {
+        event.preventDefault();
+        finish(input.value);
+      }, "onSubmit");
       const onCancel = /* @__PURE__ */ __name(() => finish(null), "onCancel");
-      submit.addEventListener("click", onSubmit);
+      form.addEventListener("submit", onSubmit);
       cancel.addEventListener("click", onCancel);
     });
   }
