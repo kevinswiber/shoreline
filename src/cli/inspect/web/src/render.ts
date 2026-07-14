@@ -142,32 +142,19 @@ function renderDiagnostics(): void {
     .join("");
 }
 
-// Module-local: whether the type-facet popover is open. Transient view state
-// (like `lastMasterLens`) — never on the store; a render must not force it
-// shut just because facet counts changed underneath an open menu.
-let typeMenuOpen = false;
-
-/** Paint the per-type facet rows inside the popover, and the toggle button's
- * label/badge. Preserves whether the popover is currently open across a
- * render (a facet-count refresh must not slam an open menu shut). The whole
- * control is Timeline-lens-only visible — `type:` is an event-surface-only
- * qualifier, so the menu has nothing to filter on the list/attention lenses. */
+/** Paint the per-type facet rows inside the Filters panel. The whole section is
+ * Timeline-lens-only visible — `type:` is an event-surface-only qualifier, so
+ * it has nothing to filter on the list/attention lenses. */
 function renderTypeToggles(): void {
   const container = $("#filter-types");
   const menu = $("#filter-types-menu");
-  const toggle = $("#filter-types-toggle");
-  if (!container || !menu || !toggle) return;
+  if (!container || !menu) return;
   // Only the timeline consumes enabledTypes — leaving this visible on the
   // revision list would let a click silently mutate the timeline's ?type=
   // with no visible effect where the click happened.
   const visible = getState().lens === "timeline";
   container.classList.toggle("hidden", !visible);
-  if (!visible) {
-    // Force the popover shut with the control — a lens switch must not leave
-    // it silently open for when the reader switches back later.
-    if (typeMenuOpen) closeTypeMenu();
-    return;
-  }
+  if (!visible) return;
   menu.innerHTML = "";
   // Server-computed facet counts: how many events each type contributes under the
   // rest of the current query (the row distribution, excluding the type filter).
@@ -201,31 +188,6 @@ function renderTypeToggles(): void {
     li.appendChild(btn);
     menu.appendChild(li);
   }
-  const enabledCount = present.filter((id) =>
-    state.enabledTypes.has(id),
-  ).length;
-  toggle.textContent =
-    enabledCount === present.length
-      ? `types · ${present.length}`
-      : `types · ${enabledCount}/${present.length}`;
-  toggle.setAttribute(
-    "aria-label",
-    `event type filter — ${enabledCount} of ${present.length} shown`,
-  );
-  menu.classList.toggle("hidden", !typeMenuOpen);
-  toggle.setAttribute("aria-expanded", String(typeMenuOpen));
-}
-
-function openTypeMenu(): void {
-  typeMenuOpen = true;
-  $("#filter-types-menu")?.classList.remove("hidden");
-  $("#filter-types-toggle")?.setAttribute("aria-expanded", "true");
-}
-
-function closeTypeMenu(): void {
-  typeMenuOpen = false;
-  $("#filter-types-menu")?.classList.add("hidden");
-  $("#filter-types-toggle")?.setAttribute("aria-expanded", "false");
 }
 
 // ---------------------------------------------------------------------------
@@ -285,11 +247,9 @@ function renderAttentionBadge(tab: HTMLElement): void {
   tab.appendChild(chip);
 }
 
-/** Project explicit stream intent onto the topbar-resident controls. */
+/** Project explicit stream intent onto the timeline toolbar. */
 function syncStreamPositionControls(): void {
   const state = getState();
-  $("#jump-start")?.classList.remove("hidden");
-  $("#jump-end")?.classList.remove("hidden");
   const follow = $("#follow-toggle");
   if (follow) {
     follow.classList.toggle(
@@ -297,6 +257,7 @@ function syncStreamPositionControls(): void {
       state.lens !== "timeline" || state.order !== "desc",
     );
     follow.setAttribute("aria-pressed", String(state.followByLens.timeline));
+    follow.textContent = state.followByLens.timeline ? "Following" : "Follow";
   }
 }
 
@@ -329,26 +290,25 @@ function syncControls(): void {
       .map((k) => `${k}:`)
       .join(" ")})`;
 
-  // (#filter-types' own per-lens visibility is owned by renderTypeToggles,
-  // which also has to force its popover shut on the same lens switch.)
-
-  const order = $("#order-toggle");
-  if (order) {
-    order.textContent =
-      state.order === "desc" ? "↓ newest first" : "↑ oldest first";
-    order.setAttribute(
-      "title",
-      state.lens === "list" ? "toggle revision order" : "toggle timeline order",
-    );
+  const onAttention = state.lens === "attention";
+  const viewToggle = $("#view-toggle");
+  if (viewToggle) {
+    viewToggle.textContent = onAttention
+      ? "View"
+      : `View · ${state.order === "desc" ? "newest" : "oldest"}`;
   }
+  $("#view-order-section")?.classList.toggle("hidden", onAttention);
+  const newest = $<HTMLInputElement>("#order-newest");
+  const oldest = $<HTMLInputElement>("#order-oldest");
+  if (newest) newest.checked = state.order === "desc";
+  if (oldest) oldest.checked = state.order === "asc";
 
   // The sort-key picker belongs to the revision list alone; the timeline's
   // order is server-applied and the attention queue's order is fixed.
   const onList = state.lens === "list";
-  $("#sort-label")?.classList.toggle("hidden", !onList);
+  $("#view-sort-section")?.classList.toggle("hidden", !onList);
   const picker = $<HTMLSelectElement>("#sort-picker");
   if (picker) {
-    picker.classList.toggle("hidden", !onList);
     if (picker.value !== state.sortKey) picker.value = state.sortKey;
   }
 
@@ -356,7 +316,7 @@ function syncControls(): void {
   // which consumes none of these controls) and sits underneath the per-control
   // gates above — necessary but not sufficient.
   const toolbar = $("#toolbar");
-  if (toolbar) toolbar.classList.toggle("hidden", state.lens === "attention");
+  if (toolbar) toolbar.classList.toggle("hidden", onAttention);
 }
 
 /** The advertised qualifier set for a lens's search surface. */
@@ -380,22 +340,66 @@ function renderFilterChips(): void {
   const container = $("#filter-chips");
   if (!container) return;
   const chips = filterChipsFor(getState().filterText, currentQuerySurface());
-  container.innerHTML = chips
-    .map((c) => {
-      // The parser canonicalizes actor values to the stored full id; labeling
-      // that after the `actor:` key would double the scheme prefix, so the
-      // label uses the short spelling (the form the actor-ref click mints).
-      const value =
-        c.field === "actor" ? c.value.replace(/^actor:/, "") : c.value;
-      const label = `${escapeHtml(c.field)}:${escapeHtml(value)}`;
-      return (
-        `<span class="${filterChipClass(c.negate)}" data-token-index="${c.tokenIndex}">` +
-        `${c.negate ? "− " : ""}${label}` +
-        `<button type="button" class="${CLASS.filterChipRemove}" data-token-index="${c.tokenIndex}" aria-label="remove ${label} filter">✕</button>` +
-        `</span>`
-      );
-    })
-    .join("");
+  const rendered = chips.map((c) => {
+    // The parser canonicalizes actor values to the stored full id; labeling
+    // that after the `actor:` key would double the scheme prefix, so the
+    // label uses the short spelling (the form the actor-ref click mints).
+    const value =
+      c.field === "actor" ? c.value.replace(/^actor:/, "") : c.value;
+    const label = `${escapeHtml(c.field)}:${escapeHtml(value)}`;
+    return (
+      `<span class="${filterChipClass(c.negate)}" data-token-index="${c.tokenIndex}">` +
+      `${c.negate ? "− " : ""}${label}` +
+      `<button type="button" class="${CLASS.filterChipRemove}" data-token-index="${c.tokenIndex}" aria-label="remove ${label} filter">✕</button>` +
+      `</span>`
+    );
+  });
+  const state = getState();
+  for (const [scope, value] of [
+    ["track", state.filterTrack],
+    ["snapshot", state.filterSnapshot],
+  ] as const) {
+    if (!value) continue;
+    const label = `${escapeHtml(scope)}:${escapeHtml(value)}`;
+    rendered.push(
+      `<span class="${filterChipClass(false)}" data-filter-scope="${scope}">` +
+        `${label}` +
+        `<button type="button" class="${CLASS.filterChipRemove}" data-filter-scope="${scope}" aria-label="remove ${label} filter">✕</button>` +
+        `</span>`,
+    );
+  }
+  container.innerHTML = rendered.join("");
+  $("#filter-chips-empty")?.classList.toggle("hidden", rendered.length > 0);
+}
+
+/** Summarize the panel's active state on its compact trigger and footer. */
+function syncFilterControls(): void {
+  const state = getState();
+  const structuredCount = filterChipsFor(
+    state.filterText,
+    currentQuerySurface(),
+  ).length;
+  const scopedCount =
+    Number(Boolean(state.filterTrack)) + Number(Boolean(state.filterSnapshot));
+  const present = presentTypes();
+  const typesFiltered =
+    state.lens === "timeline" &&
+    present.some((type) => !state.enabledTypes.has(type));
+  const count = structuredCount + scopedCount + Number(typesFiltered);
+  const toggle = $("#filters-toggle");
+  if (toggle) {
+    toggle.textContent = count > 0 ? `Filters · ${count}` : "Filters";
+    toggle.setAttribute(
+      "aria-label",
+      count > 0 ? `Filters — ${count} active` : "Filters — none active",
+    );
+  }
+  const clearable =
+    Boolean(state.filterText.trim()) ||
+    Boolean(state.filterTrack) ||
+    Boolean(state.filterSnapshot) ||
+    typesFiltered;
+  $("#filter-footer")?.classList.toggle("hidden", !clearable);
 }
 
 // The exact string this module last wrote to the region; "" when it wrote nothing.
@@ -593,6 +597,7 @@ export function render(): void {
   syncQueryNotices();
   renderFilterChips();
   renderTypeToggles();
+  syncFilterControls();
   applySplitMode();
   renderMaster();
   renderSelected();
@@ -619,54 +624,21 @@ function onTypeToggleClick(ev: Event): void {
   navigate({ enabledTypes: types }, { replace: true });
 }
 
-function onFilterTypesToggleClick(ev: Event): void {
-  ev.stopPropagation(); // keep the toggle's click out of the container's row delegate
-  if (typeMenuOpen) closeTypeMenu();
-  else openTypeMenu();
-}
-
-// A lightweight, non-overlay popover: it deliberately does NOT register with
-// the overlay manager (overlay.ts). The manager's mutual exclusion + Tab-trap
-// + "every lens/selection/paging key is inert while active" contract
-// (keyboard.ts's `activeName() !== null` branch) is built for content that
-// takes over reading focus — the help sheet, the command palette. This menu
-// is an auxiliary toolbar control: a reader should still be able to press j/k
-// or Escape-to-clear-the-query while it happens to be open. A plain
-// document-level click-outside listener plus a locally-scoped Escape (below)
-// give it exactly the two behaviors it needs without borrowing the heavier
-// modal machinery.
-// Installed CAPTURE-phase (see initControls): a row click commits via
-// navigate, whose synchronous repaint replaces the menu rows before the click
-// finishes propagating — checked at bubble time, the clicked row is already
-// detached and containment would misread every in-menu selection as an
-// outside click, slamming the menu shut. At capture time the tree is intact.
-function onDocumentClickForTypeMenu(ev: MouseEvent): void {
-  if (!typeMenuOpen) return;
-  const container = $("#filter-types");
-  if (ev.target instanceof Node && container?.contains(ev.target)) return;
-  closeTypeMenu();
-}
-
-// Scoped to `#filter-types` itself (not `document`): stopPropagation keeps this
-// Escape from ever reaching keyboard.ts's document-level `onKey`, so opening
-// this menu never disturbs the global Escape ladder (clear query / close pane /
-// close overlay) for a keystroke this popover already owns.
-function onFilterTypesKeydown(ev: KeyboardEvent): void {
-  if (ev.key === "Escape" && typeMenuOpen) {
-    ev.stopPropagation();
-    closeTypeMenu();
-    // Focus may sit on a row inside the now-hidden popover; strand it there
-    // and a keyboard user loses visible focus entirely.
-    $<HTMLElement>("#filter-types-toggle")?.focus();
-  }
-}
-
 // Delete the removed chip's raw token from filterText and navigate (replace) —
 // the chip row is a pure view, so the route stays the single source of truth.
 function onFilterChipsClick(ev: Event): void {
   const t = ev.target;
   if (!(t instanceof Element)) return;
   const btn = t.closest<HTMLElement>(`.${CLASS.filterChipRemove}`);
+  const scope = btn?.dataset.filterScope;
+  if (scope === "track") {
+    navigate({ filterTrack: "" }, { replace: true });
+    return;
+  }
+  if (scope === "snapshot") {
+    navigate({ filterSnapshot: "" }, { replace: true });
+    return;
+  }
   const indexAttr = btn?.dataset.tokenIndex;
   if (indexAttr == null) return;
   const next = removeFilterChipToken(getState().filterText, Number(indexAttr));
@@ -719,22 +691,13 @@ function onMasterClick(ev: Event): void {
 }
 
 /**
- * Install the delegated master-pane and type-toggle handlers — once, on the stable
+ * Install the delegated master-pane and filter handlers — once, on the stable
  * `#master` / `#filter-types` containers (their innerHTML is repainted per render,
  * but the containers persist). Called by the composition root, never per render.
  */
 export function initControls(): void {
   $<HTMLElement>("#master")?.addEventListener("click", onMasterClick);
   $<HTMLElement>("#filter-types")?.addEventListener("click", onTypeToggleClick);
-  $<HTMLElement>("#filter-types-toggle")?.addEventListener(
-    "click",
-    onFilterTypesToggleClick,
-  );
-  $<HTMLElement>("#filter-types")?.addEventListener(
-    "keydown",
-    onFilterTypesKeydown,
-  );
-  document.addEventListener("click", onDocumentClickForTypeMenu, true);
   $<HTMLElement>("#filter-chips")?.addEventListener(
     "click",
     onFilterChipsClick,

@@ -96,8 +96,8 @@ describe("render is a no-arg projection of getState()", () => {
   });
 });
 
-describe("the type facet menu (facet distribution + aria-pressed, moved off the toolbar)", () => {
-  it("renders one row per present type, inside the popover, with its facet count and pressed state", () => {
+describe("the Filters panel's event-type facets", () => {
+  it("renders one row per present type with its facet count and pressed state", () => {
     render.render();
     const menu = $("#filter-types-menu");
     expect((menu?.querySelectorAll(".type-facet-row").length ?? 0) > 0).toBe(
@@ -145,30 +145,27 @@ describe("the type facet menu (facet distribution + aria-pressed, moved off the 
     ).toBe(false);
   });
 
-  it("the pills markup is gone — no bare .type-toggle rows sit directly in #filter-types", () => {
+  it("keeps facet rows inside the Filters panel's event-type list", () => {
     render.render();
     expect(document.querySelectorAll(".type-toggle").length).toBe(0);
     expect(
       document.querySelectorAll("#filter-types > .type-facet-row").length,
-    ).toBe(0); // rows live inside the popover, not the container itself
+    ).toBe(0);
+    expect($("#filter-types")?.closest("#filters-panel")).not.toBeNull();
   });
 
-  it("the toggle button shows a count badge reflecting the enabled/present split", () => {
+  it("keeps the Filters trigger quiet when every event type is enabled", () => {
     render.render();
-    const btn = $("#filter-types-toggle");
-    expect(btn?.textContent).toMatch(/types/i);
-    // Every present type is enabled by default (render.ts's default-seeding), so
-    // the label shows the total with no fraction.
-    expect(btn?.textContent).not.toMatch(/\d+\/\d+/);
+    expect($("#filters-toggle")?.textContent).toBe("Filters");
   });
 
-  it("shows the enabled/present fraction once a type is toggled off", () => {
+  it("counts a narrowed event-type set as one active filter group", () => {
     render.render();
     $<HTMLElement>('[data-type="review_observation_recorded"]')?.dispatchEvent(
       new Event("click", { bubbles: true }),
     );
     render.render();
-    expect($("#filter-types-toggle")?.textContent).toMatch(/\d+\/\d+/);
+    expect($("#filters-toggle")?.textContent).toBe("Filters · 1");
   });
 
   it("enables a type when it first appears without reviving a type the reader hid", () => {
@@ -197,70 +194,15 @@ describe("the type facet menu (facet distribution + aria-pressed, moved off the 
     expect(store.getState().enabledTypes.has(hidden)).toBe(false);
   });
 
-  it("opens the popover on click, closes on outside click without committing anything", () => {
-    render.render();
-    const toggle = $<HTMLElement>("#filter-types-toggle");
-    const menu = $("#filter-types-menu");
-    toggle?.dispatchEvent(new Event("click", { bubbles: true }));
-    expect(menu?.classList.contains("hidden")).toBe(false);
-    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-    document.body.dispatchEvent(new Event("click", { bubbles: true }));
-    expect(menu?.classList.contains("hidden")).toBe(true);
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(store.getState().enabledTypes.size).toBeGreaterThan(0); // unchanged, nothing committed
-  });
-
-  it("keeps an open popover open across a repaint (a facet refresh never slams it shut)", () => {
-    render.render();
-    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
-      new Event("click", { bubbles: true }),
-    );
-    render.render();
-    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(false);
-  });
-
-  it("closes on Escape without committing anything or leaking the key to the global handler", () => {
-    render.render();
-    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
-      new Event("click", { bubbles: true }),
-    );
-    const before = store.getState().filterText;
-    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
-    $("#filter-types")?.dispatchEvent(ev);
-    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(true);
-    expect(store.getState().filterText).toBe(before); // the global Escape ladder never ran
-  });
-
-  it("Escape returns focus to the toggle (never strands it inside the hidden menu)", () => {
-    render.render();
-    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
-      new Event("click", { bubbles: true }),
-    );
-    const row = $<HTMLElement>(
-      "#filter-types-menu .type-facet-row",
-    ) as HTMLElement;
-    row.focus();
-    row.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
-    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(true);
-    expect(document.activeElement).toBe($("#filter-types-toggle"));
-  });
-
-  it("is Timeline-lens-only visible, and a lens switch forces an open popover shut", () => {
+  it("shows event-type facets only on the Timeline lens", () => {
     store.commit({ lens: "timeline" });
     render.render();
-    $<HTMLElement>("#filter-types-toggle")?.dispatchEvent(
-      new Event("click", { bubbles: true }),
-    );
     store.commit({ lens: "list" });
     render.render();
     expect($("#filter-types")?.classList.contains("hidden")).toBe(true);
     store.commit({ lens: "timeline" });
     render.render();
     expect($("#filter-types")?.classList.contains("hidden")).toBe(false);
-    // Coming back, the popover is shut — the switch closed it, not just hid it.
-    expect($("#filter-types-menu")?.classList.contains("hidden")).toBe(true);
   });
 });
 
@@ -273,6 +215,34 @@ describe("applied-filter chips (pure view of filterText)", () => {
     expect(document.querySelector("#filter-chips")?.textContent).not.toContain(
       "pinned",
     );
+    expect($("#filters-toggle")?.textContent).toBe("Filters · 2");
+    expect($("#filter-footer")?.classList.contains("hidden")).toBe(false);
+  });
+
+  it("surfaces cross-lens track and snapshot scopes in the Filters panel", () => {
+    store.commit({
+      filterTrack: "example:review",
+      filterSnapshot: "snap:sha256:abc",
+    });
+    render.render();
+    expect($("#filter-chips")?.textContent).toContain("track:example:review");
+    expect($("#filter-chips")?.textContent).toContain(
+      "snapshot:snap:sha256:abc",
+    );
+    expect($("#filters-toggle")?.textContent).toBe("Filters · 2");
+  });
+
+  it("removes one cross-lens scope without disturbing the other", () => {
+    store.commit({
+      filterTrack: "example:review",
+      filterSnapshot: "snap:sha256:abc",
+    });
+    render.render();
+    $<HTMLElement>(
+      '[data-filter-scope="track"] .filter-chip-remove',
+    )?.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(store.getState().filterTrack).toBe("");
+    expect(store.getState().filterSnapshot).toBe("snap:sha256:abc");
   });
 
   it("a chip's ✕ removes exactly that clause and preserves the rest, incl. a duplicate key", () => {
@@ -499,12 +469,12 @@ describe("density field tiers", () => {
 });
 
 describe("toolbar controls are gated per lens (each shows only where its state is consumed)", () => {
-  it("shows start and end on every lens, with follow only on the descending timeline", () => {
+  it("keeps chronological navigation available in View, with Follow direct only on the descending timeline", () => {
     for (const lens of ["timeline", "list", "attention"]) {
       store.commit({ lens, order: "desc" });
       render.render();
-      expect($("#jump-start")?.classList.contains("hidden"), lens).toBe(false);
-      expect($("#jump-end")?.classList.contains("hidden"), lens).toBe(false);
+      expect($("#jump-latest"), lens).not.toBeNull();
+      expect($("#jump-oldest"), lens).not.toBeNull();
       expect($("#follow-toggle")?.classList.contains("hidden"), lens).toBe(
         lens !== "timeline",
       );
@@ -513,6 +483,21 @@ describe("toolbar controls are gated per lens (each shows only where its state i
     store.commit({ lens: "timeline", order: "asc" });
     render.render();
     expect($("#follow-toggle")?.classList.contains("hidden")).toBe(true);
+  });
+
+  it("labels the direct Follow control from explicit intent", () => {
+    store.commit({
+      lens: "timeline",
+      order: "desc",
+      followByLens: { timeline: true, list: false, attention: false },
+    });
+    render.render();
+    expect($("#follow-toggle")?.textContent).toBe("Following");
+    store.commit({
+      followByLens: { timeline: false, list: false, attention: false },
+    });
+    render.render();
+    expect($("#follow-toggle")?.textContent).toBe("Follow");
   });
 
   it("shows new-event catch-up at the top of a followed parked timeline", () => {
@@ -574,33 +559,25 @@ describe("toolbar controls are gated per lens (each shows only where its state i
     expect($("#filter-types")?.classList.contains("hidden")).toBe(true);
   });
 
-  it("shows the sort picker only on the list lens, reflecting state.sortKey", () => {
+  it("shows the revision sort section only on the list lens, reflecting state.sortKey", () => {
     store.commit({ lens: "timeline" });
     render.render();
-    expect($("#sort-picker")?.classList.contains("hidden")).toBe(true);
-    expect($("#sort-label")?.classList.contains("hidden")).toBe(true);
+    expect($("#view-sort-section")?.classList.contains("hidden")).toBe(true);
     store.commit({ lens: "list", sortKey: "activity" });
     render.render();
-    expect($("#sort-picker")?.classList.contains("hidden")).toBe(false);
-    expect($("#sort-label")?.classList.contains("hidden")).toBe(false);
+    expect($("#view-sort-section")?.classList.contains("hidden")).toBe(false);
     expect($<HTMLSelectElement>("#sort-picker")?.value).toBe("activity");
   });
 
-  it("relabels the order-toggle title per lens and keeps a directional glyph", () => {
+  it("summarizes order on View and checks the explicit choice", () => {
     store.commit({ lens: "timeline", order: "desc" });
     render.render();
-    expect($("#order-toggle")?.getAttribute("title")).toBe(
-      "toggle timeline order",
-    );
-    expect($("#order-toggle")?.textContent).toBe("↓ newest first");
-    store.commit({ lens: "list" });
-    render.render();
-    expect($("#order-toggle")?.getAttribute("title")).toBe(
-      "toggle revision order",
-    );
+    expect($("#view-toggle")?.textContent).toBe("View · newest");
+    expect($<HTMLInputElement>("#order-newest")?.checked).toBe(true);
     store.commit({ order: "asc" });
     render.render();
-    expect($("#order-toggle")?.textContent).toBe("↑ oldest first");
+    expect($("#view-toggle")?.textContent).toBe("View · oldest");
+    expect($<HTMLInputElement>("#order-oldest")?.checked).toBe(true);
   });
 
   it("labels the Attention lens with its fixed order, and offers no sort control", () => {
@@ -613,8 +590,9 @@ describe("toolbar controls are gated per lens (each shows only where its state i
     });
     render.render();
     expect($("#attention")?.textContent).toContain("longest waiting first");
-    expect($("#sort-picker")).not.toBeNull(); // exists in the DOM, just hidden
-    expect($("#sort-picker")?.classList.contains("hidden")).toBe(true);
+    expect($("#view-toggle")?.textContent).toBe("View");
+    expect($("#view-order-section")?.classList.contains("hidden")).toBe(true);
+    expect($("#view-sort-section")?.classList.contains("hidden")).toBe(true);
   });
 });
 

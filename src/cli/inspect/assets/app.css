@@ -13,7 +13,7 @@ body { display: flex; flex-direction: column; }
 #topbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 18px;
   padding: 10px 16px;
   background: var(--bg-topbar);
@@ -148,19 +148,9 @@ body { display: flex; flex-direction: column; }
   color: var(--fg-dim);
 }
 
-.stats { margin-left: auto; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; min-width: 0; }
+.stats { margin-left: auto; display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; min-width: 0; }
 .stat { color: var(--fg-dim); font-size: var(--fs-sm); }
 .stat.mono { font-family: var(--mono); }
-.timeline-boundary-controls {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-.timeline-boundary-controls .ghost { font-size: var(--fs-sm); }
-.timeline-boundary-controls .ghost[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--bg-row);
-}
 .timeline-shell {
   display: flex;
   flex-direction: column;
@@ -287,13 +277,13 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   align-items: center;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex: 0 0 auto;
   /* Anchors the search-suggestion popover (the input is a flex child, so its
      sibling list positions against the toolbar box). */
   position: relative;
 }
-.toolbar input[type="search"], .toolbar select {
+.toolbar input[type="search"] {
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
@@ -301,20 +291,77 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   padding: 5px 8px;
   font: inherit;
 }
-.toolbar input[type="search"] { flex: 1; min-width: 180px; }
-/* The static label beside the sort picker — quiet chrome, like the styled
-   select it names. */
-.toolbar-label { color: var(--fg-dim); font-size: var(--fs-xs); }
+.toolbar input[type="search"] { flex: 1; min-width: 0; }
 /* Browsers render an unstyled placeholder as the input color at ~54% opacity,
    which falls under AA on --bg-row. Pin it to --fg-dim at full opacity so the
    hint text stays legible (5.7:1 light) while reading as placeholder. */
 .toolbar input[type="search"]::placeholder { color: var(--fg-dim); opacity: 1; }
-/* Quiet secondary controls (theme/density, order/clear, modal closes): borderless
+/* Quiet secondary controls (view/filter triggers, modal closes): borderless
    at rest so they read as chrome, not buttons; a hover/focus wash carries the
    affordance. Matches the borderless .type-facet-row treatment. */
 .ghost { background: transparent; color: var(--fg-dim); border: none; border-radius: var(--r-md); padding: 5px 10px; cursor: pointer; }
 .ghost:hover { background: var(--bg-row); color: var(--fg); }
 .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.follow-toggle { flex: none; }
+.follow-toggle[aria-pressed="true"] { color: var(--accent); background: var(--bg-row); }
+
+/* Compact app controls disclose low-frequency settings in anchored panels. They
+   stay outside the modal overlay stack so the timeline remains navigable while
+   a reader adjusts filters or display preferences. */
+.disclosure { position: relative; flex: none; }
+.disclosure-toggle { white-space: nowrap; }
+.control-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(320px, calc(100vw - 32px));
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+.view-panel { width: min(340px, calc(100vw - 32px)); }
+.filters-panel { width: min(460px, calc(100vw - 32px)); }
+.control-section { padding: 8px; }
+.control-section + .control-section { border-top: 1px solid var(--border); }
+.control-heading,
+.control-label {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--fg-dim);
+  font: var(--fs-xs)/var(--line) var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.control-choices { display: grid; gap: 5px; }
+.control-choices-inline { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
+.control-choices label {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.control-choices input { accent-color: var(--accent); }
+.control-actions { display: flex; gap: 4px; }
+.control-actions .ghost { flex: 1; text-align: left; }
+.control-subsection + .control-subsection { margin-top: 10px; }
+.control-panel select {
+  width: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 5px 8px;
+  font: inherit;
+}
+.control-empty { margin: 0; color: var(--fg-dim); font-size: var(--fs-sm); }
+.control-footer { display: flex; justify-content: flex-end; padding: 6px 8px; border-top: 1px solid var(--border); }
 
 /* The applied-filter chip row: one removable chip per parsed qualifier clause
    in the search box (a pure view of the query — free text never chips). Empty
@@ -331,6 +378,8 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .filter-chip-negated { text-decoration: line-through; }
 .filter-chip-remove {
@@ -380,28 +429,17 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .suggestion:hover { background: var(--bg-row); }
 .suggestion-active { background: var(--bg-row); color: var(--fg); }
 
-/* The type facet menu: the ?type= page-set collapsed into one count-badged
-   toggle button opening a popover of per-type rows. The rows keep the scan-token
-   treatment (colored dot + mono label + count, no resting border or fill); the
-   container anchors the absolutely-positioned popover. */
-.type-facet { position: relative; }
-.type-facet-toggle { font-size: var(--fs-xs); font-family: var(--mono); }
+/* Timeline-only event-type refinements inside the Filters panel. */
+.type-facet { min-width: 0; }
 .type-facet-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
   margin: 0;
-  padding: 4px;
+  padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
-  min-width: 220px;
+  max-height: min(280px, 45vh);
+  overflow-y: auto;
 }
 .type-facet-row {
   font-size: var(--fs-xs);
@@ -561,20 +599,27 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 
 @media (max-width: 760px) {
   #topbar {
+    flex-wrap: wrap;
     gap: 8px 12px;
     align-items: flex-start;
   }
 
+  #lens-switcher { order: 3; width: 100%; }
+
   .stats {
-    margin-left: 0;
-    width: 100%;
-    justify-content: flex-start;
-    gap: 8px;
+    margin-left: auto;
+    gap: 4px;
   }
 
   .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 8px 10px;
   }
+  .toolbar input[type="search"] { grid-column: 1 / -1; width: 100%; }
+  .filter-controls { grid-column: 1; justify-self: start; }
+  .follow-toggle { grid-column: 2; justify-self: end; }
+  .filters-panel { right: auto; left: 0; width: calc(100vw - 20px); }
 
   /* The list owns the whole viewport; the detail becomes a slide-over sheet.
      No TS knows this breakpoint — the sheet is a pure re-projection of the same

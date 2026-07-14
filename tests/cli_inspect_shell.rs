@@ -109,13 +109,6 @@ fn served_css_has_a_narrow_viewport_shell_contract() {
             || css.contains("grid-template-columns: 1fr"),
         "narrow shell should stop forcing two minmax(360px, 1fr) columns"
     );
-    assert!(
-        css.contains("#topbar")
-            && css.contains("flex-wrap: wrap")
-            && css.contains(".stats")
-            && css.contains("justify-content: flex-start"),
-        "topbar and stats should be able to wrap instead of causing narrow overflow"
-    );
     // The narrow detail is a slide-over sheet, not a stacked half-height row:
     // full-height over the list, transform-driven so the open/close animates,
     // with the list's scroll position preserved beneath it.
@@ -123,6 +116,15 @@ fn served_css_has_a_narrow_viewport_shell_contract() {
         .split("@media (max-width: 760px)")
         .nth(1)
         .expect("narrow viewport media block exists");
+    assert!(
+        narrow.contains("#topbar")
+            && narrow.contains("flex-wrap: wrap")
+            && narrow.contains("#lens-switcher")
+            && narrow.contains("width: 100%")
+            && narrow.contains(".toolbar")
+            && narrow.contains("display: grid"),
+        "topbar lenses and toolbar controls should reflow without narrow overflow"
+    );
     assert!(
         narrow.contains("#detail") && narrow.contains("position: fixed"),
         "narrow detail should be a full-height sheet over the list"

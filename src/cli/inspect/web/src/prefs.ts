@@ -36,17 +36,11 @@ export function notifyDensityListeners(): void {
   for (const listener of densityListeners) listener();
 }
 
-// The three theme modes the toggle cycles through. `system` follows the OS color
-// scheme live (see watchColorScheme); `light`/`dark` pin an explicit choice.
+// The three explicit theme choices. `system` follows the OS color scheme live
+// (see watchColorScheme); `light`/`dark` pin an explicit choice.
 // Persisted under THEME_KEY — anything else (unset or junk) reads as `system`, so
 // a fresh reader follows the OS.
 type ThemeMode = "system" | "light" | "dark";
-
-const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
-  system: "light",
-  light: "dark",
-  dark: "system",
-};
 
 /** The reader's stored theme mode; unset or junk reads as `system` (follow the OS). */
 function preferredThemeMode(): ThemeMode {
@@ -72,65 +66,26 @@ export function preferredTheme(): string {
   return mode === "system" ? osTheme() : mode;
 }
 
-// Glyphs prefixing each toggle's value. A leading monochrome mark carries the
-// *dimension/mode* the word doesn't: for theme, ☼ = pinned light, ☾ = pinned
-// dark, and ◐ = following the OS (auto) — so the glyph alone distinguishes a
-// pinned choice from system-following, and the word is left to show the effective
-// light/dark. For density, ≡ (rows) names a control whose values (comfortable /
-// compact) don't self-announce as density. Kept text-presentation, matching the
-// restrained `▾ ○ ✕` vocabulary.
-const THEME_GLYPH: Record<ThemeMode, string> = {
-  light: "☼",
-  dark: "☾",
-  system: "◐",
-};
-const DENSITY_GLYPH = "≡";
-
-// Keep the topbar toggles state-legible: the visible label is a mode/dimension
-// glyph plus the effective value (the value alone mirrors `#order-toggle`'s
-// "newest first"). The glyph stays OUT of the accessible name — instead the
-// aria-label carries `dimension: ariaValue`, where `ariaValue` spells out what
-// the glyph shows visually (e.g. `system (dark)`), so a screen reader hears the
-// mode in words and the name still contains the visible value (WCAG "Label in
-// Name"). Every value change funnels through applyTheme/applyDensity, so syncing
-// here covers first paint, the toggle click, and the live OS watcher alike. The
-// lookup is defensive: the control may be absent (e.g. a headless mount).
-function labelControl(
-  id: string,
-  dimension: string,
-  glyph: string,
-  value: string,
-  ariaValue: string = value,
-): void {
-  const btn = $(`#${id}`);
-  if (!btn) return;
-  btn.textContent = `${glyph} ${value}`;
-  btn.setAttribute("aria-label", `${dimension}: ${ariaValue}`);
+function syncChoice(name: string, value: string): void {
+  for (const input of document.querySelectorAll<HTMLInputElement>(
+    `input[name="${name}"]`,
+  )) {
+    input.checked = input.value === value;
+  }
 }
 
 /**
- * Apply a theme by setting `data-theme` on the document root and labeling the
- * toggle. The visible word is always the effective `light`/`dark`; the glyph
- * carries the mode, so `system` reads `◐ <resolved>` (the ◐ is the "following the
- * OS" cue and re-resolves live as the OS flips). The aria-label still says
- * `system (…)` so non-sighted readers get the mode the glyph conveys.
+ * Apply the resolved theme and keep the explicit choice in the View panel in
+ * sync. System remains checked while its resolved light/dark value changes.
  */
 export function applyTheme(theme: string): void {
   document.documentElement.setAttribute("data-theme", theme);
-  const mode = preferredThemeMode();
-  const ariaValue = mode === "system" ? `system (${theme})` : theme;
-  labelControl(
-    "theme-toggle",
-    "Color theme",
-    THEME_GLYPH[mode],
-    theme,
-    ariaValue,
-  );
+  syncChoice("theme-mode", preferredThemeMode());
 }
 
-/** Advance the theme mode `system → light → dark → system`, persist it, and apply. */
-export function cycleTheme(): void {
-  const next = THEME_CYCLE[preferredThemeMode()];
+/** Persist one explicit theme choice and apply its resolved color scheme. */
+export function setThemeMode(mode: string): void {
+  const next: ThemeMode = mode === "light" || mode === "dark" ? mode : "system";
   localStorage.setItem(THEME_KEY, next);
   applyTheme(preferredTheme());
 }
@@ -140,18 +95,16 @@ function preferredDensity(): string {
   return localStorage.getItem(DENSITY_KEY) || "comfortable";
 }
 
-/** Apply a density by toggling the `compact` class on the document root and labeling the toggle. */
+/** Apply a density and keep its View-panel choice synchronized. */
 export function applyDensity(mode: string): void {
   const value = mode === "compact" ? "compact" : "comfortable";
   document.documentElement.classList.toggle("compact", value === "compact");
-  labelControl("density-toggle", "Density", DENSITY_GLYPH, value);
+  syncChoice("density-mode", value);
 }
 
-/** Flip the density between `compact` and `comfortable`, persist, apply. */
-export function toggleDensity(): void {
-  const next = document.documentElement.classList.contains("compact")
-    ? "comfortable"
-    : "compact";
+/** Persist one explicit density choice and apply it. */
+export function setDensity(mode: string): void {
+  const next = mode === "compact" ? "compact" : "comfortable";
   localStorage.setItem(DENSITY_KEY, next);
   applyDensity(next);
 }
@@ -212,9 +165,16 @@ export function watchColorScheme(): void {
   });
 }
 
-/** Wire the `#theme-toggle` / `#density-toggle` buttons and the OS color-scheme watcher. */
+/** Wire the View panel's display choices and the OS color-scheme watcher. */
 export function initControls(): void {
-  $("#theme-toggle")?.addEventListener("click", cycleTheme);
-  $("#density-toggle")?.addEventListener("click", toggleDensity);
+  $("#view-panel")?.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !input.checked) return;
+    if (input.name === "theme-mode") setThemeMode(input.value);
+    if (input.name === "density-mode") {
+      setDensity(input.value);
+      notifyDensityListeners();
+    }
+  });
   watchColorScheme();
 }

@@ -218,19 +218,17 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     ).toBe(false);
   });
 
-  it("selecting a type row leaves the open facet menu open (repaint detaches the clicked row mid-propagation)", async () => {
+  it("selecting a type row leaves the Filters panel open across its repaint", async () => {
     // The row click commits via navigate, whose subscribe(render) repaint
     // replaces the menu rows BEFORE the same click bubbles to the document
     // outside-click listener — the detached target must still classify as an
     // in-container click, or every selection slams the menu shut.
     await main.main();
     document
-      .querySelector<HTMLElement>("#filter-types-toggle")
+      .querySelector<HTMLElement>("#filters-toggle")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(
-      document
-        .querySelector("#filter-types-menu")
-        ?.classList.contains("hidden"),
+      document.querySelector("#filters-panel")?.classList.contains("hidden"),
     ).toBe(false);
     document
       .querySelector<HTMLElement>('[data-type="review_observation_recorded"]')
@@ -239,37 +237,52 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
       store.getState().enabledTypes.has("review_observation_recorded"),
     ).toBe(false); // the toggle committed…
     expect(
-      document
-        .querySelector("#filter-types-menu")
-        ?.classList.contains("hidden"),
-    ).toBe(false); // …and the menu stayed open for the next selection
+      document.querySelector("#filters-panel")?.classList.contains("hidden"),
+    ).toBe(false); // …and the panel stayed open for the next selection
   });
 
-  it("the type facet menu's Escape closes it without reaching the global Escape ladder", async () => {
+  it("the Filters panel's Escape closes it without reaching the global Escape ladder", async () => {
     // Only this harness can observe a leak: main() wires the document-level
     // onKey, whose Escape ladder would clear the query if the popover's
     // locally-scoped Escape ever propagated past #filter-types.
     await main.main();
     store.commit({ filterText: "keepme" });
     document
-      .querySelector<HTMLElement>("#filter-types-toggle")
+      .querySelector<HTMLElement>("#filters-toggle")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(
-      document
-        .querySelector("#filter-types-menu")
-        ?.classList.contains("hidden"),
+      document.querySelector("#filters-panel")?.classList.contains("hidden"),
     ).toBe(false);
     document
-      .querySelector<HTMLElement>("#filter-types")
+      .querySelector<HTMLElement>("#filter-controls")
       ?.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
     expect(
-      document
-        .querySelector("#filter-types-menu")
-        ?.classList.contains("hidden"),
+      document.querySelector("#filters-panel")?.classList.contains("hidden"),
     ).toBe(true);
     expect(store.getState().filterText).toBe("keepme");
+  });
+
+  it("keeps only one lightweight disclosure open and closes it on outside click", async () => {
+    await main.main();
+    const filters = document.querySelector<HTMLElement>("#filters-toggle");
+    const view = document.querySelector<HTMLElement>("#view-toggle");
+    filters?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(
+      document.querySelector("#filters-panel")?.classList.contains("hidden"),
+    ).toBe(false);
+    view?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(
+      document.querySelector("#filters-panel")?.classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      document.querySelector("#view-panel")?.classList.contains("hidden"),
+    ).toBe(false);
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(
+      document.querySelector("#view-panel")?.classList.contains("hidden"),
+    ).toBe(true);
   });
 
   it("typing paints search suggestions; Escape dismisses without blurring or clearing the query", async () => {
@@ -407,6 +420,15 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     expect(location.hash).toBe("#/list?sort=activity");
   });
 
+  it("an explicit View order choice replaces the timeline order", async () => {
+    await main.main();
+    const oldest = document.querySelector<HTMLInputElement>("#order-oldest");
+    if (oldest) oldest.checked = true;
+    oldest?.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(store.getState().order).toBe("asc");
+    expect(location.hash).toBe("#/timeline?order=asc");
+  });
+
   it("a timeline-row click selects the event without disabling follow", async () => {
     await main.main();
     const row = document.querySelector<HTMLElement>(
@@ -523,14 +545,17 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     expect(store.getState().selected.id).toBe(selected);
   });
 
-  it("the start and end controls drive boundaries without disabling follow", async () => {
+  it("the disclosed Latest and Oldest actions drive chronological boundaries without disabling follow", async () => {
     await main.main();
     const entries = store.getState().history?.entries ?? [];
     const later = entries[2]?.eventId ?? null;
     store.commit({ selected: { kind: "event", id: later } });
 
     document
-      .querySelector<HTMLElement>("#jump-start")
+      .querySelector<HTMLElement>("#view-toggle")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document
+      .querySelector<HTMLElement>("#jump-latest")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
     expect(store.getState().selected.id).toBe(entries[0]?.eventId ?? null);
@@ -541,7 +566,10 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
       timelineHeadAnchor: null,
     });
     document
-      .querySelector<HTMLElement>("#jump-end")
+      .querySelector<HTMLElement>("#view-toggle")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document
+      .querySelector<HTMLElement>("#jump-oldest")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await flush();
     expect(store.getState().selected.id).toBe(entries.at(-1)?.eventId ?? null);
@@ -674,11 +702,11 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
   });
 });
 
-describe("the density toggle re-measures the timeline rows", () => {
+describe("the disclosed density choice re-measures the timeline rows", () => {
   // Density changes row heights without resizing the #timeline box, so the
   // lens's size observer cannot see it — the composition root routes the
   // toggle to the timeline's re-measure explicitly.
-  it("a density click re-derives the row estimate after the settle", async () => {
+  it("a density change re-derives the row estimate after the settle", async () => {
     await main.main();
     const timeline = await import("../../src/lenses/timeline");
     for (const li of document.querySelectorAll<HTMLElement>(
@@ -690,9 +718,10 @@ describe("the density toggle re-measures the timeline rows", () => {
     }
     vi.useFakeTimers();
     try {
-      document
-        .querySelector<HTMLElement>("#density-toggle")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const compact =
+        document.querySelector<HTMLInputElement>("#density-compact");
+      if (compact) compact.checked = true;
+      compact?.dispatchEvent(new Event("change", { bubbles: true }));
       vi.advanceTimersByTime(1000);
       expect(timeline.timelineRowHeight()).toBe(44);
     } finally {
@@ -700,14 +729,15 @@ describe("the density toggle re-measures the timeline rows", () => {
     }
   });
 
-  it("a density click notifies every registered density listener", async () => {
+  it("a density change notifies every registered density listener", async () => {
     await main.main();
     const prefs = await import("../../src/prefs");
     const listener = vi.fn();
     prefs.registerDensityListener(listener);
-    document
-      .querySelector<HTMLElement>("#density-toggle")
-      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const compact =
+      document.querySelector<HTMLInputElement>("#density-compact");
+    if (compact) compact.checked = true;
+    compact?.dispatchEvent(new Event("change", { bubbles: true }));
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });

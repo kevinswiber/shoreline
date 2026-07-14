@@ -38,7 +38,6 @@ export const CLASS = {
   kv: "kv",
   ghost: "ghost",
   actions: "actions",
-  timelineBoundaryControls: "timeline-boundary-controls",
   timelineShell: "timeline-shell",
   timelineNewPill: "timeline-new-pill",
 
@@ -145,11 +144,9 @@ export const CLASS = {
   filterChips: "filter-chips",
   filterChipRemove: "filter-chip-remove",
 
-  // The type facet menu (the Timeline-only ?type= page-set control): static
-  // container/toggle/popover classes in index.html; the rows are emitted via
-  // typeFacetRowClass below.
+  // The type facet section (the Timeline-only ?type= page-set control): static
+  // container/list classes in index.html; rows are emitted via typeFacetRowClass.
   typeFacet: "type-facet",
-  typeFacetToggle: "type-facet-toggle",
   typeFacetMenu: "type-facet-menu",
 
   // The search-bar suggestion popover: static list container in index.html;

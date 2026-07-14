@@ -53,13 +53,57 @@
           </div>
         </div>
         <span id="refresh-word" class="store-live-word" role="status" aria-live="polite"></span>
-        <div class="timeline-boundary-controls" role="group" aria-label="stream position">
-          <button id="jump-start" class="ghost" type="button">start</button>
-          <button id="jump-end" class="ghost" type="button">end</button>
-          <button id="follow-toggle" class="ghost" type="button" aria-pressed="true">follow</button>
+        <div id="view-controls" class="disclosure">
+          <button
+            id="view-toggle"
+            class="ghost disclosure-toggle"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="view-panel"
+          >View · newest</button>
+          <div id="view-panel" class="control-panel view-panel hidden" role="dialog" aria-label="View controls">
+            <section id="view-order-section" class="control-section" aria-labelledby="view-order-label">
+              <h2 id="view-order-label" class="control-heading">Order</h2>
+              <div class="control-choices">
+                <label><input id="order-newest" type="radio" name="view-order" value="desc" checked /> Newest first</label>
+                <label><input id="order-oldest" type="radio" name="view-order" value="asc" /> Oldest first</label>
+              </div>
+            </section>
+            <section id="view-sort-section" class="control-section hidden" aria-labelledby="view-sort-label">
+              <label id="view-sort-label" class="control-heading" for="sort-picker">Sort revisions by</label>
+              <select id="sort-picker" aria-label="sort revisions by">
+                <option value="captured">captured</option>
+                <option value="activity">latest activity</option>
+              </select>
+            </section>
+            <section class="control-section" aria-labelledby="view-navigation-label">
+              <h2 id="view-navigation-label" class="control-heading">Navigate</h2>
+              <div class="control-actions">
+                <button id="jump-latest" class="ghost" type="button">Latest</button>
+                <button id="jump-oldest" class="ghost" type="button">Oldest</button>
+              </div>
+            </section>
+            <section class="control-section" aria-labelledby="view-display-label">
+              <h2 id="view-display-label" class="control-heading">Display</h2>
+              <div class="control-subsection">
+                <span class="control-label">Theme</span>
+                <div class="control-choices control-choices-inline">
+                  <label><input id="theme-system" type="radio" name="theme-mode" value="system" checked /> System</label>
+                  <label><input id="theme-light" type="radio" name="theme-mode" value="light" /> Light</label>
+                  <label><input id="theme-dark" type="radio" name="theme-mode" value="dark" /> Dark</label>
+                </div>
+              </div>
+              <div class="control-subsection">
+                <span class="control-label">Density</span>
+                <div class="control-choices control-choices-inline">
+                  <label><input id="density-comfortable" type="radio" name="density-mode" value="comfortable" checked /> Comfortable</label>
+                  <label><input id="density-compact" type="radio" name="density-mode" value="compact" /> Compact</label>
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
-        <button id="theme-toggle" class="ghost" aria-label="Color theme: system (dark)" title="Cycle theme (system / light / dark)">◐ dark</button>
-        <button id="density-toggle" class="ghost" aria-label="Density: comfortable" title="Toggle density (comfortable / compact)">≡ comfortable</button>
       </div>
     </header>
 
@@ -77,25 +121,31 @@
           placeholder="search — text or field:value"
         />
         <ul id="filter-suggestions" class="filter-suggestions hidden" aria-label="search suggestions"></ul>
-        <div id="filter-chips" class="filter-chips" aria-label="applied filters"></div>
-        <div id="filter-types" class="type-facet">
+        <div id="filter-controls" class="disclosure filter-controls">
           <button
-            id="filter-types-toggle"
+            id="filters-toggle"
             type="button"
-            class="ghost type-facet-toggle"
-            aria-haspopup="true"
+            class="ghost disclosure-toggle"
+            aria-haspopup="dialog"
             aria-expanded="false"
-            aria-controls="filter-types-menu"
-          >types</button>
-          <ul id="filter-types-menu" class="type-facet-menu hidden" aria-label="event types"></ul>
+            aria-controls="filters-panel"
+          >Filters</button>
+          <div id="filters-panel" class="control-panel filters-panel hidden" role="dialog" aria-label="Filters">
+            <section class="control-section" aria-labelledby="applied-filters-label">
+              <h2 id="applied-filters-label" class="control-heading">Applied filters</h2>
+              <div id="filter-chips" class="filter-chips" aria-label="applied filters"></div>
+              <p id="filter-chips-empty" class="control-empty">No structured filters</p>
+            </section>
+            <section id="filter-types" class="control-section type-facet" aria-labelledby="filter-types-label">
+              <h2 id="filter-types-label" class="control-heading">Event types</h2>
+              <ul id="filter-types-menu" class="type-facet-menu" aria-label="event types"></ul>
+            </section>
+            <div id="filter-footer" class="control-footer">
+              <button id="filter-clear" class="ghost" type="button">Clear all</button>
+            </div>
+          </div>
         </div>
-        <label id="sort-label" for="sort-picker" class="toolbar-label hidden">sort by</label>
-        <select id="sort-picker" class="hidden" aria-label="sort revisions by">
-          <option value="captured">captured</option>
-          <option value="activity">latest activity</option>
-        </select>
-        <button id="order-toggle" class="ghost" title="toggle timeline order">newest first</button>
-        <button id="filter-clear" class="ghost">clear</button>
+        <button id="follow-toggle" class="ghost follow-toggle" type="button" aria-pressed="true">Following</button>
       </div>
       <div class="split">
         <button id="master-rail" class="master-rail" aria-label="Show timeline" title="Show timeline">›</button>

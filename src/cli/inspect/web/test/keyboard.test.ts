@@ -142,7 +142,7 @@ describe("selection stepping / activation / search", () => {
 
   it("Enter on a focused native control stays native (no ladder)", () => {
     store.commit({ selected: { kind: "revision", id: REV }, open: false });
-    const btn = document.querySelector<HTMLElement>("#theme-toggle");
+    const btn = document.querySelector<HTMLElement>("#view-toggle");
     btn?.focus();
     key({ key: "Enter" }, btn ?? document);
     expect(store.getState().open).toBe(false);

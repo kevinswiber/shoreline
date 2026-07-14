@@ -1302,16 +1302,15 @@ fn tokens_css_carries_a_light_theme_override_block() {
 }
 
 #[test]
-fn topbar_exposes_an_accessible_theme_toggle() {
+fn view_panel_exposes_accessible_theme_choices() {
     let (_repo, inspector) = served_asset_inspector();
     let index = inspector.get_text("/");
-    // A stable, user-visible accessible name for the control (assert the aria
-    // label, a durable contract — not the button's id). The label now names the
-    // control and carries its current value (`Color theme: <mode>`), so assert the
-    // durable prefix — the value after it is runtime state.
     assert!(
-        index.contains("aria-label=\"Color theme:"),
-        "the topbar carries an accessible theme toggle"
+        index.contains(">Theme</span>")
+            && index.contains("name=\"theme-mode\" value=\"system\"")
+            && index.contains("name=\"theme-mode\" value=\"light\"")
+            && index.contains("name=\"theme-mode\" value=\"dark\""),
+        "the View panel carries explicit system/light/dark theme choices"
     );
 }
 
@@ -1420,14 +1419,14 @@ fn tokens_css_carries_the_type_scale() {
 }
 
 #[test]
-fn topbar_exposes_a_density_toggle() {
+fn view_panel_exposes_density_choices() {
     let (_repo, inspector) = served_asset_inspector();
     let index = inspector.get_text("/");
-    // The label names the control and carries its current value
-    // (`Density: <mode>`); assert the durable prefix, the value is runtime state.
     assert!(
-        index.contains("aria-label=\"Density:"),
-        "the topbar carries an accessible comfortable/compact density toggle"
+        index.contains(">Density</span>")
+            && index.contains("name=\"density-mode\" value=\"comfortable\"")
+            && index.contains("name=\"density-mode\" value=\"compact\""),
+        "the View panel carries explicit comfortable/compact density choices"
     );
 }
 

@@ -236,7 +236,6 @@
     kv: "kv",
     ghost: "ghost",
     actions: "actions",
-    timelineBoundaryControls: "timeline-boundary-controls",
     timelineShell: "timeline-shell",
     timelineNewPill: "timeline-new-pill",
     // (The app-shell store-identity chip + detail popover is static markup in
@@ -334,11 +333,9 @@
     // The applied-filter chip row (the toolbar's pure view of filterText).
     filterChips: "filter-chips",
     filterChipRemove: "filter-chip-remove",
-    // The type facet menu (the Timeline-only ?type= page-set control): static
-    // container/toggle/popover classes in index.html; the rows are emitted via
-    // typeFacetRowClass below.
+    // The type facet section (the Timeline-only ?type= page-set control): static
+    // container/list classes in index.html; rows are emitted via typeFacetRowClass.
     typeFacet: "type-facet",
-    typeFacetToggle: "type-facet-toggle",
     typeFacetMenu: "type-facet-menu",
     // The search-bar suggestion popover: static list container in index.html;
     // the rows are emitted via suggestionClass below.
@@ -469,10 +466,10 @@
   var dfileClass = /* @__PURE__ */ __name((lowSignal) => `dfile${lowSignal ? " dfile-lowsignal" : ""}`, "dfileClass");
   var dagNodeClass = /* @__PURE__ */ __name((o) => `dag-node${o.isHead ? " head" : ""}${o.isSuperseded ? " superseded" : ""}`, "dagNodeClass");
   var bodyClass = /* @__PURE__ */ __name((base, markdown) => `${base}${markdown ? " markdown-body" : ""}`, "bodyClass");
-  var cmdItemClass = /* @__PURE__ */ __name((active) => `cmd-item${active ? " active" : ""}`, "cmdItemClass");
+  var cmdItemClass = /* @__PURE__ */ __name((active2) => `cmd-item${active2 ? " active" : ""}`, "cmdItemClass");
   var filterChipClass = /* @__PURE__ */ __name((negated) => `filter-chip${negated ? " filter-chip-negated" : ""}`, "filterChipClass");
   var typeFacetRowClass = /* @__PURE__ */ __name((enabled) => `type-facet-row${enabled ? "" : " type-facet-row-off"}`, "typeFacetRowClass");
-  var suggestionClass = /* @__PURE__ */ __name((active) => `suggestion${active ? " suggestion-active" : ""}`, "suggestionClass");
+  var suggestionClass = /* @__PURE__ */ __name((active2) => `suggestion${active2 ? " suggestion-active" : ""}`, "suggestionClass");
   var tokensOf = /* @__PURE__ */ __name((classStrings) => classStrings.flatMap((s) => s.split(" ")), "tokensOf");
   var ALL_EMITTABLE_CLASSES = [
     ...new Set(
@@ -2503,15 +2500,15 @@
   __name(valuesForKey, "valuesForKey");
   function suggestionsFor(filterText, surface, distinct, presentTypeIds) {
     const tokens = filterText.split(/\s+/);
-    const active = tokens[tokens.length - 1] ?? "";
-    if (!active) return [];
-    const colon = active.indexOf(":");
+    const active2 = tokens[tokens.length - 1] ?? "";
+    if (!active2) return [];
+    const colon = active2.indexOf(":");
     if (colon < 0) {
-      const prefix = active.toLowerCase();
+      const prefix = active2.toLowerCase();
       return keysFor(surface).filter((k) => k.startsWith(prefix)).map((k) => ({ insertText: `${k}:`, label: `${k}:` }));
     }
-    const field = active.slice(0, colon).toLowerCase();
-    const valuePrefix = active.slice(colon + 1).toLowerCase().replace(/^"/, "");
+    const field = active2.slice(0, colon).toLowerCase();
+    const valuePrefix = active2.slice(colon + 1).toLowerCase().replace(/^"/, "");
     if (!keysFor(surface).includes(field)) return [];
     return valuesForKey(field, surface, distinct, presentTypeIds).flatMap(
       (full) => {
@@ -4581,6 +4578,62 @@
   }
   __name(initControls3, "initControls");
 
+  // src/disclosure.ts
+  var active = null;
+  function createDisclosure({
+    container,
+    trigger,
+    panel
+  }) {
+    let open3 = false;
+    const controller = {
+      isOpen: /* @__PURE__ */ __name(() => open3, "isOpen"),
+      open: /* @__PURE__ */ __name(() => {
+        if (active && active !== controller) active.close();
+        open3 = true;
+        active = controller;
+        controller.sync();
+      }, "open"),
+      close: /* @__PURE__ */ __name((returnFocus = false) => {
+        open3 = false;
+        if (active === controller) active = null;
+        controller.sync();
+        if (returnFocus) $(trigger)?.focus();
+      }, "close"),
+      toggle: /* @__PURE__ */ __name(() => {
+        if (open3) controller.close();
+        else controller.open();
+      }, "toggle"),
+      sync: /* @__PURE__ */ __name(() => {
+        $(panel)?.classList.toggle("hidden", !open3);
+        $(trigger)?.setAttribute("aria-expanded", String(open3));
+      }, "sync")
+    };
+    $(trigger)?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      controller.toggle();
+    });
+    $(container)?.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !open3) return;
+      event.preventDefault();
+      event.stopPropagation();
+      controller.close(true);
+    });
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (!open3) return;
+        const root = $(container);
+        if (event.target instanceof Node && root?.contains(event.target)) return;
+        controller.close();
+      },
+      true
+    );
+    controller.sync();
+    return controller;
+  }
+  __name(createDisclosure, "createDisclosure");
+
   // src/overlay.ts
   var registry = /* @__PURE__ */ new Map();
   var activeOverlay = null;
@@ -4737,11 +4790,6 @@
     for (const listener of densityListeners) listener();
   }
   __name(notifyDensityListeners, "notifyDensityListeners");
-  var THEME_CYCLE = {
-    system: "light",
-    light: "dark",
-    dark: "system"
-  };
   function preferredThemeMode() {
     const stored = localStorage.getItem(THEME_KEY);
     return stored === "light" || stored === "dark" ? stored : "system";
@@ -4760,38 +4808,25 @@
     return mode === "system" ? osTheme() : mode;
   }
   __name(preferredTheme, "preferredTheme");
-  var THEME_GLYPH = {
-    light: "☼",
-    dark: "☾",
-    system: "◐"
-  };
-  var DENSITY_GLYPH = "≡";
-  function labelControl(id, dimension, glyph, value, ariaValue = value) {
-    const btn = $(`#${id}`);
-    if (!btn) return;
-    btn.textContent = `${glyph} ${value}`;
-    btn.setAttribute("aria-label", `${dimension}: ${ariaValue}`);
+  function syncChoice(name, value) {
+    for (const input of document.querySelectorAll(
+      `input[name="${name}"]`
+    )) {
+      input.checked = input.value === value;
+    }
   }
-  __name(labelControl, "labelControl");
+  __name(syncChoice, "syncChoice");
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
-    const mode = preferredThemeMode();
-    const ariaValue = mode === "system" ? `system (${theme})` : theme;
-    labelControl(
-      "theme-toggle",
-      "Color theme",
-      THEME_GLYPH[mode],
-      theme,
-      ariaValue
-    );
+    syncChoice("theme-mode", preferredThemeMode());
   }
   __name(applyTheme, "applyTheme");
-  function cycleTheme() {
-    const next = THEME_CYCLE[preferredThemeMode()];
+  function setThemeMode(mode) {
+    const next = mode === "light" || mode === "dark" ? mode : "system";
     localStorage.setItem(THEME_KEY, next);
     applyTheme(preferredTheme());
   }
-  __name(cycleTheme, "cycleTheme");
+  __name(setThemeMode, "setThemeMode");
   function preferredDensity() {
     return localStorage.getItem(DENSITY_KEY) || "comfortable";
   }
@@ -4799,15 +4834,15 @@
   function applyDensity(mode) {
     const value = mode === "compact" ? "compact" : "comfortable";
     document.documentElement.classList.toggle("compact", value === "compact");
-    labelControl("density-toggle", "Density", DENSITY_GLYPH, value);
+    syncChoice("density-mode", value);
   }
   __name(applyDensity, "applyDensity");
-  function toggleDensity() {
-    const next = document.documentElement.classList.contains("compact") ? "comfortable" : "compact";
+  function setDensity(mode) {
+    const next = mode === "compact" ? "compact" : "comfortable";
     localStorage.setItem(DENSITY_KEY, next);
     applyDensity(next);
   }
-  __name(toggleDensity, "toggleDensity");
+  __name(setDensity, "setDensity");
   function preferredSplit() {
     const raw = localStorage.getItem(SPLIT_KEY);
     const n = raw === null ? Number.NaN : Number.parseInt(raw, 10);
@@ -4842,8 +4877,15 @@
   }
   __name(watchColorScheme, "watchColorScheme");
   function initControls5() {
-    $("#theme-toggle")?.addEventListener("click", cycleTheme);
-    $("#density-toggle")?.addEventListener("click", toggleDensity);
+    $("#view-panel")?.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.checked) return;
+      if (input.name === "theme-mode") setThemeMode(input.value);
+      if (input.name === "density-mode") {
+        setDensity(input.value);
+        notifyDensityListeners();
+      }
+    });
     watchColorScheme();
   }
   __name(initControls5, "initControls");
@@ -5481,10 +5523,10 @@
       html += `<li id="cmd-option-${escapeHtml(String(c.domIndex ?? i))}" class="${cmdItemClass(i === cmdActive)}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="${CLASS.cmdLabel}">${escapeHtml(c.label)}</span>${c.hint ? `<span class="${CLASS.cmdHint}">${escapeHtml(c.hint)}</span>` : ""}</li>`;
     });
     list.innerHTML = html;
-    const active = list.querySelector(".cmd-item.active");
-    if (active) {
-      input.setAttribute("aria-activedescendant", active.id);
-      active.scrollIntoView({ block: "nearest" });
+    const active2 = list.querySelector(".cmd-item.active");
+    if (active2) {
+      input.setAttribute("aria-activedescendant", active2.id);
+      active2.scrollIntoView({ block: "nearest" });
     }
   }
   __name(renderPalette, "renderPalette");
@@ -5855,9 +5897,9 @@
       closeActive();
       return;
     }
-    const active = document.activeElement;
-    if (isTypingTarget(active)) {
-      if (active instanceof HTMLElement) active.blur();
+    const active2 = document.activeElement;
+    if (isTypingTarget(active2)) {
+      if (active2 instanceof HTMLElement) active2.blur();
       return;
     }
     if (getState().reading) {
@@ -6170,18 +6212,13 @@ click to open the revision page">
     }).join("");
   }
   __name(renderDiagnostics, "renderDiagnostics");
-  var typeMenuOpen = false;
   function renderTypeToggles() {
     const container = $("#filter-types");
     const menu = $("#filter-types-menu");
-    const toggle2 = $("#filter-types-toggle");
-    if (!container || !menu || !toggle2) return;
+    if (!container || !menu) return;
     const visible = getState().lens === "timeline";
     container.classList.toggle("hidden", !visible);
-    if (!visible) {
-      if (typeMenuOpen) closeTypeMenu();
-      return;
-    }
+    if (!visible) return;
     menu.innerHTML = "";
     const counts = getState().history?.facets ?? {};
     const state2 = getState();
@@ -6208,30 +6245,8 @@ click to open the revision page">
       li.appendChild(btn);
       menu.appendChild(li);
     }
-    const enabledCount = present.filter(
-      (id) => state2.enabledTypes.has(id)
-    ).length;
-    toggle2.textContent = enabledCount === present.length ? `types · ${present.length}` : `types · ${enabledCount}/${present.length}`;
-    toggle2.setAttribute(
-      "aria-label",
-      `event type filter — ${enabledCount} of ${present.length} shown`
-    );
-    menu.classList.toggle("hidden", !typeMenuOpen);
-    toggle2.setAttribute("aria-expanded", String(typeMenuOpen));
   }
   __name(renderTypeToggles, "renderTypeToggles");
-  function openTypeMenu() {
-    typeMenuOpen = true;
-    $("#filter-types-menu")?.classList.remove("hidden");
-    $("#filter-types-toggle")?.setAttribute("aria-expanded", "true");
-  }
-  __name(openTypeMenu, "openTypeMenu");
-  function closeTypeMenu() {
-    typeMenuOpen = false;
-    $("#filter-types-menu")?.classList.add("hidden");
-    $("#filter-types-toggle")?.setAttribute("aria-expanded", "false");
-  }
-  __name(closeTypeMenu, "closeTypeMenu");
   function renderLensSwitcher() {
     const lens = getState().lens;
     for (const tab of document.querySelectorAll(".lens-tab")) {
@@ -6271,8 +6286,6 @@ click to open the revision page">
   __name(renderAttentionBadge, "renderAttentionBadge");
   function syncStreamPositionControls() {
     const state2 = getState();
-    $("#jump-start")?.classList.remove("hidden");
-    $("#jump-end")?.classList.remove("hidden");
     const follow = $("#follow-toggle");
     if (follow) {
       follow.classList.toggle(
@@ -6280,6 +6293,7 @@ click to open the revision page">
         state2.lens !== "timeline" || state2.order !== "desc"
       );
       follow.setAttribute("aria-pressed", String(state2.followByLens.timeline));
+      follow.textContent = state2.followByLens.timeline ? "Following" : "Follow";
     }
   }
   __name(syncStreamPositionControls, "syncStreamPositionControls");
@@ -6298,23 +6312,24 @@ click to open the revision page">
     if (text && text.value !== state2.filterText) text.value = state2.filterText;
     if (text)
       text.placeholder = `search — text or field:value (${keysFor2(state2.lens).map((k) => `${k}:`).join(" ")})`;
-    const order = $("#order-toggle");
-    if (order) {
-      order.textContent = state2.order === "desc" ? "↓ newest first" : "↑ oldest first";
-      order.setAttribute(
-        "title",
-        state2.lens === "list" ? "toggle revision order" : "toggle timeline order"
-      );
+    const onAttention = state2.lens === "attention";
+    const viewToggle = $("#view-toggle");
+    if (viewToggle) {
+      viewToggle.textContent = onAttention ? "View" : `View · ${state2.order === "desc" ? "newest" : "oldest"}`;
     }
+    $("#view-order-section")?.classList.toggle("hidden", onAttention);
+    const newest = $("#order-newest");
+    const oldest = $("#order-oldest");
+    if (newest) newest.checked = state2.order === "desc";
+    if (oldest) oldest.checked = state2.order === "asc";
     const onList = state2.lens === "list";
-    $("#sort-label")?.classList.toggle("hidden", !onList);
+    $("#view-sort-section")?.classList.toggle("hidden", !onList);
     const picker = $("#sort-picker");
     if (picker) {
-      picker.classList.toggle("hidden", !onList);
       if (picker.value !== state2.sortKey) picker.value = state2.sortKey;
     }
     const toolbar = $("#toolbar");
-    if (toolbar) toolbar.classList.toggle("hidden", state2.lens === "attention");
+    if (toolbar) toolbar.classList.toggle("hidden", onAttention);
   }
   __name(syncControls, "syncControls");
   function keysFor2(lens) {
@@ -6329,13 +6344,48 @@ click to open the revision page">
     const container = $("#filter-chips");
     if (!container) return;
     const chips = filterChipsFor(getState().filterText, currentQuerySurface());
-    container.innerHTML = chips.map((c) => {
+    const rendered = chips.map((c) => {
       const value = c.field === "actor" ? c.value.replace(/^actor:/, "") : c.value;
       const label = `${escapeHtml(c.field)}:${escapeHtml(value)}`;
       return `<span class="${filterChipClass(c.negate)}" data-token-index="${c.tokenIndex}">${c.negate ? "− " : ""}${label}<button type="button" class="${CLASS.filterChipRemove}" data-token-index="${c.tokenIndex}" aria-label="remove ${label} filter">✕</button></span>`;
-    }).join("");
+    });
+    const state2 = getState();
+    for (const [scope, value] of [
+      ["track", state2.filterTrack],
+      ["snapshot", state2.filterSnapshot]
+    ]) {
+      if (!value) continue;
+      const label = `${escapeHtml(scope)}:${escapeHtml(value)}`;
+      rendered.push(
+        `<span class="${filterChipClass(false)}" data-filter-scope="${scope}">${label}<button type="button" class="${CLASS.filterChipRemove}" data-filter-scope="${scope}" aria-label="remove ${label} filter">✕</button></span>`
+      );
+    }
+    container.innerHTML = rendered.join("");
+    $("#filter-chips-empty")?.classList.toggle("hidden", rendered.length > 0);
   }
   __name(renderFilterChips, "renderFilterChips");
+  function syncFilterControls() {
+    const state2 = getState();
+    const structuredCount = filterChipsFor(
+      state2.filterText,
+      currentQuerySurface()
+    ).length;
+    const scopedCount = Number(Boolean(state2.filterTrack)) + Number(Boolean(state2.filterSnapshot));
+    const present = presentTypes();
+    const typesFiltered = state2.lens === "timeline" && present.some((type) => !state2.enabledTypes.has(type));
+    const count = structuredCount + scopedCount + Number(typesFiltered);
+    const toggle2 = $("#filters-toggle");
+    if (toggle2) {
+      toggle2.textContent = count > 0 ? `Filters · ${count}` : "Filters";
+      toggle2.setAttribute(
+        "aria-label",
+        count > 0 ? `Filters — ${count} active` : "Filters — none active"
+      );
+    }
+    const clearable = Boolean(state2.filterText.trim()) || Boolean(state2.filterTrack) || Boolean(state2.filterSnapshot) || typesFiltered;
+    $("#filter-footer")?.classList.toggle("hidden", !clearable);
+  }
+  __name(syncFilterControls, "syncFilterControls");
   var lastQueryNotice = "";
   function syncQueryNotices() {
     const el = $("#route-diagnostic");
@@ -6476,6 +6526,7 @@ click to open the revision page">
     syncQueryNotices();
     renderFilterChips();
     renderTypeToggles();
+    syncFilterControls();
     applySplitMode();
     renderMaster();
     renderSelected();
@@ -6495,31 +6546,19 @@ click to open the revision page">
     navigate({ enabledTypes: types }, { replace: true });
   }
   __name(onTypeToggleClick, "onTypeToggleClick");
-  function onFilterTypesToggleClick(ev) {
-    ev.stopPropagation();
-    if (typeMenuOpen) closeTypeMenu();
-    else openTypeMenu();
-  }
-  __name(onFilterTypesToggleClick, "onFilterTypesToggleClick");
-  function onDocumentClickForTypeMenu(ev) {
-    if (!typeMenuOpen) return;
-    const container = $("#filter-types");
-    if (ev.target instanceof Node && container?.contains(ev.target)) return;
-    closeTypeMenu();
-  }
-  __name(onDocumentClickForTypeMenu, "onDocumentClickForTypeMenu");
-  function onFilterTypesKeydown(ev) {
-    if (ev.key === "Escape" && typeMenuOpen) {
-      ev.stopPropagation();
-      closeTypeMenu();
-      $("#filter-types-toggle")?.focus();
-    }
-  }
-  __name(onFilterTypesKeydown, "onFilterTypesKeydown");
   function onFilterChipsClick(ev) {
     const t = ev.target;
     if (!(t instanceof Element)) return;
     const btn = t.closest(`.${CLASS.filterChipRemove}`);
+    const scope = btn?.dataset.filterScope;
+    if (scope === "track") {
+      navigate({ filterTrack: "" }, { replace: true });
+      return;
+    }
+    if (scope === "snapshot") {
+      navigate({ filterSnapshot: "" }, { replace: true });
+      return;
+    }
     const indexAttr = btn?.dataset.tokenIndex;
     if (indexAttr == null) return;
     const next = removeFilterChipToken(getState().filterText, Number(indexAttr));
@@ -6566,15 +6605,6 @@ click to open the revision page">
   function initControls8() {
     $("#master")?.addEventListener("click", onMasterClick);
     $("#filter-types")?.addEventListener("click", onTypeToggleClick);
-    $("#filter-types-toggle")?.addEventListener(
-      "click",
-      onFilterTypesToggleClick
-    );
-    $("#filter-types")?.addEventListener(
-      "keydown",
-      onFilterTypesKeydown
-    );
-    document.addEventListener("click", onDocumentClickForTypeMenu, true);
     $("#filter-chips")?.addEventListener(
       "click",
       onFilterChipsClick
@@ -6618,7 +6648,24 @@ click to open the revision page">
     }, 3e3);
   }
   __name(startPolling, "startPolling");
+  function boundaryTarget(kind) {
+    const state2 = getState();
+    if (state2.lens === "attention") return kind === "latest" ? "last" : "first";
+    const latestIsFirst = state2.order === "desc";
+    return kind === "latest" === latestIsFirst ? "first" : "last";
+  }
+  __name(boundaryTarget, "boundaryTarget");
   function wireToolbar() {
+    const viewDisclosure = createDisclosure({
+      container: "#view-controls",
+      trigger: "#view-toggle",
+      panel: "#view-panel"
+    });
+    createDisclosure({
+      container: "#filter-controls",
+      trigger: "#filters-toggle",
+      panel: "#filters-panel"
+    });
     for (const tab of document.querySelectorAll(".lens-tab")) {
       tab.addEventListener("click", () => {
         const lens = tab.dataset.lens;
@@ -6643,11 +6690,15 @@ click to open the revision page">
         { replace: true }
       );
     });
-    $("#order-toggle")?.addEventListener("click", () => {
-      navigate(
-        { order: getState().order === "desc" ? "asc" : "desc" },
-        { replace: true }
-      );
+    $("#view-panel")?.addEventListener("change", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || !input.checked) return;
+      if (input.name === "view-order") {
+        navigate(
+          { order: input.value === "asc" ? "asc" : "desc" },
+          { replace: true }
+        );
+      }
     });
     $("#sort-picker")?.addEventListener("change", (e) => {
       const value = e.target.value;
@@ -6656,9 +6707,14 @@ click to open the revision page">
         { replace: true }
       );
     });
-    $("#density-toggle")?.addEventListener("click", notifyDensityListeners);
-    $("#jump-start")?.addEventListener("click", () => jumpLensBoundary("first"));
-    $("#jump-end")?.addEventListener("click", () => jumpLensBoundary("last"));
+    $("#jump-latest")?.addEventListener("click", () => {
+      jumpLensBoundary(boundaryTarget("latest"));
+      viewDisclosure.close(true);
+    });
+    $("#jump-oldest")?.addEventListener("click", () => {
+      jumpLensBoundary(boundaryTarget("oldest"));
+      viewDisclosure.close(true);
+    });
     $("#follow-toggle")?.addEventListener("click", () => {
       void toggleTimelineFollow();
     });

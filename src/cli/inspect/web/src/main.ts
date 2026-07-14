@@ -31,6 +31,7 @@ import {
   DIFF_ROUTE_CLEARED,
   initControls as initDiff,
 } from "./diff/controller";
+import { createDisclosure } from "./disclosure";
 import { $ } from "./dom";
 import { toggleTimelineFollow } from "./follow";
 import { initControls as initHelp } from "./help-overlay";
@@ -38,11 +39,7 @@ import { jumpLensBoundary, onKey } from "./keyboard";
 import { presentTypes } from "./model";
 import { onDocumentClick } from "./navigation";
 import { initControls as initPalette } from "./palette";
-import {
-  applyPrefs,
-  initControls as initPrefs,
-  notifyDensityListeners,
-} from "./prefs";
+import { applyPrefs, initControls as initPrefs } from "./prefs";
 import { initControls as initRender, render } from "./render";
 import { applyHash, navigate } from "./router";
 import { initControls as initSplit } from "./split";
@@ -69,10 +66,27 @@ function startPolling(): void {
   }, 3000);
 }
 
+function boundaryTarget(kind: "latest" | "oldest"): "first" | "last" {
+  const state = getState();
+  if (state.lens === "attention") return kind === "latest" ? "last" : "first";
+  const latestIsFirst = state.order === "desc";
+  return (kind === "latest") === latestIsFirst ? "first" : "last";
+}
+
 // The toolbar controls that aren't owned by a module's initControls: the lens tabs
 // and the timeline filter/order controls. All navigate through the router (commit →
 // the subscriber repaints).
 function wireToolbar(): void {
+  const viewDisclosure = createDisclosure({
+    container: "#view-controls",
+    trigger: "#view-toggle",
+    panel: "#view-panel",
+  });
+  createDisclosure({
+    container: "#filter-controls",
+    trigger: "#filters-toggle",
+    panel: "#filters-panel",
+  });
   for (const tab of document.querySelectorAll<HTMLElement>(".lens-tab")) {
     tab.addEventListener("click", () => {
       const lens = tab.dataset.lens;
@@ -99,11 +113,15 @@ function wireToolbar(): void {
       { replace: true },
     );
   });
-  $("#order-toggle")?.addEventListener("click", () => {
-    navigate(
-      { order: getState().order === "desc" ? "asc" : "desc" },
-      { replace: true },
-    );
+  $("#view-panel")?.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || !input.checked) return;
+    if (input.name === "view-order") {
+      navigate(
+        { order: input.value === "asc" ? "asc" : "desc" },
+        { replace: true },
+      );
+    }
   });
   $<HTMLSelectElement>("#sort-picker")?.addEventListener("change", (e) => {
     const value = (e.target as HTMLSelectElement).value;
@@ -112,11 +130,14 @@ function wireToolbar(): void {
       { replace: true },
     );
   });
-  // Density can change consumer geometry without resizing its container, so the
-  // preference toggle explicitly notifies every registered layout consumer.
-  $("#density-toggle")?.addEventListener("click", notifyDensityListeners);
-  $("#jump-start")?.addEventListener("click", () => jumpLensBoundary("first"));
-  $("#jump-end")?.addEventListener("click", () => jumpLensBoundary("last"));
+  $("#jump-latest")?.addEventListener("click", () => {
+    jumpLensBoundary(boundaryTarget("latest"));
+    viewDisclosure.close(true);
+  });
+  $("#jump-oldest")?.addEventListener("click", () => {
+    jumpLensBoundary(boundaryTarget("oldest"));
+    viewDisclosure.close(true);
+  });
   $("#follow-toggle")?.addEventListener("click", () => {
     void toggleTimelineFollow();
   });

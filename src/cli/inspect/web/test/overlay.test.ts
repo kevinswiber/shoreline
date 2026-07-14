@@ -124,7 +124,7 @@ describe("closeActive / close", () => {
 
 describe("focus restoration", () => {
   it("restores focus to the element active before the overlay opened", () => {
-    const opener = need("#theme-toggle");
+    const opener = need("#view-toggle");
     opener.focus();
     expect(document.activeElement).toBe(opener);
 
@@ -137,7 +137,7 @@ describe("focus restoration", () => {
   });
 
   it("does not restore focus when closeActive is told not to", () => {
-    const opener = need("#theme-toggle");
+    const opener = need("#view-toggle");
     opener.focus();
     overlay.register("help", { node: need("#key-help"), onClose: () => {} });
     overlay.open("help", "#key-help-close");
@@ -195,7 +195,7 @@ describe("trapFocus", () => {
 
   it("pulls focus back inside when it has escaped the overlay", () => {
     const { first } = openPanel("p");
-    const outside = need("#theme-toggle");
+    const outside = need("#view-toggle");
     outside.focus();
     const ev = tab();
     expect(overlay.trapFocus(ev)).toBe(true);
