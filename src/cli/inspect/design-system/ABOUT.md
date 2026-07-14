@@ -30,10 +30,12 @@ surface because Pointbreak also covers debugging collaboration tools.
   both themes by the product-local `contrast-check.mjs`, which parses the live
   `../assets/tokens.css` source. Don't introduce colors casually.
 - **Instrument surfaces** (`--bg → --bg-elev → --bg-row → --bg-row-sel`): a
-  low-chroma dark ladder and warm off-white light ladder, quiet enough that
-  status hues still carry the meaning. The **accent** is luminous cyan in dark
-  and restrained teal in light; the logo's **wave ramp** (`--wave-*`) is
-  reserved for identity moments, not working UI.
+  low-chroma dark ladder and a lightly warm Mineral Workbench ladder, quiet
+  enough that status hues still carry the meaning. The light surfaces stay
+  tactile rather than converging on one generic white IDE canvas, preserving
+  layer identity during prolonged evidence reading. The **accent** is luminous
+  cyan in dark and restrained teal in light; the logo's **wave ramp**
+  (`--wave-*`) is reserved for identity moments, not working UI.
 - **The status system is the identity**: success/warning/danger/assess/
   validation/info/teal; one hue per concept. Event types get their own
   palette (`--evt-*`) that color-codes timeline rails, filter toggles, and

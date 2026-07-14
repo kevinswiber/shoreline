@@ -218,9 +218,10 @@
 }
 
 /*
- * Light theme — a semantic-alias override, skinned to
- * warm instrument neutrals and a restrained teal accent. The lighter work
- * surfaces preserve contrast for Review's fixed semantic palette.
+ * Light theme — a semantic-alias override, skinned to the Mineral Workbench
+ * surface family and a restrained teal accent. The lightly warm work surfaces
+ * preserve contrast for Review's fixed semantic palette and remain distinct
+ * during prolonged evidence reading.
  * Components never change; only the alias→value mapping flips. Status hues keep
  * the inspector's light values — darkened so chip text (which sits on --bg-row)
  * clears WCAG AA on the pale row surfaces. The radii, type, and --mono/--sans
@@ -229,14 +230,14 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg: #fdfbf5;
-  --bg-elev: #fffefa;
-  --bg-row: #f7f3e9;
-  --bg-row-sel: #e2dbce;
-  --bg-topbar: #f4f0e6;
-  --sel-bg: #f7f3e9;
-  --bg-code: #fffefa;
-  --border: #9eaaa4;
+  --bg: #fbfaf7;
+  --bg-elev: #ffffff;
+  --bg-row: #f4f2ed;
+  --bg-row-sel: #e4e1da;
+  --bg-topbar: #f2f0eb;
+  --sel-bg: #f4f2ed;
+  --bg-code: #ffffff;
+  --border: #a1aaa6;
   --fg: #1b1d1c;
   --fg-dim: #4e5853;
 
