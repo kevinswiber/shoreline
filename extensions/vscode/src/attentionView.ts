@@ -12,8 +12,6 @@ import {
 import type { AttentionListDoc, PointbreakCli, RevisionListDoc } from "./cli";
 import type { TargetResolution } from "./targetResolver";
 
-export const POLL_INTERVAL_MS = 15_000;
-
 interface NodeBase {
   kind: string;
   label: string;
@@ -139,13 +137,13 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
   private readonly emitter = new EventEmitter<TreeNode | undefined | null>();
   readonly onDidChangeTreeData: Event<TreeNode | undefined | null> =
     this.emitter.event;
+  private readonly visibilityEmitter = new EventEmitter<boolean>();
+  readonly onDidChangeVisibility: Event<boolean> = this.visibilityEmitter.event;
   private readonly attentionByTarget = new Map<string, AttentionListDoc>();
   private readonly revisionsByTarget = new Map<string, RevisionListDoc>();
   private readonly loadErrors = new Map<string, string>();
-  private interval: ReturnType<typeof setInterval> | undefined;
   private treeView: TreeView<TreeNode> | undefined;
   private visible = false;
-  private visibilityGeneration = 0;
 
   constructor(
     private readonly cli: PointbreakCli,
@@ -165,24 +163,39 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
   }
 
   async setVisible(visible: boolean): Promise<void> {
+    if (visible === this.visible) return;
     this.visible = visible;
-    const generation = ++this.visibilityGeneration;
-    this.stopPolling();
+    this.visibilityEmitter.fire(visible);
     if (!visible) {
       return;
     }
 
     await this.refresh();
-    if (this.visible && generation === this.visibilityGeneration) {
-      this.interval = setInterval(() => {
-        void this.refresh();
-      }, POLL_INTERVAL_MS);
-    }
   }
 
   async refresh(): Promise<void> {
+    await this.refreshResolutions(distinctResolvedTargets(this.resolutions));
+  }
+
+  async refreshTarget(targetKey: string, signal?: AbortSignal): Promise<void> {
+    const resolution = distinctResolvedTargets(this.resolutions).find(
+      (candidate) => candidate.target.key === targetKey,
+    );
+    if (resolution) {
+      await this.refreshResolutions([resolution], signal);
+    }
+  }
+
+  isVisible(): boolean {
+    return this.visible;
+  }
+
+  private async refreshResolutions(
+    resolutions: ResolvedTarget[],
+    signal?: AbortSignal,
+  ): Promise<void> {
     await Promise.all(
-      distinctResolvedTargets(this.resolutions).map(async (resolution) => {
+      resolutions.map(async (resolution) => {
         const key = resolution.target.key;
         if (resolution.emptyInventory) {
           this.attentionByTarget.delete(key);
@@ -195,16 +208,19 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
             this.cli.attentionList(resolution.folder.uri.fsPath),
             this.cli.revisionList(resolution.folder.uri.fsPath),
           ]);
+          if (signal?.aborted) return;
           this.attentionByTarget.set(key, attention);
           this.revisionsByTarget.set(key, revisions);
           this.loadErrors.delete(key);
         } catch (error) {
+          if (signal?.aborted) return;
           this.attentionByTarget.delete(key);
           this.revisionsByTarget.delete(key);
           this.loadErrors.set(key, errorMessage(error));
         }
       }),
     );
+    if (signal?.aborted) return;
     this.updateBadge();
     this.emitter.fire(undefined);
   }
@@ -255,10 +271,9 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
 
   dispose(): void {
     this.visible = false;
-    this.visibilityGeneration += 1;
-    this.stopPolling();
     activeProviders.delete(this);
     this.emitter.dispose();
+    this.visibilityEmitter.dispose();
   }
 
   private resolutionsWithLoadErrors(): TargetResolution[] {
@@ -282,13 +297,6 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
       value,
       tooltip: `${value} Pointbreak attention item${value === 1 ? "" : "s"}`,
     };
-  }
-
-  private stopPolling(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = undefined;
-    }
   }
 }
 

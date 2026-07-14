@@ -184,7 +184,7 @@ export async function runAddObservationFromSelectionCommand(
     );
     return;
   }
-  await dependencies.showInformationMessage("Observation recorded.");
+  void dependencies.showInformationMessage("Observation recorded.");
   try {
     await dependencies.refresh();
   } catch {

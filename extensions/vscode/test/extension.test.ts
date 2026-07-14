@@ -71,6 +71,13 @@ vi.mock("../src/inspectConnectionStore", () => ({
 vi.mock("../src/diffDataSource", () => ({
   InspectApiDiffDataSource: class {},
 }));
+vi.mock("../src/freshnessCoordinator", () => ({
+  FreshnessCoordinator: class {
+    dispose = vi.fn();
+    refreshAll = vi.fn();
+    refreshAfterWrite = vi.fn();
+  },
+}));
 vi.mock("../src/logger", () => ({
   Logger: class {
     dispose = vi.fn();

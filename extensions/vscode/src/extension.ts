@@ -1,5 +1,5 @@
 import { commands, type ExtensionContext, window, workspace } from "vscode";
-import { AttentionTreeProvider, refreshAfterWrite } from "./attentionView";
+import { AttentionTreeProvider } from "./attentionView";
 import { resolveBinary } from "./binary";
 import { PointbreakCli } from "./cli";
 import { runAddObservationFromSelectionCommand } from "./commands/addObservationFromSelection";
@@ -11,6 +11,7 @@ import {
   SourceReviewContextStore,
 } from "./commands/openInSource";
 import { InspectApiDiffDataSource } from "./diffDataSource";
+import { FreshnessCoordinator } from "./freshnessCoordinator";
 import { InspectChildManager } from "./inspectChild";
 import { revisionIsCurrent } from "./inspectClient";
 import { InspectConnectionStore } from "./inspectConnectionStore";
@@ -79,6 +80,16 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const treeView = window.createTreeView("pointbreak.attention", {
     treeDataProvider: provider,
   });
+  const freshness = new FreshnessCoordinator(
+    inspectManager,
+    provider,
+    reviewPanel,
+    {
+      reportError: (error) => {
+        void window.showWarningMessage(error.message);
+      },
+    },
+  );
   context.subscriptions.push(
     provider,
     treeView,
@@ -86,6 +97,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     inspectManager,
     openInSource,
     reviewPanel,
+    freshness,
     window.onDidChangeActiveTextEditor(() => {
       void updateSourceContext();
     }),
@@ -93,10 +105,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
       sourceContexts.delete(document),
     ),
     commands.registerCommand("pointbreak.refreshAttention", () =>
-      provider.refresh(),
+      freshness.refreshAll(),
     ),
     commands.registerCommand("pointbreak.capture", () =>
-      runCaptureCommand(cli, resolutions),
+      runCaptureCommand(cli, resolutions, {
+        refresh: () => freshness.refreshAfterWrite(),
+      }),
     ),
     commands.registerCommand("pointbreak.openAnnotatedDiff", (node) =>
       runOpenAnnotatedDiffCommand(cli, resolutions, reviewPanel, node),
@@ -116,10 +130,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
             revisionId,
           );
         },
-        refresh: async () => {
-          await refreshAfterWrite();
-          await reviewPanel.reloadActive();
-        },
+        refresh: () => freshness.refreshAfterWrite(),
       }),
     ),
   );

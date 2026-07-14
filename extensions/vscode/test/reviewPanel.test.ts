@@ -412,6 +412,43 @@ describe("ReviewPanelManager", () => {
     secondPanel.setVisible(false);
     panel.setVisible(true);
     expect(visible).toEqual([true, false, true]);
+    expect(manager.isVisible()).toBe(true);
+  });
+
+  it("reloads the active diff only for its active connection target", async () => {
+    const load = vi.fn(async ({ revisionId }) => data(revisionId));
+    const manager = createManager({ load });
+    await manager.open(location("a", "rev:one"));
+
+    await manager.reloadActive("b");
+    expect(load).toHaveBeenCalledOnce();
+
+    await manager.reloadActive("a");
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not publish a freshness reload after its generation is aborted", async () => {
+    const pending = deferred<DiffRenderData>();
+    const load = vi
+      .fn<DiffDataSource["load"]>()
+      .mockResolvedValueOnce(data("rev:one"))
+      .mockReturnValueOnce(pending.promise);
+    const manager = createManager({ load });
+    await manager.open(location("a", "rev:one"));
+    const panel = vscodeMocks.panels[0];
+    panel.emitMessage({ type: "ready" });
+    await settled();
+    panel.webview.postMessage.mockClear();
+    const controller = new AbortController();
+    const reload = manager.reloadActive("a", controller.signal);
+
+    controller.abort();
+    pending.resolve({ ...data("rev:one"), snapshotId: "obj:stale" });
+    await reload;
+    panel.emitMessage({ type: "ready" });
+    await settled();
+
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
   });
 
   it("keys persisted controller state by the complete host data location", async () => {

@@ -64,6 +64,29 @@ describe("runAddObservationFromSelectionCommand", () => {
     expect(dependencies.refresh).toHaveBeenCalledOnce();
   });
 
+  it("refreshes a completed write without waiting for its notification", async () => {
+    const notice = deferred<void>();
+    const contexts = contextStore(document);
+    const dependencies = {
+      ...deps(editor(document, 1, 0, 1, 3)),
+      showInformationMessage: vi.fn(() => notice.promise),
+    };
+    const command = runAddObservationFromSelectionCommand(
+      cliMock() as never,
+      resolutions(),
+      contexts,
+      dependencies,
+    );
+    await vi.waitFor(() =>
+      expect(dependencies.showInformationMessage).toHaveBeenCalled(),
+    );
+    const refreshesBeforeDismissal = dependencies.refresh.mock.calls.length;
+    notice.resolve();
+    await command;
+
+    expect(refreshesBeforeDismissal).toBe(1);
+  });
+
   it.each([
     {
       name: "drifted",
@@ -356,6 +379,14 @@ function deps(activeEditor: ReturnType<typeof editor>) {
     showErrorMessage: vi.fn(async () => undefined),
     refresh: vi.fn(async () => undefined),
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }
 
 function sourceDocument(lines: readonly string[], fsPath = "/repo/src/lib.rs") {

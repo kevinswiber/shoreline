@@ -116,6 +116,10 @@ export class InspectChildManager {
     });
   }
 
+  activeSession(): InspectSession | undefined {
+    return runningSession(this.state);
+  }
+
   stop(): Promise<void> {
     return this.serialize(() => this.stopExclusive());
   }

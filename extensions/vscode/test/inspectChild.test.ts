@@ -99,6 +99,7 @@ describe("InspectChildManager", () => {
     const session = await manager.ensure(resolution());
 
     expect(session).toEqual({ targetKey: resolution().target.key, client });
+    expect(manager.activeSession()).toBe(session);
     expect(store.load).toHaveBeenCalledOnce();
     expect(client.verify).toHaveBeenCalledWith({
       storeIdentity: resolution().target.storeIdentity,
@@ -112,6 +113,7 @@ describe("InspectChildManager", () => {
 
     await manager.stop();
     expect(events.at(-1)).toBeUndefined();
+    expect(manager.activeSession()).toBeUndefined();
   });
 
   it("clears a failed candidate and spawns the exact API-only child", async () => {

@@ -181,7 +181,7 @@ describe("deriveTree", () => {
   });
 });
 
-it("polls only while the view is visible", async () => {
+it("refreshes immediately on visibility without owning a timer", async () => {
   vi.useFakeTimers();
   const cli = {
     attentionList: vi.fn(async () => attention("A")),
@@ -195,41 +195,54 @@ it("polls only while the view is visible", async () => {
   await provider.setVisible(true);
   expect(cli.attentionList).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(30_000);
-  expect(cli.attentionList).toHaveBeenCalledTimes(3);
+  expect(cli.attentionList).toHaveBeenCalledTimes(1);
 
   provider.setVisible(false);
   await vi.advanceTimersByTimeAsync(30_000);
-  expect(cli.attentionList).toHaveBeenCalledTimes(3);
+  expect(cli.attentionList).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
   provider.dispose();
 });
 
-it("does not install a stale poller across rapid visibility changes", async () => {
-  vi.useFakeTimers();
-  const provider = new AttentionTreeProvider({} as PointbreakCli, [
+it("refreshes one target without replaying another workspace target", async () => {
+  const cli = {
+    attentionList: vi.fn(async (path: string) => attention(path)),
+    revisionList: vi.fn(async (path: string) => revisions(`rev:${path}`)),
+  } as unknown as PointbreakCli;
+  const provider = new AttentionTreeProvider(cli, [
     resolved("/a", "a"),
+    resolved("/b", "b"),
   ]);
-  const firstRefresh = deferred<void>();
-  const secondRefresh = deferred<void>();
-  const refresh = vi
-    .spyOn(provider, "refresh")
-    .mockImplementationOnce(() => firstRefresh.promise)
-    .mockImplementationOnce(() => secondRefresh.promise);
 
-  const firstVisible = provider.setVisible(true);
-  await provider.setVisible(false);
-  const secondVisible = provider.setVisible(true);
+  await provider.refreshTarget("b");
 
-  firstRefresh.resolve();
-  await firstVisible;
-  expect(vi.getTimerCount()).toBe(0);
-
-  secondRefresh.resolve();
-  await secondVisible;
-  expect(refresh).toHaveBeenCalledTimes(2);
-  expect(vi.getTimerCount()).toBe(1);
-
+  expect(cli.attentionList).toHaveBeenCalledOnce();
+  expect(cli.attentionList).toHaveBeenCalledWith("/b");
+  expect(cli.revisionList).toHaveBeenCalledWith("/b");
   provider.dispose();
-  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("does not publish a target refresh after its generation is aborted", async () => {
+  const pendingAttention = deferred<AttentionListDoc>();
+  const pendingRevisions = deferred<RevisionListDoc>();
+  const cli = {
+    attentionList: vi.fn(() => pendingAttention.promise),
+    revisionList: vi.fn(() => pendingRevisions.promise),
+  } as unknown as PointbreakCli;
+  const provider = new AttentionTreeProvider(cli, [resolved("/a", "a")]);
+  const controller = new AbortController();
+  const refresh = provider.refreshTarget("a", controller.signal);
+
+  controller.abort();
+  pendingAttention.resolve(attention("stale"));
+  pendingRevisions.resolve(revisions("rev:stale"));
+  await refresh;
+
+  expect(provider.getChildren()).toMatchObject([
+    { kind: "attention-section", children: [] },
+    { kind: "revisions-section", children: [] },
+  ]);
+  provider.dispose();
 });
 
 function resolved(

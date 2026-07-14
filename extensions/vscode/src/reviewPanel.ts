@@ -88,14 +88,24 @@ export class ReviewPanelManager implements Disposable {
     await this.load(session);
   }
 
-  async reloadActive(): Promise<void> {
+  async reloadActive(targetKey?: string, signal?: AbortSignal): Promise<void> {
     const session = this.lastOpenedKey
       ? this.sessions.get(this.lastOpenedKey)
       : undefined;
     if (!session) {
       return;
     }
-    await this.load(session);
+    if (
+      targetKey !== undefined &&
+      session.location.resolution.target.key !== targetKey
+    ) {
+      return;
+    }
+    await this.load(session, signal);
+  }
+
+  isVisible(): boolean {
+    return this.reportedVisibility;
   }
 
   dispose(): void {
@@ -154,7 +164,11 @@ export class ReviewPanelManager implements Disposable {
     return session;
   }
 
-  private async load(session: PanelSession): Promise<void> {
+  private async load(
+    session: PanelSession,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal?.aborted) return;
     const generation = ++session.generation;
     const location = session.location;
     session.ready = false;
@@ -171,7 +185,7 @@ export class ReviewPanelManager implements Disposable {
         resolution: location.resolution,
         revisionId: location.revisionId,
       });
-      if (!this.isCurrent(session, generation)) {
+      if (signal?.aborted || !this.isCurrent(session, generation)) {
         return;
       }
       const message: HostToWebview = {
@@ -190,7 +204,7 @@ export class ReviewPanelManager implements Disposable {
       session.snapshot = data.artifact;
       this.queueState(session, message);
     } catch {
-      if (!this.isCurrent(session, generation)) {
+      if (signal?.aborted || !this.isCurrent(session, generation)) {
         return;
       }
       this.queueState(session, { type: "error", message: LOAD_ERROR });

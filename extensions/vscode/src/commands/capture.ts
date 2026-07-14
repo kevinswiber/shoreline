@@ -92,7 +92,7 @@ export async function runCaptureCommand(
       return;
     }
     markTargetPopulated(resolutions, resolution.target.key);
-    await window.showInformationMessage(
+    void window.showInformationMessage(
       `Captured revision ${shortRevisionId(result.revision.id)}`,
     );
     await (dependencies.refresh ?? refreshAfterWrite)();

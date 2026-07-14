@@ -97,6 +97,37 @@ describe("runCaptureCommand", () => {
     );
   });
 
+  it("refreshes a completed write without waiting for its notification", async () => {
+    const notice = deferred<void>();
+    const refresh = vi.fn(async () => undefined);
+    const cli = {
+      capture: vi.fn(async () => ({
+        schema: "pointbreak.review-capture",
+        version: 1,
+        revision: { id: "rev:sha256:1234567890abcdef" },
+        diagnostics: [],
+      })),
+    } as unknown as PointbreakCli;
+    vscodeMocks.showQuickPick.mockResolvedValueOnce({
+      label: "Staged only",
+      choice: "staged",
+    });
+    vscodeMocks.showInformationMessage.mockReturnValueOnce(notice.promise);
+
+    const command = runCaptureCommand(cli, [resolved()], {
+      pick: vi.fn(async (items) => items[0] as never),
+      refresh,
+    });
+    await vi.waitFor(() =>
+      expect(vscodeMocks.showInformationMessage).toHaveBeenCalled(),
+    );
+    const refreshesBeforeDismissal = refresh.mock.calls.length;
+    notice.resolve();
+    await command;
+
+    expect(refreshesBeforeDismissal).toBe(1);
+  });
+
   it("marks every matching target populated before refreshing", async () => {
     const capture = vi.fn(async () => ({
       schema: "pointbreak.review-capture" as const,
@@ -160,4 +191,12 @@ function resolved(emptyInventory = false): TargetResolution {
     },
     emptyInventory,
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }
