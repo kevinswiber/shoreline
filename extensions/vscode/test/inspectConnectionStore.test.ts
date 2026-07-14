@@ -70,6 +70,27 @@ describe("InspectConnectionStore", () => {
       undefined,
     );
   });
+
+  it.each([
+    ["folderUri", "file:///repo"],
+    ["path", "/repo"],
+    ["token", "persisted-bearer"],
+    ["startupDocument", "pointbreak.inspect-startup"],
+    ["capabilityUrl", "http://127.0.0.1:63831/#/timeline?token=opaque"],
+  ])("rejects forbidden %s connection state", async (field, value) => {
+    const state = memento({
+      version: 1,
+      ...record(),
+      [field]: value,
+    });
+    const store = new InspectConnectionStore(state, secretStorage());
+
+    await expect(store.load(record().targetKey)).resolves.toBeUndefined();
+    expect(state.update).toHaveBeenCalledWith(
+      "pointbreak.inspectConnection",
+      undefined,
+    );
+  });
 });
 
 function record(): InspectConnectionRecord {

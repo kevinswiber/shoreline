@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { build } from "esbuild";
 import { expect, it } from "vitest";
 import snapshotFixture from "../../../src/cli/inspect/web/test/fixtures/snapshot.json";
 import { isHostToWebview, isWebviewToHost } from "../src/webviewProtocol";
@@ -78,12 +79,16 @@ it("validates the complete host and webview message unions", () => {
   ).toBe(false);
 });
 
-it("keeps the browser entry presentation-only", () => {
-  expect(browserEntry).not.toMatch(/\bfetch\s*\(/);
-  expect(browserEntry).not.toMatch(/\bXMLHttpRequest\b/);
-  expect(browserEntry).not.toMatch(/\bWebSocket\b/);
-  expect(browserEntry).not.toMatch(/\bEventSource\b/);
-  expect(browserEntry).not.toContain('from "node:');
+it("keeps the complete webview closure presentation-only", async () => {
+  const webviewSource = await bundledWebviewSource();
+
+  expect(webviewSource).not.toMatch(
+    /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b/,
+  );
+  expect(webviewSource).not.toMatch(/from ["']node:/);
+  expect(webviewSource).not.toMatch(
+    /\bAuthorization\b|\bBearer\b|\bsessionStorage\b|\bSecretStorage\b|pointbreak\.inspect-startup/,
+  );
   expect(browserEntry).toContain("ReviewWebviewController");
 });
 
@@ -96,3 +101,20 @@ it("bridges light, dark, and high-contrast themes through VS Code tokens", () =>
   expect(theme).toContain("--vscode-diffEditor-removedLineBackground");
   expect(theme).toContain("--vscode-focusBorder");
 });
+
+async function bundledWebviewSource(): Promise<string> {
+  const result = await build({
+    entryPoints: ["src/webview/review.ts"],
+    bundle: true,
+    outfile: "out/review.js",
+    write: false,
+    metafile: true,
+    platform: "browser",
+    format: "iife",
+  });
+
+  return Object.keys(result.metafile.inputs)
+    .filter((path) => path.startsWith("src/"))
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+}

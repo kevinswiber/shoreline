@@ -1,9 +1,25 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import pkg from "../package.json";
+
+const extensionSource = sourceFiles(
+  fileURLToPath(new URL("../src", import.meta.url)),
+)
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n");
 
 it("activates only for explicit Pointbreak surfaces", () => {
   expect(pkg.activationEvents ?? []).not.toContain("onStartupFinished");
   expect(pkg.activationEvents ?? []).not.toContain("*");
+});
+
+it("keeps retired startup restoration and raw-path state out of production", () => {
+  expect(extensionSource).not.toMatch(
+    /restoreReviewServers|reviewServerRegistry|folderUri|onStartupFinished/,
+  );
+  expect(extensionSource).not.toContain("globalState");
 });
 
 it("carries the untouchable identity and license", () => {
@@ -65,3 +81,12 @@ it("contributes the Review view and its commands", () => {
     default: "human:local",
   });
 });
+
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory)
+    .flatMap((entry) => {
+      const path = join(directory, entry);
+      return statSync(path).isDirectory() ? sourceFiles(path) : [path];
+    })
+    .filter((path) => path.endsWith(".ts"));
+}
