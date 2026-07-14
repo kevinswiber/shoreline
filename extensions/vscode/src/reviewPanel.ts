@@ -74,6 +74,7 @@ export class ReviewPanelManager implements Disposable {
       existing.panel.reveal(ViewColumn.Active, !!options.preserveFocus);
       const sameFocus = equalFocus(existing.location.focus, location.focus);
       existing.location = location;
+      existing.panel.title = reviewDocumentTitle(location);
       if (!sameFocus) {
         this.sendFocus(existing, location.focus);
       }
@@ -117,7 +118,7 @@ export class ReviewPanelManager implements Disposable {
     const outputRoot = Uri.joinPath(this.extensionUri, "out");
     const panel = window.createWebviewPanel(
       VIEW_TYPE,
-      PANEL_TITLE,
+      reviewDocumentTitle(location),
       { viewColumn: ViewColumn.Active, preserveFocus },
       {
         enableScripts: true,
@@ -154,7 +155,6 @@ export class ReviewPanelManager implements Disposable {
     const location = session.location;
     session.ready = false;
     session.pendingState = undefined;
-    session.panel.title = `${PANEL_TITLE}: loading`;
     session.panel.webview.html = webviewHtml(
       this.extensionUri,
       session.panel.webview,
@@ -181,13 +181,12 @@ export class ReviewPanelManager implements Disposable {
         this.queueState(session, { type: "error", message: LOAD_ERROR });
         return;
       }
-      session.panel.title = `${PANEL_TITLE}: ${shortRevisionId(location.revisionId)}`;
+      session.panel.title = reviewDocumentTitle(location);
       this.queueState(session, message);
     } catch {
       if (!this.isCurrent(session, generation)) {
         return;
       }
-      session.panel.title = `${PANEL_TITLE}: unavailable`;
       this.queueState(session, { type: "error", message: LOAD_ERROR });
     }
   }
@@ -327,4 +326,8 @@ function equalFocus(
 
 function shortRevisionId(revisionId: string): string {
   return revisionId.split(":").at(-1)?.slice(0, 12) ?? revisionId;
+}
+
+function reviewDocumentTitle(location: ReviewPanelLocation): string {
+  return `${PANEL_TITLE}: ${location.resolution.target.label} · ${shortRevisionId(location.revisionId)}`;
 }

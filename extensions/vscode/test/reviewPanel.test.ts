@@ -161,9 +161,14 @@ describe("ReviewPanelManager", () => {
     const thirdOpen = manager.open(sameRevisionOnAnotherTarget);
     expect(vscodeMocks.createWebviewPanel).toHaveBeenCalledTimes(3);
     const thirdPanel = vscodeMocks.panels[2];
+    expect(panel.title).toBe("Pointbreak Review: a · one");
+    expect(vscodeMocks.createWebviewPanel.mock.calls[2]?.[1]).toBe(
+      "Pointbreak Review: b · one",
+    );
     thirdPanel.emitMessage({ type: "ready" });
     await thirdOpen;
     expect(load).toHaveBeenCalledTimes(3);
+    expect(thirdPanel.title).toBe("Pointbreak Review: b · one");
   });
 
   it("keeps overlapping document loads independent and errors path-free", async () => {
