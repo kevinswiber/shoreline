@@ -47,7 +47,9 @@ export class ReviewWebviewController {
   ) {
     root.addEventListener("click", (event) => this.onClick(event));
     root.addEventListener("input", (event) => this.onInput(event));
-    root.addEventListener("keydown", (event) => this.onKeydown(event));
+    root.ownerDocument.addEventListener("keydown", (event) =>
+      this.onKeydown(event),
+    );
   }
 
   render(data: DiffRenderData, focus?: ReviewPanelFocus): void {

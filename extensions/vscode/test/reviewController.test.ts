@@ -79,11 +79,17 @@ describe("ReviewWebviewController", () => {
     });
     controller.render(renderData("rev:one"));
 
-    const nextFact = keydown(requiredRoot(), "n");
+    const nextFact = keydown(document.body, "n");
     expect(nextFact.defaultPrevented).toBe(true);
     expect(document.querySelector(".review-current.anno")).not.toBeNull();
-    const nextChange = keydown(requiredRoot(), "]");
+    const previousFact = keydown(document.body, "p");
+    expect(previousFact.defaultPrevented).toBe(true);
+    expect(document.querySelector(".review-current.anno")).not.toBeNull();
+    const nextChange = keydown(document.body, "]");
     expect(nextChange.defaultPrevented).toBe(true);
+    expect(document.querySelector(".review-current.dhunk")).not.toBeNull();
+    const previousChange = keydown(document.body, "[");
+    expect(previousChange.defaultPrevented).toBe(true);
     expect(document.querySelector(".review-current.dhunk")).not.toBeNull();
 
     const input = document.querySelector<HTMLInputElement>("#diff-file-query");
