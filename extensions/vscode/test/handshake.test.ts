@@ -1,9 +1,29 @@
 import { expect, it } from "vitest";
 import type { ResolvedBinary } from "../src/binary";
-import { type ExecFn, PointbreakCli, verifyHandshake } from "../src/cli";
+import {
+  type ExecFn,
+  PointbreakCli,
+  REQUIRED_DOCUMENTS,
+  verifyHandshake,
+} from "../src/cli";
 import { VERSION_DOC } from "./fixtures";
 
 const binary: ResolvedBinary = { path: "/bin/shore", source: "setting" };
+
+it("pins the exact extension document handshake", () => {
+  expect(REQUIRED_DOCUMENTS).toEqual({
+    "pointbreak.version": 1,
+    "pointbreak.attention-list": 1,
+    "pointbreak.review-revision-list": 1,
+    "pointbreak.review-revision": 2,
+    "pointbreak.review-capture": 1,
+    "pointbreak.review-observation-add": 1,
+    "pointbreak.review-snapshot": 1,
+    "pointbreak.inspect-freshness": 1,
+    "pointbreak.inspect-startup": 1,
+    "pointbreak.store-status": 1,
+  });
+});
 
 it("fails closed when a required document version mismatches", () => {
   const doc = {

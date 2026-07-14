@@ -47,11 +47,11 @@ export interface ReviewIdentity {
 
 export type ReviewProbeResult =
   | { kind: "match" }
-  | { kind: "unavailable" }
+  | { kind: "unreachable" }
   | { kind: "unauthorized" }
-  | { kind: "incompatible" }
+  | { kind: "version-incompatible" }
   | { kind: "protocol" }
-  | { kind: "mismatch" };
+  | { kind: "identity-mismatch" };
 
 type ReviewProbe = (
   capability: ReviewCapability,
@@ -353,24 +353,24 @@ async function retryProbe(
 ): Promise<ReviewProbeResult> {
   for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt += 1) {
     const result = await probe(capability, identity);
-    if (result.kind !== "unavailable") {
+    if (result.kind !== "unreachable") {
       return result;
     }
     if (attempt + 1 < RETRY_ATTEMPTS) {
       await sleep(RETRY_DELAY_MS);
     }
   }
-  return { kind: "unavailable" };
+  return { kind: "unreachable" };
 }
 
 function startedServerFailureMessage(result: ReviewProbeResult): string {
   if (result.kind === "unauthorized") {
     return "Pointbreak Review rejected its startup credential.";
   }
-  if (result.kind === "incompatible") {
+  if (result.kind === "version-incompatible") {
     return "Pointbreak Review is incompatible with this extension.";
   }
-  if (result.kind === "mismatch") {
+  if (result.kind === "identity-mismatch") {
     return "Pointbreak Review belongs to a different review target.";
   }
   if (result.kind === "protocol") {

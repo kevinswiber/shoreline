@@ -11,7 +11,7 @@ import {
   window,
 } from "vscode";
 import type { ResolvedBinary } from "./binary";
-import { sanitizedEnv } from "./cli";
+import { type InspectStartupDoc, sanitizedEnv } from "./cli";
 import { InspectClient } from "./inspectClient";
 import type {
   InspectConnectionRecord,
@@ -34,14 +34,6 @@ export type SpawnFn = (
 export interface InspectSession {
   readonly targetKey: string;
   readonly client: InspectClient;
-}
-
-interface InspectStartupDocument {
-  readonly schema: typeof STARTUP_SCHEMA;
-  readonly version: 1;
-  readonly host: string;
-  readonly port: number;
-  readonly token: string;
 }
 
 interface OwnedRuntime {
@@ -349,7 +341,7 @@ export class InspectChildManager {
   }
 }
 
-export function parseInspectStartupLine(line: string): InspectStartupDocument {
+export function parseInspectStartupLine(line: string): InspectStartupDoc {
   if (line.includes("\n") || line.includes("\r")) {
     throw invalidStartup();
   }
@@ -387,7 +379,7 @@ function readStartup(
   process: ChildProcessWithoutNullStreams,
   timeoutMs: number,
   maxBytes: number,
-): Promise<InspectStartupDocument> {
+): Promise<InspectStartupDoc> {
   return new Promise((resolve, reject) => {
     let output = Buffer.alloc(0);
     let settled = false;
@@ -436,7 +428,7 @@ function readStartup(
       process.removeListener("error", onError);
       process.removeListener("exit", onExit);
     };
-    const settleResolve = (document: InspectStartupDocument) => {
+    const settleResolve = (document: InspectStartupDoc) => {
       if (settled) return;
       settled = true;
       cleanup();

@@ -64,7 +64,7 @@ const CAPABILITY: ReviewCapability = {
   token: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
 };
 const MATCH: ReviewProbeResult = { kind: "match" };
-const UNAVAILABLE: ReviewProbeResult = { kind: "unavailable" };
+const UNREACHABLE: ReviewProbeResult = { kind: "unreachable" };
 
 beforeEach(() => {
   vscodeMocks.executeCommand.mockReset();
@@ -154,7 +154,7 @@ describe("runOpenInReviewCommand", () => {
     vscodeMocks.showInformationMessage.mockResolvedValue(
       "Start `shore inspect` here",
     );
-    const probe = vi.fn(async () => UNAVAILABLE);
+    const probe = vi.fn(async () => UNREACHABLE);
     const start = vi.fn(async () => CAPABILITY);
     const stop = vi.fn();
 

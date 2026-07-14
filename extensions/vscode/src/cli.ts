@@ -20,6 +20,124 @@ export interface VersionDoc extends DiagnosticDocument {
   documents: Record<string, number>;
 }
 
+export interface ReviewFactTarget {
+  kind?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+  side?: string;
+  [field: string]: unknown;
+}
+
+export interface ReviewObservationDoc {
+  id?: string;
+  trackId?: string;
+  title?: string;
+  body?: string;
+  bodyContentType?: string;
+  tags?: string[];
+  target?: ReviewFactTarget;
+  [field: string]: unknown;
+}
+
+export interface ReviewInputRequestDoc {
+  id?: string;
+  trackId?: string;
+  title?: string;
+  body?: string;
+  bodyContentType?: string;
+  mode?: string;
+  reasonCode?: string;
+  target?: ReviewFactTarget;
+  [field: string]: unknown;
+}
+
+export interface ReviewAssessmentDoc {
+  id?: string;
+  trackId?: string;
+  assessment?: string;
+  summary?: string;
+  summaryContentType?: string;
+  target?: ReviewFactTarget;
+  [field: string]: unknown;
+}
+
+export interface RevisionDoc extends DiagnosticDocument {
+  schema: "pointbreak.review-revision";
+  version: 2;
+  revision: {
+    id: string;
+    objectId?: string;
+    objectArtifactContentHash?: string;
+    [field: string]: unknown;
+  };
+  observations: ReviewObservationDoc[];
+  inputRequests: ReviewInputRequestDoc[];
+  assessments: ReviewAssessmentDoc[];
+  [field: string]: unknown;
+}
+
+export interface ReviewSnapshotRow {
+  kind: string;
+  old_line: number | null;
+  new_line: number | null;
+  text: string;
+  tokens?: unknown[];
+  emphasis?: unknown[];
+  [field: string]: unknown;
+}
+
+export interface ReviewSnapshotHunk {
+  id: string;
+  header: string;
+  rows: ReviewSnapshotRow[];
+  [field: string]: unknown;
+}
+
+export interface ReviewSnapshotFile {
+  id: string;
+  hunks: ReviewSnapshotHunk[];
+  [field: string]: unknown;
+}
+
+export interface ReviewSnapshotDoc {
+  schema: "pointbreak.review-snapshot";
+  version: 1;
+  contentHash: string;
+  snapshot: {
+    review_id: string;
+    object_id: string;
+    files: ReviewSnapshotFile[];
+    [field: string]: unknown;
+  };
+}
+
+export interface InspectFreshnessDoc {
+  schema: "pointbreak.inspect-freshness";
+  version: 1;
+  eventCount: number;
+  commitGraphStamp?: string;
+}
+
+export interface InspectStartupDoc {
+  schema: "pointbreak.inspect-startup";
+  version: 1;
+  host: string;
+  port: number;
+  token: string;
+}
+
+export interface ObservationAddDoc extends DiagnosticDocument {
+  schema: "pointbreak.review-observation-add";
+  version: 1;
+  revisionId: string;
+  observationId: string;
+  eventId: string;
+  trackId: string;
+  target: ReviewFactTarget;
+  bodyContentHash?: string;
+}
+
 export interface AttentionItem {
   id: string;
   tier: string;
