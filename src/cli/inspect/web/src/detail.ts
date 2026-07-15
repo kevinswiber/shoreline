@@ -68,6 +68,8 @@ import {
   entryTitle,
   entryTrack,
   principalLabel,
+  revisionDiagnostics,
+  revisionSnapshotUnavailable,
   verificationChip,
 } from "./projection";
 import {
@@ -87,6 +89,7 @@ import {
   type EntrySource,
   type EntryTarget,
   type HistoryEntry,
+  type ProjectionDiagnostic,
   typeLabel,
 } from "./types";
 
@@ -123,6 +126,7 @@ export interface RevisionPageDoc extends RevisionDetail {
   observations?: Observation[];
   inputRequests?: InputRequest[];
   validationChecks?: ValidationCheck[];
+  diagnostics?: ProjectionDiagnostic[];
   factSupersession?: FactSupersession;
   // Fork-gated: present only when the revision's supersession component has more
   // than one member (same `Thread` wire shape `/api/threads` round-trips).
@@ -799,6 +803,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   const assessmentContext =
     renderFactSupersessionBlock(d.factSupersession?.assessments, "assessment") +
     staleContext;
+  const snapshotUnavailable = revisionSnapshotUnavailable(d);
 
   const stat = (label: string, n?: number): string =>
     `<span class="${CLASS.upStat}"><b>${n ?? 0}</b> ${label}</span>`;
@@ -812,7 +817,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
     <dt>head</dt><dd>${escapeHtml(ru.targetDisplay?.head?.label ?? "—")}</dd>
     <dt>supersession</dt><dd>${badge || "—"}</dd>
     <dt>snapshot</dt><dd>${linkify(ru.objectId)}</dd>
-  </dl>${renderRevisionSupersessionBlock(d.revisionSupersession, revisionId)}</section>`);
+  </dl>${revisionDiagnostics(d)}${renderRevisionSupersessionBlock(d.revisionSupersession, revisionId)}</section>`);
 
   sections.push(
     `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`,
@@ -832,7 +837,11 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
     ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}
   </div>
   <div style="margin-top:10px">
-    <button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
+    ${
+      snapshotUnavailable
+        ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" type="button" disabled title="captured snapshot content is unavailable">snapshot unavailable</button>`
+        : `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" type="button" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>`
+    }
     <button class="${CLASS.ghost}" id="up-timeline-btn" data-reveal-revision="${escapeHtml(revisionId)}" style="margin-left:6px">show in timeline</button>
   </div></section>`);
 

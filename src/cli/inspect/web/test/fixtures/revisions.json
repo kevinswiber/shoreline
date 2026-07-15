@@ -26,6 +26,7 @@
       "groupedRevisionIds": [
         "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd"
       ],
+      "diagnostics": [],
       "mergeStatus": "unknown",
       "overview": {
         "actors": ["actor:git-email:shore-tests@example.com"],

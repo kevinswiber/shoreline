@@ -734,6 +734,8 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .overview-stat b { color: var(--fg); font-weight: 600; }
 .overview-cues { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .overview-label, .overview-muted, .overview-latest { color: var(--fg-dim); font-size: var(--fs-xs); }
+.revision-diagnostic { display: flex; flex-wrap: wrap; gap: 6px; color: var(--warning-soft); font-size: var(--fs-xs); }
+.revision-diagnostic b { color: var(--warning); font-family: var(--mono); font-weight: 600; }
 .overview-cue { font: var(--fs-xs)/var(--line) var(--mono); color: var(--fg-dim); background: var(--bg-row); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 1px 6px; cursor: pointer; }
 .overview-cue:hover, .overview-cue:focus-visible { color: var(--fg); border-color: var(--accent); }
 .overview-latest { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }

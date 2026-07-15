@@ -286,6 +286,7 @@
     overviewLatest: "overview-latest",
     overviewMain: "overview-main",
     overviewMuted: "overview-muted",
+    revisionDiagnostic: "revision-diagnostic",
     overviewStat: "overview-stat",
     overviewStats: "overview-stats",
     overviewSummary: "overview-summary",
@@ -987,6 +988,20 @@
   __name(safeMarkdownHref, "safeMarkdownHref");
 
   // src/projection.ts
+  var SNAPSHOT_CONTENT_UNAVAILABLE = "snapshot_content_unavailable";
+  function revisionSnapshotUnavailable(r) {
+    return (r.diagnostics ?? []).some(
+      (diagnostic) => diagnostic.code === SNAPSHOT_CONTENT_UNAVAILABLE
+    );
+  }
+  __name(revisionSnapshotUnavailable, "revisionSnapshotUnavailable");
+  function revisionDiagnostics(r) {
+    const diagnostics = r.diagnostics ?? [];
+    return diagnostics.map(
+      (diagnostic) => `<div class="${CLASS.revisionDiagnostic}" role="status"><b>${escapeHtml(diagnostic.code)}</b><span>${escapeHtml(diagnostic.message)}</span></div>`
+    ).join("");
+  }
+  __name(revisionDiagnostics, "revisionDiagnostics");
   function entryTrack(e) {
     return e.trackId || "";
   }
@@ -1217,6 +1232,10 @@
       currentAssessment.assessment,
       latest.kind,
       latest.title,
+      ...(r.diagnostics ?? []).flatMap((diagnostic) => [
+        diagnostic.code,
+        diagnostic.message
+      ]),
       ...cues.map((cue) => cue.label),
       "review cues",
       "attention"
@@ -1259,6 +1278,7 @@
     return `<div class="${CLASS.overviewSummary}">
     <div class="${CLASS.overviewMain}">${assessmentCue(overview)}${overviewStats(overview)}</div>
     <div class="${CLASS.overviewCues}" aria-label="review cues"><span class="${CLASS.overviewLabel}">review cues</span>${attentionCues(overview)}</div>
+    ${revisionDiagnostics(r)}
     ${latestActivityLine(overview)}
   </div>`;
   }
@@ -4446,6 +4466,7 @@
       "observation"
     ) + staleContext;
     const assessmentContext = renderFactSupersessionBlock(d.factSupersession?.assessments, "assessment") + staleContext;
+    const snapshotUnavailable = revisionSnapshotUnavailable(d);
     const stat = /* @__PURE__ */ __name((label, n) => `<span class="${CLASS.upStat}"><b>${n ?? 0}</b> ${label}</span>`, "stat");
     const sections = [];
     sections.push(`<section><h2>Revision</h2><dl class="${CLASS.upIdentity}">
@@ -4456,7 +4477,7 @@
     <dt>head</dt><dd>${escapeHtml(ru.targetDisplay?.head?.label ?? "—")}</dd>
     <dt>supersession</dt><dd>${badge || "—"}</dd>
     <dt>snapshot</dt><dd>${linkify(ru.objectId)}</dd>
-  </dl>${renderRevisionSupersessionBlock(d.revisionSupersession, revisionId)}</section>`);
+  </dl>${revisionDiagnostics(d)}${renderRevisionSupersessionBlock(d.revisionSupersession, revisionId)}</section>`);
     sections.push(
       `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`
     );
@@ -4467,7 +4488,7 @@
     ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}
   </div>
   <div style="margin-top:10px">
-    <button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
+    ${snapshotUnavailable ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" type="button" disabled title="captured snapshot content is unavailable">snapshot unavailable</button>` : `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" type="button" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>`}
     <button class="${CLASS.ghost}" id="up-timeline-btn" data-reveal-revision="${escapeHtml(revisionId)}" style="margin-left:6px">show in timeline</button>
   </div></section>`);
     sections.push(
@@ -6128,6 +6149,7 @@
       const revisionId = u.revisionId ?? "";
       const isSelected = selected.kind === "revision" && selected.id === revisionId;
       const badge = supersessionBadge(revisionId);
+      const snapshotUnavailable = revisionSnapshotUnavailable(u);
       const rows = [
         ["captured", fmtDateTime(u.capturedAt ?? "")],
         [
@@ -6143,7 +6165,7 @@ click to open the revision page">
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
       <div class="${CLASS.kv} ${CLASS.tierMedium}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
-      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button></div>
+      <div class="${CLASS.actions}">${snapshotUnavailable ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" type="button" disabled title="captured snapshot content is unavailable">snapshot unavailable</button>` : `<button class="${CLASS.ghost} ${CLASS.diffBtn}" type="button" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button>`}</div>
     </div>`;
     }).join("");
   }

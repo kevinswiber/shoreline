@@ -69,6 +69,9 @@ const SNAPSHOT_CONTENT_SUPPRESSED_PRESENT: &str = "snapshot_content_suppressed_p
 /// A removal is recorded for the bound snapshot content and its bytes have been
 /// swept from the store.
 const SNAPSHOT_CONTENT_PHYSICALLY_REMOVED: &str = "snapshot_content_physically_removed";
+/// The bound snapshot artifact cannot be read. The capture remains a durable
+/// revision record, but snapshot-derived rows and counts are unavailable.
+const SNAPSHOT_CONTENT_UNAVAILABLE: &str = "snapshot_content_unavailable";
 /// The bound content carries an unsigned removal claim that is not operative.
 const REMOVAL_CLAIM_UNSIGNED: &str = "removal_claim_unsigned";
 /// The bound content carries a removal signed by an untrusted key, not operative.
@@ -170,10 +173,17 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         options.removal_policy,
         &cosig_index,
     );
-    let snapshot_content = resolve_snapshot_content(&options.repo, &revision, bound_status)?;
+    let snapshot_content = match resolve_snapshot_content(&options.repo, &revision, bound_status) {
+        Ok(content) => content,
+        Err(error) if options.read_for_display => SnapshotContent::Unavailable {
+            content_hash: revision.object_artifact_content_hash.clone(),
+            error: error.to_string(),
+        },
+        Err(error) => return Err(error),
+    };
     let snapshot_content_state = SnapshotContentState::from(&snapshot_content);
-    let (snapshot, removed_snapshot_content_hash) = match snapshot_content {
-        SnapshotContent::Present(snapshot) => (snapshot, None),
+    let (snapshot, removed_snapshot_content_hash, unavailable_snapshot) = match snapshot_content {
+        SnapshotContent::Present(snapshot) => (snapshot, None, None),
         SnapshotContent::SuppressedPresent { content_hash }
         | SnapshotContent::PhysicallyRemoved { content_hash } => (
             DiffSnapshot::new(
@@ -182,6 +192,19 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
                 Vec::new(),
             ),
             Some(content_hash),
+            None,
+        ),
+        SnapshotContent::Unavailable {
+            content_hash,
+            error,
+        } => (
+            DiffSnapshot::new(
+                ReviewId::new(revision.journal_id.as_str()),
+                revision.object_id.clone(),
+                Vec::new(),
+            ),
+            None,
+            Some((content_hash, error)),
         ),
     };
     let observations = project_observations(ObservationProjectionOptions {
@@ -228,9 +251,9 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     // to itself and stays empty. Built from the events already read above — no second store read.
     let supersession = SupersessionView::from_events(&events)?;
     annotate_validation_supersession(&mut validation_checks, &supersession);
-    let (snapshot_rows, mut summary) = if removed_snapshot_content_hash.is_some() {
-        // Removed content has no snapshot rows; the explained absence is carried
-        // by the result field and the diagnostic below, not a misleading
+    let (snapshot_rows, mut summary) = if snapshot_content_state != SnapshotContentState::Present {
+        // Removed or unavailable content has no snapshot rows; the explained
+        // absence is carried by state and diagnostics below, not a misleading
         // empty-state row.
         (Vec::new(), RevisionProjectionSummary::default())
     } else {
@@ -277,8 +300,14 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
                      the store"
                 ),
             }),
-            SnapshotContentState::Present => {}
+            SnapshotContentState::Present | SnapshotContentState::Unavailable => {}
         }
+    }
+    if let Some((content_hash, error)) = &unavailable_snapshot {
+        diagnostics.push(ProjectionDiagnostic {
+            code: SNAPSHOT_CONTENT_UNAVAILABLE.to_owned(),
+            message: format!("snapshot content {content_hash} is unavailable: {error}"),
+        });
     }
     // The body twin of the snapshot block above: every body-bearing view's
     // (state, hash) pairs fold through the shared mapper. Later projections
@@ -554,7 +583,8 @@ impl RevisionOverviewsOptions {
 /// summary counts, the current assessment, and the observation / input-request /
 /// assessment / validation views that drive the attention counts
 /// and latest-activity). It carries none of `show_revision`'s member readbacks,
-/// rows, commit range, or diagnostics — the batch never builds them.
+/// rows or commit range. Diagnostics are scoped to failures that the batch can
+/// isolate to this revision, most importantly an unavailable snapshot artifact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RevisionOverview {
     pub summary: RevisionProjectionSummary,
@@ -563,6 +593,7 @@ pub struct RevisionOverview {
     pub input_requests: Vec<InputRequestView>,
     pub assessments: Vec<AssessmentView>,
     pub validation_checks: Vec<ValidationCheckView>,
+    pub diagnostics: Vec<ProjectionDiagnostic>,
     /// Advisory: the revisions that directly supersede *this* revision. Empty ⇒ head. Not serialized
     /// directly; the inspector derives its stale-fact count from it.
     pub superseded_by: BTreeSet<RevisionId>,
@@ -617,9 +648,10 @@ fn revision_overviews_from_store(
     let _guard = span.enter();
 
     // The single read for the whole batch, via the same prefix `show_revision`
-    // uses. The overview never surfaces diagnostics, so the skip diagnostics are
-    // discarded. `cosig_index` borrows `events`, so it is built locally here, on
-    // this stack frame.
+    // uses. Store-wide skip diagnostics stay on the list projection rather than
+    // being duplicated onto every overview, so they are discarded here;
+    // revision-local snapshot failures are attached below. `cosig_index` borrows
+    // `events`, so it is built locally here, on this stack frame.
     let StoreWideRead {
         events,
         removal,
@@ -712,13 +744,15 @@ fn revision_overviews_from_store(
 }
 
 /// The snapshot-derived half of one revision's overview, decided before the
-/// per-revision assembly: either the present content's counts (from the shared
-/// cache or a one-time decode) or the operative-removal outcome (the overview
-/// renders an empty snapshot either way, so the swept-vs-suppressed stat is
-/// never paid here).
+/// per-revision assembly: the present content's counts (from the shared cache or
+/// a one-time decode), the operative-removal outcome, or an isolated read
+/// failure. Removed and unavailable snapshots both seed empty snapshot counts;
+/// only the latter carries a diagnostic.
+#[derive(Clone)]
 enum SnapshotSeed {
     Present(SnapshotSummaryCounts),
     Removed,
+    Unavailable(String),
 }
 
 /// Resolve every requested revision's snapshot counts: operative removals seed
@@ -768,26 +802,34 @@ fn snapshot_summary_seeds(
         }
     }
 
-    let decoded = decode_snapshot_counts(backend, &misses)?;
-    let counts_by_hash: BTreeMap<&str, SnapshotSummaryCounts> = misses
+    let decoded = decode_snapshot_counts(backend, &misses);
+    let decoded_by_hash: BTreeMap<&str, SnapshotSeed> = misses
         .iter()
-        .zip(&decoded)
-        .map(|(identity, counts)| (identity.object_artifact_content_hash.as_str(), *counts))
+        .zip(decoded)
+        .map(|(identity, result)| {
+            let seed = match result {
+                Ok(counts) => SnapshotSeed::Present(counts),
+                Err(error) => SnapshotSeed::Unavailable(error.to_string()),
+            };
+            (identity.object_artifact_content_hash.as_str(), seed)
+        })
         .collect();
     if let Some(cache) = summary_cache {
-        for (content_hash, counts) in &counts_by_hash {
-            cache.insert((*content_hash).to_owned(), *counts);
+        for (content_hash, seed) in &decoded_by_hash {
+            if let SnapshotSeed::Present(counts) = seed {
+                cache.insert((*content_hash).to_owned(), *counts);
+            }
         }
     }
     for identity in requested {
         if seeds.contains_key(&identity.id) {
             continue;
         }
-        let counts = counts_by_hash
+        let seed = decoded_by_hash
             .get(identity.object_artifact_content_hash.as_str())
-            .copied()
+            .cloned()
             .expect("every non-removed requested revision was decoded or cache-seeded");
-        seeds.insert(identity.id.clone(), SnapshotSeed::Present(counts));
+        seeds.insert(identity.id.clone(), seed);
     }
     Ok(seeds)
 }
@@ -795,12 +837,12 @@ fn snapshot_summary_seeds(
 /// Decode each missed artifact once and count its snapshot rows. The decode —
 /// a full JSON parse plus a canonical-hash revalidation per artifact — is the
 /// batch's dominant cost and each miss is independent, so misses run on scoped
-/// threads. Results keep input order and the first failure in input order is
-/// the batch's error, exactly what a sequential loop would surface.
+/// threads. Results keep input order, including failures, so one unreadable
+/// artifact can be attached to its revision without failing the whole batch.
 fn decode_snapshot_counts(
     backend: &StoreBackend,
     misses: &[&RevisionProjectionIdentity],
-) -> Result<Vec<SnapshotSummaryCounts>> {
+) -> Vec<Result<SnapshotSummaryCounts>> {
     let worker_count = std::thread::available_parallelism()
         .map(std::num::NonZeroUsize::get)
         .unwrap_or(1)
@@ -995,7 +1037,9 @@ fn build_revision_overview(
             snapshot_remainder_row_count: counts.snapshot_row_count,
             ..RevisionProjectionSummary::default()
         },
-        SnapshotSeed::Removed => RevisionProjectionSummary::default(),
+        SnapshotSeed::Removed | SnapshotSeed::Unavailable(_) => {
+            RevisionProjectionSummary::default()
+        }
     };
     {
         let span = tracing::debug_span!("shore.revisions.overviews.build_narrative_counts");
@@ -1013,6 +1057,18 @@ fn build_revision_overview(
         summary.row_count = summary.narrative_row_count + summary.snapshot_remainder_row_count;
     }
 
+    let diagnostics = match seed {
+        SnapshotSeed::Unavailable(error) => vec![ProjectionDiagnostic {
+            code: SNAPSHOT_CONTENT_UNAVAILABLE.to_owned(),
+            message: format!(
+                "snapshot content {} for revision {} is unavailable: {error}",
+                revision.object_artifact_content_hash,
+                revision.id.as_str()
+            ),
+        }],
+        SnapshotSeed::Present(_) | SnapshotSeed::Removed => Vec::new(),
+    };
+
     Ok(RevisionOverview {
         summary,
         current_assessment,
@@ -1020,6 +1076,7 @@ fn build_revision_overview(
         input_requests,
         assessments,
         validation_checks,
+        diagnostics,
         superseded_by: supersession.stale_by_superseding_revision(&resolved.revision_id),
     })
 }
@@ -1139,9 +1196,9 @@ mod tests {
 
     /// A shared summary cache makes rebuilds skip the snapshot artifact decode
     /// entirely: after a first build fills it, the bound blob can vanish from
-    /// disk and a cache-bearing rebuild still serves the same counts, while a
-    /// cold build hard-fails on the missing artifact — proving the hit really
-    /// skipped the read rather than re-deriving the counts.
+    /// disk and a cache-bearing rebuild still serves the same counts. A cold
+    /// build isolates the missing artifact to the affected overview — proving
+    /// the hit really skipped the read rather than re-deriving the counts.
     #[test]
     fn shared_summary_cache_serves_snapshot_counts_without_rereading_artifacts() {
         let repo = TestRepo::new();
@@ -1178,10 +1235,20 @@ mod tests {
             RevisionOverviewsOptions::new(repo.path())
                 .with_revisions(vec![captured.revision_id.clone()])
                 .with_read_for_display(true),
+        )
+        .expect("one unavailable snapshot does not fail the overview batch");
+        let unavailable = &cold[&captured.revision_id];
+        assert_eq!(unavailable.summary.file_count, 0);
+        assert_eq!(unavailable.summary.snapshot_row_count, 0);
+        assert_eq!(unavailable.diagnostics.len(), 1);
+        assert_eq!(
+            unavailable.diagnostics[0].code,
+            SNAPSHOT_CONTENT_UNAVAILABLE
         );
         assert!(
-            cold.is_err(),
-            "without the warm cache the missing blob still hard-fails"
+            unavailable.diagnostics[0]
+                .message
+                .contains(&captured.object_artifact_content_hash)
         );
     }
 
@@ -1412,6 +1479,7 @@ mod tests {
             input_requests: result.input_requests,
             assessments: result.assessments,
             validation_checks: result.validation_checks,
+            diagnostics: Vec::new(),
             superseded_by: BTreeSet::new(),
         }
     }
@@ -3403,7 +3471,7 @@ mod tests {
     }
 
     #[test]
-    fn truly_missing_unremoved_snapshot_still_errors() {
+    fn truly_missing_unremoved_snapshot_degrades_only_for_display_reads() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         // Delete the blob WITHOUT a removal fact: not-yet-synced, not removed.
@@ -3414,6 +3482,24 @@ mod tests {
             err.to_string().contains("import referenced artifacts"),
             "expected the hard missing-artifact error, got: {err}"
         );
+
+        let result =
+            show_revision(RevisionShowOptions::new(repo.path()).with_read_for_display(true))
+                .expect("a display read preserves the incomplete revision");
+        assert_eq!(
+            result.snapshot_content_state,
+            SnapshotContentState::Unavailable
+        );
+        assert!(!result.snapshot_is_removed());
+        assert!(result.snapshot.files.is_empty());
+        assert_eq!(result.summary.file_count, 0);
+        assert!(result.rows.is_empty());
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == SNAPSHOT_CONTENT_UNAVAILABLE
+                && diagnostic
+                    .message
+                    .contains(&capture.object_artifact_content_hash)
+        }));
     }
 
     fn object_artifact_path(repo: &Path, object_id: &ObjectId) -> PathBuf {

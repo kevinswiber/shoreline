@@ -89,6 +89,12 @@ export interface QueryDiagnostic {
   message: string;
 }
 
+/** One projection diagnostic attached to the record it describes. */
+export interface ProjectionDiagnostic {
+  code: string;
+  message: string;
+}
+
 // The per-surface qualifier sets — the single authority every consumer (both
 // client surfaces, autocomplete) resolves supported keys from. Parity-tested
 // against the Rust arrays.

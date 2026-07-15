@@ -65,6 +65,37 @@ describe("renderRevisionList (the flat revision list lens)", () => {
     expect(diffBtn?.dataset.diffHash).toBe(ARTIFACT);
   });
 
+  it("keeps an incomplete revision visible and disables its unavailable snapshot", () => {
+    seedFixtures();
+    const current = store.getState().revisions as RevisionsDoc;
+    store.commit({
+      revisions: {
+        ...current,
+        entries: current.entries.map((entry) => ({
+          ...entry,
+          diagnostics: [
+            {
+              code: "snapshot_content_unavailable",
+              message: "captured snapshot artifact is missing",
+            },
+          ],
+        })),
+      },
+    });
+    mountListBody();
+    revisions.renderRevisionList();
+
+    const card = document.querySelector<HTMLElement>("#units .unit-card");
+    expect(card?.dataset.revisionId).toBe(REV);
+    expect(card?.querySelector(".revision-diagnostic")?.textContent).toContain(
+      "captured snapshot artifact is missing",
+    );
+    const button = card?.querySelector<HTMLButtonElement>(".diff-btn");
+    expect(button?.disabled).toBe(true);
+    expect(button?.hasAttribute("data-open-diff")).toBe(false);
+    expect(button?.textContent).toBe("snapshot unavailable");
+  });
+
   it("surfaces the supersession badge and the advisory attention cues", () => {
     seedFixtures();
     mountListBody();

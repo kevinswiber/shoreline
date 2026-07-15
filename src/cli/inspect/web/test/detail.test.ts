@@ -336,6 +336,29 @@ describe("openRevision / renderRevisionPage (the composite page, fetched via htt
     expect(store.getState().diff).toBe(OBJ);
     expect(store.getState().diffHash).toBe(ARTIFACT);
   });
+
+  it("renders an incomplete revision detail and disables its snapshot action", async () => {
+    setCompositeResponse({
+      ...(revisionJson as Record<string, unknown>),
+      diagnostics: [
+        {
+          code: "snapshot_content_unavailable",
+          message: "captured snapshot artifact is missing",
+        },
+      ],
+    });
+    store.commit({ selected: { kind: "revision", id: REV } });
+    await detail.openRevision(REV);
+
+    expect(detailEl().querySelector(".unit-page")).not.toBeNull();
+    expect(
+      detailEl().querySelector(".revision-diagnostic")?.textContent,
+    ).toContain("captured snapshot artifact is missing");
+    const button = detailEl().querySelector<HTMLButtonElement>("#up-diff-btn");
+    expect(button?.disabled).toBe(true);
+    expect(button?.hasAttribute("data-open-diff")).toBe(false);
+    expect(button?.textContent).toBe("snapshot unavailable");
+  });
 });
 
 describe("staleFactSectionContext (state-bound, fed into the pure factSection)", () => {

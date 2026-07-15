@@ -18,7 +18,10 @@ import {
   overviewForRevision,
   supersessionBadge,
 } from "../model";
-import { renderRevisionOverview } from "../projection";
+import {
+  renderRevisionOverview,
+  revisionSnapshotUnavailable,
+} from "../projection";
 import { shortId, targetDisplayLabel, targetHeadBadge } from "../refs";
 import { getState } from "../store";
 
@@ -55,6 +58,7 @@ export function renderRevisionList(): void {
       const isSelected =
         selected.kind === "revision" && selected.id === revisionId;
       const badge = supersessionBadge(revisionId);
+      const snapshotUnavailable = revisionSnapshotUnavailable(u);
       const rows: [string, string][] = [
         ["captured", fmtDateTime(u.capturedAt ?? "")],
         [
@@ -79,7 +83,11 @@ export function renderRevisionList(): void {
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
       <div class="${CLASS.kv} ${CLASS.tierMedium}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
-      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button></div>
+      <div class="${CLASS.actions}">${
+        snapshotUnavailable
+          ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" type="button" disabled title="captured snapshot content is unavailable">snapshot unavailable</button>`
+          : `<button class="${CLASS.ghost} ${CLASS.diffBtn}" type="button" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button>`
+      }</div>
     </div>`;
     })
     .join("");

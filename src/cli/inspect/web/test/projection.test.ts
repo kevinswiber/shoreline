@@ -20,7 +20,9 @@ import {
   principalLabel,
   type Revision,
   renderRevisionOverview,
+  revisionDiagnostics,
   revisionSearchIndex,
+  revisionSnapshotUnavailable,
   verificationChip,
 } from "../src/projection";
 import {
@@ -798,5 +800,27 @@ describe("renderRevisionOverview", () => {
     for (const forbidden of ["blocking", "merge status", "required"]) {
       expect(html).not.toContain(forbidden);
     }
+  });
+
+  it("surfaces and escapes diagnostics scoped to this revision", () => {
+    const unavailable: Revision = {
+      ...revision,
+      diagnostics: [
+        {
+          code: "snapshot_content_unavailable",
+          message: "snapshot <missing> & unreadable",
+        },
+      ],
+    };
+    const doc = parse(revisionDiagnostics(unavailable));
+    const diagnostic = doc.querySelector(".revision-diagnostic");
+    expect(diagnostic?.querySelector("b")?.textContent).toBe(
+      "snapshot_content_unavailable",
+    );
+    expect(diagnostic?.querySelector("span")?.textContent).toBe(
+      "snapshot <missing> & unreadable",
+    );
+    expect(revisionSnapshotUnavailable(unavailable)).toBe(true);
+    expect(revisionSnapshotUnavailable(revision)).toBe(false);
   });
 });

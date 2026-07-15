@@ -155,16 +155,26 @@ pub(super) fn run(
 /// (plain or colored) diff body. Pure — no writes, no store, no git, no env;
 /// the resolved lane (or `None` for plain) is threaded in from `run()`.
 fn render_output(args: &DiffArgs, result: &RevisionShowResult, lane: Option<&ColorLane>) -> String {
-    // Removed/suppressed content: an explained line, the full id one step away.
-    if result.snapshot_content_state != SnapshotContentState::Present {
-        let hash = result
-            .removed_snapshot_content_hash
-            .as_deref()
-            .unwrap_or("");
-        return format!(
-            "captured diff content is unavailable ({}); it was removed from this store\n",
-            crate::cli::output::short_ref(hash)
-        );
+    // Removed/suppressed/unreadable content: an explained line, with no empty
+    // diff that could be mistaken for a capture with zero changes.
+    match result.snapshot_content_state {
+        SnapshotContentState::SuppressedPresent | SnapshotContentState::PhysicallyRemoved => {
+            let hash = result
+                .removed_snapshot_content_hash
+                .as_deref()
+                .unwrap_or("");
+            return format!(
+                "captured diff content is unavailable ({}); it was removed from this store\n",
+                crate::cli::output::short_ref(hash)
+            );
+        }
+        SnapshotContentState::Unavailable => {
+            return format!(
+                "captured diff content is unavailable ({}); the snapshot artifact could not be read\n",
+                crate::cli::output::short_ref(&result.revision.object_artifact_content_hash)
+            );
+        }
+        SnapshotContentState::Present => {}
     }
 
     // A genuine empty diff (present, but no files) — distinct from removed content.

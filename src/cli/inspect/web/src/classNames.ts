@@ -90,6 +90,7 @@ export const CLASS = {
   overviewLatest: "overview-latest",
   overviewMain: "overview-main",
   overviewMuted: "overview-muted",
+  revisionDiagnostic: "revision-diagnostic",
   overviewStat: "overview-stat",
   overviewStats: "overview-stats",
   overviewSummary: "overview-summary",

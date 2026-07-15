@@ -26,6 +26,13 @@ pub(crate) enum SnapshotContent {
     PhysicallyRemoved {
         content_hash: String,
     },
+    /// No operative removal explains the absence, but a human-facing read should
+    /// preserve the revision identity and review facts while reporting the
+    /// snapshot failure explicitly.
+    Unavailable {
+        content_hash: String,
+        error: String,
+    },
 }
 
 impl From<&SnapshotContent> for SnapshotContentState {
@@ -34,6 +41,7 @@ impl From<&SnapshotContent> for SnapshotContentState {
             SnapshotContent::Present(_) => SnapshotContentState::Present,
             SnapshotContent::SuppressedPresent { .. } => SnapshotContentState::SuppressedPresent,
             SnapshotContent::PhysicallyRemoved { .. } => SnapshotContentState::PhysicallyRemoved,
+            SnapshotContent::Unavailable { .. } => SnapshotContentState::Unavailable,
         }
     }
 }

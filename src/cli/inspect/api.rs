@@ -229,10 +229,11 @@ struct FactGraphDocument {
 
 /// One `/api/revisions` entry: the shared `RevisionListEntry` re-keyed into the
 /// inspector's snapshot vocabulary (`snapshotId`, `snapshotContentHash`), plus
-/// the additive, path-private `targetDisplay` and the server-computed
-/// `overview`. The shared `pointbreak.review-revision-list` document is untouched;
-/// this is the inspector-private wire shape. Fields are listed explicitly (no
-/// flatten) so a new shared field forces a naming decision on this surface.
+/// the additive, path-private `targetDisplay`, revision-scoped `diagnostics`, and
+/// server-computed `overview`. The shared `pointbreak.review-revision-list`
+/// document is untouched; this is the inspector-private wire shape. Fields are
+/// listed explicitly (no flatten) so a new shared field forces a naming decision
+/// on this surface.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RevisionEntryDocument {
@@ -247,7 +248,13 @@ struct RevisionEntryDocument {
     merge_status: String,
     grouped_revision_ids: Vec<RevisionId>,
     target_display: TargetDisplay,
+    diagnostics: Vec<ProjectionDiagnostic>,
     overview: RevisionOverviewDocument,
+}
+
+struct RevisionEntryOverviewDocument {
+    overview: RevisionOverviewDocument,
+    diagnostics: Vec<ProjectionDiagnostic>,
 }
 
 #[derive(Clone, Serialize)]
@@ -440,7 +447,7 @@ fn splice_target_display(
 /// attach the derived, additive display fields.
 fn to_unit_entry_documents(
     entries: Vec<RevisionListEntry>,
-    mut overviews: BTreeMap<String, RevisionOverviewDocument>,
+    mut overviews: BTreeMap<String, RevisionEntryOverviewDocument>,
 ) -> Result<Vec<RevisionEntryDocument>, String> {
     entries
         .into_iter()
@@ -478,7 +485,8 @@ fn to_unit_entry_documents(
                 merge_status,
                 grouped_revision_ids,
                 target_display,
-                overview,
+                diagnostics: overview.diagnostics,
+                overview: overview.overview,
             })
         })
         .collect()
@@ -487,14 +495,15 @@ fn to_unit_entry_documents(
 /// Server-side overview seam for `/api/revisions`. One store-wide pass
 /// (`show_revision_overviews`) builds every revision's overview, replacing the
 /// per-revision N+1 (`show_revision` once per revision, each re-reading and
-/// re-folding the whole event log). The client-facing JSON contract is unchanged;
-/// an `eventSetHash`-keyed projection cache can still layer on top (#255).
+/// re-folding the whole event log). Snapshot-read failures add a diagnostic to
+/// only their revision; an `eventSetHash`-keyed projection cache can still layer
+/// on top (#255).
 fn revision_overviews(
     repo: &Path,
     entries: &[RevisionListEntry],
     trust_set: &TrustSet,
     snapshot_summaries: &Arc<SnapshotSummaryCache>,
-) -> Result<BTreeMap<String, RevisionOverviewDocument>, String> {
+) -> Result<BTreeMap<String, RevisionEntryOverviewDocument>, String> {
     let span = tracing::debug_span!(
         "shore.inspect.revisions.revision_overviews",
         revision_count = entries.len()
@@ -535,7 +544,10 @@ fn revision_overviews(
                 .ok_or_else(|| format!("revision overview not available: {revision_id}"))?;
             documents.insert(
                 revision_id,
-                revision_overview_document(overview, &entry.captured_at),
+                RevisionEntryOverviewDocument {
+                    overview: revision_overview_document(overview, &entry.captured_at),
+                    diagnostics: overview.diagnostics.clone(),
+                },
             );
         }
         documents
@@ -2102,6 +2114,15 @@ mod tests {
         entries.remove(0)
     }
 
+    fn stored_object_artifact_path_for_hash(repo: &Path, content_hash: &str) -> std::path::PathBuf {
+        let filename = content_hash
+            .strip_prefix("sha256:")
+            .expect("capture artifact has a sha256 content hash");
+        common_dir_store(repo)
+            .join("artifacts/objects")
+            .join(format!("{filename}.json"))
+    }
+
     #[test]
     fn threads_json_advertises_domain_named_schema() {
         let (repo, _, _) = captured_repo();
@@ -2609,7 +2630,13 @@ mod tests {
             "/Users/x/worktrees/boardwalk/plan-0006",
             "545b0eb81463aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )];
-        let overviews = BTreeMap::from([("rev:sha256:abc".to_owned(), overview())]);
+        let overviews = BTreeMap::from([(
+            "rev:sha256:abc".to_owned(),
+            RevisionEntryOverviewDocument {
+                overview: overview(),
+                diagnostics: Vec::new(),
+            },
+        )]);
 
         let docs = to_unit_entry_documents(entries, overviews).unwrap();
         let json = serde_json::to_value(&docs[0]).unwrap();
@@ -2780,6 +2807,79 @@ mod tests {
             .find(|entry| entry["revisionId"] == revision_id)
             .unwrap_or_else(|| panic!("amended capture target removed the revision: {value}"));
         assert_eq!(entry["mergeStatus"], "orphaned");
+    }
+
+    #[test]
+    fn revisions_json_isolates_an_unavailable_snapshot_to_its_revision() {
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(path.join("src.txt"), "base\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+
+        std::fs::write(path.join("src.txt"), "first change\n").unwrap();
+        let unavailable = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
+        )
+        .expect("capture revision whose artifact will become unavailable");
+        std::fs::write(path.join("src.txt"), "second change\n").unwrap();
+        let healthy = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path)
+                .with_supersedes(vec![unavailable.revision_id.clone()]),
+        )
+        .expect("capture healthy successor revision");
+
+        std::fs::remove_file(stored_object_artifact_path_for_hash(
+            path,
+            &unavailable.object_artifact_content_hash,
+        ))
+        .expect("remove one bound snapshot artifact");
+
+        let cache = super::super::cache::RevisionsResponseCache::new();
+        let summaries = Arc::new(SnapshotSummaryCache::new());
+        let value: serde_json::Value =
+            serde_json::from_str(&revisions_json(path, &cache, &summaries).unwrap()).unwrap();
+        let entries = value["entries"].as_array().expect("revision entries");
+        assert_eq!(value["revisionCount"], 2);
+        assert_eq!(entries.len(), 2);
+
+        let unavailable_entry = entries
+            .iter()
+            .find(|entry| entry["revisionId"] == unavailable.revision_id.as_str())
+            .expect("the incomplete revision remains visible");
+        assert_eq!(
+            unavailable_entry["diagnostics"][0]["code"],
+            "snapshot_content_unavailable"
+        );
+        assert_eq!(unavailable_entry["overview"]["counts"]["files"], 0);
+        assert!(
+            unavailable_entry["diagnostics"][0]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(&unavailable.object_artifact_content_hash))
+        );
+
+        let healthy_entry = entries
+            .iter()
+            .find(|entry| entry["revisionId"] == healthy.revision_id.as_str())
+            .expect("the healthy revision remains available");
+        assert_eq!(healthy_entry["diagnostics"], serde_json::json!([]));
+        assert!(healthy_entry["overview"]["counts"]["files"].as_u64() > Some(0));
+
+        let detail: serde_json::Value = serde_json::from_str(
+            &revision_json(path, unavailable.revision_id.as_str())
+                .expect("the incomplete revision detail remains readable"),
+        )
+        .unwrap();
+        assert_eq!(detail["revision"]["id"], unavailable.revision_id.as_str());
+        assert_eq!(detail["summary"]["fileCount"], 0);
+        assert_eq!(
+            detail["diagnostics"][0]["code"],
+            "snapshot_content_unavailable"
+        );
     }
 
     #[test]

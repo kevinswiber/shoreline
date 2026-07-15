@@ -174,14 +174,16 @@ pub struct MemberReadback {
 /// The resolved read state of a revision's bound snapshot content. `Present`
 /// renders bytes; the two removed states distinguish a recorded removal whose
 /// blob is still on disk (`SuppressedPresent`, reversible until a compact
-/// reclaims the bytes) from one whose blob has been swept (`PhysicallyRemoved`),
-/// so the read surface never overstates what has happened.
+/// reclaims the bytes) from one whose blob has been swept (`PhysicallyRemoved`).
+/// `Unavailable` preserves a display read whose expected-present artifact cannot
+/// be decoded, without misclassifying it as removed.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SnapshotContentState {
     #[default]
     Present,
     SuppressedPresent,
     PhysicallyRemoved,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

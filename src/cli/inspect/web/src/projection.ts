@@ -25,6 +25,7 @@ import {
   type Overview,
   type OverviewAttention,
   type OverviewCounts,
+  type ProjectionDiagnostic,
   REVISION_ATTENTION_VALUES,
   type SearchIndex,
   typeLabel,
@@ -43,6 +44,27 @@ export interface Revision {
   // The captured base commit and the capture timestamp, shown in a revision card.
   base?: EntryBase;
   capturedAt?: string;
+  diagnostics?: ProjectionDiagnostic[];
+}
+
+const SNAPSHOT_CONTENT_UNAVAILABLE = "snapshot_content_unavailable";
+
+/** Whether this revision's captured snapshot cannot currently be read. */
+export function revisionSnapshotUnavailable(r: Revision): boolean {
+  return (r.diagnostics ?? []).some(
+    (diagnostic) => diagnostic.code === SNAPSHOT_CONTENT_UNAVAILABLE,
+  );
+}
+
+/** The diagnostics scoped to one revision, rendered on that revision's card. */
+export function revisionDiagnostics(r: Revision): string {
+  const diagnostics = r.diagnostics ?? [];
+  return diagnostics
+    .map(
+      (diagnostic) =>
+        `<div class="${CLASS.revisionDiagnostic}" role="status"><b>${escapeHtml(diagnostic.code)}</b><span>${escapeHtml(diagnostic.message)}</span></div>`,
+    )
+    .join("");
 }
 
 /** A single attention cue: its token, the query that filters to it, and a label. */
@@ -362,6 +384,10 @@ export function revisionSearchIndex(
     currentAssessment.assessment,
     latest.kind,
     latest.title,
+    ...(r.diagnostics ?? []).flatMap((diagnostic) => [
+      diagnostic.code,
+      diagnostic.message,
+    ]),
     ...cues.map((cue) => cue.label),
     "review cues",
     "attention",
@@ -419,6 +445,7 @@ export function renderRevisionOverview(
   return `<div class="${CLASS.overviewSummary}">
     <div class="${CLASS.overviewMain}">${assessmentCue(overview)}${overviewStats(overview)}</div>
     <div class="${CLASS.overviewCues}" aria-label="review cues"><span class="${CLASS.overviewLabel}">review cues</span>${attentionCues(overview)}</div>
+    ${revisionDiagnostics(r)}
     ${latestActivityLine(overview)}
   </div>`;
 }

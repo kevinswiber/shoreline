@@ -370,6 +370,7 @@ mod tests {
             input_requests: vec![],
             assessments: vec![],
             validation_checks: vec![],
+            diagnostics: vec![],
             superseded_by: BTreeSet::new(),
         }
     }
