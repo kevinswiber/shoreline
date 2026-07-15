@@ -39,6 +39,10 @@ package-archive-selftest:
     rm -f "$out"
     echo "package-archive selftest ok"
 
+# Exercise the release installer for the current host platform without network access.
+installer-selftest:
+    {{ if os() == "windows" { "pwsh -NoLogo -NoProfile -File scripts/install-selftest.ps1" } else { "./scripts/install-selftest.sh" } }}
+
 # Lint GitHub Actions workflows, the packaging script, and the binary target manifest.
 workflow-lint: workflow-actionlint workflow-lint-assertions
 
@@ -49,7 +53,7 @@ workflow-actionlint:
 workflow-lint-assertions:
     #!/usr/bin/env bash
     set -euo pipefail
-    shellcheck scripts/package-release-archive.sh
+    shellcheck scripts/package-release-archive.sh scripts/install.sh scripts/install-selftest.sh
     expected="$(cat <<'EOF'
     [
       {"archive":"tar.gz","builder":"cargo","os":"macos-latest","rust-target":"x86_64-apple-darwin","target":"darwin-x64"},
@@ -67,7 +71,7 @@ workflow-lint-assertions:
       'map(to_entries | sort_by(.key) | from_entries) == $expected' \
       .github/binary-targets.json > /dev/null
     for t in $(jq -r '.[].target' .github/binary-targets.json); do
-      grep -q -- "$t" README.md || { echo "README missing target: $t" >&2; exit 1; }
+      grep -q -- "$t" docs/installation.md || { echo "installation docs missing target: $t" >&2; exit 1; }
     done
     echo "workflow-lint assertions ok"
 

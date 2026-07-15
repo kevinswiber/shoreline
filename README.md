@@ -26,72 +26,26 @@ a reader can tell whether each fact is merely signed or bound to a trusted ident
 
 *Watching a review in the Pointbreak Review inspector opened by `shore inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
 
-Install the `pointbreak` crate; it provides the `shore` command:
+## Install
+
+On macOS or Linux:
 
 ```bash
-cargo install pointbreak
-shore --help
+curl -fsSL https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh | sh
 ```
 
-### Download a prebuilt binary
-
-Releases that include prebuilt binaries provide an archive for each supported target. Set the
-version and target first, then download the matching archive:
-
-```sh
-VERSION=0.6.0        # see the releases page for the current version
-TARGET=darwin-arm64  # pick yours from the table below
-curl -fsSL -O "https://github.com/kevinswiber/pointbreak/releases/download/v${VERSION}/pointbreak-${VERSION}-${TARGET}.tar.gz"
-tar xzf "pointbreak-${VERSION}-${TARGET}.tar.gz"
-./shore --version
-```
-
-Download `checksums.txt` from the same release and verify the archive. On Linux:
-
-```sh
-curl -fsSL -O "https://github.com/kevinswiber/pointbreak/releases/download/v${VERSION}/checksums.txt"
-sha256sum -c --ignore-missing checksums.txt
-```
-
-On macOS, use the system-provided `shasum` instead:
-
-```sh
-shasum -a 256 -c --ignore-missing checksums.txt
-```
-
-| Target | Operating system | Architecture |
-| --- | --- | --- |
-| `darwin-x64` | macOS | Intel 64-bit |
-| `darwin-arm64` | macOS | Apple silicon |
-| `linux-x64` | Linux (glibc) | x86-64 |
-| `linux-arm64` | Linux (glibc) | ARM64 |
-| `alpine-x64` | Linux (musl/Alpine) | x86-64 |
-| `alpine-arm64` | Linux (musl/Alpine) | ARM64 |
-| `win32-x64` | Windows | x86-64 |
-| `win32-arm64` | Windows | ARM64 |
-
-The `win32-*` targets ship as `.zip` archives containing `shore.exe`. This PowerShell flow
-downloads an archive, verifies its checksum case-insensitively, and only then extracts it:
+On Windows PowerShell:
 
 ```powershell
-$Version = "0.6.0"
-$Target = "win32-x64"
-$Archive = "pointbreak-$Version-$Target.zip"
-Invoke-WebRequest "https://github.com/kevinswiber/pointbreak/releases/download/v$Version/$Archive" -OutFile $Archive
-Invoke-WebRequest "https://github.com/kevinswiber/pointbreak/releases/download/v$Version/checksums.txt" -OutFile checksums.txt
-$Expected = (Select-String -Path checksums.txt -Pattern ([regex]::Escape($Archive))).Line.Split(' ')[0]
-$Actual = (Get-FileHash $Archive -Algorithm SHA256).Hash.ToLower()
-if ($Actual -ne $Expected) { throw "checksum mismatch for $Archive" }
-Expand-Archive $Archive -DestinationPath .
-.\shore.exe --version
+irm https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.ps1 | iex
 ```
 
-Archives downloaded with `curl` on macOS need no quarantine adjustment. If a browser download is
-quarantined, remove the attribute after extraction with
-`xattr -dr com.apple.quarantine ./shore`.
+The installers select the correct release archive, verify its SHA-256 checksum, and install the
+`shore` command. The published `pointbreak` crate also provides the `shore` command and can be
+installed with `cargo install pointbreak`.
 
-See the [GitHub releases page](https://github.com/kevinswiber/pointbreak/releases) for available
-versions and assets.
+See [Installation](docs/installation.md) for version pinning, custom install directories, supported
+platforms, manual downloads, and checksum verification.
 
 ## Quick Start
 
@@ -154,6 +108,7 @@ npx skills add kevinswiber/pointbreak
 For users:
 
 - [Getting started](docs/getting-started.md) - first local review from a scratch Git repository.
+- [Installation](docs/installation.md) - installers, releases, supported platforms, and checksums.
 - [CLI reference](docs/cli-reference.md) - commands, options, output JSON, and V1 boundaries.
 - [Review workflow](docs/review-workflow.md) - when to use capture, observations, input requests,
   assessments, history, and revision show.

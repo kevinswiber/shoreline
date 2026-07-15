@@ -243,6 +243,7 @@ fn readme_is_concise_and_routes_to_deeper_docs() {
 
     for required in [
         "cargo install pointbreak",
+        "docs/installation.md",
         "docs/getting-started.md",
         "docs/cli-reference.md",
         "CONTRIBUTING.md",

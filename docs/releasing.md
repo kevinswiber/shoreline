@@ -15,6 +15,10 @@ Release mode creates the Cocogitto version commit and tag, pushes both to `main`
 **Release** workflow for that tag. The Release workflow publishes the `pointbreak` crate to crates.io,
 then creates the GitHub Release.
 
+The **Release Binaries** workflow adds eight versioned archives and `checksums.txt` to that release.
+The install scripts depend on those exact filenames and fail closed when an archive or checksum is
+missing. Run `just installer-selftest` after changing installer or release-asset behavior.
+
 ## Local helper
 
 ```sh
