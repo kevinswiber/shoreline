@@ -102,8 +102,8 @@ fn readme_drops_branded_hunk_origin_references() {
 }
 
 #[test]
-fn just_run_targets_the_shore_binary() {
+fn just_run_targets_the_pointbreak_binary() {
     let justfile = std::fs::read_to_string("Justfile").expect("read Justfile");
 
-    assert!(justfile.contains("cargo +stable run --bin shore --"));
+    assert!(justfile.contains("cargo +stable run --bin pointbreak --"));
 }

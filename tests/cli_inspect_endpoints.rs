@@ -1,4 +1,4 @@
-//! Endpoint contract coverage for the `shore inspect` JSON API (issue #110),
+//! Endpoint contract coverage for the `pointbreak inspect` JSON API (issue #110),
 //! exercised over real HTTP against a store built at test time. The harness
 //! lives in `support::inspect` so multiple inspector suites share one
 //! spawn-the-real-server fixture.
@@ -8,7 +8,7 @@ mod support;
 use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::inspect::{Inspector, capture, representative_store, urlencode};
-use support::shore_env;
+use support::pointbreak_env;
 
 /// Find the captured Revision event id via the public read path (`read_events`).
 fn captured_event_id(repo: &std::path::Path) -> String {
@@ -64,7 +64,7 @@ fn append_count_probe_events(repo: &std::path::Path, revision_id: &str) {
     // cannot share the anchor's millisecond and leave ordering to the event-id tie-break.
     std::thread::sleep(std::time::Duration::from_millis(2));
     let repo_arg = repo.to_str().unwrap();
-    let observation = support::shore([
+    let observation = support::pointbreak([
         "observation",
         "add",
         "--repo",
@@ -81,7 +81,7 @@ fn append_count_probe_events(repo: &std::path::Path, revision_id: &str) {
         "observation add failed:\n{}",
         String::from_utf8_lossy(&observation.stderr)
     );
-    let validation = support::shore([
+    let validation = support::pointbreak([
         "validation",
         "add",
         "--repo",
@@ -112,7 +112,7 @@ fn served_asset_inspector() -> (GitRepo, Inspector) {
     (repo, inspector)
 }
 
-/// Smoke: the shared harness spawns the real `shore inspect --port 0` server and
+/// Smoke: the shared harness spawns the real `pointbreak inspect --port 0` server and
 /// serves a well-formed history payload for a minimal store.
 #[test]
 fn inspector_harness_serves_history_for_minimal_store() {
@@ -153,7 +153,7 @@ fn api_attention_serves_projection() {
     // be NON-accepting: a unanimously accepting current set recorded after the
     // fixture's failed clippy check would subsume the failed_validation item
     // (judgment-subsumption Rule B), and this test needs that kind visible.
-    let added = support::shore([
+    let added = support::pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -535,7 +535,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     let env_home = home.path().to_str().unwrap();
     let env: [(&str, &str); 1] = [("POINTBREAK_HOME", env_home)];
     assert!(
-        shore_env(["key", "init", "--name", "default"], &env)
+        pointbreak_env(["key", "init", "--name", "default"], &env)
             .status
             .success()
     );
@@ -546,7 +546,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     let repo_arg = repo.path().to_str().unwrap();
     // Enroll the default key under kevin (reader trust config in the repo).
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "key",
                 "enroll",
@@ -563,7 +563,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     );
     // Capture UNSIGNED so the detached endorsement carrier is not deduped, then endorse.
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", repo_arg],
             &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
         )
@@ -572,7 +572,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     );
     let target = captured_event_id(repo.path());
     assert!(
-        shore_env(
+        pointbreak_env(
             ["endorse", &target, "--repo", repo_arg],
             &[
                 ("POINTBREAK_HOME", env_home),
@@ -1629,8 +1629,8 @@ fn api_history_distinct_values_are_lowercased_identically_cold_and_warm() {
     repo.write("src/lib.rs", "pub fn value() -> u32 {\n    2\n}\n");
     let repo_arg = repo.path().to_str().unwrap();
 
-    support::shore(["capture", "--repo", repo_arg]);
-    let written = shore_env(
+    support::pointbreak(["capture", "--repo", repo_arg]);
+    let written = pointbreak_env(
         [
             "observation",
             "add",
@@ -1904,7 +1904,7 @@ fn inspector_serves_revision_and_history_over_a_swept_body() {
     let arg = repo.path().to_str().unwrap();
 
     let body = "x".repeat(5000);
-    let observation = shore_env(
+    let observation = pointbreak_env(
         [
             "observation",
             "add",
@@ -1924,12 +1924,12 @@ fn inspector_serves_revision_and_history_over_a_swept_body() {
         "observation add stderr:\n{}",
         String::from_utf8_lossy(&observation.stderr)
     );
-    let removed = shore_env(
+    let removed = pointbreak_env(
         ["store", "remove", "--repo", arg, "--revision", &revision_id],
         &[],
     );
     assert!(removed.status.success());
-    let compacted = shore_env(["store", "compact", "--repo", arg, "--yes"], &[]);
+    let compacted = pointbreak_env(["store", "compact", "--repo", arg, "--yes"], &[]);
     assert!(compacted.status.success());
 
     let inspector = Inspector::spawn(repo.path());

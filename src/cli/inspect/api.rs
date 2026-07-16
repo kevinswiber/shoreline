@@ -2,7 +2,7 @@
 //!
 //! Each builder reuses a public `pointbreak::session` projection so the
 //! inspector reads the store through the same validated path as the
-//! corresponding `shore` review read command, rather than parsing raw `.pointbreak/data/`
+//! corresponding `pointbreak` review read command, rather than parsing raw `.pointbreak/data/`
 //! files. Errors are stringified so the server can surface them to the UI as
 //! a JSON `error` body instead of crashing a connection thread.
 
@@ -928,7 +928,7 @@ pub(super) fn revisions_cache_is_warm(
 
 /// The `/api/revisions` cache key: store version + the trust configuration +
 /// the commit-graph stamp the build will read. The trust set is held by value
-/// (structural equality), so `shore key enroll` — which changes operative-
+/// (structural equality), so `pointbreak key enroll` — which changes operative-
 /// removal decisions without appending an event — always misses the cache. The
 /// stamp covers pure-git ref moves, most importantly the landing fast-forward
 /// that flips `mergeStatus` with no event (#467); a repo where the stamp
@@ -1568,7 +1568,7 @@ fn splice_revision_supersession(
     Ok(())
 }
 
-/// Reuses the exact `pointbreak.review-revision` document the `shore revision show`
+/// Reuses the exact `pointbreak.review-revision` document the `pointbreak revision show`
 /// command builds (`revision_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
 /// facts, supersession, adapter notes, and projection rows — rather than
@@ -2087,7 +2087,7 @@ mod tests {
     }
 
     /// The shared common-dir store a clone resolves by default
-    /// (`<git-common-dir>/shore`). A non-ephemeral worktree reads and writes here,
+    /// (`<git-common-dir>/pointbreak`). A non-ephemeral worktree reads and writes here,
     /// so a post-capture store path resolves here, not the worktree-local
     /// `.pointbreak/data`.
     fn common_dir_store(repo: &Path) -> std::path::PathBuf {
@@ -3242,7 +3242,7 @@ mod tests {
         );
 
         // A pure-git ref move changes the liveness inputs the payload's
-        // mergeStatus is derived from without appending a shore event — the
+        // mergeStatus is derived from without appending a Pointbreak event — the
         // cache must read cold and rebuild (#467).
         git(repo.path(), &["branch", "stamp-probe"]);
         let moved_stamp = freshness_commit_graph_stamp(repo.path());

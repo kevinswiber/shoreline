@@ -71,7 +71,7 @@ pub(super) fn run(
     // Enrollment hint on stderr (the JSON document is the machine-readable stdout
     // contract; this is human guidance), mirroring the agent-keygen notice.
     eprintln!(
-        "shore: adopted SSH key as {} ({}); run `shore key enroll` to stage trust",
+        "pointbreak: adopted SSH key as {} ({}); run `pointbreak key enroll` to stage trust",
         handle.name(),
         handle.signer_id().as_str()
     );

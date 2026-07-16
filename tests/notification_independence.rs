@@ -104,7 +104,7 @@ fn dropped_change_signal_neither_unwrites_nor_fails_the_write() {
 
     // And a later transition still succeeds and is durable — a dropped signal
     // is never a precondition for the next write.
-    let output = support::shore([
+    let output = support::pointbreak([
         "observation",
         "add",
         "--repo",

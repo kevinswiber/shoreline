@@ -22,7 +22,7 @@ pub(crate) const STORE_CONTENT_MARKERS: &[&str] = &["events", "artifacts", "stat
 /// True when `<store_dir>` (`<root>/.pointbreak/data`) holds a real worktree-local
 /// store (any flat-store marker present), as opposed to an empty/absent dir. The
 /// legacy guard on the normal read/write resolution path uses this to direct the
-/// user to `shore store migrate` when a worktree-local store predates the shared
+/// user to `pointbreak store migrate` when a worktree-local store predates the shared
 /// store default. A config-only `.pointbreak/` (no events/artifacts/state.json under
 /// `.pointbreak/data`) is not populated.
 pub(crate) fn worktree_local_store_is_populated(store_dir: &Path) -> bool {

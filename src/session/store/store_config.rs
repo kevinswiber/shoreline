@@ -85,7 +85,7 @@ impl StoreConfig {
         // rewrite (the actionable-error contract — never a path-free message).
         Err(ShoreError::Message(format!(
             "store config {} has unsupported schema/version {} v{} (expected {} v{}); \
-             rewrite it with `shore store mode shared` or `shore store mode ephemeral`",
+             rewrite it with `pointbreak store mode shared` or `pointbreak store mode ephemeral`",
             path.display(),
             self.schema,
             self.version,
@@ -169,7 +169,7 @@ pub(crate) fn read_common_dir_binding(common_dir: &Path) -> Result<Option<Family
     if doc.schema != STORE_LINK_SCHEMA || doc.version != STORE_LINK_VERSION {
         return Err(ShoreError::Message(format!(
             "common-dir store binding {} has unsupported schema/version {} v{} (expected {} v{}); \
-             re-run `shore store link <slug>` to rewrite it, or `shore store unlink` to clear it",
+             re-run `pointbreak store link <slug>` to rewrite it, or `pointbreak store unlink` to clear it",
             path.display(),
             doc.schema,
             doc.version,
@@ -185,7 +185,7 @@ pub(crate) fn read_common_dir_binding(common_dir: &Path) -> Result<Option<Family
         (None, None) => Ok(None),
         _ => Err(ShoreError::Message(format!(
             "common-dir store binding {} carries only one of familyRef/cloneRef; a family binding \
-             needs both. Re-run `shore store link <slug>`, or `shore store unlink` to clear it",
+             needs both. Re-run `pointbreak store link <slug>`, or `pointbreak store unlink` to clear it",
             path.display(),
         ))),
     }
@@ -240,7 +240,7 @@ pub(crate) fn resolve_family_binding(worktree_root: &Path) -> Result<Option<Fami
         return Err(ShoreError::Message(format!(
             "committed store config {} carries a family binding (familyRef/cloneRef), but the \
              user-level family tier is opt-in per clone and must never be committed. Remove those \
-             fields and run `shore store link <slug>` locally instead.",
+             fields and run `pointbreak store link <slug>` locally instead.",
             committed_path.display(),
         )));
     }
@@ -251,7 +251,7 @@ pub(crate) fn resolve_family_binding(worktree_root: &Path) -> Result<Option<Fami
     {
         return Err(ShoreError::Message(format!(
             "local store config {} carries familyRef/cloneRef, but clone bindings are stored only \
-             in the Git common directory. Remove those fields and run `shore store link <slug>`.",
+             in the Git common directory. Remove those fields and run `pointbreak store link <slug>`.",
             local_path.display(),
         )));
     }
@@ -280,7 +280,7 @@ fn load_store_config(path: &Path) -> Result<Option<StoreConfig>> {
         ShoreError::Message(format!(
             "store config {} is malformed: {error}; \
              expected a JSON document with a \"mode\" of \"shared\" or \"ephemeral\" \
-             (e.g. run `shore store mode shared` to rewrite it)",
+             (e.g. run `pointbreak store mode shared` to rewrite it)",
             path.display()
         ))
     })?;

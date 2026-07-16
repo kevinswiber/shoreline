@@ -2,7 +2,7 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("valid json on stdout")
@@ -26,7 +26,7 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
     // ephemeral (so the write lands in `.pointbreak/data`), then restore the shared
     // default so the migration runs against a non-ephemeral worktree carrying a
     // legacy worktree-local store.
-    let ephemeral = shore([
+    let ephemeral = pointbreak([
         "store",
         "mode",
         "ephemeral",
@@ -38,13 +38,13 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
         "ephemeral mode: {}",
         String::from_utf8_lossy(&ephemeral.stderr)
     );
-    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture: {}",
         String::from_utf8_lossy(&capture.stderr)
     );
-    let shared = shore([
+    let shared = pointbreak([
         "store",
         "mode",
         "shared",
@@ -60,7 +60,7 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
     // The seed landed worktree-local; the shared common-dir store is still empty.
     assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
-    let migrate = shore(["store", "migrate", "--repo", repo.path().to_str().unwrap()]);
+    let migrate = pointbreak(["store", "migrate", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         migrate.status.success(),
         "migrate: {}",
@@ -95,23 +95,23 @@ fn store_migrate_retire_source_completes_in_one_command() {
 
     // Seed a pre-flip worktree-local store, same shape as the fold test.
     assert!(
-        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "ephemeral", "--repo", &repo_arg])
             .status
             .success()
     );
     assert!(
-        shore(["capture", "--repo", &repo_arg, "--allow-empty"])
+        pointbreak(["capture", "--repo", &repo_arg, "--allow-empty"])
             .status
             .success()
     );
     assert!(
-        shore(["store", "mode", "shared", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "shared", "--repo", &repo_arg])
             .status
             .success()
     );
     assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
-    let migrate = shore(["store", "migrate", "--retire-source", "--repo", &repo_arg]);
+    let migrate = pointbreak(["store", "migrate", "--retire-source", "--repo", &repo_arg]);
     assert!(
         migrate.status.success(),
         "migrate --retire-source: {}",
@@ -154,24 +154,24 @@ fn store_migrate_excluded_fixture_paths_unblock_the_gate() {
 
     // Seed a worktree-local store to migrate.
     assert!(
-        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "ephemeral", "--repo", &repo_arg])
             .status
             .success()
     );
     assert!(
-        shore(["capture", "--repo", &repo_arg, "--allow-empty"])
+        pointbreak(["capture", "--repo", &repo_arg, "--allow-empty"])
             .status
             .success()
     );
     assert!(
-        shore(["store", "mode", "shared", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "shared", "--repo", &repo_arg])
             .status
             .success()
     );
 
     // Without the exclude config this would refuse; with it, the gate passes
     // and the migrate output carries the audit count.
-    let migrate = shore(["store", "migrate", "--repo", &repo_arg]);
+    let migrate = pointbreak(["store", "migrate", "--repo", &repo_arg]);
     assert!(
         migrate.status.success(),
         "excluded fixture must unblock the gate: {}",
@@ -188,22 +188,22 @@ fn store_migrate_block_refusal_names_the_targeted_exclude_alternative() {
     repo.write("keys/dev.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
     repo.commit_all("sensitive fixture");
     assert!(
-        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "ephemeral", "--repo", &repo_arg])
             .status
             .success()
     );
     assert!(
-        shore(["capture", "--repo", &repo_arg, "--allow-empty"])
+        pointbreak(["capture", "--repo", &repo_arg, "--allow-empty"])
             .status
             .success()
     );
     assert!(
-        shore(["store", "mode", "shared", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "shared", "--repo", &repo_arg])
             .status
             .success()
     );
 
-    let migrate = shore(["store", "migrate", "--repo", &repo_arg]);
+    let migrate = pointbreak(["store", "migrate", "--repo", &repo_arg]);
     assert!(!migrate.status.success(), "a block finding still refuses");
     let stderr = String::from_utf8_lossy(&migrate.stderr);
     assert!(
@@ -225,15 +225,19 @@ fn store_migrate_include_ephemeral_omits_the_excluded_count() {
     let repo = repo_with_pending_change();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
     assert!(
-        shore(["store", "mode", "ephemeral", "--repo", &repo_arg])
+        pointbreak(["store", "mode", "ephemeral", "--repo", &repo_arg])
             .status
             .success()
     );
-    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
+    assert!(
+        pointbreak(["capture", "--repo", &repo_arg])
+            .status
+            .success()
+    );
 
     // --include-ephemeral skips the gate scan entirely, so no count is
     // reported (absent, not zero — zero would claim a scan ran).
-    let migrate = shore([
+    let migrate = pointbreak([
         "store",
         "migrate",
         "--include-ephemeral",
@@ -255,14 +259,14 @@ fn store_migrate_include_ephemeral_omits_the_excluded_count() {
 #[test]
 fn store_migrate_refuses_ephemeral_without_include_ephemeral() {
     let repo = repo_with_pending_change();
-    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture: {}",
         String::from_utf8_lossy(&capture.stderr)
     );
     // Mark the worktree ephemeral (the `store mode` CLI is the user path).
-    let mode = shore([
+    let mode = pointbreak([
         "store",
         "mode",
         "ephemeral",
@@ -275,7 +279,7 @@ fn store_migrate_refuses_ephemeral_without_include_ephemeral() {
         String::from_utf8_lossy(&mode.stderr)
     );
 
-    let migrate = shore(["store", "migrate", "--repo", repo.path().to_str().unwrap()]);
+    let migrate = pointbreak(["store", "migrate", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         !migrate.status.success(),
         "ephemeral migrate must fail without the override"
@@ -287,7 +291,7 @@ fn store_migrate_refuses_ephemeral_without_include_ephemeral() {
     );
 
     // The override succeeds.
-    let forced = shore([
+    let forced = pointbreak([
         "store",
         "migrate",
         "--include-ephemeral",

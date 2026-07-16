@@ -2,11 +2,11 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{shore, shore_env};
+use support::{pointbreak, pointbreak_env};
 
 #[test]
 fn revision_help_lists_show() {
-    let output = shore(["revision", "--help"]);
+    let output = pointbreak(["revision", "--help"]);
 
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("show"));
@@ -26,14 +26,14 @@ fn revision_show_liveness_defaults_to_the_integration_branch() {
     let path = repo.path().to_str().unwrap();
 
     // A commit-range capture anchors the target (HEAD) commit, which is main's tip.
-    let capture = shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    let capture = pointbreak(["capture", "--repo", path, "--base", "HEAD~1"]);
     assert!(
         capture.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&capture.stderr)
     );
 
-    let json = parse_json(&shore(["revision", "show", "--repo", path]).stdout);
+    let json = parse_json(&pointbreak(["revision", "show", "--repo", path]).stdout);
     let per_commit = json["commitRange"]["liveness"]["perCommit"]
         .as_array()
         .unwrap();
@@ -63,14 +63,14 @@ fn revision_show_accepts_explicit_integration_ref() {
     repo.git(["checkout", "main"]);
     let path = repo.path().to_str().unwrap();
 
-    let capture = shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    let capture = pointbreak(["capture", "--repo", path, "--base", "HEAD~1"]);
     assert!(
         capture.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&capture.stderr)
     );
 
-    let show = shore([
+    let show = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -113,14 +113,14 @@ fn revision_show_liveness_survives_a_dangling_origin_head() {
     ]);
     let path = repo.path().to_str().unwrap();
 
-    let capture = shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    let capture = pointbreak(["capture", "--repo", path, "--base", "HEAD~1"]);
     assert!(
         capture.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&capture.stderr)
     );
 
-    let json = parse_json(&shore(["revision", "show", "--repo", path]).stdout);
+    let json = parse_json(&pointbreak(["revision", "show", "--repo", path]).stdout);
     let per_commit = json["commitRange"]["liveness"]["perCommit"]
         .as_array()
         .expect("liveness block present despite dangling origin/HEAD");
@@ -132,11 +132,11 @@ fn revision_show_liveness_survives_a_dangling_origin_head() {
 #[test]
 fn revision_show_positional_accepts_and_omits() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let path = repo.path().to_str().unwrap();
 
     // Omitted: shows the current capture (the flag-absent behavior).
-    let current = shore(["revision", "show", "--repo", path]);
+    let current = pointbreak(["revision", "show", "--repo", path]);
     assert!(
         current.status.success(),
         "stderr:\n{}",
@@ -147,7 +147,7 @@ fn revision_show_positional_accepts_and_omits() {
     let id = json["revision"]["id"].as_str().unwrap().to_owned();
 
     // Positional full id: selects that revision.
-    let selected = shore(["revision", "show", &id, "--repo", path]);
+    let selected = pointbreak(["revision", "show", &id, "--repo", path]);
     assert!(
         selected.status.success(),
         "stderr:\n{}",
@@ -159,16 +159,16 @@ fn revision_show_positional_accepts_and_omits() {
 #[test]
 fn revision_show_positional_resolves_a_prefixed_short_id() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let path = repo.path().to_str().unwrap();
 
-    let current = parse_json(&shore(["revision", "show", "--repo", path]).stdout);
+    let current = parse_json(&pointbreak(["revision", "show", "--repo", path]).stdout);
     let id = current["revision"]["id"].as_str().unwrap().to_owned();
     // id = "rev:…sha256:<hex>"; the bare-prefixed short form resolves it.
     let digest = id.rsplit_once("sha256:").unwrap().1;
     let prefixed_short = format!("rev:{}", &digest[..8]);
 
-    let selected = shore(["revision", "show", &prefixed_short, "--repo", path]);
+    let selected = pointbreak(["revision", "show", &prefixed_short, "--repo", path]);
     assert!(
         selected.status.success(),
         "stderr:\n{}",
@@ -180,9 +180,9 @@ fn revision_show_positional_resolves_a_prefixed_short_id() {
 #[test]
 fn revision_show_emits_v2_json() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -212,9 +212,9 @@ fn revision_show_emits_v2_json() {
 #[test]
 fn revision_show_rejects_invalid_track_before_json_output() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -231,9 +231,9 @@ fn revision_show_rejects_invalid_track_before_json_output() {
 #[test]
 fn revision_show_json_pretty_prints() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -248,9 +248,9 @@ fn revision_show_json_pretty_prints() {
 #[test]
 fn revision_show_rejects_removed_pretty_flag() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -266,15 +266,17 @@ fn revision_show_rejects_removed_pretty_flag() {
 #[test]
 fn revision_show_supports_explicit_revision_when_ambiguous() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let ambiguous = shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
+    let ambiguous = pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
     assert!(!ambiguous.status.success());
     assert!(String::from_utf8_lossy(&ambiguous.stderr).contains("multiple captured revisions"));
 
-    let explicit = shore([
+    let explicit = pointbreak([
         "revision",
         "show",
         first["revision"]["id"].as_str().unwrap(),
@@ -290,10 +292,10 @@ fn revision_show_supports_explicit_revision_when_ambiguous() {
 #[test]
 fn revision_show_include_body_hydrates_without_internal_paths() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation_with_body(&repo, "agent:codex", "Body", "visible body");
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -315,7 +317,7 @@ fn revision_show_include_body_hydrates_without_internal_paths() {
 #[test]
 fn revision_show_includes_input_requests_and_omits_legacy_fields() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = add_input_request_with_body(&repo, "visible request body");
     respond_to_input_request(
         &repo,
@@ -323,7 +325,7 @@ fn revision_show_includes_input_requests_and_omits_legacy_fields() {
         "approved",
     );
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -364,11 +366,12 @@ fn revision_show_includes_input_requests_and_omits_legacy_fields() {
 #[test]
 fn revision_show_rows_are_narrative_first_and_snapshot_complete() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation(&repo, "agent:codex", "Narrative");
 
-    let json =
-        parse_json(&shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let json = parse_json(
+        &pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
 
     let rows = json["rows"].as_array().unwrap();
     let first_remainder = rows
@@ -398,14 +401,15 @@ fn revision_show_rows_are_narrative_first_and_snapshot_complete() {
 #[test]
 fn revision_show_track_filter_echoes_and_narrows_narrative_only() {
     let repo = multi_file_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation(&repo, "agent:codex", "Codex");
     add_observation(&repo, "agent:claude", "Claude");
 
-    let all =
-        parse_json(&shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let all = parse_json(
+        &pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     let codex = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             "--repo",
@@ -432,11 +436,12 @@ fn revision_show_track_filter_echoes_and_narrows_narrative_only() {
 #[test]
 fn revision_show_includes_current_assessment_status() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_assessment(&repo);
 
-    let json =
-        parse_json(&shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let json = parse_json(
+        &pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
 
     assert_eq!(json["currentAssessment"]["status"], "resolved");
     assert_eq!(json["currentAssessment"]["assessment"], "accepted");
@@ -447,7 +452,7 @@ fn revision_show_includes_current_assessment_status() {
 fn unit_show_projects_range_capture_with_bound_snapshot() {
     let repo = support::committed_repo();
     let capture = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -458,7 +463,7 @@ fn unit_show_projects_range_capture_with_bound_snapshot() {
     );
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "show",
         revision_id,
@@ -490,9 +495,9 @@ fn unit_show_disambiguates_worktree_and_range_units() {
     let repo = support::committed_repo();
     // A dirty worktree yields a worktree unit; --base yields a range unit.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let range = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -502,7 +507,7 @@ fn unit_show_disambiguates_worktree_and_range_units() {
         .stdout,
     );
 
-    let ambiguous = shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
+    let ambiguous = pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
     assert!(!ambiguous.status.success());
     assert!(
         String::from_utf8_lossy(&ambiguous.stderr).contains("multiple captured revisions"),
@@ -511,7 +516,7 @@ fn unit_show_disambiguates_worktree_and_range_units() {
     );
 
     let json = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             range["revision"]["id"].as_str().unwrap(),
@@ -531,7 +536,7 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
     let env: [(&str, &str); 1] = [("POINTBREAK_HOME", env_home)];
     // A present-but-unenrolled key → signs, verifies untrusted_key under the empty trust set.
     assert!(
-        shore_env(["key", "init", "--name", "default"], &env)
+        pointbreak_env(["key", "init", "--name", "default"], &env)
             .status
             .success()
     );
@@ -539,12 +544,12 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
     assert!(
-        shore_env(["capture", "--repo", repo_arg], &env)
+        pointbreak_env(["capture", "--repo", repo_arg], &env)
             .status
             .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "observation",
                 "add",
@@ -563,7 +568,7 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
         .success()
     );
 
-    let out = shore_env(["revision", "show", "--repo", repo_arg], &env);
+    let out = pointbreak_env(["revision", "show", "--repo", repo_arg], &env);
     assert!(
         out.status.success(),
         "stderr:\n{}",
@@ -585,7 +590,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     let env_home = home.path().to_str().unwrap();
     let env: [(&str, &str); 1] = [("POINTBREAK_HOME", env_home)];
     assert!(
-        shore_env(["key", "init", "--name", "default"], &env)
+        pointbreak_env(["key", "init", "--name", "default"], &env)
             .status
             .success()
     );
@@ -593,7 +598,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     let repo_arg = repo.path().to_str().unwrap();
     // Enroll the default key under kevin + attest kind/roles (reader config).
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "key",
                 "enroll",
@@ -609,7 +614,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
         .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "identity",
                 "attest",
@@ -628,7 +633,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     );
     // Capture UNSIGNED so the detached endorsement carrier is not deduped.
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", repo_arg],
             &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
         )
@@ -637,7 +642,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     );
     let target = captured_event_id(repo.path());
     assert!(
-        shore_env(
+        pointbreak_env(
             ["endorse", &target, "--repo", repo_arg],
             &[
                 ("POINTBREAK_HOME", env_home),
@@ -648,7 +653,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
         .success()
     );
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["revision", "show", "--repo", repo_arg],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -663,12 +668,12 @@ fn unit_show_renders_endorsement_on_capture_identity() {
 fn text_digest_is_bounded_and_never_renders_rows() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     add_observation(&repo, "agent:codex", "Narrative");
     add_input_request_with_body(&repo, "please decide");
     add_assessment(&repo);
 
-    let output = shore(["revision", "show", "--repo", repo_arg, "--format", "text"]);
+    let output = pointbreak(["revision", "show", "--repo", repo_arg, "--format", "text"]);
     assert!(
         output.status.success(),
         "stderr:\n{}",
@@ -697,14 +702,14 @@ fn text_digest_reports_signed_by_enrolled_key() {
     let yes_home_s = yes_home.path().to_str().unwrap();
     let yes_env: [(&str, &str); 1] = [("POINTBREAK_HOME", yes_home_s)];
     assert!(
-        shore_env(["key", "init", "--name", "default"], &yes_env)
+        pointbreak_env(["key", "init", "--name", "default"], &yes_env)
             .status
             .success()
     );
     let yes_repo = modified_repo();
     let yes_repo_arg = yes_repo.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "key",
                 "enroll",
@@ -720,12 +725,12 @@ fn text_digest_reports_signed_by_enrolled_key() {
         .success()
     );
     assert!(
-        shore_env(["capture", "--repo", yes_repo_arg], &yes_env)
+        pointbreak_env(["capture", "--repo", yes_repo_arg], &yes_env)
             .status
             .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "assessment",
                 "add",
@@ -746,7 +751,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
         .status
         .success()
     );
-    let yes_out = shore_env(
+    let yes_out = pointbreak_env(
         [
             "revision",
             "show",
@@ -769,7 +774,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
     let no_repo = modified_repo();
     let no_repo_arg = no_repo.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", no_repo_arg],
             &[
                 ("POINTBREAK_HOME", no_home_s),
@@ -780,7 +785,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
         .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "assessment",
                 "add",
@@ -801,7 +806,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
         .status
         .success()
     );
-    let no_out = shore_env(
+    let no_out = pointbreak_env(
         [
             "revision",
             "show",
@@ -823,9 +828,9 @@ fn text_digest_reports_signed_by_enrolled_key() {
 fn text_digest_clamps_long_open_request_titles() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let long_title = "x".repeat(320);
-    shore([
+    pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -838,7 +843,7 @@ fn text_digest_clamps_long_open_request_titles() {
         "manual-decision-required",
     ]);
 
-    let output = shore(["revision", "show", "--repo", repo_arg, "--format", "text"]);
+    let output = pointbreak(["revision", "show", "--repo", repo_arg, "--format", "text"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let longest = stdout
         .lines()
@@ -862,11 +867,11 @@ fn text_digest_clamps_long_open_request_titles() {
 fn text_digest_groups_fact_counts_by_track() {
     let repo = multi_file_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     add_observation(&repo, "agent:codex", "Codex finding");
     add_observation(&repo, "agent:claude", "Claude finding");
 
-    let output = shore(["revision", "show", "--repo", repo_arg, "--format", "text"]);
+    let output = pointbreak(["revision", "show", "--repo", repo_arg, "--format", "text"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(stdout.contains("tracks:"), "stdout:\n{stdout}");
@@ -906,7 +911,7 @@ fn multi_file_repo() -> GitRepo {
 
 fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -922,7 +927,7 @@ fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
 
 fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -940,7 +945,7 @@ fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &st
 
 fn add_assessment(repo: &GitRepo) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "assessment",
             "add",
             "--repo",
@@ -958,7 +963,7 @@ fn add_assessment(repo: &GitRepo) -> Value {
 
 fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -978,7 +983,7 @@ fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
 
 fn respond_to_input_request(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "respond",
             "--repo",

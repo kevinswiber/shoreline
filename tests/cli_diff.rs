@@ -5,7 +5,7 @@ use std::process::Output;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{shore, shore_env};
+use support::{pointbreak, pointbreak_env};
 
 fn out_text(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
@@ -39,7 +39,7 @@ fn strip_ansi(s: &str) -> String {
 }
 
 /// A repo with one committed base and an uncommitted single-line change, so
-/// `shore capture` records a one-file worktree diff.
+/// `pointbreak capture` records a one-file worktree diff.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
@@ -50,7 +50,7 @@ fn modified_repo() -> GitRepo {
 
 /// Capture the current worktree and return the `pointbreak.review-capture` document.
 fn capture(path: &Path) -> Value {
-    let output = shore(["capture", "--repo", path.to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", path.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture failed:\n{}",
@@ -64,7 +64,7 @@ fn shore_diff_prints_the_captured_unified_diff() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let output = shore(["diff", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["diff", "--repo", repo.path().to_str().unwrap()]);
     assert!(output.status.success(), "stderr:\n{}", err_text(&output));
     let text = out_text(&output);
     assert!(text.contains("diff --git a/src/lib.rs b/src/lib.rs"));
@@ -91,7 +91,7 @@ fn shore_diff_output_applies_to_the_clean_captured_base() {
 
     // Untracked files are only captured with --include-untracked (the source
     // that carries the added file whose mode header this test exercises).
-    let captured = shore([
+    let captured = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -103,7 +103,7 @@ fn shore_diff_output_applies_to_the_clean_captured_base() {
         err_text(&captured)
     );
 
-    let diff = shore([
+    let diff = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -134,7 +134,7 @@ fn shore_diff_stat_omits_the_body() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let output = shore(["diff", "--repo", repo.path().to_str().unwrap(), "--stat"]);
+    let output = pointbreak(["diff", "--repo", repo.path().to_str().unwrap(), "--stat"]);
     assert!(output.status.success(), "stderr:\n{}", err_text(&output));
     let text = out_text(&output);
     assert!(text.contains("src/lib.rs"));
@@ -150,7 +150,7 @@ fn shore_diff_requires_revision_when_multiple_candidates() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     capture(repo.path());
 
-    let output = shore(["diff", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["diff", "--repo", repo.path().to_str().unwrap()]);
     assert!(!output.status.success());
     assert!(
         err_text(&output).contains("multiple captured revisions"),
@@ -165,7 +165,7 @@ fn shore_diff_renders_content_unavailable_when_removed() {
     let captured = capture(repo.path());
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
 
-    let removed = shore([
+    let removed = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -175,7 +175,7 @@ fn shore_diff_renders_content_unavailable_when_removed() {
     ]);
     assert!(removed.status.success(), "stderr:\n{}", err_text(&removed));
 
-    let output = shore(["diff", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["diff", "--repo", repo.path().to_str().unwrap()]);
     assert!(output.status.success(), "stderr:\n{}", err_text(&output));
     let text = out_text(&output).to_lowercase();
     assert!(
@@ -187,11 +187,11 @@ fn shore_diff_renders_content_unavailable_when_removed() {
 
 #[test]
 fn shore_diff_ignores_ambient_shore_format_json() {
-    // `shore diff` is text-only: a global machine-format pin must not break it.
+    // `pointbreak diff` is text-only: a global machine-format pin must not break it.
     let repo = modified_repo();
     capture(repo.path());
 
-    let output = shore_env(
+    let output = pointbreak_env(
         ["diff", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_FORMAT", "json")],
     );
@@ -207,7 +207,7 @@ fn shore_diff_rejects_explicit_format_flag() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let output = shore([
+    let output = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -223,7 +223,7 @@ fn shore_diff_color_always_emits_ansi() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let out = shore([
+    let out = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -239,7 +239,7 @@ fn shore_diff_color_never_and_piped_default_are_plain() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let never = shore([
+    let never = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -250,7 +250,7 @@ fn shore_diff_color_never_and_piped_default_are_plain() {
     assert!(!out_text(&never).contains('\x1b'));
 
     // The default under a piped (non-TTY) test harness is also plain (INV-D).
-    let default_piped = shore(["diff", "--repo", repo.path().to_str().unwrap()]);
+    let default_piped = pointbreak(["diff", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         default_piped.status.success(),
         "stderr:\n{}",
@@ -266,14 +266,14 @@ fn shore_diff_color_text_is_identical_to_plain_after_stripping_ansi() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let colored = shore([
+    let colored = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),
         "--color",
         "always",
     ]);
-    let plain = shore([
+    let plain = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -292,7 +292,7 @@ fn diff_revision_flag_resolves_short_ids() {
     let digest = full.rsplit_once("sha256:").unwrap().1.to_owned();
     let path = repo.path().to_str().unwrap();
 
-    let full_out = shore(["diff", "--repo", path, "--revision", &full, "--stat"]);
+    let full_out = pointbreak(["diff", "--repo", path, "--revision", &full, "--stat"]);
     assert!(
         full_out.status.success(),
         "stderr:\n{}",
@@ -301,7 +301,7 @@ fn diff_revision_flag_resolves_short_ids() {
 
     // Prefixed short form resolves to the same revision.
     let prefixed = format!("rev:{}", &digest[..8]);
-    let prefixed_out = shore(["diff", "--repo", path, "--revision", &prefixed, "--stat"]);
+    let prefixed_out = pointbreak(["diff", "--repo", path, "--revision", &prefixed, "--stat"]);
     assert!(
         prefixed_out.status.success(),
         "stderr:\n{}",
@@ -310,7 +310,7 @@ fn diff_revision_flag_resolves_short_ids() {
     assert_eq!(out_text(&prefixed_out), out_text(&full_out));
 
     // Bare fragment: `--revision` implies exactly one id kind, so it resolves too.
-    let bare_out = shore(["diff", "--repo", path, "--revision", &digest[..8], "--stat"]);
+    let bare_out = pointbreak(["diff", "--repo", path, "--revision", &digest[..8], "--stat"]);
     assert!(
         bare_out.status.success(),
         "stderr:\n{}",
@@ -327,7 +327,7 @@ const LIGHT_KEYWORD: &str = "\x1b[38;2;122;68;212m";
 const DARK_ADD_TINT: &str = "\x1b[48;2;0;96;0m";
 const LIGHT_ADD_TINT: &str = "\x1b[48;2;160;239;160m";
 
-/// Run `shore diff --color always` against `path` with extra args and env.
+/// Run `pointbreak diff --color always` against `path` with extra args and env.
 /// Every caller pins `COLORTERM` explicitly (CI environments differ).
 fn diff_env(path: &Path, extra_args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut args = vec![
@@ -338,7 +338,7 @@ fn diff_env(path: &Path, extra_args: &[&str], envs: &[(&str, &str)]) -> Output {
         "always",
     ];
     args.extend_from_slice(extra_args);
-    shore_env(args, envs)
+    pointbreak_env(args, envs)
 }
 
 #[test]
@@ -445,7 +445,7 @@ fn shore_diff_named_theme_recolors_tokens() {
 #[test]
 fn shore_diff_theme_names_are_case_insensitive() {
     // bat/delta never fail a miscased name (they warn and fall back to the
-    // default, masking the miss); shore resolves the requested theme.
+    // default, masking the miss); pointbreak resolves the requested theme.
     let repo = modified_repo();
     capture(repo.path());
     let canonical = diff_env(
@@ -559,7 +559,7 @@ fn shore_diff_stat_never_resolves_themes() {
 fn shore_diff_light_and_named_colored_output_strips_to_plain() {
     let repo = modified_repo();
     capture(repo.path());
-    let plain = shore([
+    let plain = pointbreak([
         "diff",
         "--repo",
         repo.path().to_str().unwrap(),

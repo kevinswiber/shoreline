@@ -1,11 +1,11 @@
-//! Shared HTTP harness for the `shore inspect` integration suites.
+//! Shared HTTP harness for the `pointbreak inspect` integration suites.
 //!
 //! The inspector's JSON builders live in the binary crate
 //! (`src/cli/inspect/api.rs`), so they are not reachable from an integration
 //! test by a direct call. These tests instead exercise the genuine production
-//! JSON end to end: they spawn the real `shore inspect --port 0` server (which
+//! JSON end to end: they spawn the real `pointbreak inspect --port 0` server (which
 //! prints its bound URL and supports an ephemeral port) and issue raw HTTP/1.1
-//! GETs. The store is always built at test time through the `shore` CLI, so it
+//! GETs. The store is always built at test time through the `pointbreak` CLI, so it
 //! tracks the current on-disk layout without hard-coding any store path.
 
 use std::ffi::OsString;
@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::git_repo::GitRepo;
-use super::shore;
+use super::pointbreak;
 
 /// A repository plus a worktree on a fresh branch with one captured Revision.
 pub struct WorktreeCapture {
@@ -52,7 +52,7 @@ impl WorktreeCapture {
     }
 }
 
-/// A spawned `shore inspect` server bound to an ephemeral port, killed on drop.
+/// A spawned `pointbreak inspect` server bound to an ephemeral port, killed on drop.
 pub struct Inspector {
     child: Child,
     addr: String,
@@ -104,7 +104,7 @@ impl Inspector {
     }
 
     fn spawn_with(repo: &Path, surface: InspectSurface, output: InspectOutput) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
         command.args([
             "inspect",
             "--repo",
@@ -126,7 +126,7 @@ impl Inspector {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("spawn shore inspect");
+            .expect("spawn pointbreak inspect");
 
         // Drain stderr in the background so it never blocks the server and is
         // available to explain a failure.
@@ -408,9 +408,9 @@ fn drained(stderr: &Arc<Mutex<String>>) -> String {
     stderr.lock().map(|guard| guard.clone()).unwrap_or_default()
 }
 
-/// Run `shore capture` against a repo, returning the captured Revision id.
+/// Run `pointbreak capture` against a repo, returning the captured Revision id.
 pub fn capture(repo: &Path) -> String {
-    let output = shore(["capture", "--repo", repo.to_str().unwrap(), "--allow-empty"]);
+    let output = pointbreak(["capture", "--repo", repo.to_str().unwrap(), "--allow-empty"]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -423,7 +423,7 @@ pub fn capture(repo: &Path) -> String {
         .to_owned()
 }
 
-/// A populated store assembled once through the `shore` CLI, reused by the
+/// A populated store assembled once through the `pointbreak` CLI, reused by the
 /// endpoint-contract and validation read-surface suites: one captured Revision
 /// carrying a range-targeted observation, an operative input request, a
 /// superseded + a superseding assessment (two tracks), and two validation checks
@@ -567,26 +567,26 @@ pub fn representative_store() -> RepresentativeStore {
     }
 }
 
-/// Run a `shore` subcommand, asserting success and surfacing stderr on failure.
+/// Run a `pointbreak` subcommand, asserting success and surfacing stderr on failure.
 fn run_shore(args: &[&str]) {
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
-        "shore {args:?} failed:\n{}",
+        "pointbreak {args:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
-/// Run a `shore` subcommand and parse its stdout as JSON.
+/// Run a `pointbreak` subcommand and parse its stdout as JSON.
 fn run_shore_json(args: &[&str]) -> Value {
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
-        "shore {args:?} failed:\n{}",
+        "pointbreak {args:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("parse shore {args:?} JSON: {error}"))
+        .unwrap_or_else(|error| panic!("parse pointbreak {args:?} JSON: {error}"))
 }
 
 /// Capture a revision in a supersession thread. With no `predecessor`, captures
@@ -615,7 +615,7 @@ pub fn capture_supersession_round(repo: &Path, predecessor: Option<&str>) -> Str
         args.push("--allow-empty".to_owned());
     }
 
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
         "capture supersession round stderr:\n{}",

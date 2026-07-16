@@ -506,7 +506,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     )?;
     // Write-through (INV-1) lands the capture in the store reads already resolve,
     // so there is no longer a batch-only diagnostic telling the user to run
-    // `shore store link` before their own capture is visible.
+    // `pointbreak store link` before their own capture is visible.
     let mut diagnostics = state.diagnostics;
     diagnostics.extend(auto_record_diagnostics);
 

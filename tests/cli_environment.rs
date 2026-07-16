@@ -24,7 +24,7 @@ const PRODUCT_SELECTORS: [&str; 16] = [
 ];
 
 fn command(args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
     command.args(args);
     for selector in PRODUCT_SELECTORS {
         command.env_remove(selector);
@@ -35,7 +35,7 @@ fn command(args: &[&str]) -> Command {
 }
 
 fn output(command: &mut Command) -> Output {
-    command.output().expect("run shore")
+    command.output().expect("run pointbreak")
 }
 
 fn actor_id(output: &Output) -> String {
@@ -106,7 +106,7 @@ fn canonical_signing_selectors_are_read_and_old_names_are_ignored() {
 fn canonical_format_selector_is_read_and_old_name_is_ignored() {
     let canonical = output(command(&["version"]).env("POINTBREAK_FORMAT", "text"));
     assert!(canonical.status.success());
-    assert!(String::from_utf8_lossy(&canonical.stdout).starts_with("shore "));
+    assert!(String::from_utf8_lossy(&canonical.stdout).starts_with("pointbreak "));
 
     let old = output(command(&["version"]).env("SHORE_FORMAT", "text"));
     assert!(old.status.success());

@@ -1,4 +1,4 @@
-// Document builder for `shore review-capture`.
+// Document builder for `pointbreak review-capture`.
 use crate::documents::EventWriteDocument;
 use crate::model::ReviewEndpoint;
 use crate::session::CaptureResult;

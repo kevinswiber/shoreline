@@ -16,7 +16,7 @@ use crate::session::event::{Writer, WriterProducer};
 pub(crate) fn writer_from_options(repo: &Path, explicit: Option<&ActorId>) -> Writer {
     Writer {
         actor_id: actor_id_for_repo(explicit.map(ActorId::as_str), repo),
-        producer: shore_producer(),
+        producer: pointbreak_producer(),
     }
 }
 
@@ -98,9 +98,9 @@ pub fn is_agent_actor_id(value: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty())
 }
 
-fn shore_producer() -> WriterProducer {
+fn pointbreak_producer() -> WriterProducer {
     WriterProducer {
-        name: "shore".to_owned(),
+        name: "pointbreak".to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
@@ -121,7 +121,7 @@ mod tests {
     use std::process::Command;
 
     #[test]
-    fn writer_from_options_uses_git_identity_and_shore_producer() {
+    fn writer_from_options_uses_git_identity_and_pointbreak_producer() {
         let repo = tempfile::tempdir().unwrap();
         Command::new("git")
             .args(["init"])
@@ -140,7 +140,7 @@ mod tests {
             writer.actor_id.as_str(),
             "actor:git-email:author@example.com"
         );
-        assert_eq!(writer.producer.name, "shore");
+        assert_eq!(writer.producer.name, "pointbreak");
     }
 
     #[test]

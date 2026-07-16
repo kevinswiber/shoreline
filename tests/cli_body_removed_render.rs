@@ -4,9 +4,9 @@ use std::path::Path;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
-/// A repo with a committed base and an uncommitted change, so `shore capture`
+/// A repo with a committed base and an uncommitted change, so `pointbreak capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -32,13 +32,13 @@ fn assert_success(output: &std::process::Output, what: &str) {
 /// revision id and the body's normalized content hash (the removal key).
 fn capture_with_externalized_observation_body(repo: &Path) -> (String, String) {
     let arg = repo.to_str().unwrap();
-    let capture = shore(["capture", "--repo", arg]);
+    let capture = pointbreak(["capture", "--repo", arg]);
     assert_success(&capture, "capture");
     let capture = parse_json(&capture.stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     let body = "x".repeat(5000);
-    let observation = shore([
+    let observation = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -60,7 +60,7 @@ fn capture_with_externalized_observation_body(repo: &Path) -> (String, String) {
 }
 
 fn remove_revision(repo: &Path, revision_id: &str) {
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -72,7 +72,7 @@ fn remove_revision(repo: &Path, revision_id: &str) {
 }
 
 fn compact(repo: &Path) {
-    let output = shore([
+    let output = pointbreak([
         "store",
         "compact",
         "--repo",
@@ -107,7 +107,7 @@ fn swept_body_renders_physically_removed_across_read_surfaces() {
     compact(repo.path());
 
     // review show: explained absence, not a hard error.
-    let show = shore(["revision", "show", "--repo", arg, "--include-body"]);
+    let show = pointbreak(["revision", "show", "--repo", arg, "--include-body"]);
     assert_success(&show, "revision show");
     let show = parse_json(&show.stdout);
     let observation = observation_entry(&show);
@@ -121,7 +121,7 @@ fn swept_body_renders_physically_removed_across_read_surfaces() {
     ));
 
     // observation list: same explained state on the leaf surface.
-    let list = shore(["observation", "list", "--repo", arg, "--include-body"]);
+    let list = pointbreak(["observation", "list", "--repo", arg, "--include-body"]);
     assert_success(&list, "observation list");
     let list = parse_json(&list.stdout);
     let listed = observation_entry(&list);
@@ -133,7 +133,7 @@ fn swept_body_renders_physically_removed_across_read_surfaces() {
     ));
 
     // review history: the entry carries the state; the read survives.
-    let history = shore(["history", "--repo", arg, "--include-body"]);
+    let history = pointbreak(["history", "--repo", arg, "--include-body"]);
     assert_success(&history, "review history");
     let history = parse_json(&history.stdout);
     let entry = history["entries"]
@@ -158,7 +158,7 @@ fn unswept_removal_renders_suppressed_present() {
     let (revision_id, body_hash) = capture_with_externalized_observation_body(repo.path());
     remove_revision(repo.path(), &revision_id);
 
-    let show = shore(["revision", "show", "--repo", arg, "--include-body"]);
+    let show = pointbreak(["revision", "show", "--repo", arg, "--include-body"]);
     assert_success(&show, "revision show");
     let show = parse_json(&show.stdout);
     let observation = observation_entry(&show);
@@ -185,7 +185,7 @@ fn missing_blob_without_removal_still_hard_errors() {
     )
     .expect("delete the note blob without a removal event");
 
-    let show = shore(["revision", "show", "--repo", arg, "--include-body"]);
+    let show = pointbreak(["revision", "show", "--repo", arg, "--include-body"]);
 
     assert!(
         !show.status.success(),
@@ -204,9 +204,9 @@ fn wire_stays_silent_without_removal() {
     let arg = repo.path().to_str().unwrap();
     let (_revision_id, _body_hash) = capture_with_externalized_observation_body(repo.path());
 
-    let show = shore(["revision", "show", "--repo", arg, "--include-body"]);
+    let show = pointbreak(["revision", "show", "--repo", arg, "--include-body"]);
     assert_success(&show, "revision show");
-    let list = shore(["observation", "list", "--repo", arg, "--include-body"]);
+    let list = pointbreak(["observation", "list", "--repo", arg, "--include-body"]);
     assert_success(&list, "observation list");
 
     for (name, output) in [("show", &show.stdout), ("list", &list.stdout)] {

@@ -2,7 +2,7 @@ mod support;
 
 use support::git_repo::GitRepo;
 use support::inspect::{Inspector, capture_supersession_round, representative_store, urlencode};
-use support::shore;
+use support::pointbreak;
 
 /// The substring of a served asset between two markers, for scoping an assertion to
 /// one function or block. Panics if either marker is absent.
@@ -73,7 +73,7 @@ fn supersession_thread_join_keys_exist_for_validation_entries() {
     // Record the validation against the first revision while it is still the sole
     // head, so the fact stays anchored to `first` after it is superseded. (Passing
     // `--revision <superseded>` later would resolve forward to the current head.)
-    let added = shore([
+    let added = pointbreak([
         "validation",
         "add",
         "--repo",

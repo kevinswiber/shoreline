@@ -9,10 +9,10 @@ You are the reviewing agent for a Pointbreak revision another agent captured. Yo
 the change independently, record durable review findings, answer any open operative requests you can
 answer, and make the review call.
 
-Record exactly one assessment with `shore assessment add`. The assessment is the reviewer's
+Record exactly one assessment with `pointbreak assessment add`. The assessment is the reviewer's
 call, so this role owns it. Never write to the author's track.
 
-Do not run `shore revision show --format json-pretty` as a readback surface. It includes the full captured
+Do not run `pointbreak revision show --format json-pretty` as a readback surface. It includes the full captured
 snapshot and can emit megabytes for a real change. Use bounded list commands for the author's
 handoff, your reviewer notes, input requests, and assessment.
 
@@ -39,7 +39,7 @@ If the revision ID is not already known, list captured units and pick the one yo
 review:
 
 ```bash
-shore revision list --format json-pretty
+pointbreak revision list --format json-pretty
 revision_id="<revision-id>"
 author_track="<author-track>"
 ```
@@ -48,9 +48,9 @@ If the author track is not supplied, use the bounded read surfaces to find the t
 the authored handoff:
 
 ```bash
-shore observation list --revision "$revision_id" --format json-pretty
-shore validation list --revision "$revision_id" --include-body --format json-pretty
-shore input-request list --revision "$revision_id" --status open --format json-pretty
+pointbreak observation list --revision "$revision_id" --format json-pretty
+pointbreak validation list --revision "$revision_id" --include-body --format json-pretty
+pointbreak input-request list --revision "$revision_id" --status open --format json-pretty
 ```
 
 ## Read the author's handoff
@@ -58,17 +58,17 @@ shore input-request list --revision "$revision_id" --status open --format json-p
 Read only the author's track. Include bodies so you can see the substance of the handoff:
 
 ```bash
-shore observation list \
+pointbreak observation list \
   --revision "$revision_id" \
   --track "$author_track" \
   --include-body --format json-pretty
 
-shore validation list \
+pointbreak validation list \
   --revision "$revision_id" \
   --track "$author_track" \
   --include-body --format json-pretty
 
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$author_track" \
   --status open \
@@ -95,7 +95,7 @@ below records writer provenance in the event envelope.
 agent_name="<agent-name>"
 run_id="<id>"
 reviewer_track="agent:${agent_name}-${run_id}"
-export SHORE_ACTOR_ID="actor:agent:${agent_name}"
+export POINTBREAK_ACTOR_ID="actor:agent:${agent_name}"
 ```
 
 The actor id is your durable identity across sessions and runs — it carries no run id. Use **one
@@ -105,10 +105,10 @@ hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
 **Signing is automatic.** On your first write under this `actor:agent:*` id, Pointbreak generates a
 passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
-and `shore key enroll` so a human can add you to the committed allow-list. Your signed response is
+and `pointbreak key enroll` so a human can add you to the committed allow-list. Your signed response is
 the event that closes the binding loop — once enrolled, it verifies and binds. Signing never blocks
-a write — if no key can be made the write still succeeds, unsigned. Set `SHORE_SIGNING=off` to
-disable signing. A human can instead reuse an existing SSH key via `shore key use-ssh` (agents still
+a write — if no key can be made the write still succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to
+disable signing. A human can instead reuse an existing SSH key via `pointbreak key use-ssh` (agents still
 auto-keygen, unchanged).
 
 ## Review independently
@@ -119,14 +119,14 @@ tests, full tests or checks when appropriate, lint, formatting, documentation ch
 status when the project uses it.
 
 The revision snapshot is frozen at the author's capture moment, while your checkout may have moved
-since then. Compare the captured unit's endpoints from `shore revision list --format json-pretty` with the
+since then. Compare the captured unit's endpoints from `pointbreak revision list --format json-pretty` with the
 commit or branch head you actually review. If they diverge or you cannot prove they match, record a
 reviewer observation that names the live commit and the possible snapshot mismatch.
 
 A moved HEAD or a commit landing after the capture does **not** invalidate the revision and is
 never grounds to recapture or mint a superseding revision: the author bridges a landed commit with
-`shore association record --commit` on the same revision, and successive landed commits accreting
-on one revision are the expected multi-pass shape. Supersession (`shore capture --supersedes`) is
+`pointbreak association record --commit` on the same revision, and successive landed commits accreting
+on one revision are the expected multi-pass shape. Supersession (`pointbreak capture --supersedes`) is
 only for a genuinely new content state replacing the reviewed one. Review the live worktree, note
 any snapshot mismatch as an observation, and still record your assessment on the existing revision.
 
@@ -144,14 +144,14 @@ file or range-specific findings, and review-wide observations for verification, 
 cross-cutting conclusions.
 
 ```bash
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --title "Parser test covers the new token path" \
   --file tests/parser.rs --start-line 42 --end-line 71 \
   --body "Verified the new regression test fails against the old parser behavior and passes with this change."
 
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --title "Verification reproduced the author's green checks" \
@@ -182,7 +182,7 @@ When you run checks during review, record the concrete result on the reviewer tr
 evidence for command results, and observations for the reasoning around those results.
 
 ```bash
-shore validation add \
+pointbreak validation add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --check-name "just check" \
@@ -202,14 +202,14 @@ List the author's open operative requests and respond to each one you can answer
 answer one, leave it open and reflect that in the assessment.
 
 ```bash
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$author_track" \
   --mode operative \
   --status open \
   --include-body --format json-pretty
 
-shore input-request respond <input-request-id> \
+pointbreak input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified the migration plan against the current test database fixture"
 ```
@@ -223,7 +223,7 @@ When a non-blocking follow-up needs the author to decide, open an advisory input
 reviewer track. Do not record decision-seeking follow-ups as plain observations.
 
 ```bash
-shore input-request open \
+pointbreak input-request open \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --title "Decide whether to split the parser follow-up" \
@@ -241,7 +241,7 @@ After you have reviewed the change and recorded your evidence, add one assessmen
 track. Use `accepted`, `accepted-with-follow-up`, `needs-changes`, or `needs-clarification`.
 
 ```bash
-shore assessment add \
+pointbreak assessment add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --assessment accepted-with-follow-up \
@@ -261,7 +261,7 @@ implicit, even for the same actor: two unreplaced assessments on one revision re
 candidates and surface as an `ambiguous_assessment` attention item. Check what is current first:
 
 ```bash
-shore assessment show --revision "$revision_id"
+pointbreak assessment show --revision "$revision_id"
 ```
 
 ## Read back and stand down
@@ -269,23 +269,23 @@ shore assessment show --revision "$revision_id"
 Verify the reviewer record with bounded read commands:
 
 ```bash
-shore observation list \
+pointbreak observation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --format json-pretty
 
-shore validation list \
+pointbreak validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --format json-pretty
 
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \
   --include-body --format json-pretty
 
-shore assessment show \
+pointbreak assessment show \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-summary --format json-pretty
@@ -298,12 +298,12 @@ an implementation role.
 ## Common errors
 
 - **Using full revision show for readback.** Use bounded observation, input-request, and
-  assessment read commands. Do not use `shore revision show --format json-pretty` for this review loop.
+  assessment read commands. Do not use `pointbreak revision show --format json-pretty` for this review loop.
 - **Writing on the author's track.** The reviewer uses a separate reviewer track for every write.
 - **Rubber-stamping the handoff.** The author's observations are context. Verify claims yourself.
 - **Treating validation evidence as an assessment.** Check records are advisory context. The
   reviewer still records exactly one assessment.
-- **Hiding reviewer-run checks in observations.** Use `shore validation add` for concrete
+- **Hiding reviewer-run checks in observations.** Use `pointbreak validation add` for concrete
   command results, and observations for interpretation or risks.
 - **Skipping the live commit check.** If your checkout differs from the captured snapshot, say so in
   a reviewer observation.

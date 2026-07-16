@@ -1,6 +1,6 @@
-//! Contract coverage for the `shore inspect` `/api/identity` endpoint (issue #391),
+//! Contract coverage for the `pointbreak inspect` `/api/identity` endpoint (issue #391),
 //! exercised over real HTTP against a store built at test time. Reuses the shared
-//! `support::inspect` harness (spawn the real `shore inspect --port 0` server).
+//! `support::inspect` harness (spawn the real `pointbreak inspect --port 0` server).
 //!
 //! The family (user-level) placement is covered by the lib unit tests in
 //! `src/session/workflow/store_identity.rs` (the `POINTBREAK_HOME` seam); the integration

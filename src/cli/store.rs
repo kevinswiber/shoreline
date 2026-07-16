@@ -110,7 +110,7 @@ struct StoreMigrateArgs {
 /// Promote this clone to the opt-in user-level family store tier.
 #[derive(Debug, Args)]
 struct StoreLinkArgs {
-    /// Family slug placing this clone's store at `<shore-home-root>/stores/<slug>/`.
+    /// Family slug placing this clone's store at `<pointbreak-home-root>/stores/<slug>/`.
     /// Omit to have the workflow suggest one from the repo; it never picks silently.
     slug: Option<String>,
 
@@ -185,7 +185,7 @@ enum StoreModeAction {
 }
 
 /// Records a removal claim against content-addressed artifacts, scoped by exactly
-/// one selector; it does not erase any bytes — run `shore store compact` (or its
+/// one selector; it does not erase any bytes — run `pointbreak store compact` (or its
 /// `gc` alias) to reclaim disk space afterward. The removal key is derived solely
 /// from the content hash, so there is deliberately no `--idempotency-key`.
 #[derive(Debug, Args)]
@@ -721,7 +721,7 @@ fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
                 code: "family_fold_removal_possession_lost".to_owned(),
                 message: format!(
                     "{} unsigned removal event(s) would be folded and lose possession-based \
-                     suppression; re-issue `shore store remove` in the family store to restore it",
+                     suppression; re-issue `pointbreak store remove` in the family store to restore it",
                     body.folded_removal_event_count
                 ),
             });
@@ -762,7 +762,7 @@ fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
             code: "family_fold_removal_possession_lost".to_owned(),
             message: format!(
                 "{} unsigned removal event(s) were folded and lost possession-based suppression; \
-                 re-issue `shore store remove` in the family store to restore it",
+                 re-issue `pointbreak store remove` in the family store to restore it",
                 body.folded_removal_event_count
             ),
         });

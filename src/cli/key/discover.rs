@@ -166,7 +166,7 @@ fn suggested_commands(
     let mut commands = Vec::new();
     if !has_local_key && let Some(key_argument) = key_argument {
         commands.push(vec![
-            "shore".to_owned(),
+            "pointbreak".to_owned(),
             "key".to_owned(),
             "use-ssh".to_owned(),
             key_argument.to_owned(),
@@ -177,7 +177,7 @@ fn suggested_commands(
 
     if !resolved_actor_authorized {
         commands.push(vec![
-            "shore".to_owned(),
+            "pointbreak".to_owned(),
             "key".to_owned(),
             "enroll".to_owned(),
             "--signer".to_owned(),

@@ -1,4 +1,4 @@
-// Document builder for `shore review-history`.
+// Document builder for `pointbreak review-history`.
 use crate::documents::DiagnosticDocument;
 use crate::session::{ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryResult};
 

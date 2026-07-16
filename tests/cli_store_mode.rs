@@ -2,12 +2,12 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 #[test]
 fn store_mode_show_defaults_to_shared() {
     let repo = GitRepo::new();
-    let output = shore([
+    let output = pointbreak([
         "store",
         "mode",
         "show",
@@ -32,7 +32,7 @@ fn store_mode_show_defaults_to_shared() {
 fn store_mode_set_ephemeral_writes_committed_config_and_show_reflects_it() {
     let repo = GitRepo::new();
 
-    let set = shore([
+    let set = pointbreak([
         "store",
         "mode",
         "ephemeral",
@@ -51,7 +51,7 @@ fn store_mode_set_ephemeral_writes_committed_config_and_show_reflects_it() {
     let raw = std::fs::read_to_string(repo.path().join(".pointbreak/store.json")).unwrap();
     assert!(raw.contains("\"mode\": \"ephemeral\""), "got: {raw}");
 
-    let show = shore([
+    let show = pointbreak([
         "store",
         "mode",
         "show",
@@ -66,14 +66,14 @@ fn store_mode_set_ephemeral_writes_committed_config_and_show_reflects_it() {
 #[test]
 fn store_mode_set_shared_round_trips_back_from_ephemeral() {
     let repo = GitRepo::new();
-    shore([
+    pointbreak([
         "store",
         "mode",
         "ephemeral",
         "--repo",
         repo.path().to_str().unwrap(),
     ]);
-    shore([
+    pointbreak([
         "store",
         "mode",
         "shared",
@@ -81,7 +81,7 @@ fn store_mode_set_shared_round_trips_back_from_ephemeral() {
         repo.path().to_str().unwrap(),
     ]);
 
-    let show = shore([
+    let show = pointbreak([
         "store",
         "mode",
         "show",
@@ -99,7 +99,7 @@ fn store_mode_set_ephemeral_makes_capture_resolve_worktree_local() {
     let repo = GitRepo::new();
     repo.write("README.md", "base\n");
     repo.commit_all("base");
-    shore([
+    pointbreak([
         "store",
         "mode",
         "ephemeral",
@@ -108,7 +108,7 @@ fn store_mode_set_ephemeral_makes_capture_resolve_worktree_local() {
     ]);
 
     repo.write("README.md", "changed\n");
-    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "stderr:\n{}",

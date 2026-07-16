@@ -1,4 +1,4 @@
-// Document builders for `shore review-observation add` and `list`.
+// Document builders for `pointbreak review-observation add` and `list`.
 use crate::documents::{DiagnosticDocument, EventWriteDocument, ObservationViewDocument};
 use crate::model::ReviewTargetRef;
 use crate::session::{DelegationMap, ObservationAddResult, ObservationListResult};

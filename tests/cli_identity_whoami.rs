@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use support::git_repo::GitRepo;
 
 fn whoami_command(repo: &GitRepo) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
     command
         .args(["identity", "whoami", "--repo"])
         .arg(repo.path())
@@ -19,7 +19,7 @@ fn whoami_command(repo: &GitRepo) -> Command {
 }
 
 fn output(command: &mut Command) -> Output {
-    command.output().expect("run shore identity whoami")
+    command.output().expect("run pointbreak identity whoami")
 }
 
 fn actor_id(output: &Output) -> String {
@@ -113,7 +113,7 @@ fn identity_whoami_text_is_human_readable_and_has_no_actor_override() {
 
 #[test]
 fn version_registry_advertises_identity_whoami_v1() {
-    let output = support::shore(["version"]);
+    let output = support::pointbreak(["version"]);
     assert!(output.status.success());
     let version: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(version["documents"]["pointbreak.identity-whoami"], 1);

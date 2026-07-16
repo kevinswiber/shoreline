@@ -30,7 +30,7 @@ name = "pointbreak"
 path = "src/lib.rs"
 
 [[bin]]
-name = "shore"
+name = "pointbreak"
 path = "src/main.rs"
 
 [[bench]]

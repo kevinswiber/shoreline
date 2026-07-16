@@ -1,4 +1,4 @@
-//! `shore history --watch` re-renders only when the store's liveness
+//! `pointbreak history --watch` re-renders only when the store's liveness
 //! token (`event_set_hash`) changes, never on a bare poll tick, and runs as a
 //! pure client-side poll: no daemon, no filesystem watch. It is killed on drop.
 
@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::inspect::capture;
-use support::shore;
+use support::pointbreak;
 
-/// A spawned `shore history --watch`, draining stdout into a shared
+/// A spawned `pointbreak history --watch`, draining stdout into a shared
 /// buffer in the background; killed on drop.
 struct Watcher {
     child: Child,
@@ -30,7 +30,7 @@ impl Watcher {
     }
 
     fn spawn_with_args(repo: &Path, poll_ms: u64, extra_args: &[&str]) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
         command.args([
             "history",
             "--repo",
@@ -47,7 +47,7 @@ impl Watcher {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("spawn shore review history --watch");
+            .expect("spawn pointbreak review history --watch");
 
         let stdout = Arc::new(Mutex::new(String::new()));
         let mut child_stdout = child.stdout.take().expect("watcher stdout");
@@ -143,7 +143,7 @@ fn watch_reprints_only_when_event_set_hash_changes() {
 
     // 3) A real change — one new observation event — triggers exactly one
     //    reprint.
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -200,7 +200,7 @@ fn watch_tail_renders_the_newest_n_and_appends() {
 }
 
 fn add_observation(repo: &str, title: &str) {
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",

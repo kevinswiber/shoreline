@@ -7,14 +7,14 @@ use std::process::Command;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{common_dir_store, shore};
+use support::{common_dir_store, pointbreak};
 
 #[test]
 fn store_status_json_carries_path_private_opaque_identities() {
     let repo = GitRepo::new();
     let store_dir = common_dir_store(repo.path());
 
-    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["store", "status", "--repo", repo.path().to_str().unwrap()]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     let json = parse_json(stdout.as_bytes());
@@ -83,7 +83,7 @@ fn empty_repository_without_store_directory_reports_identities() {
 fn store_status_emits_local_json_without_storage_paths() {
     let repo = GitRepo::new();
 
-    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["store", "status", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -116,7 +116,7 @@ fn store_status_emits_local_json_without_storage_paths() {
 fn linked_worktree_store_status_reports_the_shared_single_store_view() {
     let fixture = LinkedWorktreeFixture::new();
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "status",
         "--repo",
@@ -151,12 +151,12 @@ fn store_status_includes_inventory_without_artifact_paths() {
     repo.write("README.md", "base\n");
     repo.commit_all("base");
     repo.write("README.md", "changed\n");
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let body_dir = tempfile::tempdir().expect("create body file directory");
     let body_file = body_dir.path().join("body.txt");
     fs::write(&body_file, "x".repeat(4097)).unwrap();
-    shore([
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -169,7 +169,7 @@ fn store_status_includes_inventory_without_artifact_paths() {
         body_file.to_str().unwrap(),
     ]);
 
-    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["store", "status", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -215,7 +215,7 @@ fn store_status_includes_redacted_sensitivity_findings() {
     );
     repo.write("target/generated/cache.bin", "x".repeat(1024 * 1024 + 1));
 
-    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["store", "status", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -287,7 +287,7 @@ fn store_status_reports_exclude_glob_audit_counts() {
     );
     repo.commit_all("base");
 
-    let output = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["store", "status", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -312,14 +312,14 @@ fn text_store_digest_reports_counts_size_and_sensitivity() {
     repo.write("README.md", "base\n");
     repo.commit_all("base");
     repo.write("README.md", "changed\n");
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     // A large observation body spills to a note artifact, so the store holds at
     // least a snapshot and a note (the artifact count is plural).
     let body_dir = tempfile::tempdir().expect("create body file directory");
     let body_file = body_dir.path().join("body.txt");
     fs::write(&body_file, "x".repeat(4097)).unwrap();
-    shore([
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -332,7 +332,7 @@ fn text_store_digest_reports_counts_size_and_sensitivity() {
         body_file.to_str().unwrap(),
     ]);
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "status",
         "--repo",
@@ -377,7 +377,7 @@ fn text_store_digest_summarizes_blocked_sensitivity_findings() {
     );
     repo.write("target/generated/cache.bin", "x".repeat(1024 * 1024 + 1));
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "status",
         "--repo",
@@ -426,7 +426,7 @@ fn show_paths_lists_real_matched_paths_on_the_text_lane() {
         "let key = \"sk-test000000000000000000000000\";\n",
     );
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "status",
         "--repo",
@@ -477,7 +477,7 @@ fn show_paths_reports_none_when_nothing_matched() {
     repo.write("README.md", "safe\n");
     repo.commit_all("base");
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "status",
         "--repo",
@@ -502,7 +502,7 @@ fn show_paths_refuses_an_explicit_json_format() {
     let repo = GitRepo::new();
     repo.write("keys/dev.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "status",
         "--repo",
@@ -537,14 +537,14 @@ fn show_paths_never_reaches_the_json_lane() {
     repo.write("keys/dev.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
 
     let repo_arg = repo.path().to_str().unwrap();
-    let text = shore(["store", "status", "--repo", repo_arg, "--show-paths"]);
+    let text = pointbreak(["store", "status", "--repo", repo_arg, "--show-paths"]);
     let text_stdout = String::from_utf8(text.stdout).unwrap();
     assert!(
         text_stdout.contains("keys/dev.pem"),
         "text lists the path: {text_stdout}"
     );
 
-    let json = shore(["store", "status", "--repo", repo_arg, "--format", "json"]);
+    let json = pointbreak(["store", "status", "--repo", repo_arg, "--format", "json"]);
     let json_stdout = String::from_utf8(json.stdout).unwrap();
     assert!(
         !json_stdout.contains("keys/dev.pem"),
@@ -624,7 +624,7 @@ where
 }
 
 fn store_status_json(repo: &Path) -> Value {
-    let output = shore(["store", "status", "--repo", repo.to_str().unwrap()]);
+    let output = pointbreak(["store", "status", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "stderr:\n{}",

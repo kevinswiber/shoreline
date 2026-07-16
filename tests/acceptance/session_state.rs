@@ -82,9 +82,9 @@ fn ensure_pointbreak_gitignore_is_noop_when_ignores_are_already_covered() {
     let repo = GitRepo::new();
     repo.write(
         ".gitignore",
-        "# shore paths are intentionally ignored below\n.pointbreak/data\n.pointbreak/*.local.json\n",
+        "# pointbreak paths are intentionally ignored below\n.pointbreak/data\n.pointbreak/*.local.json\n",
     );
-    repo.commit_all("ignore shore paths in gitignore");
+    repo.commit_all("ignore pointbreak paths in gitignore");
 
     ensure_pointbreak_gitignore(repo.path()).expect("existing ignore is respected");
 
@@ -191,11 +191,12 @@ fn same_working_tree_diff_produces_same_revision_and_snapshot_ids() {
 #[test]
 fn shore_state_does_not_affect_revision_fingerprint() {
     let repo = modified_repo();
-    ensure_pointbreak_gitignore(repo.path()).expect("ignore shore state");
+    ensure_pointbreak_gitignore(repo.path()).expect("ignore pointbreak state");
 
-    let before = capture_worktree_fingerprint(repo.path()).expect("capture before shore state");
+    let before =
+        capture_worktree_fingerprint(repo.path()).expect("capture before pointbreak state");
     repo.write(".pointbreak/data/state.json", "changed notes");
-    let after = capture_worktree_fingerprint(repo.path()).expect("capture after shore state");
+    let after = capture_worktree_fingerprint(repo.path()).expect("capture after pointbreak state");
 
     assert_eq!(before.revision_id, after.revision_id);
     assert_eq!(before.object_id, after.object_id);

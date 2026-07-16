@@ -2,7 +2,7 @@ mod support;
 
 use support::git_repo::GitRepo;
 use support::inspect::{Inspector, representative_store, urlencode};
-use support::shore;
+use support::pointbreak;
 
 fn served_index_html() -> String {
     let store = representative_store();
@@ -89,23 +89,23 @@ fn served_documents_carry_no_revision_wire_key() {
 }
 
 fn run_shore(args: &[&str]) {
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
-        "shore {args:?} failed:\n{}",
+        "pointbreak {args:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
 fn run_shore_json(args: &[&str]) -> serde_json::Value {
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
-        "shore {args:?} failed:\n{}",
+        "pointbreak {args:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("parse shore {args:?} JSON: {error}"))
+        .unwrap_or_else(|error| panic!("parse pointbreak {args:?} JSON: {error}"))
 }
 
 #[test]

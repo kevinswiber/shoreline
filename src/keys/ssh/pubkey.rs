@@ -50,17 +50,17 @@ fn reject_unsupported_type(type_tag: &str) -> Result<()> {
         "sk-ssh-ed25519@openssh.com" => Err(invalid(
             "sk-ssh-ed25519 (FIDO/-sk) keys sign a hash+flags+counter construction, not the raw \
              message, so they can never verify under the strict Ed25519 path; use a plain \
-             ssh-ed25519 key or `shore key init`",
+             ssh-ed25519 key or `pointbreak key init`",
         )),
         tag if tag.starts_with("ssh-rsa") || tag.starts_with("rsa-") => Err(invalid(format!(
-            "{tag} is an RSA key, not Ed25519; adopt a plain ssh-ed25519 key or run `shore key init`"
+            "{tag} is an RSA key, not Ed25519; adopt a plain ssh-ed25519 key or run `pointbreak key init`"
         ))),
         tag if tag.starts_with("ecdsa-") => Err(invalid(format!(
-            "{tag} is an ECDSA key, not Ed25519; adopt a plain ssh-ed25519 key or run `shore key init`"
+            "{tag} is an ECDSA key, not Ed25519; adopt a plain ssh-ed25519 key or run `pointbreak key init`"
         ))),
         other => Err(invalid(format!(
             "unsupported SSH key type {other:?}: only plain ssh-ed25519 keys are supported (or run \
-             `shore key init`)"
+             `pointbreak key init`)"
         ))),
     }
 }
@@ -166,7 +166,7 @@ mod tests {
         assert!(err.contains("ssh-rsa") || err.contains("RSA"));
         assert!(
             err.contains("key init"),
-            "must point at `shore key init`: {err}"
+            "must point at `pointbreak key init`: {err}"
         );
     }
 

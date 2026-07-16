@@ -10,6 +10,11 @@ pub struct Writer {
 }
 
 impl Writer {
+    /// Construct the historical Shore writer used by compatibility fixtures.
+    ///
+    /// Native runtime writes are built by the session identity factory and use
+    /// the Pointbreak producer. This constructor remains intentionally frozen
+    /// so pre-cutover events and signed vectors retain their original bytes.
     pub fn shore_local(version: impl Into<String>) -> Self {
         Self {
             actor_id: ActorId::new(format!("{}:local", id_prefix::ACTOR)),

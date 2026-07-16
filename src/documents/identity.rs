@@ -15,7 +15,7 @@ impl IdentityWhoamiBody {
     }
 }
 
-/// Exact v1 envelope for `shore identity whoami`.
+/// Exact v1 envelope for `pointbreak identity whoami`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityWhoamiDocument {

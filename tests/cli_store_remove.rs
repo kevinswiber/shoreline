@@ -7,9 +7,9 @@ use std::process::Command;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{shore, shore_env};
+use support::{pointbreak, pointbreak_env};
 
-/// A repo with a committed base and an uncommitted change, so `shore capture`
+/// A repo with a committed base and an uncommitted change, so `pointbreak capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -24,7 +24,7 @@ fn parse_json(stdout: &[u8]) -> Value {
 }
 
 fn capture(repo: &Path) -> Value {
-    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -60,7 +60,7 @@ fn store_remove_by_snapshot_emits_removed_document() {
         .as_str()
         .unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -129,7 +129,7 @@ fn store_remove_by_revision_reports_co_referencing_units() {
         "the same change yields one shared content hash"
     );
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -167,7 +167,7 @@ fn store_remove_has_no_idempotency_key_flag() {
     let captured = capture(repo.path());
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -190,7 +190,7 @@ fn store_remove_is_idempotent() {
     let captured = capture(repo.path());
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
 
-    let first = shore([
+    let first = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -200,7 +200,7 @@ fn store_remove_is_idempotent() {
     ]);
     assert!(first.status.success());
 
-    let second = shore([
+    let second = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -224,7 +224,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
         .as_str()
         .unwrap();
 
-    shore([
+    pointbreak([
         "store",
         "remove",
         "--repo",
@@ -234,7 +234,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
     ]);
     // Erasure is consent-gated: `--yes` performs the delete (a bare compact
     // previews and refuses).
-    let output = shore([
+    let output = pointbreak([
         "store",
         "compact",
         "--repo",
@@ -273,7 +273,7 @@ fn store_gc_is_alias_of_compact() {
     let captured = capture(repo.path());
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
 
-    shore([
+    pointbreak([
         "store",
         "remove",
         "--repo",
@@ -283,7 +283,7 @@ fn store_gc_is_alias_of_compact() {
     ]);
 
     // `gc` is an alias of `compact` and inherits the consent gate.
-    let gc = shore([
+    let gc = pointbreak([
         "store",
         "gc",
         "--repo",
@@ -299,7 +299,7 @@ fn store_gc_is_alias_of_compact() {
     assert!(stdout.starts_with("{\"schema\":\"pointbreak.store-compact\""));
 
     // A second sweep finds the blob already gone (idempotent).
-    let second = shore([
+    let second = pointbreak([
         "store",
         "gc",
         "--repo",
@@ -321,7 +321,7 @@ fn store_remove_unknown_snapshot_errors() {
     let repo = modified_repo();
     capture(repo.path());
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -342,7 +342,7 @@ fn store_remove_unknown_snapshot_errors() {
 fn store_remove_signs_the_event_when_a_sign_key_is_given() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "mykey"],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -350,7 +350,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
 
     let repo = modified_repo();
     let captured = parse_json(
-        &shore_env(
+        &pointbreak_env(
             [
                 "capture",
                 "--repo",
@@ -364,7 +364,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
     );
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
 
-    let output = shore_env(
+    let output = pointbreak_env(
         [
             "store",
             "remove",
@@ -394,7 +394,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
 }
 
 fn capture_worktree(repo: &Path) -> Value {
-    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "working-tree capture stderr:\n{}",
@@ -435,7 +435,7 @@ fn store_remove_selectors_resolve_short_ids() {
     let digest = object_id.rsplit_once("sha256:").unwrap().1;
     let short_snapshot = format!("obj:{}", &digest[..8]);
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -457,7 +457,7 @@ fn store_remove_selectors_resolve_short_ids() {
     let revision_id = rev_captured["revision"]["id"].as_str().unwrap();
     let rev_digest = revision_id.rsplit_once("sha256:").unwrap().1;
 
-    let rev_output = shore([
+    let rev_output = pointbreak([
         "store",
         "remove",
         "--repo",

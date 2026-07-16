@@ -13,6 +13,10 @@ const REFERENCE: &str = include_str!(concat!(
     "/docs/cli-reference.md"
 ));
 
+// The public reference remains on the pre-0.7 invocation until its coordinated
+// documentation cut. This guard still checks leaf coverage in the meantime.
+const REFERENCE_COMMAND: &str = "shore";
+
 /// The audit's named flag gaps — the concrete regression set this guard pins
 /// without a churny whole-surface flag allow-list.
 const REQUIRED_FLAGS: &[&str] = &[
@@ -58,7 +62,7 @@ fn every_leaf_command_is_documented() {
         .iter()
         .filter(|path| {
             !DEFERRED_REFERENCE_PATHS.contains(&path.as_str())
-                && !REFERENCE.contains(&format!("shore {path}"))
+                && !REFERENCE.contains(&format!("{REFERENCE_COMMAND} {path}"))
         })
         .cloned()
         .collect();
@@ -72,7 +76,7 @@ fn every_leaf_command_is_documented() {
 #[test]
 fn collect_leaf_paths_walks_hidden_leaves() {
     let hidden_leaf = clap::Command::new("legacy").hide(true);
-    let root = clap::Command::new("shore").subcommand(hidden_leaf);
+    let root = clap::Command::new("pointbreak").subcommand(hidden_leaf);
     let mut paths = Vec::new();
     collect_leaf_paths(&root, &mut Vec::new(), &mut paths);
     assert!(

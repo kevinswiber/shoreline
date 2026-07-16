@@ -1,10 +1,10 @@
-//! `shore diff` — captured-revision diff readback (ADR-0030 D2).
+//! `pointbreak diff` — captured-revision diff readback (ADR-0030 D2).
 //!
 //! Prints a captured revision's diff — base to target, from the frozen captured
 //! snapshot — as a text unified diff on stdout. Text-only (no machine lane),
 //! non-interactive, pipe-friendly; the output is formally disposable (nothing
 //! parses it). The subject is always the frozen snapshot, never the live working
-//! tree: `git diff` owns the live tree, and shore's bare verbs read against the
+//! tree: `git diff` owns the live tree, and Pointbreak's bare verbs read against the
 //! review record.
 
 use std::collections::HashMap;
@@ -49,7 +49,7 @@ pub(super) struct DiffArgs {
     theme: Option<String>,
 }
 
-/// When `shore diff` colorizes its output. Resolved against the ADR-0029 D5
+/// When `pointbreak diff` colorizes its output. Resolved against the ADR-0029 D5
 /// presentation precedence by [`resolve_color`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, clap::ValueEnum)]
 pub(super) enum ColorChoice {
@@ -62,7 +62,7 @@ pub(super) enum ColorChoice {
     Never,
 }
 
-/// Pure presentation-precedence core: does `shore diff` emit ANSI color?
+/// Pure presentation-precedence core: does `pointbreak diff` emit ANSI color?
 ///
 /// Implements the ADR-0029 D5 total order `--color` > `NO_COLOR` >
 /// `CLICOLOR_FORCE` > `isatty(stdout)`. `no_color` is a present, non-empty
@@ -145,12 +145,12 @@ pub(super) fn run(
         None
     };
 
-    // `shore diff` is a filter: render the whole output, then write it. A broken
-    // downstream pipe (`shore diff | head`) is a clean stop, not an error.
+    // `pointbreak diff` is a filter: render the whole output, then write it. A broken
+    // downstream pipe (`pointbreak diff | head`) is a clean stop, not an error.
     write_all_filtered(stdout, &render_output(&args, &result, lane.as_ref()))
 }
 
-/// Build the full `shore diff` output as one string: the removed-content or
+/// Build the full `pointbreak diff` output as one string: the removed-content or
 /// empty-diff message, the `--stat` table, or the diffstat header + blank line +
 /// (plain or colored) diff body. Pure — no writes, no store, no git, no env;
 /// the resolved lane (or `None` for plain) is threaded in from `run()`.
@@ -202,7 +202,7 @@ fn render_body(snapshot: &DiffSnapshot, lane: Option<&ColorLane>) -> String {
 }
 
 /// Write `content` to `out` and flush, treating a broken downstream pipe as a
-/// clean stop — a filter is done when its reader goes away (`shore diff | head`).
+/// clean stop — a filter is done when its reader goes away (`pointbreak diff | head`).
 /// Any other write/flush error propagates. (Rust ignores SIGPIPE, so a closed
 /// pipe surfaces here as an `io::ErrorKind::BrokenPipe` rather than a signal.)
 fn write_all_filtered(
@@ -986,7 +986,7 @@ mod tests {
     }
 
     /// A `Write` that always fails with a chosen `ErrorKind` — models a downstream
-    /// reader that has gone away (`shore diff | head`).
+    /// reader that has gone away (`pointbreak diff | head`).
     struct FailingWriter(std::io::ErrorKind);
     impl Write for FailingWriter {
         fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
@@ -999,7 +999,7 @@ mod tests {
 
     #[test]
     fn write_all_filtered_treats_a_broken_pipe_as_a_clean_stop() {
-        // `shore diff | head` closes the pipe early — a filter is done when its
+        // `pointbreak diff | head` closes the pipe early — a filter is done when its
         // reader goes away, so this is a clean exit, not an error.
         let mut out = FailingWriter(std::io::ErrorKind::BrokenPipe);
         assert!(write_all_filtered(&mut out, "diff --git a/x b/x\n").is_ok());

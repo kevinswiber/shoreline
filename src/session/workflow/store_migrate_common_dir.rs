@@ -8,7 +8,7 @@
 //! completion deletes it only after `verify_source_subset_of_target` confirms
 //! every durable source file in the shared store. It NEVER registers anything
 //! (registration is retired) and NEVER runs on a hot path — only the
-//! `shore store migrate` subcommand / `just migrate-store-common-dir` driver
+//! `pointbreak store migrate` subcommand / `just migrate-store-common-dir` driver
 //! invoke it. It REFUSES an ephemeral or scanned-sensitive worktree unless the
 //! caller passes an explicit override, so sensitive throwaway bytes are never
 //! silently fanned into the shared store.
@@ -119,7 +119,7 @@ pub fn migrate_store_to_common_dir(
         if scan.policy_outcome == SENSITIVITY_BLOCK {
             return Err(ShoreError::Message(
                 "refusing to migrate a worktree flagged sensitive into the shared store; run \
-                 `shore store status --show-paths` to see which files matched, then add \
+                 `pointbreak store status --show-paths` to see which files matched, then add \
                  known-safe paths to .pointbreak/sensitivity.json excludeGlobs for a targeted \
                  exclude, or re-run with the include-ephemeral override to fan it in wholesale"
                     .to_owned(),
@@ -359,7 +359,7 @@ mod tests {
     }
 
     /// Seed a pre-shared-default capture: a populated worktree-local `.pointbreak/data`
-    /// store, which is exactly the source `shore store migrate` folds forward. We
+    /// store, which is exactly the source `pointbreak store migrate` folds forward. We
     /// capture under ephemeral mode (so the write lands in `.pointbreak/data`), then
     /// restore the default Shared mode so the migration runs against a
     /// non-ephemeral worktree carrying a legacy worktree-local store.

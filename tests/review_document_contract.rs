@@ -1,6 +1,6 @@
-//! Full-document characterization guard for the `shore review-*` command JSON.
+//! Full-document characterization guard for the `pointbreak review-*` command JSON.
 //!
-//! These tests drive the real `shore` binary against a deterministic fixture
+//! These tests drive the real `pointbreak` binary against a deterministic fixture
 //! repository and assert that the ENTIRE serialized document (the normalized
 //! stdout string, preserving key order) stays stable. Because the documents are
 //! content-addressed, the nondeterministic substrings are content hashes,
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 fn snapshot_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/review_documents")
@@ -174,16 +174,22 @@ fn normalize_worktree_root(text: &str) -> String {
     )
 }
 
-/// Mask the version in the compact JSON shape emitted for `Producer` while
-/// leaving top-level schema versions and every surrounding byte untouched.
-fn normalize_producer_versions(text: &str) -> String {
-    const PREFIX: &str = r#""producer":{"name":"shore","version":""#;
-    replace_prefixed(
-        text,
-        PREFIX,
-        r#""producer":{"name":"shore","version":"<producerVersion>"#,
-        |rest| rest.find('"'),
-    )
+/// Preserve the pre-cutover snapshots while masking the native producer axis.
+///
+/// Those golden files are historical compatibility artifacts and must not be
+/// regenerated for the prospective producer rename. Native producer identity
+/// is pinned separately by `producer_identity` and `event_signature_vectors`.
+fn normalize_producer_for_historical_snapshot(text: &str) -> String {
+    ["shore", "pointbreak"]
+        .into_iter()
+        .fold(text.to_owned(), |text, producer| {
+            replace_prefixed(
+                &text,
+                &format!(r#""producer":{{"name":"{producer}","version":""#),
+                r#""producer":{"name":"shore","version":"<producerVersion>"#,
+                |rest| rest.find('"'),
+            )
+        })
 }
 
 /// Mask the CLI release version in the version-handshake body without touching
@@ -209,7 +215,7 @@ fn normalize(raw: &str, repo_path: &str) -> String {
     let text = normalize_worktree_root(&text);
     let text = normalize_hashes(&text);
     let text = normalize_timestamps(&text);
-    let text = normalize_producer_versions(&text);
+    let text = normalize_producer_for_historical_snapshot(&text);
     let text = normalize_cli_version(&text);
     let text = normalize_git_oid(&text, "commitOid");
     let text = normalize_git_oid(&text, "treeOid");
@@ -221,7 +227,7 @@ fn normalize(raw: &str, repo_path: &str) -> String {
 #[test]
 fn normalizer_masks_release_versions_without_masking_schema_version() {
     let old = r#"{"version":1,"cliVersion":"0.5.0","writer":{"producer":{"name":"shore","version":"0.5.0"}}}"#;
-    let current = r#"{"version":1,"cliVersion":"0.6.0","writer":{"producer":{"name":"shore","version":"0.6.0"}}}"#;
+    let current = r#"{"version":1,"cliVersion":"0.6.0","writer":{"producer":{"name":"pointbreak","version":"0.6.0"}}}"#;
 
     assert_eq!(normalize(old, "<absent>"), normalize(current, "<absent>"));
     assert!(normalize(current, "<absent>").contains(r#""version":1"#));
@@ -243,18 +249,18 @@ fn normalizer_masks_store_and_context_identity_hashes() {
 
 #[test]
 fn version_flag_remains_available() {
-    let output = shore(["--version"]);
+    let output = pointbreak(["--version"]);
     assert!(output.status.success());
     assert!(
         String::from_utf8(output.stdout)
             .unwrap()
-            .starts_with("shore ")
+            .starts_with("pointbreak ")
     );
 }
 
 #[track_caller]
 fn run_command(repo: &GitRepo, args: &[&str]) -> String {
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
         "command {args:?} failed\nstderr:\n{}",
@@ -305,8 +311,9 @@ fn fixture_repo() -> (GitRepo, String) {
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
 
-    let raw = String::from_utf8(shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout)
-        .expect("capture stdout is utf-8");
+    let raw =
+        String::from_utf8(pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout)
+            .expect("capture stdout is utf-8");
     let value: Value = serde_json::from_str(&raw).expect("valid capture json");
     let revision_id = value["revision"]["id"]
         .as_str()
@@ -319,13 +326,13 @@ fn repo_arg(repo: &GitRepo) -> String {
     repo.path().to_str().unwrap().to_owned()
 }
 
-/// One test exercises the documented `shore review-*` commands against a
+/// One test exercises the documented `pointbreak review-*` commands against a
 /// single deterministic fixture, snapshotting the full normalized document for
 /// each. Driving them in sequence keeps content-addressed ids stable across
 /// commands (each new write references the same captured Revision).
 #[test]
 fn review_documents_are_byte_stable() {
-    // 1. shore capture (re-run on a fresh repo to snapshot the capture document
+    // 1. pointbreak capture (re-run on a fresh repo to snapshot the capture document
     //    itself; the shared fixture below reuses its own capture).
     {
         let repo = GitRepo::new();
@@ -371,7 +378,7 @@ fn review_documents_are_byte_stable() {
     assert_snapshot("observation_list", &observation_list);
 
     // 4. review input-request open
-    let open_raw = shore([
+    let open_raw = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -538,7 +545,7 @@ fn review_documents_are_byte_stable() {
 
     // 15. attention list — a fresh open input request surfaces as an attention
     //     item, so the snapshot exercises the full item wire shape.
-    let attention_open = shore([
+    let attention_open = pointbreak([
         "input-request",
         "open",
         "--repo",

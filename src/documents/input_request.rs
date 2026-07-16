@@ -1,4 +1,4 @@
-// Document builders for the `shore review-input-request` family.
+// Document builders for the `pointbreak review-input-request` family.
 use crate::documents::{
     DiagnosticDocument, EventWriteDocument, InputRequestAssertionModeDocument,
     InputRequestViewDocument,

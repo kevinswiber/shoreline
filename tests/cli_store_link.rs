@@ -2,7 +2,7 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore_env;
+use support::pointbreak_env;
 
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("valid json on stdout")
@@ -24,7 +24,7 @@ fn store_link_emits_camelcase_json_with_family_and_clone_refs() {
     let home_str = home.path().to_str().unwrap();
 
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -32,7 +32,7 @@ fn store_link_emits_camelcase_json_with_family_and_clone_refs() {
         .success()
     );
 
-    let link = shore_env(
+    let link = pointbreak_env(
         ["store", "link", "acme", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -54,7 +54,7 @@ fn store_link_text_digest_mentions_the_family() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -62,7 +62,7 @@ fn store_link_text_digest_mentions_the_family() {
         .success()
     );
 
-    let link = shore_env(
+    let link = pointbreak_env(
         [
             "store", "link", "acme", "--repo", &repo_arg, "--format", "text",
         ],
@@ -85,14 +85,14 @@ fn store_link_default_fold_discloses_removed_unsigned_events() {
     let home_str = home.path().to_str().unwrap();
 
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
     );
-    let status = shore_env(
+    let status = pointbreak_env(
         ["store", "status", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -101,7 +101,7 @@ fn store_link_default_fold_discloses_removed_unsigned_events() {
         .unwrap()
         .to_owned();
     assert!(
-        shore_env(
+        pointbreak_env(
             [
                 "store",
                 "remove",
@@ -116,7 +116,7 @@ fn store_link_default_fold_discloses_removed_unsigned_events() {
         .success()
     );
 
-    let link = shore_env(
+    let link = pointbreak_env(
         ["store", "link", "acme", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -139,7 +139,7 @@ fn store_link_dry_run_previews_without_writing() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -147,7 +147,7 @@ fn store_link_dry_run_previews_without_writing() {
         .success()
     );
 
-    let dry = shore_env(
+    let dry = pointbreak_env(
         ["store", "link", "acme", "--dry-run", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -164,7 +164,7 @@ fn store_link_dry_run_previews_without_writing() {
     assert!(json["foldedEventsToCreate"].as_u64().unwrap() >= 1);
     // No binding was flipped, and a subsequent status still reports the local store.
     assert!(!repo.path().join(".pointbreak/store.local.json").exists());
-    let status = shore_env(
+    let status = pointbreak_env(
         ["store", "status", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -178,7 +178,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -186,7 +186,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
         .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             ["store", "mode", "ephemeral", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -194,7 +194,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
         .success()
     );
 
-    let dry = shore_env(
+    let dry = pointbreak_env(
         ["store", "link", "acme", "--dry-run", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -214,7 +214,7 @@ fn store_unlink_round_trips() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -222,7 +222,7 @@ fn store_unlink_round_trips() {
         .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             ["store", "link", "acme", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -230,7 +230,7 @@ fn store_unlink_round_trips() {
         .success()
     );
 
-    let unlink = shore_env(
+    let unlink = pointbreak_env(
         ["store", "unlink", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -240,7 +240,7 @@ fn store_unlink_round_trips() {
         String::from_utf8_lossy(&unlink.stderr)
     );
 
-    let status = shore_env(
+    let status = pointbreak_env(
         ["store", "status", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -256,7 +256,7 @@ fn store_link_without_a_slug_surfaces_the_workflow_suggestion_error() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -264,7 +264,7 @@ fn store_link_without_a_slug_surfaces_the_workflow_suggestion_error() {
         .success()
     );
 
-    let link = shore_env(
+    let link = pointbreak_env(
         ["store", "link", "--repo", &repo_arg],
         &[("POINTBREAK_HOME", home_str)],
     );

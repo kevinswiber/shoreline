@@ -15,7 +15,7 @@ use crate::session::store::user_level::{read_family_manifest, user_level_store_d
 use crate::storage::LocalStorage;
 
 /// A domain-named, path-free label for the single resolved store, reported by
-/// `shore store status`. With one store per clone there is no registration to
+/// `pointbreak store status`. With one store per clone there is no registration to
 /// derive opaque clone/family refs from, so those are absent.
 const STORE_REF_LOCAL: &str = "local";
 
@@ -316,30 +316,30 @@ pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
 
     // A non-ephemeral worktree that still carries a populated worktree-local
     // `.pointbreak/data/` store predates the shared-store default. Direct the user to
-    // `shore store migrate` rather than silently reading an empty common-dir store
+    // `pointbreak store migrate` rather than silently reading an empty common-dir store
     // and orphaning the history. This guard lives HERE (resolve_store), not in
-    // RepositoryPaths::resolve, so the `shore store migrate` command — which reads
+    // RepositoryPaths::resolve, so the `pointbreak store migrate` command — which reads
     // its source via the raw RepositoryPaths::resolve — is never blocked by it.
     if worktree_local_store_is_populated(paths.worktree_store()) {
         return Err(ShoreError::Message(
             "a worktree-local .pointbreak/data/ review store from before the shared-store default \
              was detected. Reads and writes now use the shared store under .git/pointbreak, so this \
              worktree-local store is no longer read automatically. Complete the switch in one \
-             command with `shore store migrate --retire-source`, which copies its events and \
+             command with `pointbreak store migrate --retire-source`, which copies its events and \
              artifacts into the shared store, independently verifies the fold, and then deletes \
-             .pointbreak/data/. Or take it in two steps: (1) run `shore store migrate` to copy \
+             .pointbreak/data/. Or take it in two steps: (1) run `pointbreak store migrate` to copy \
              non-destructively, leaving .pointbreak/data/ in place so you can verify the result \
              first; then (2) delete the .pointbreak/data/ directory. This message keeps appearing \
              until .pointbreak/data/ is removed, by design, so the original store is never discarded \
              before the migration is confirmed. (If this worktree is meant to stay isolated and \
-             discardable instead, run `shore store mode ephemeral` and its .pointbreak/data/ store is \
+             discardable instead, run `pointbreak store mode ephemeral` and its .pointbreak/data/ store is \
              used as-is.)"
                 .to_owned(),
         ));
     }
 
     // User-level opt-in: a local-only family binding promotes this clone to the
-    // family tier. A binding whose family store was forgotten (`shore store forget`,
+    // family tier. A binding whose family store was forgotten (`pointbreak store forget`,
     // or the dir hand-deleted) resolves to no manifest — a hard, actionable error,
     // never a silent re-create or clone-local fallback.
     if let Some(binding) = binding {
@@ -348,8 +348,8 @@ pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
             return Err(ShoreError::Message(format!(
                 "this clone is linked to the user-level family store `{}`, but that store no longer \
                  exists at {} (it was forgotten, or the directory was removed). Re-create and \
-                 re-link it with `shore store link {}`, or detach this clone with \
-                 `shore store unlink`.",
+                 re-link it with `pointbreak store link {}`, or detach this clone with \
+                 `pointbreak store unlink`.",
                 binding.family_ref,
                 family_dir.display(),
                 binding.family_ref,
@@ -539,7 +539,7 @@ mod tests {
         // After the flip the default store is .git/pointbreak, so a populated
         // worktree-local .pointbreak/data/ is a pre-flip store that must be migrated —
         // never silently ignored in favor of an empty common-dir store. The guard is
-        // on resolve_store, NOT on RepositoryPaths::resolve (which `shore store
+        // on resolve_store, NOT on RepositoryPaths::resolve (which `pointbreak store
         // migrate` uses to read the source — see the raw-resolution test below).
         let repo = GitRepo::new();
         fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
@@ -550,7 +550,7 @@ mod tests {
         let message = err.to_string();
         assert!(
             message.contains("store migrate"),
-            "names the fix (`shore store migrate`); got: {message}"
+            "names the fix (`pointbreak store migrate`); got: {message}"
         );
         assert!(
             message.contains("--retire-source"),
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn raw_path_resolution_does_not_trip_the_legacy_guard() {
-        // The escape valve for `shore store migrate`: RepositoryPaths::resolve reads
+        // The escape valve for `pointbreak store migrate`: RepositoryPaths::resolve reads
         // a nested worktree-local store without firing the migrate guard, so
         // migration can read its source even after the flip.
         let repo = GitRepo::new();
@@ -933,7 +933,7 @@ mod tests {
             .expect_err("a dangling family_ref is a hard error")
             .to_string();
         assert!(
-            message.contains("shore store link"),
+            message.contains("pointbreak store link"),
             "names the re-link fix: {message}"
         );
         assert!(

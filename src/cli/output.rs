@@ -51,7 +51,7 @@ pub(super) struct FormatArgs {
 /// duplicating the bled string inline. Must NOT end in a period: clap strips
 /// a doc comment's trailing period when deriving `about`, so this constant
 /// has to match `Command::get_about()`'s rendered value verbatim (confirmed
-/// against `shore dump --help`'s current, bugged, first line).
+/// against `pointbreak dump --help`'s current, bugged, first line).
 // Referenced only from the `#[cfg(test)]` about-bleed guard today; kept
 // `pub(crate)` so later work can name-check against it without re-deriving the
 // literal. Allow the non-test build to see it as unused rather than gating it

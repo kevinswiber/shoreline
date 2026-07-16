@@ -1,7 +1,7 @@
 mod support;
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore_env;
+use support::pointbreak_env;
 
 const ENDORSER: &str = "actor:git-email:kevin@swiber.dev";
 
@@ -16,13 +16,13 @@ fn captured_event_id(repo: &std::path::Path) -> String {
         .to_owned()
 }
 
-/// Drive the full chain through the real `shore` binary: init a key, optionally
+/// Drive the full chain through the real `pointbreak` binary: init a key, optionally
 /// enroll it under the ENDORSER and attest kind/roles, capture UNSIGNED (so the
 /// detached endorsement carrier is never deduped against an inline member), then
 /// endorse as the ENDORSER (signed by the minted key).
 fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     assert!(
-        shore_env(
+        pointbreak_env(
             ["key", "init", "--name", "default"],
             &[("POINTBREAK_HOME", home)]
         )
@@ -38,7 +38,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     if enroll {
         // Bind the default key's did:key to the ENDORSER (reader trust config).
         assert!(
-            shore_env(
+            pointbreak_env(
                 [
                     "key", "enroll", "default", "--actor", ENDORSER, "--repo", &repo_arg
                 ],
@@ -50,7 +50,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     }
     if attest {
         assert!(
-            shore_env(
+            pointbreak_env(
                 [
                     "identity", "attest", ENDORSER, "--kind", "human", "--role", "reviewer",
                     "--repo", &repo_arg,
@@ -64,7 +64,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     // Capture as the git committer (shore-tests), UNSIGNED so there is no inline member
     // the detached endorsement carrier could be deduped against.
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home), ("POINTBREAK_SIGNING", "off")],
         )
@@ -74,7 +74,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     let target = captured_event_id(repo.path());
     // Endorse as the ENDORSER, signed by default → attestingSigner = the enrolled did:key.
     assert!(
-        shore_env(
+        pointbreak_env(
             ["endorse", &target, "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home), ("POINTBREAK_ACTOR_ID", ENDORSER)],
         )
@@ -100,7 +100,7 @@ fn endorsement_for_target<'a>(doc: &'a Value, target: &str) -> &'a Value {
 fn enrolled_endorser_reads_endorsement_trusted_with_endorser() {
     let home = tempfile::tempdir().unwrap();
     let (repo, target) = endorsed_repo(home.path().to_str().unwrap(), true, false);
-    let out = shore_env(
+    let out = pointbreak_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -114,7 +114,7 @@ fn enrolled_endorser_reads_endorsement_trusted_with_endorser() {
 fn unenrolled_signer_reads_unknown_endorser() {
     let home = tempfile::tempdir().unwrap();
     let (repo, target) = endorsed_repo(home.path().to_str().unwrap(), false, false);
-    let out = shore_env(
+    let out = pointbreak_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -128,7 +128,7 @@ fn unenrolled_signer_reads_unknown_endorser() {
 fn attested_kind_and_roles_surface_in_enrichment() {
     let home = tempfile::tempdir().unwrap();
     let (repo, target) = endorsed_repo(home.path().to_str().unwrap(), true, true);
-    let out = shore_env(
+    let out = pointbreak_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );

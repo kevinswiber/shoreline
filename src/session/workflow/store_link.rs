@@ -1,5 +1,5 @@
-//! Promote a clone-local store to the user-level family tier (`shore store link`)
-//! and detach it (`shore store unlink`). Link relocates the authoritative write
+//! Promote a clone-local store to the user-level family tier (`pointbreak store link`)
+//! and detach it (`pointbreak store unlink`). Link relocates the authoritative write
 //! store to `<shore-home-root>/stores/<slug>/`: all gates fire before any family
 //! write, and the local binding flip is the last step (the point of no return), so
 //! a mid-link crash leaves the clone still resolving clone-local.
@@ -105,7 +105,7 @@ pub struct StoreLinkResult {
     pub history_overlap_warning: Option<String>,
 }
 
-/// The dry-run report for `shore store link --dry-run`: what the link WOULD do,
+/// The dry-run report for `pointbreak store link --dry-run`: what the link WOULD do,
 /// with zero writes. A blocking gate (1–3) or a fold-preflight event conflict
 /// surfaces as `Err` before this is built, so a `StoreLinkPreview` always describes
 /// a link that would succeed. An incomplete source (absent artifacts) does NOT
@@ -185,7 +185,7 @@ fn plan_link(options: &StoreLinkOptions) -> Result<LinkPlan> {
         if scan.policy_outcome == SENSITIVITY_BLOCK {
             return Err(ShoreError::Message(
                 "refusing to link a worktree flagged sensitive into a family store; run \
-                 `shore store status --show-paths` to see which files matched, then add \
+                 `pointbreak store status --show-paths` to see which files matched, then add \
                  known-safe paths to .pointbreak/sensitivity.json excludeGlobs for a targeted \
                  exclude, or re-run with the include-sensitive override to link it anyway"
                     .to_owned(),
@@ -407,11 +407,11 @@ fn mint_clone_ref(common_dir: &Path) -> String {
 fn no_slug_error(worktree_root: &Path) -> ShoreError {
     match suggest_family_slug(worktree_root) {
         Some(suggestion) => ShoreError::Message(format!(
-            "no family slug given; re-run as `shore store link <slug>` (suggested: `{suggestion}`)"
+            "no family slug given; re-run as `pointbreak store link <slug>` (suggested: `{suggestion}`)"
         )),
         None => ShoreError::Message(
             "no family slug given and none could be suggested from the worktree name; \
-             re-run as `shore store link <slug>`"
+             re-run as `pointbreak store link <slug>`"
                 .to_owned(),
         ),
     }
@@ -485,7 +485,7 @@ fn fold_source_forward(
 
     // Count the possession-stripping population BEFORE the fold restamps events with
     // BundleApply provenance: a prior UNSIGNED ArtifactRemoved loses operative
-    // suppression in the family store. The CLI discloses the "re-issue `shore store
+    // suppression in the family store. The CLI discloses the "re-issue `pointbreak store
     // remove` natively" guidance when this is > 0.
     let removal_event_count = count_unsigned_artifact_removals(source)?;
 
@@ -812,7 +812,7 @@ mod tests {
         .expect_err("no slug is an actionable error");
         let message = error.to_string();
         assert!(
-            message.contains("shore store link"),
+            message.contains("pointbreak store link"),
             "names the command: {message}"
         );
         assert!(

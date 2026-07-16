@@ -8,8 +8,8 @@ mod support;
 fn format_json_pretty_preserves_the_document_shape() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
-    let via_format = support::shore(["history", "--repo", path, "--format", "json-pretty"]);
-    let via_json = support::shore(["history", "--repo", path, "--format", "json"]);
+    let via_format = support::pointbreak(["history", "--repo", path, "--format", "json-pretty"]);
+    let via_json = support::pointbreak(["history", "--repo", path, "--format", "json"]);
     let pretty: serde_json::Value =
         serde_json::from_slice(&via_format.stdout).expect("pretty JSON parses");
     let compact: serde_json::Value =
@@ -22,7 +22,7 @@ fn format_json_pretty_preserves_the_document_shape() {
 fn identity_whoami_supports_pretty_json_without_changing_its_shape() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
-    let pretty = support::shore([
+    let pretty = support::pointbreak([
         "identity",
         "whoami",
         "--repo",
@@ -30,7 +30,7 @@ fn identity_whoami_supports_pretty_json_without_changing_its_shape() {
         "--format",
         "json-pretty",
     ]);
-    let compact = support::shore(["identity", "whoami", "--repo", path, "--format", "json"]);
+    let compact = support::pointbreak(["identity", "whoami", "--repo", path, "--format", "json"]);
     let pretty_value: serde_json::Value = serde_json::from_slice(&pretty.stdout).unwrap();
     let compact_value: serde_json::Value = serde_json::from_slice(&compact.stdout).unwrap();
     assert_eq!(pretty_value, compact_value);
@@ -43,7 +43,7 @@ fn legacy_pretty_and_compact_flags_are_removed() {
     let path = repo.path().to_str().unwrap();
 
     for flag in ["--pretty", "--compact"] {
-        let output = support::shore(["history", "--repo", path, flag]);
+        let output = support::pointbreak(["history", "--repo", path, flag]);
         assert!(!output.status.success(), "{flag} should be rejected");
         assert!(
             String::from_utf8_lossy(&output.stderr).contains(flag),
@@ -57,7 +57,7 @@ fn legacy_pretty_and_compact_flags_are_removed() {
 fn format_text_falls_back_to_indented_json_pre_digest() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
-    let output = support::shore(["history", "--repo", path, "--format", "text"]);
+    let output = support::pointbreak(["history", "--repo", path, "--format", "text"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Pre-digest fallback: indented JSON (multi-line), same schema tag visible.
     assert!(stdout.lines().count() > 1);
@@ -68,7 +68,7 @@ fn format_text_falls_back_to_indented_json_pre_digest() {
 fn invalid_shore_format_is_a_hard_error() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
-    let output = support::shore_env(
+    let output = support::pointbreak_env(
         ["history", "--repo", path],
         &[("POINTBREAK_FORMAT", "bogus")],
     );
@@ -81,7 +81,7 @@ fn write_acks_accept_format_json() {
     // A write-ack command that previously had NO format flags accepts --format json
     // and behaves as the flag-less invocation does.
     let repo = support::dump_repo();
-    let with_flag = support::shore([
+    let with_flag = support::pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -89,6 +89,6 @@ fn write_acks_accept_format_json() {
         "json",
     ]);
     let repo2 = support::dump_repo();
-    let without = support::shore(["capture", "--repo", repo2.path().to_str().unwrap()]);
+    let without = support::pointbreak(["capture", "--repo", repo2.path().to_str().unwrap()]);
     assert_eq!(with_flag.status.success(), without.status.success());
 }

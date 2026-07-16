@@ -836,7 +836,7 @@ mod tests {
     // that captured locally and had not yet copied its artifact into a separate
     // linked store — no longer exists: with one shared store by default, a
     // populated worktree-local `.pointbreak/data` is a pre-default store that the
-    // legacy guard routes to `shore store migrate` rather than reading through.
+    // legacy guard routes to `pointbreak store migrate` rather than reading through.
     // The dedicated fallback test is retired; `..._prefers_resolved_store...` and
     // `..._missing_everywhere...` cover the surviving write-validation reads.
 

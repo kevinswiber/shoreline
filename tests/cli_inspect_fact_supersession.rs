@@ -2,14 +2,14 @@
 //! graphs spliced into `/api/revisions/{id}` (#234). Asserts TOPOLOGY over a real
 //! ambiguous-assessment fork and a real superseded-observation chain, the tagged
 //! edge `kind`, that a non-forked revision omits the field, and that the shared
-//! `shore revision show` document is untouched. Never asserts exact pixels.
+//! `pointbreak revision show` document is untouched. Never asserts exact pixels.
 
 mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::inspect::{Inspector, capture, representative_store};
-use support::shore;
+use support::pointbreak;
 
 /// A repo with a base commit and a working-tree change, ready to capture.
 fn repo_with_change() -> GitRepo {
@@ -36,7 +36,7 @@ fn ambiguous_assessments_emit_a_tagged_fact_graph() {
 
     // A (needs-changes) replaced by B (accepted); then C (needs-changes) competes
     // with B, neither replacing the other -> current = {B, C} -> Ambiguous.
-    let a = assessment_id(&shore([
+    let a = assessment_id(&pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -48,7 +48,7 @@ fn ambiguous_assessments_emit_a_tagged_fact_graph() {
         "--summary",
         "not yet",
     ]));
-    let b = assessment_id(&shore([
+    let b = assessment_id(&pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -62,7 +62,7 @@ fn ambiguous_assessments_emit_a_tagged_fact_graph() {
         "--replaces",
         &a,
     ]));
-    let _c = shore([
+    let _c = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -106,7 +106,7 @@ fn superseded_observations_emit_a_tagged_fact_graph() {
     let rev = capture(repo.path());
 
     let first: Value = serde_json::from_slice(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -126,7 +126,7 @@ fn superseded_observations_emit_a_tagged_fact_graph() {
         .expect("observationId")
         .to_owned();
     let second: Value = serde_json::from_slice(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -194,7 +194,7 @@ fn shared_review_show_document_has_no_fact_supersession() {
     let repo = repo_with_change();
     let arg = repo.path().to_str().unwrap();
     let rev = capture(repo.path());
-    let a = assessment_id(&shore([
+    let a = assessment_id(&pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -207,7 +207,7 @@ fn shared_review_show_document_has_no_fact_supersession() {
         "lgtm",
     ]));
     let _ = a;
-    let _ = shore([
+    let _ = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -221,7 +221,7 @@ fn shared_review_show_document_has_no_fact_supersession() {
     ]);
 
     let show: Value =
-        serde_json::from_slice(&shore(["revision", "show", &rev, "--repo", arg]).stdout)
+        serde_json::from_slice(&pointbreak(["revision", "show", &rev, "--repo", arg]).stdout)
             .expect("revision show JSON");
     assert!(
         show.get("factSupersession").is_none(),

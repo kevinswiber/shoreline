@@ -123,13 +123,13 @@ commit-check range='origin/main..HEAD':
 
 # Run the CLI.
 run *args:
-    cargo +stable run --bin shore -- {{ args }}
+    cargo +stable run --bin pointbreak -- {{ args }}
 
 # Fold a worktree-local .shore/data store into the common-dir store (.git/shore).
 # Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
-# you pass include-ephemeral=true. This IS a shipped subcommand (shore store migrate).
+# you pass include-ephemeral=true. This IS a shipped subcommand (pointbreak store migrate).
 migrate-store-common-dir repo="." include-ephemeral="false":
-    cargo +stable run --bin shore -- store migrate --repo {{ repo }} \
+    cargo +stable run --bin pointbreak -- store migrate --repo {{ repo }} \
         {{ if include-ephemeral == "true" { "--include-ephemeral" } else { "" } }}
 
 # Check commit messages, compile, lint, and tests.

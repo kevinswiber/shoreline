@@ -6,14 +6,14 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 #[test]
 fn observation_add_and_list_run_at_the_top_level() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let add = shore([
+    let add = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -33,7 +33,7 @@ fn observation_add_and_list_run_at_the_top_level() {
     let added = parse_json(&add.stdout);
     assert_eq!(added["schema"], "pointbreak.review-observation-add"); // INV-1
 
-    let list = shore([
+    let list = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -58,7 +58,7 @@ fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
     repo.commit_all("base");
     repo.write("only-a.rs", "fn a() {}\n");
     let first = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -70,7 +70,7 @@ fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
     repo.remove("only-a.rs");
     repo.write("only-b.rs", "fn b() {}\n");
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -82,7 +82,7 @@ fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
     );
     let second_id = second["revision"]["id"].as_str().unwrap().to_owned();
 
-    let legacy = shore([
+    let legacy = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -101,7 +101,7 @@ fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
     );
     assert_eq!(parse_json(&legacy.stdout)["revisionId"], second_id);
 
-    let exact = shore([
+    let exact = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -124,7 +124,7 @@ fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
     assert_eq!(exact["revisionId"], first_id);
     assert_eq!(exact["target"]["filePath"], "only-a.rs");
 
-    let wrong_snapshot = shore([
+    let wrong_snapshot = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -145,10 +145,11 @@ fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
 #[test]
 fn observation_exact_revision_rejects_conflicting_or_unknown_selectors_before_write() {
     let repo = modified_repo();
-    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
-    let conflicting = shore([
+    let conflicting = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -165,7 +166,7 @@ fn observation_exact_revision_rejects_conflicting_or_unknown_selectors_before_wr
     assert!(!conflicting.status.success());
     assert!(String::from_utf8_lossy(&conflicting.stderr).contains("cannot be used with"));
 
-    let unknown = shore([
+    let unknown = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -184,9 +185,9 @@ fn observation_exact_revision_rejects_conflicting_or_unknown_selectors_before_wr
 #[test]
 fn observation_responds_to_resolves_a_bare_fragment_to_the_full_id() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let first = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -204,7 +205,7 @@ fn observation_responds_to_resolves_a_bare_fragment_to_the_full_id() {
     // first_id = "obs:sha256:<hex>".
     let fragment = &first_id["obs:sha256:".len()..][..8];
 
-    let second = shore([
+    let second = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -229,7 +230,7 @@ fn observation_responds_to_resolves_a_bare_fragment_to_the_full_id() {
         .to_owned();
 
     let listed = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",
@@ -252,9 +253,10 @@ fn observation_responds_to_resolves_a_bare_fragment_to_the_full_id() {
 #[test]
 fn observation_add_records_review_wide_observation_and_emits_v1_json() {
     let repo = modified_repo();
-    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -309,9 +311,9 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
 #[test]
 fn observation_add_responds_to_records_link() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let a_out = shore([
+    let a_out = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -331,7 +333,7 @@ fn observation_add_responds_to_records_link() {
         .unwrap()
         .to_owned();
 
-    let out = shore([
+    let out = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -356,9 +358,9 @@ fn observation_add_responds_to_records_link() {
 #[test]
 fn observation_markdown_body_content_type_round_trips() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -388,7 +390,7 @@ fn observation_markdown_body_content_type_round_trips() {
     );
 
     let list = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",
@@ -405,9 +407,9 @@ fn observation_markdown_body_content_type_round_trips() {
 #[test]
 fn observation_add_records_range_observation() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -442,9 +444,9 @@ fn observation_add_records_range_observation() {
 #[test]
 fn observation_add_requires_track() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -460,8 +462,8 @@ fn observation_add_requires_track() {
 #[test]
 fn observation_list_reads_recorded_observations() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -472,7 +474,7 @@ fn observation_list_reads_recorded_observations() {
         "First",
     ]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -497,8 +499,8 @@ fn observation_list_reads_recorded_observations() {
 #[test]
 fn observation_list_json_surfaces_responds_to_and_responded_by() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    let a_out = shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let a_out = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -512,7 +514,7 @@ fn observation_list_json_surfaces_responds_to_and_responded_by() {
         .as_str()
         .unwrap()
         .to_owned();
-    let b_out = shore([
+    let b_out = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -530,7 +532,7 @@ fn observation_list_json_surfaces_responds_to_and_responded_by() {
         .to_owned();
 
     let list = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",
@@ -561,8 +563,8 @@ fn observation_list_json_surfaces_responds_to_and_responded_by() {
 #[test]
 fn observation_without_responses_omits_both_fields() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -574,7 +576,7 @@ fn observation_without_responses_omits_both_fields() {
     ]);
 
     let list = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",
@@ -591,8 +593,8 @@ fn observation_without_responses_omits_both_fields() {
 #[test]
 fn observation_list_filters_by_track_and_file() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -604,7 +606,7 @@ fn observation_list_filters_by_track_and_file() {
         "--file",
         "src/lib.rs",
     ]);
-    shore([
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -615,7 +617,7 @@ fn observation_list_filters_by_track_and_file() {
         "Other",
     ]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -635,8 +637,8 @@ fn observation_list_filters_by_track_and_file() {
 #[test]
 fn observation_list_filters_by_tag() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -650,7 +652,7 @@ fn observation_list_filters_by_tag() {
         "--tag",
         "parser",
     ]);
-    shore([
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -663,7 +665,7 @@ fn observation_list_filters_by_tag() {
         "documentation",
     ]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -684,8 +686,8 @@ fn observation_list_filters_by_tag() {
 #[test]
 fn observation_list_include_body_hydrates_body() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -698,7 +700,7 @@ fn observation_list_include_body_hydrates_body() {
         "details",
     ]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -714,9 +716,9 @@ fn observation_list_include_body_hydrates_body() {
 #[test]
 fn observation_list_json_pretty_prints_when_requested() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -731,11 +733,11 @@ fn observation_list_json_pretty_prints_when_requested() {
 #[test]
 fn observation_add_body_inputs_are_mutually_exclusive() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let body_file = repo.path().join("body.txt");
     std::fs::write(&body_file, "file body").unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -757,7 +759,7 @@ fn observation_add_body_inputs_are_mutually_exclusive() {
 #[test]
 fn observation_add_body_stdin_reads_from_stdin() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore_with_stdin(
         [
@@ -780,7 +782,7 @@ fn observation_add_body_stdin_reads_from_stdin() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let list = shore([
+    let list = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -794,7 +796,7 @@ fn observation_add_body_stdin_reads_from_stdin() {
 #[test]
 fn observation_add_is_idempotent_on_rerun() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let args = [
         "observation",
         "add",
@@ -808,8 +810,8 @@ fn observation_add_is_idempotent_on_rerun() {
         "retry-key",
     ];
 
-    let first = parse_json(&shore(args).stdout);
-    let second = parse_json(&shore(args).stdout);
+    let first = parse_json(&pointbreak(args).stdout);
+    let second = parse_json(&pointbreak(args).stdout);
 
     assert_eq!(first["observationId"], second["observationId"]);
     assert_eq!(first["eventsCreated"], 1);
@@ -820,10 +822,10 @@ fn observation_add_is_idempotent_on_rerun() {
 #[test]
 fn observation_list_collapses_duplicate_semantic_events() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let first = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -840,7 +842,7 @@ fn observation_list_collapses_duplicate_semantic_events() {
         .stdout,
     );
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -857,7 +859,7 @@ fn observation_list_collapses_duplicate_semantic_events() {
         .stdout,
     );
 
-    let list = shore([
+    let list = pointbreak([
         "observation",
         "list",
         "--repo",
@@ -884,7 +886,7 @@ fn observation_list_collapses_duplicate_semantic_events() {
 fn observation_add_errors_when_no_revision_has_been_captured() {
     let repo = modified_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -902,9 +904,9 @@ fn observation_add_errors_when_no_revision_has_been_captured() {
 #[test]
 fn observation_add_rejects_unknown_file_target() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -924,12 +926,14 @@ fn observation_add_rejects_unknown_file_target() {
 #[test]
 fn observation_add_with_explicit_revision_succeeds_when_current_is_ambiguous() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -954,11 +958,11 @@ fn observation_add_with_explicit_revision_succeeds_when_current_is_ambiguous() {
 #[test]
 fn observation_add_errors_when_current_revision_is_ambiguous_without_explicit_id() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -978,7 +982,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_shore"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pointbreak"))
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
@@ -986,14 +990,14 @@ where
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn shore binary");
+        .expect("spawn pointbreak binary");
     child
         .stdin
         .as_mut()
-        .expect("shore stdin is piped")
+        .expect("pointbreak stdin is piped")
         .write_all(stdin.as_bytes())
-        .expect("write shore stdin");
-    child.wait_with_output().expect("run shore binary")
+        .expect("write pointbreak stdin");
+    child.wait_with_output().expect("run pointbreak binary")
 }
 
 fn parse_json(stdout: &[u8]) -> Value {
@@ -1004,7 +1008,7 @@ fn parse_json(stdout: &[u8]) -> Value {
 fn observation_add_and_list_work_against_range_captured_unit() {
     let repo = support::committed_repo();
     let capture = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1016,7 +1020,7 @@ fn observation_add_and_list_work_against_range_captured_unit() {
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
     let add = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -1034,7 +1038,7 @@ fn observation_add_and_list_work_against_range_captured_unit() {
     assert_eq!(add["eventsCreatedByType"]["review_observation_recorded"], 1);
 
     let list = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",

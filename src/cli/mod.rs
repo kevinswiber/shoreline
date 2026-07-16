@@ -40,8 +40,8 @@ mod reference_coverage;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "shore",
-    bin_name = "shore",
+    name = "pointbreak",
+    bin_name = "pointbreak",
     version,
     about = "Inspect review streams"
 )]
@@ -93,7 +93,7 @@ where
                 error.kind(),
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) {
-                let _ = writeln!(stdout, "{error}");
+                let _ = write!(stdout, "{error}");
                 ExitCode::SUCCESS
             } else {
                 let _ = writeln!(stderr, "{error}");
@@ -122,7 +122,7 @@ enum HintPredicate {
     /// Two or three adjacent argv tokens, e.g. `["review", "revisions"]`.
     AdjacentWindow(&'static [&'static str]),
     /// The first non-flag argv token — the attempted subcommand. Used for the
-    /// bare-family retirements, e.g. a stale `shore review …`.
+    /// bare-family retirements, e.g. a stale `pointbreak review …`.
     LeadingToken(&'static str),
 }
 
@@ -143,125 +143,125 @@ impl HintPredicate {
 
 /// Removed/renamed command hints, evaluated in order (first match wins). Keep
 /// specific `AdjacentWindow` rows before general `LeadingToken` rows so a stale
-/// `shore review <verb>` gets the verb-specific hint rather than the family hint.
+/// `pointbreak review <verb>` gets the verb-specific hint rather than the family hint.
 /// Family/rename tasks append rows; they never change this mechanism.
 const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
     (
         HintPredicate::AdjacentWindow(&["identity", "enroll"]),
-        "Use `shore identity delegate <AGENT> --principal <P>`.",
+        "Use `pointbreak identity delegate <AGENT> --principal <P>`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "assessment"]),
-        "Use `shore assessment` instead of `shore review assessment`.",
+        "Use `pointbreak assessment` instead of `pointbreak review assessment`.",
     ),
     // The association compounds collapsed to `record`/`withdraw`; the four
     // verb-specific triples must precede the family pair so they win first.
     (
         HintPredicate::AdjacentWindow(&["review", "association", "associate-commit"]),
-        "Use `shore association record --commit <oid>` (or `--ref <name> --head <oid>`).",
+        "Use `pointbreak association record --commit <oid>` (or `--ref <name> --head <oid>`).",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "association", "associate-ref"]),
-        "Use `shore association record --ref <name> --head <oid>` (or `--commit <oid>`).",
+        "Use `pointbreak association record --ref <name> --head <oid>` (or `--commit <oid>`).",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "association", "withdraw-commit"]),
-        "Use `shore association withdraw <ASSOCIATION_ID>`.",
+        "Use `pointbreak association withdraw <ASSOCIATION_ID>`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "association", "withdraw-ref"]),
-        "Use `shore association withdraw <ASSOCIATION_ID>`.",
+        "Use `pointbreak association withdraw <ASSOCIATION_ID>`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "association"]),
         "The `association` family is now top-level; use \
-         `shore association record|withdraw|list`.",
+         `pointbreak association record|withdraw|list`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "capture"]),
-        "Use `shore capture` instead of `shore review capture`.",
+        "Use `pointbreak capture` instead of `pointbreak review capture`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "endorse"]),
-        "Use `shore endorse` instead of `shore review endorse`.",
+        "Use `pointbreak endorse` instead of `pointbreak review endorse`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "history"]),
-        "Use `shore history` instead of `shore review history`.",
+        "Use `pointbreak history` instead of `pointbreak review history`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "input-request", "fetch"]),
-        "Use `shore input-request show <ID>`.",
+        "Use `pointbreak input-request show <ID>`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["input-request", "fetch"]),
-        "Use `shore input-request show <ID>`.",
+        "Use `pointbreak input-request show <ID>`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "input-request"]),
         "The `input-request` family is now top-level; use \
-         `shore input-request open|list|show|respond`.",
+         `pointbreak input-request open|list|show|respond`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "observation"]),
-        "Use `shore observation` instead of `shore review observation`.",
+        "Use `pointbreak observation` instead of `pointbreak review observation`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "revisions"]),
-        "Use `shore revision list`.",
+        "Use `pointbreak revision list`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "show"]),
-        "Use `shore revision show [REVISION]`.",
+        "Use `pointbreak revision show [REVISION]`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "validation"]),
-        "Use `shore validation` instead of `shore review validation`.",
+        "Use `pointbreak validation` instead of `pointbreak review validation`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "intervention"]),
-        "Use `shore input-request` instead of `shore review intervention`.",
+        "Use `pointbreak input-request` instead of `pointbreak review intervention`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "lineage"]),
-        "`shore review lineage` is removed; record supersession on \
-         `shore capture --supersedes <revision>` and read it with `shore revision list`.",
+        "`pointbreak review lineage` is removed; record supersession on \
+         `pointbreak capture --supersedes <revision>` and read it with `pointbreak revision list`.",
     ),
     (
         HintPredicate::AdjacentWindow(&["review", "unit"]),
-        "`shore review unit` is removed; list with `shore revision list` \
-         and show one with `shore revision show <revision>`.",
+        "`pointbreak review unit` is removed; list with `pointbreak revision list` \
+         and show one with `pointbreak revision show <revision>`.",
     ),
     // The catch-all for the retired `review` namespace; must stay LAST among the
     // review rows so every verb-specific window above wins first.
     (
         HintPredicate::LeadingToken("review"),
-        "The `review` family flattened to the top level. Use `shore capture`, \
-         `shore revision list`, `shore revision show`, `shore observation …`, etc.",
+        "The `review` family flattened to the top level. Use `pointbreak capture`, \
+         `pointbreak revision list`, `pointbreak revision show`, `pointbreak observation …`, etc.",
     ),
     (
         HintPredicate::LeadingToken("keys"),
-        "The `keys` family is now `key`. Use `shore key <sub>`.",
+        "The `keys` family is now `key`. Use `pointbreak key <sub>`.",
     ),
     // The legacy working-tree surfaces, retired end-to-end (ADR-0030 second
     // amendment). Bare `show` stays unassigned per ADR-0030 Decision 3.
     (
         HintPredicate::LeadingToken("dump"),
-        "`shore dump` is retired. Read a captured revision's diff with `shore diff`, \
-         inspect deeply with `shore inspect`, or read the review record with \
-         `shore revision show` (add `--format text` for the digest).",
+        "`pointbreak dump` is retired. Read a captured revision's diff with `pointbreak diff`, \
+         inspect deeply with `pointbreak inspect`, or read the review record with \
+         `pointbreak revision show` (add `--format text` for the digest).",
     ),
     (
         HintPredicate::LeadingToken("show"),
-        "`shore show` is retired. Read a captured revision's diff with `shore diff`, \
-         inspect deeply with `shore inspect`, or read the review record with \
-         `shore revision show` (add `--format text` for the digest).",
+        "`pointbreak show` is retired. Read a captured revision's diff with `pointbreak diff`, \
+         inspect deeply with `pointbreak inspect`, or read the review record with \
+         `pointbreak revision show` (add `--format text` for the digest).",
     ),
     (
         HintPredicate::LeadingToken("notes"),
         "The `notes` family is retired and sidecar notes are no longer imported. \
-         Record review facts with `shore observation add` and read them with \
-         `shore revision show` or `shore inspect`.",
+         Record review facts with `pointbreak observation add` and read them with \
+         `pointbreak revision show` or `pointbreak inspect`.",
     ),
 ];
 

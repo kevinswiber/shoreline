@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 
 fn command(args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
     command.args(args);
     for selector in pointbreak::environment::RUNTIME_VARIABLES {
         command.env_remove(selector);
@@ -17,7 +17,7 @@ fn command(args: &[&str]) -> Command {
 }
 
 fn output(command: &mut Command) -> Output {
-    command.output().expect("run shore")
+    command.output().expect("run pointbreak")
 }
 
 fn key_path(output: &Output) -> PathBuf {

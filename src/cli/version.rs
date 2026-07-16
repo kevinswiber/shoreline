@@ -31,7 +31,7 @@ pub(super) fn run(
 
 fn render_version_text(body: &VersionBody) -> String {
     format!(
-        "shore {}\ndocuments: {}",
+        "pointbreak {}\ndocuments: {}",
         body.cli_version,
         body.documents.len()
     )

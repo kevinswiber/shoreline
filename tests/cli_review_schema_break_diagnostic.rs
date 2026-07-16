@@ -1,5 +1,5 @@
 //! A stored event whose type/envelope was retired at a breaking change must not
-//! hard-fail the CLI read surfaces. `shore history` / `show` skip it and
+//! hard-fail the CLI read surfaces. `pointbreak history` / `show` skip it and
 //! surface a `ProjectionDiagnostic` instead, exiting 0 so the rest of the
 //! review still renders.
 
@@ -7,7 +7,7 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{common_dir_store, shore};
+use support::{common_dir_store, pointbreak};
 
 /// A repo with one captured Revision plus a raw retired-type event file dropped
 /// into the resolved store. The probe rejects the raw file before full decode,
@@ -18,7 +18,7 @@ fn store_with_retired_event() -> GitRepo {
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
 
-    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture failed:\n{}",
@@ -48,7 +48,7 @@ fn has_schema_break_diagnostic(json: &Value) -> bool {
 fn review_history_surfaces_schema_break_diagnostic_and_exits_zero() {
     let repo = store_with_retired_event();
 
-    let output = shore(["history", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["history", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -66,7 +66,7 @@ fn review_history_surfaces_schema_break_diagnostic_and_exits_zero() {
 fn review_revisions_surfaces_schema_break_diagnostic_and_exits_zero() {
     let repo = store_with_retired_event();
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -84,7 +84,7 @@ fn review_revisions_surfaces_schema_break_diagnostic_and_exits_zero() {
 fn review_show_surfaces_schema_break_diagnostic_and_exits_zero() {
     let repo = store_with_retired_event();
 
-    let output = shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),

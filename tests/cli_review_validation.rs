@@ -2,14 +2,14 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 #[test]
 fn validation_add_and_list_run_at_the_top_level() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let add = shore([
+    let add = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -29,7 +29,7 @@ fn validation_add_and_list_run_at_the_top_level() {
     let added = parse_json(&add.stdout);
     assert_eq!(added["schema"], "pointbreak.review-validation-add"); // INV-1
 
-    let list = shore([
+    let list = pointbreak([
         "validation",
         "list",
         "--repo",
@@ -52,7 +52,7 @@ fn validation_exact_revision_targets_a_superseded_revision() {
     let (repo, first_id, second_id) = support::superseded_dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
 
-    let legacy = shore([
+    let legacy = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -73,7 +73,7 @@ fn validation_exact_revision_targets_a_superseded_revision() {
     );
     assert_eq!(parse_json(&legacy.stdout)["revisionId"], second_id);
 
-    let exact = shore([
+    let exact = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -99,10 +99,10 @@ fn validation_exact_revision_targets_a_superseded_revision() {
 fn validation_exact_revision_rejects_conflicting_or_unknown_selectors_before_write() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    let capture = parse_json(&shore(["capture", "--repo", repo_arg]).stdout);
+    let capture = parse_json(&pointbreak(["capture", "--repo", repo_arg]).stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
-    let conflicting = shore([
+    let conflicting = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -121,7 +121,7 @@ fn validation_exact_revision_rejects_conflicting_or_unknown_selectors_before_wri
     assert!(!conflicting.status.success());
     assert!(String::from_utf8_lossy(&conflicting.stderr).contains("cannot be used with"));
 
-    let unknown = shore([
+    let unknown = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -142,12 +142,13 @@ fn validation_exact_revision_rejects_conflicting_or_unknown_selectors_before_wri
 #[test]
 fn validation_add_revision_resolves_a_bare_fragment_before_it_is_stored() {
     let repo = modified_repo();
-    let captured = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let captured =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let full_id = captured["revision"]["id"].as_str().unwrap().to_owned();
     // full_id = "rev:sha256:<64hex>".
     let fragment = &full_id["rev:sha256:".len()..][..8];
 
-    let add = shore([
+    let add = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -176,9 +177,9 @@ fn validation_add_revision_resolves_a_bare_fragment_before_it_is_stored() {
 #[test]
 fn cli_review_validation_add_emits_validation_add_document() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -206,8 +207,8 @@ fn cli_review_validation_add_emits_validation_add_document() {
 #[test]
 fn cli_review_validation_list_emits_list_document() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    let add = shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let add = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -225,7 +226,7 @@ fn cli_review_validation_list_emits_list_document() {
         String::from_utf8_lossy(&add.stderr)
     );
 
-    let output = shore([
+    let output = pointbreak([
         "validation",
         "list",
         "--repo",

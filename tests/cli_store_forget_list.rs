@@ -2,7 +2,7 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore_env;
+use support::pointbreak_env;
 
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("valid json on stdout")
@@ -14,7 +14,7 @@ fn linked_repo(home: &str) -> GitRepo {
     repo.commit_all("base");
     let repo_arg = repo.path().to_str().unwrap().to_owned();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", &repo_arg, "--allow-empty"],
             &[("POINTBREAK_HOME", home)],
         )
@@ -22,7 +22,7 @@ fn linked_repo(home: &str) -> GitRepo {
         .success()
     );
     assert!(
-        shore_env(
+        pointbreak_env(
             ["store", "link", "acme", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home)]
         )
@@ -38,7 +38,7 @@ fn store_forget_without_yes_previews_and_refuses_to_delete() {
     let home_str = home.path().to_str().unwrap();
     let _repo = linked_repo(home_str);
 
-    let forget = shore_env(
+    let forget = pointbreak_env(
         ["store", "forget", "acme"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -64,7 +64,7 @@ fn store_forget_yes_on_an_orphaned_family_deletes_it() {
     let repo = linked_repo(home_str);
     let repo_arg = repo.path().to_str().unwrap().to_owned();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["store", "unlink", "--repo", &repo_arg],
             &[("POINTBREAK_HOME", home_str)]
         )
@@ -72,7 +72,7 @@ fn store_forget_yes_on_an_orphaned_family_deletes_it() {
         .success()
     );
 
-    let forget = shore_env(
+    let forget = pointbreak_env(
         ["store", "forget", "acme", "--yes"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -93,7 +93,7 @@ fn store_list_shows_the_linked_family_without_repo() {
     let home_str = home.path().to_str().unwrap();
     let _repo = linked_repo(home_str);
 
-    let list = shore_env(["store", "list"], &[("POINTBREAK_HOME", home_str)]);
+    let list = pointbreak_env(["store", "list"], &[("POINTBREAK_HOME", home_str)]);
     assert!(
         list.status.success(),
         "{}",
@@ -110,7 +110,7 @@ fn store_list_with_an_empty_home_prints_an_empty_result() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
 
-    let list = shore_env(["store", "list"], &[("POINTBREAK_HOME", home_str)]);
+    let list = pointbreak_env(["store", "list"], &[("POINTBREAK_HOME", home_str)]);
     assert!(
         list.status.success(),
         "{}",

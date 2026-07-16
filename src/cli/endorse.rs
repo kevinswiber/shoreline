@@ -65,7 +65,7 @@ pub(super) fn run(
     }
     let signer = resolution.signer.ok_or_else(|| -> Box<dyn std::error::Error> {
         "no signing key resolved: an endorsement has no unsigned form (the signature is its content). \
-         Set --sign-key / POINTBREAK_SIGNING_KEY, or run `shore key init` and `shore key enroll`."
+         Set --sign-key / POINTBREAK_SIGNING_KEY, or run `pointbreak key init` and `pointbreak key enroll`."
             .into()
     })?;
 

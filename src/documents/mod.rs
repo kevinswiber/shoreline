@@ -1,6 +1,6 @@
 //! Versioned documents shared by the CLI and bundled inspect server.
 //!
-//! This module owns the serializable documents the `shore review-*` commands
+//! This module owns the serializable documents the `pointbreak review-*` commands
 //! emit, the version handshake, and the small promoted inspect set. It includes
 //! the shared envelopes ([`DiagnosticDocument`], [`EventWriteDocument`]), the
 //! per-item view-document mappers, and the builders that wrap a

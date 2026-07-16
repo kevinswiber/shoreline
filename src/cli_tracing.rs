@@ -14,7 +14,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 /// Per-layer filter applied to `PerfLayer` so it observes Pointbreak spans
 /// (including the existing `event_store.*` debug spans) regardless of the
 /// user's `--log` filter, without bleeding those events into the fmt layer.
-const PERF_OBSERVE_FILTER: &str = "shore=debug,pointbreak=debug";
+const PERF_OBSERVE_FILTER: &str = "pointbreak=debug";
 
 #[derive(Clone, Debug, Args)]
 pub(crate) struct TracingArgs {
@@ -160,7 +160,10 @@ mod tests {
 
     #[test]
     fn compose_fmt_filter_passes_user_filter_through_when_perf_disabled() {
-        assert_eq!(compose_fmt_filter(Some("shore=info"), false), "shore=info");
+        assert_eq!(
+            compose_fmt_filter(Some("pointbreak=info"), false),
+            "pointbreak=info"
+        );
     }
 
     #[test]
@@ -168,8 +171,8 @@ mod tests {
         let composed = compose_fmt_filter(None, true);
         assert_eq!(composed, format!("off,{PERF_TARGET}=info"));
         assert!(
-            !composed.contains("shore=debug"),
-            "fmt filter must not enable broad shore debug output: {composed}"
+            !composed.contains("pointbreak=debug"),
+            "fmt filter must not enable broad pointbreak debug output: {composed}"
         );
         EnvFilter::try_new(&composed).expect("composed filter parses");
     }

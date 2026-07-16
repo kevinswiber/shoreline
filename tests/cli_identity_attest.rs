@@ -1,12 +1,12 @@
 mod support;
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore_env;
+use support::pointbreak_env;
 
 #[test]
 fn attest_stages_attributes_and_reader_resolves_kind_and_roles() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "attest",
@@ -46,7 +46,7 @@ fn attest_stages_attributes_and_reader_resolves_kind_and_roles() {
 #[test]
 fn attest_normalizes_tokens() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "attest",
@@ -78,7 +78,7 @@ fn attest_normalizes_tokens() {
 #[test]
 fn attest_requires_kind() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "attest",
@@ -97,7 +97,7 @@ fn attest_requires_kind() {
 #[test]
 fn attest_rejects_bad_role_token_and_writes_nothing() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "attest",
@@ -124,7 +124,7 @@ fn attest_rejects_bad_role_token_and_writes_nothing() {
 #[test]
 fn attest_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "attest",
@@ -168,7 +168,7 @@ fn attest_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
 #[test]
 fn attest_never_commits() {
     let repo = GitRepo::new();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         [
             "identity",
             "attest",

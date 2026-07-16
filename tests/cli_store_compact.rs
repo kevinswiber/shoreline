@@ -5,9 +5,9 @@ use std::path::Path;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
-/// A repo with a committed base and an uncommitted change, so `shore capture`
+/// A repo with a committed base and an uncommitted change, so `pointbreak capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -22,7 +22,7 @@ fn parse_json(stdout: &[u8]) -> Value {
 }
 
 fn capture(repo: &Path) -> Value {
-    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -32,7 +32,7 @@ fn capture(repo: &Path) -> Value {
 }
 
 fn remove_snapshot(repo: &Path, snapshot_id: &str) {
-    let output = shore([
+    let output = pointbreak([
         "store",
         "remove",
         "--repo",
@@ -88,7 +88,7 @@ fn bare_compact_previews_and_refuses_without_yes() {
         .unwrap();
     remove_snapshot(repo.path(), snapshot_id);
 
-    let output = shore(["store", "compact", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["store", "compact", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -128,7 +128,7 @@ fn compact_with_yes_deletes_eligible_blob() {
         .unwrap();
     remove_snapshot(repo.path(), snapshot_id);
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "compact",
         "--repo",
@@ -157,7 +157,7 @@ fn compact_dry_run_deletes_nothing() {
     let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
     remove_snapshot(repo.path(), snapshot_id);
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "compact",
         "--repo",
@@ -188,7 +188,7 @@ fn compact_skips_ingested_unsigned_and_reports_reason() {
     // The removal arrives as ingested + unsigned: a non-operative claim.
     mark_removal_ingested(repo.path());
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "compact",
         "--repo",
@@ -237,7 +237,7 @@ fn compact_with_yes_skips_a_drifted_blob_and_reports_mismatch() {
         .expect("one object artifact file");
     fs::write(&blob_path, b"tampered: no longer a valid object artifact").unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "store",
         "compact",
         "--repo",

@@ -11,7 +11,7 @@ use support::git_repo::GitRepo;
 use support::inspect::{InspectOutput, InspectSurface, Inspector, representative_store, urlencode};
 
 fn inspect_output(repo: &std::path::Path, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_shore"))
+    Command::new(env!("CARGO_BIN_EXE_pointbreak"))
         .args([
             "inspect",
             "--repo",
@@ -23,7 +23,7 @@ fn inspect_output(repo: &std::path::Path, extra: &[&str]) -> std::process::Outpu
         ])
         .args(extra)
         .output()
-        .expect("run shore inspect")
+        .expect("run pointbreak inspect")
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn inspect_rejects_non_loopback_before_bind_in_every_combination() {
 fn api_only_rejects_open_independently_of_output_format() {
     let repo = GitRepo::new();
     for format in [&[][..], &["--format", "json"][..]] {
-        let output = Command::new(env!("CARGO_BIN_EXE_shore"))
+        let output = Command::new(env!("CARGO_BIN_EXE_pointbreak"))
             .args([
                 "inspect",
                 "--repo",
@@ -157,7 +157,7 @@ fn api_only_rejects_open_independently_of_output_format() {
             ])
             .args(format)
             .output()
-            .expect("run shore inspect");
+            .expect("run pointbreak inspect");
 
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -297,7 +297,7 @@ fn authenticated_routes_include_the_shared_version_without_secret_disclosure() {
 
     let version_text = inspector.get_text("/api/version");
     let version: Value = serde_json::from_str(&version_text).unwrap();
-    let cli_output = support::shore(["version"]);
+    let cli_output = support::pointbreak(["version"]);
     assert!(cli_output.status.success());
     let cli_version: Value = serde_json::from_slice(&cli_output.stdout).unwrap();
     assert_eq!(version, cli_version);

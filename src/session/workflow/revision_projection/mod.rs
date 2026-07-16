@@ -349,7 +349,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
             code: REMOVAL_CLAIM_UNSIGNED.to_owned(),
             message: format!(
                 "removal of snapshot content {bound_hash} is unsigned and not operative; ratify it \
-                 with `shore endorse` or extend trust"
+                 with `pointbreak endorse` or extend trust"
             ),
         }),
         RemovalOperativeStatus::ClaimUntrusted => diagnostics.push(ProjectionDiagnostic {

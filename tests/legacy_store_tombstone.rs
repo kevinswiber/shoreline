@@ -9,7 +9,7 @@ mod support;
 use std::path::Path;
 
 use serde_json::Value;
-use support::{dump_repo, shore};
+use support::{dump_repo, pointbreak};
 
 const FIXTURE_STORE: &str = "tests/fixtures/legacy_stores/review_note_imported/store";
 
@@ -47,7 +47,7 @@ fn legacy_event_bytes_at_the_canonical_store_still_load_and_read() {
     // history: the whole event set loads through the strict reader, and the
     // t:07 event renders at envelope level with a bare tombstone summary — no
     // payload-derived fields.
-    let history = shore(["history", "--repo", repo_arg, "--format", "json"]);
+    let history = pointbreak(["history", "--repo", repo_arg, "--format", "json"]);
     assert!(
         history.status.success(),
         "history stderr:\n{}",
@@ -67,7 +67,7 @@ fn legacy_event_bytes_at_the_canonical_store_still_load_and_read() {
     );
 
     // The retired kind is no longer a history filter value.
-    let filtered = shore([
+    let filtered = pointbreak([
         "history",
         "--repo",
         repo_arg,
@@ -83,7 +83,7 @@ fn legacy_event_bytes_at_the_canonical_store_still_load_and_read() {
     // is version 2 with no adapter-note fields. `--all` keeps the revision
     // visible even though its anchored commits belong to the original
     // repository (orphaned relative to this scratch clone).
-    let list = shore([
+    let list = pointbreak([
         "revision", "list", "--all", "--repo", repo_arg, "--format", "json",
     ]);
     assert!(
@@ -93,7 +93,7 @@ fn legacy_event_bytes_at_the_canonical_store_still_load_and_read() {
     );
     assert_eq!(parse_json(&list.stdout)["revisionCount"], 1);
 
-    let show = shore(["revision", "show", "--repo", repo_arg, "--format", "json"]);
+    let show = pointbreak(["revision", "show", "--repo", repo_arg, "--format", "json"]);
     assert!(
         show.status.success(),
         "revision show stderr:\n{}",
@@ -106,7 +106,7 @@ fn legacy_event_bytes_at_the_canonical_store_still_load_and_read() {
     assert!(show["summary"].get("adapterNoteCount").is_none());
 
     // store status: the whole-store scan decodes the retired kind fine.
-    let status = shore(["store", "status", "--repo", repo_arg, "--format", "json"]);
+    let status = pointbreak(["store", "status", "--repo", repo_arg, "--format", "json"]);
     assert!(
         status.status.success(),
         "store status stderr:\n{}",

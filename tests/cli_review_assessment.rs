@@ -6,14 +6,14 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 #[test]
 fn assessment_add_and_show_run_at_the_top_level() {
     let repo = support::dump_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let add = shore([
+    let add = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -33,7 +33,7 @@ fn assessment_add_and_show_run_at_the_top_level() {
     let added = parse_json(&add.stdout);
     assert_eq!(added["schema"], "pointbreak.review-assessment-add"); // INV-1
 
-    let show = shore([
+    let show = pointbreak([
         "assessment",
         "show",
         "--repo",
@@ -53,7 +53,7 @@ fn assessment_exact_revision_targets_a_superseded_revision_for_add_and_show() {
     let (repo, first_id, second_id) = support::superseded_dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
 
-    let legacy = shore([
+    let legacy = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -72,7 +72,7 @@ fn assessment_exact_revision_targets_a_superseded_revision_for_add_and_show() {
     );
     assert_eq!(parse_json(&legacy.stdout)["revisionId"], second_id);
 
-    let exact = shore([
+    let exact = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -91,7 +91,7 @@ fn assessment_exact_revision_targets_a_superseded_revision_for_add_and_show() {
     );
     assert_eq!(parse_json(&exact.stdout)["revisionId"], first_id);
 
-    let legacy_show = shore([
+    let legacy_show = pointbreak([
         "assessment",
         "show",
         "--repo",
@@ -104,7 +104,7 @@ fn assessment_exact_revision_targets_a_superseded_revision_for_add_and_show() {
     assert!(legacy_show.status.success());
     assert_eq!(parse_json(&legacy_show.stdout)["revisionId"], second_id);
 
-    let exact_show = shore([
+    let exact_show = pointbreak([
         "assessment",
         "show",
         "--repo",
@@ -122,10 +122,10 @@ fn assessment_exact_revision_targets_a_superseded_revision_for_add_and_show() {
 fn assessment_exact_revision_rejects_conflicting_or_unknown_selectors_before_write() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    let capture = parse_json(&shore(["capture", "--repo", repo_arg]).stdout);
+    let capture = parse_json(&pointbreak(["capture", "--repo", repo_arg]).stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
-    let conflicting = shore([
+    let conflicting = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -142,7 +142,7 @@ fn assessment_exact_revision_rejects_conflicting_or_unknown_selectors_before_wri
     assert!(!conflicting.status.success());
     assert!(String::from_utf8_lossy(&conflicting.stderr).contains("cannot be used with"));
 
-    let unknown = shore([
+    let unknown = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -163,7 +163,7 @@ fn assessment_exact_revision_validates_relationships_against_the_named_revision(
     let (repo, first_id, _) = support::superseded_dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
     let observation = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -177,12 +177,12 @@ fn assessment_exact_revision_validates_relationships_against_the_named_revision(
         ])
         .stdout,
     );
-    let before = parse_json(&shore(["store", "status", "--repo", repo_arg]).stdout)
+    let before = parse_json(&pointbreak(["store", "status", "--repo", repo_arg]).stdout)
         ["inventory"]["eventCount"]
         .as_u64()
         .unwrap();
 
-    let rejected = shore([
+    let rejected = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -199,7 +199,7 @@ fn assessment_exact_revision_validates_relationships_against_the_named_revision(
 
     assert!(!rejected.status.success());
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("unknown observation"));
-    let after = parse_json(&shore(["store", "status", "--repo", repo_arg]).stdout)["inventory"]
+    let after = parse_json(&pointbreak(["store", "status", "--repo", repo_arg]).stdout)["inventory"]
         ["eventCount"]
         .as_u64()
         .unwrap();
@@ -209,9 +209,9 @@ fn assessment_exact_revision_validates_relationships_against_the_named_revision(
 #[test]
 fn assessment_add_observation_target_resolves_a_bare_fragment() {
     let repo = support::dump_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let observation = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -229,7 +229,7 @@ fn assessment_add_observation_target_resolves_a_bare_fragment() {
     // observation_id = "obs:sha256:<hex>".
     let fragment = &observation_id["obs:sha256:".len()..][..8];
 
-    let add = shore([
+    let add = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -260,14 +260,14 @@ fn assessment_add_observation_target_resolves_a_bare_fragment() {
 fn shore_review_assessment_add_emits_assessment_id_and_event() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    let capture = shore(["capture", "--repo", repo_arg]);
+    let capture = pointbreak(["capture", "--repo", repo_arg]);
     assert!(
         capture.status.success(),
         "capture failed: {}",
         String::from_utf8_lossy(&capture.stderr)
     );
 
-    let add = shore([
+    let add = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -306,10 +306,10 @@ fn shore_review_assessment_add_emits_assessment_id_and_event() {
 fn shore_review_assessment_show_resolves_to_single_assessment() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let assessment = add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
 
-    let show = shore(["assessment", "show", "--repo", repo_arg]);
+    let show = pointbreak(["assessment", "show", "--repo", repo_arg]);
     assert!(
         show.status.success(),
         "assessment show failed: {}",
@@ -331,11 +331,11 @@ fn shore_review_assessment_show_resolves_to_single_assessment() {
 fn shore_review_assessment_show_marks_ambiguous_with_two_writers() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
     add_assessment(repo_arg, "agent:codex", "needs-changes", "fix it");
 
-    let show = shore(["assessment", "show", "--repo", repo_arg]);
+    let show = pointbreak(["assessment", "show", "--repo", repo_arg]);
     assert!(
         show.status.success(),
         "assessment show failed: {}",
@@ -352,10 +352,10 @@ fn shore_review_assessment_show_marks_ambiguous_with_two_writers() {
 fn text_assessment_show_renders_current_call_not_json() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
 
-    let show = shore(["assessment", "show", "--repo", repo_arg, "--format", "text"]);
+    let show = pointbreak(["assessment", "show", "--repo", repo_arg, "--format", "text"]);
     assert!(
         show.status.success(),
         "assessment show failed: {}",
@@ -377,9 +377,9 @@ fn text_assessment_show_renders_current_call_not_json() {
 fn shore_review_assessment_add_rejects_state_change_value() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
-    let bad = shore([
+    let bad = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -404,9 +404,9 @@ fn shore_review_assessment_add_rejects_state_change_value() {
 fn shore_review_assessment_add_records_file_range_target() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
-    let output = shore([
+    let output = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -444,12 +444,12 @@ fn shore_review_assessment_add_records_file_range_target() {
 fn shore_review_assessment_add_records_related_facts_and_replacement() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let observation = add_observation(&repo, "Related observation");
     let input_request = open_input_request(&repo, "Related input request");
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "Fix this");
 
-    let second = shore([
+    let second = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -503,10 +503,10 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
 fn shore_review_assessment_add_diagnoses_cross_actor_replacement() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
     let first = parse_json(
-        &support::shore_env(
+        &support::pointbreak_env(
             [
                 "assessment",
                 "add",
@@ -523,7 +523,7 @@ fn shore_review_assessment_add_diagnoses_cross_actor_replacement() {
         )
         .stdout,
     );
-    let second = support::shore_env(
+    let second = support::pointbreak_env(
         [
             "assessment",
             "add",
@@ -579,7 +579,7 @@ fn shore_review_assessment_add_diagnoses_cross_actor_replacement() {
 fn shore_review_assessment_add_flags_competing_candidates_without_replaces() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
     let first = add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
     assert!(
@@ -613,10 +613,10 @@ fn shore_review_assessment_add_flags_competing_candidates_without_replaces() {
 fn shore_review_assessment_add_replacing_every_candidate_stays_quiet() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "fix it");
 
-    let second = shore([
+    let second = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -653,10 +653,10 @@ fn shore_review_assessment_add_replacing_every_candidate_stays_quiet() {
 fn shore_review_assessment_add_idempotent_rerun_of_replaced_assessment_stays_quiet() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "fix it");
 
-    let second = shore([
+    let second = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -702,11 +702,11 @@ fn shore_review_assessment_add_idempotent_rerun_of_replaced_assessment_stays_qui
 fn shore_review_assessment_add_flags_only_candidates_left_unreplaced() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let first = add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
     let second = add_assessment(repo_arg, "agent:codex", "needs-changes", "fix it");
 
-    let third = shore([
+    let third = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -747,11 +747,11 @@ fn shore_review_assessment_add_flags_only_candidates_left_unreplaced() {
 fn shore_review_assessment_add_targets_input_request_and_emits_related_input_requests() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let request = open_input_request(&repo, "Needs clarification");
     let request_id = request["inputRequestId"].as_str().unwrap();
 
-    let assessment = shore([
+    let assessment = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -788,7 +788,7 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
     assert_eq!(current["relatedInputRequests"][0], request_id);
     assert!(current.get("relatedInterventions").is_none());
 
-    let request = shore(["input-request", "show", "--repo", repo_arg, request_id]);
+    let request = pointbreak(["input-request", "show", "--repo", repo_arg, request_id]);
     assert!(
         request.status.success(),
         "request fetch failed: {}",
@@ -808,11 +808,11 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
 fn shore_review_assessment_add_rejects_old_intervention_flags() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let request = open_input_request(&repo, "Legacy flag target");
     let request_id = request["inputRequestId"].as_str().unwrap();
 
-    let old_target_flag = shore([
+    let old_target_flag = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -824,7 +824,7 @@ fn shore_review_assessment_add_rejects_old_intervention_flags() {
         "--intervention",
         request_id,
     ]);
-    let old_related_flag = shore([
+    let old_related_flag = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -855,9 +855,9 @@ fn shore_review_assessment_add_rejects_old_intervention_flags() {
 fn shore_review_assessment_add_reports_unknown_input_request_target() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
-    let output = shore([
+    let output = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -884,7 +884,7 @@ fn shore_review_assessment_add_reports_unknown_input_request_target() {
 fn shore_review_assessment_add_summary_stdin_reads_from_stdin() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
     let output = shore_with_stdin(
         [
@@ -914,10 +914,10 @@ fn shore_review_assessment_add_summary_stdin_reads_from_stdin() {
 fn shore_review_assessment_add_targets_prior_assessment() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "Fix this");
 
-    let output = shore([
+    let output = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -946,10 +946,10 @@ fn shore_review_assessment_add_targets_prior_assessment() {
 fn shore_review_assessment_add_rejects_invalid_input() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let observation = add_observation(&repo, "Target conflict");
 
-    let missing_track = shore([
+    let missing_track = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -957,7 +957,7 @@ fn shore_review_assessment_add_rejects_invalid_input() {
         "--assessment",
         "accepted",
     ]);
-    let conflicting_target = shore([
+    let conflicting_target = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -971,7 +971,7 @@ fn shore_review_assessment_add_rejects_invalid_input() {
         "--file",
         "src/lib.rs",
     ]);
-    let side_without_file = shore([
+    let side_without_file = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -985,7 +985,7 @@ fn shore_review_assessment_add_rejects_invalid_input() {
         "--side",
         "old",
     ]);
-    let unknown_replacement = shore([
+    let unknown_replacement = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -1015,7 +1015,7 @@ fn shore_review_assessment_add_rejects_invalid_input() {
 }
 
 fn add_assessment(repo_arg: &str, track: &str, assessment: &str, summary: &str) -> Value {
-    let output = shore([
+    let output = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -1043,7 +1043,7 @@ fn assessment_show(repo: &GitRepo, args: &[&str]) -> Value {
         repo.path().to_str().unwrap(),
     ];
     command.extend(args);
-    let output = shore(command);
+    let output = pointbreak(command);
     assert!(
         output.status.success(),
         "assessment show failed: {}",
@@ -1054,7 +1054,7 @@ fn assessment_show(repo: &GitRepo, args: &[&str]) -> Value {
 
 fn add_observation(repo: &GitRepo, title: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -1070,7 +1070,7 @@ fn add_observation(repo: &GitRepo, title: &str) -> Value {
 
 fn open_input_request(repo: &GitRepo, title: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -1096,7 +1096,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_shore"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pointbreak"))
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
@@ -1104,12 +1104,14 @@ where
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn shore binary");
+        .expect("spawn pointbreak binary");
     child
         .stdin
         .as_mut()
         .unwrap()
         .write_all(stdin.as_bytes())
         .unwrap();
-    child.wait_with_output().expect("wait for shore binary")
+    child
+        .wait_with_output()
+        .expect("wait for pointbreak binary")
 }

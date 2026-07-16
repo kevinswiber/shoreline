@@ -28,9 +28,9 @@ fn cli_default_logging_has_empty_stderr() {
 fn cli_log_filter_writes_trace_output_to_stderr_without_polluting_stdout() {
     let repo = dump_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "--log",
-        "shore=debug",
+        "pointbreak=debug",
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -52,11 +52,11 @@ fn cli_log_filter_writes_trace_output_to_stderr_without_polluting_stdout() {
 #[test]
 fn cli_log_file_writes_trace_output_to_file_not_stdout_or_stderr() {
     let repo = dump_repo();
-    let log_path = repo.path().join("shore.log");
+    let log_path = repo.path().join("pointbreak.log");
 
-    let output = shore([
+    let output = pointbreak([
         "--log",
-        "shore=debug",
+        "pointbreak=debug",
         "--log-file",
         log_path.to_str().unwrap(),
         "history",
@@ -80,11 +80,11 @@ fn cli_log_file_writes_trace_output_to_file_not_stdout_or_stderr() {
 #[test]
 fn cli_log_json_format_writes_parseable_json_lines() {
     let repo = dump_repo();
-    let log_path = repo.path().join("shore.jsonl");
+    let log_path = repo.path().join("pointbreak.jsonl");
 
-    let output = shore([
+    let output = pointbreak([
         "--log",
-        "shore=debug",
+        "pointbreak=debug",
         "--log-format",
         "json",
         "--log-file",
@@ -120,33 +120,33 @@ fn cli_log_filter_precedence_is_flag_then_shore_log_then_rust_log() {
             repo.path().to_str().unwrap(),
         ],
         [
-            ("POINTBREAK_LOG", "shore=debug"),
-            ("RUST_LOG", "shore=debug"),
+            ("POINTBREAK_LOG", "pointbreak=debug"),
+            ("RUST_LOG", "pointbreak=debug"),
         ],
     );
     assert!(String::from_utf8_lossy(&flag_beats_env.stderr).is_empty());
 
     let shore_log_beats_rust_log = shore_with_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
-        [("POINTBREAK_LOG", "off"), ("RUST_LOG", "shore=debug")],
+        [("POINTBREAK_LOG", "off"), ("RUST_LOG", "pointbreak=debug")],
     );
     assert!(String::from_utf8_lossy(&shore_log_beats_rust_log.stderr).is_empty());
 }
 
 #[test]
 fn cli_log_invalid_filter_exits_nonzero() {
-    let output = shore(["--log", "[", "history", "--repo", "."]);
+    let output = pointbreak(["--log", "[", "history", "--repo", "."]);
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid log filter"));
 }
 
-fn shore<I, S>(args: I) -> Output
+fn pointbreak<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    command(args).output().expect("run shore binary")
+    command(args).output().expect("run pointbreak binary")
 }
 
 fn shore_without_log_env<I, S>(args: I) -> Output
@@ -158,7 +158,7 @@ where
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         .output()
-        .expect("run shore binary")
+        .expect("run pointbreak binary")
 }
 
 fn shore_with_env<I, S, E, K, V>(args: I, env: E) -> Output
@@ -169,7 +169,10 @@ where
     K: AsRef<std::ffi::OsStr>,
     V: AsRef<std::ffi::OsStr>,
 {
-    command(args).envs(env).output().expect("run shore binary")
+    command(args)
+        .envs(env)
+        .output()
+        .expect("run pointbreak binary")
 }
 
 fn command<I, S>(args: I) -> Command
@@ -177,7 +180,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
     command
         .args(args)
         // Isolate byte-asserting tracing tests from an ambient output-lane selector;

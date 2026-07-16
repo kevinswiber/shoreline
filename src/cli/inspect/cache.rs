@@ -25,7 +25,7 @@ pub(super) type HistoryProjectionCache = MarkerCache<HistoryCacheKey, BaseHistor
 
 /// Cache key for the history base projection: the store version (head marker)
 /// plus the WHOLE discovered configuration the build renders with, held by
-/// value (the documents are small and structurally comparable). `shore key
+/// value (the documents are small and structurally comparable). `pointbreak key
 /// enroll`, or any edit to the committed allowed-signers / actor-attributes /
 /// delegates documents, changes trust-dependent rendering without appending an
 /// event, so the key must carry them or enrollment would serve a stale base
@@ -48,10 +48,10 @@ pub(super) type RevisionsResponseCache = MarkerCache<RevisionsCacheKey, String>;
 /// Cache key for the `/api/revisions` payload: the store version (head marker)
 /// plus the two non-event inputs the build reads. The trust set (held by
 /// value — the allowed-signers document is small and structurally comparable)
-/// covers `shore key enroll` and allowed-signers edits, which change
+/// covers `pointbreak key enroll` and allowed-signers edits, which change
 /// operative-removal decisions without appending an event (#426). The
 /// commit-graph stamp covers pure-git ref moves — most importantly the landing
-/// itself, a fast-forward that flips `mergeStatus` open→merged with no shore
+/// itself, a fast-forward that flips `mergeStatus` open→merged with no Pointbreak
 /// event — which would otherwise serve stale until an unrelated event moved
 /// the marker (#467).
 #[derive(Clone, Debug, Eq, PartialEq)]

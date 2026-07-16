@@ -1,4 +1,4 @@
-//! Theme selection for `shore diff`'s truecolor lane: preference grammar,
+//! Theme selection for `pointbreak diff`'s truecolor lane: preference grammar,
 //! precedence, palettes, and terminal-background detection.
 
 use std::borrow::Cow;
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn unknown_name_warns_and_falls_back_when_inherited() {
-        // BAT_THEME may name a user-cached bat theme shore does not embed —
+        // BAT_THEME may name a user-cached bat theme Pointbreak does not embed —
         // warn once and behave as Auto.
         let sel = selection(
             ThemePreference::Named("no-such-theme".to_string()),
@@ -573,7 +573,7 @@ mod tests {
     #[test]
     fn theme_lookup_is_case_insensitive() {
         // bat/delta never fail on a miscased name (they warn and fall back to
-        // the default, masking the miss); shore goes one better and resolves
+        // the default, masking the miss); Pointbreak goes one better and resolves
         // the requested theme case-insensitively.
         let canonical = theme_by_name("Monokai Extended").unwrap();
         let lower = theme_by_name("monokai extended").unwrap();
@@ -670,7 +670,7 @@ mod tests {
             parse_theme_value("default"),
             ThemePreference::Mode(DiffMode::Dark)
         );
-        // bat's extended auto grammar collapses to Auto (shore's gate governs).
+        // bat's extended auto grammar collapses to Auto (Pointbreak's gate governs).
         assert_eq!(parse_theme_value("auto:always"), ThemePreference::Auto);
         assert_eq!(parse_theme_value("auto:system"), ThemePreference::Auto);
         // Anything else is a named theme, verbatim (names are case-sensitive).

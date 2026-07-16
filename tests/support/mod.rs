@@ -12,39 +12,39 @@ pub mod inspect;
 pub mod snapshots;
 
 #[allow(dead_code)]
-pub fn shore<I, S>(args: I) -> Output
+pub fn pointbreak<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_shore"))
+    Command::new(env!("CARGO_BIN_EXE_pointbreak"))
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         // Isolate byte-asserting tests from a developer's ambient output-lane
-        // selector; tests that exercise POINTBREAK_FORMAT set it explicitly via shore_env.
+        // selector; tests that exercise POINTBREAK_FORMAT set it explicitly via pointbreak_env.
         .env_remove("POINTBREAK_FORMAT")
         // Isolate color-asserting tests from an ambient NO_COLOR / CLICOLOR_FORCE;
         // color tests select the lane explicitly with `--color`.
         .env_remove("NO_COLOR")
         .env_remove("CLICOLOR_FORCE")
         // Isolate theme-asserting tests from a developer's ambient theme
-        // selection; theme tests set these explicitly via shore_env.
+        // selection; theme tests set these explicitly via pointbreak_env.
         .env_remove("POINTBREAK_THEME")
         .env_remove("BAT_THEME")
         .output()
-        .expect("run shore binary")
+        .expect("run pointbreak binary")
 }
 
-/// Run `shore` with extra environment variables — e.g. `POINTBREAK_ACTOR_ID` to
+/// Run `pointbreak` with extra environment variables — e.g. `POINTBREAK_ACTOR_ID` to
 /// attribute a write to a specific actor.
 #[allow(dead_code)]
-pub fn shore_env<I, S>(args: I, env: &[(&str, &str)]) -> Output
+pub fn pointbreak_env<I, S>(args: I, env: &[(&str, &str)]) -> Output
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
     command
         .args(args)
         .env_remove("POINTBREAK_LOG")
@@ -57,7 +57,7 @@ where
     for (key, value) in env {
         command.env(key, value);
     }
-    command.output().expect("run shore binary")
+    command.output().expect("run pointbreak binary")
 }
 
 #[allow(dead_code)]
@@ -76,7 +76,7 @@ pub fn superseded_dump_repo() -> (git_repo::GitRepo, String, String) {
     let repo = dump_repo();
     let repo_arg = repo.path().to_str().expect("temporary path is utf-8");
     let first: serde_json::Value =
-        serde_json::from_slice(&shore(["capture", "--repo", repo_arg]).stdout)
+        serde_json::from_slice(&pointbreak(["capture", "--repo", repo_arg]).stdout)
             .expect("first capture emits JSON");
     let first_id = first["revision"]["id"]
         .as_str()
@@ -84,7 +84,7 @@ pub fn superseded_dump_repo() -> (git_repo::GitRepo, String, String) {
         .to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let second: serde_json::Value = serde_json::from_slice(
-        &shore(["capture", "--repo", repo_arg, "--supersedes", &first_id]).stdout,
+        &pointbreak(["capture", "--repo", repo_arg, "--supersedes", &first_id]).stdout,
     )
     .expect("second capture emits JSON");
     let second_id = second["revision"]["id"]
@@ -109,7 +109,7 @@ pub fn committed_repo() -> git_repo::GitRepo {
 /// The shared common-dir store a clone resolves by default
 /// (`<git-common-dir>/pointbreak`, i.e. `.git/pointbreak`). Every non-ephemeral worktree of
 /// a clone — main and linked — reads and writes here, with no `store link`. Use
-/// this for store-path assertions after a `shore` write instead of the raw
+/// this for store-path assertions after a `pointbreak` write instead of the raw
 /// worktree-local `.pointbreak/data`.
 #[allow(dead_code)]
 pub fn common_dir_store(repo_root: &Path) -> std::path::PathBuf {

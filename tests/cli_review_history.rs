@@ -4,14 +4,14 @@ use pointbreak::model::ValidationStatus;
 use pointbreak::session::{ValidationAddOptions, record_validation_check};
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{shore, shore_env};
+use support::{pointbreak, pointbreak_env};
 
 #[test]
 fn history_is_available_at_the_top_level() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore(["history", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["history", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -25,11 +25,12 @@ fn history_is_available_at_the_top_level() {
 #[test]
 fn history_revision_filter_accepts_a_bare_fragment() {
     let repo = modified_repo();
-    let captured = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let captured =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let full = captured["revision"]["id"].as_str().unwrap();
     let fragment = &full["rev:sha256:".len()..][..8];
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -52,9 +53,10 @@ fn history_revision_filter_accepts_a_bare_fragment() {
 #[test]
 fn review_history_emits_v1_json_with_freshness_metadata() {
     let repo = modified_repo();
-    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let output = shore(["history", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["history", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -84,9 +86,9 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
 #[test]
 fn history_entries_serialize_writer_without_role() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore(["history", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["history", "--repo", repo.path().to_str().unwrap()]);
     let json = parse_json(&output.stdout);
 
     let writer = &json["entries"][0]["writer"];
@@ -105,9 +107,9 @@ fn history_entries_serialize_writer_without_role() {
 #[test]
 fn review_history_json_pretty_prints() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -121,11 +123,11 @@ fn review_history_json_pretty_prints() {
 #[test]
 fn review_history_filters_by_track_and_event_type() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation(&repo, "agent:codex", "Keep");
     add_observation(&repo, "agent:claude", "Drop");
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -148,10 +150,10 @@ fn review_history_filters_by_track_and_event_type() {
 #[test]
 fn review_history_summary_surfaces_responds_to() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let base = add_observation(&repo, "agent:codex", "Base");
     let base_id = base["observationId"].as_str().unwrap().to_owned();
-    shore([
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -164,7 +166,7 @@ fn review_history_summary_surfaces_responds_to() {
         &base_id,
     ]);
 
-    let output = shore(["history", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["history", "--repo", repo.path().to_str().unwrap()]);
     let json = parse_json(&output.stdout);
     let ack = json["entries"]
         .as_array()
@@ -200,10 +202,10 @@ fn review_history_summary_surfaces_responds_to() {
 #[test]
 fn review_history_include_body_hydrates_text_without_artifact_paths() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation_with_body(&repo, "agent:codex", "Body", "history details");
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -219,7 +221,7 @@ fn review_history_include_body_hydrates_text_without_artifact_paths() {
 #[test]
 fn review_history_filters_input_request_events_and_hydrates_text() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = add_input_request_with_body(&repo, "request details");
     respond_to_input_request(
         &repo,
@@ -227,7 +229,7 @@ fn review_history_filters_input_request_events_and_hydrates_text() {
         "approved",
     );
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -264,11 +266,11 @@ fn review_history_filters_input_request_events_and_hydrates_text() {
 #[test]
 fn cli_review_history_filters_validation_check_recorded() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_validation_check(&repo);
     add_observation(&repo, "agent:codex", "Other event");
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -299,11 +301,11 @@ fn cli_review_history_filters_validation_check_recorded() {
 #[test]
 fn review_history_input_request_opened_uses_envelope_mode_values() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let operative = add_input_request_with_body(&repo, "operative details");
     let advisory = add_input_request_with_mode(&repo, "FYI", "advisory");
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -328,10 +330,10 @@ fn review_history_input_request_opened_uses_envelope_mode_values() {
 #[test]
 fn review_history_rejects_legacy_input_request_event_filter_names() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     for event_type in ["intervention-requested", "intervention-resolved"] {
-        let output = shore([
+        let output = pointbreak([
             "history",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -351,11 +353,13 @@ fn review_history_rejects_legacy_input_request_event_filter_names() {
 #[test]
 fn review_history_filters_by_revision() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -378,11 +382,11 @@ fn review_history_filters_by_revision() {
 #[test]
 fn review_history_reports_duplicate_semantic_diagnostics_without_collapsing_entries() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation_with_key(&repo, "retry-a");
     add_observation_with_key(&repo, "retry-b");
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -405,7 +409,7 @@ fn review_history_reports_duplicate_semantic_diagnostics_without_collapsing_entr
 fn review_history_succeeds_without_events() {
     let repo = GitRepo::new();
 
-    let output = shore(["history", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["history", "--repo", repo.path().to_str().unwrap()]);
     let json = parse_json(&output.stdout);
 
     assert!(output.status.success());
@@ -420,7 +424,7 @@ fn history_renders_verification_status_for_a_signed_capture() {
     let env_home = home.path().to_str().unwrap();
     // A present-but-unenrolled key → signs, verifies untrusted_key under the empty trust set.
     assert!(
-        shore_env(
+        pointbreak_env(
             ["key", "init", "--name", "default"],
             &[("POINTBREAK_HOME", env_home)]
         )
@@ -431,7 +435,7 @@ fn history_renders_verification_status_for_a_signed_capture() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", repo_arg],
             &[("POINTBREAK_HOME", env_home)],
         )
@@ -439,7 +443,7 @@ fn history_renders_verification_status_for_a_signed_capture() {
         .success()
     );
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["history", "--repo", repo_arg],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -464,7 +468,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
     assert!(
-        shore_env(
+        pointbreak_env(
             ["key", "init", "--name", "default"],
             &[("POINTBREAK_HOME", env_home)]
         )
@@ -476,7 +480,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     // Capture UNSIGNED so the detached endorsement carrier is never deduped against an
     // inline member; endorse by a DISTINCT actor (kevin) with the minted key.
     assert!(
-        shore_env(
+        pointbreak_env(
             ["capture", "--repo", repo_arg],
             &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
         )
@@ -485,7 +489,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     );
     let target = captured_event_id(repo.path());
     assert!(
-        shore_env(
+        pointbreak_env(
             ["endorse", &target, "--repo", repo_arg],
             &[
                 ("POINTBREAK_HOME", env_home),
@@ -496,7 +500,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
         .success()
     );
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["history", "--repo", repo_arg],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -530,15 +534,15 @@ fn captured_event_id(repo_path: &std::path::Path) -> String {
 fn review_history_limit_windows_and_emits_next_cursor() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
 
-    let full = parse_json(&shore(["history", "--repo", path]).stdout);
+    let full = parse_json(&pointbreak(["history", "--repo", path]).stdout);
     let total = full["entries"].as_array().unwrap().len();
     assert!(total >= 3, "expected several history entries, got {total}");
 
-    let page = parse_json(&shore(["history", "--repo", path, "--limit", "2"]).stdout);
+    let page = parse_json(&pointbreak(["history", "--repo", path, "--limit", "2"]).stdout);
     assert_eq!(page["entries"].as_array().unwrap().len(), 2);
     assert!(page["nextCursor"].is_string());
     // Identity stays the full set, never the window.
@@ -549,14 +553,15 @@ fn review_history_limit_windows_and_emits_next_cursor() {
 fn review_history_cursor_continues_without_overlap() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
 
-    let page1 = parse_json(&shore(["history", "--repo", path, "--limit", "2"]).stdout);
+    let page1 = parse_json(&pointbreak(["history", "--repo", path, "--limit", "2"]).stdout);
     let token = page1["nextCursor"].as_str().expect("a continuation token");
-    let page2 =
-        parse_json(&shore(["history", "--repo", path, "--limit", "2", "--cursor", token]).stdout);
+    let page2 = parse_json(
+        &pointbreak(["history", "--repo", path, "--limit", "2", "--cursor", token]).stdout,
+    );
 
     // Page two continues strictly after page one — no overlap.
     assert_ne!(
@@ -569,9 +574,9 @@ fn review_history_cursor_continues_without_overlap() {
 fn review_history_unparamd_carries_null_next_cursor() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
 
-    let doc = parse_json(&shore(["history", "--repo", path]).stdout);
+    let doc = parse_json(&pointbreak(["history", "--repo", path]).stdout);
     // Additive and backward-compatible: the field is always present, null when
     // no window was requested.
     let obj = doc.as_object().expect("document is an object");
@@ -586,9 +591,9 @@ fn review_history_unparamd_carries_null_next_cursor() {
 fn review_history_rejects_malformed_cursor() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
 
-    let output = shore(["history", "--repo", path, "--cursor", "not-a-cursor!!"]);
+    let output = pointbreak(["history", "--repo", path, "--cursor", "not-a-cursor!!"]);
     assert!(
         !output.status.success(),
         "a malformed --cursor is a usage error, not a silent full read"
@@ -599,14 +604,14 @@ fn review_history_rejects_malformed_cursor() {
 fn tail_prints_the_newest_n_oldest_first() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "first");
     std::thread::sleep(std::time::Duration::from_millis(2));
     add_observation(&repo, "agent:codex", "second");
     std::thread::sleep(std::time::Duration::from_millis(2));
     add_observation(&repo, "agent:codex", "third");
 
-    let output = shore([
+    let output = pointbreak([
         "history",
         "--repo",
         path,
@@ -638,7 +643,7 @@ fn tail_conflicts_with_limit_and_cursor() {
     let path = repo.path().to_str().unwrap();
 
     for conflicting in [["--limit", "1"], ["--cursor", "opaque"]] {
-        let output = shore([
+        let output = pointbreak([
             "history",
             "--repo",
             path,
@@ -663,7 +668,7 @@ fn tail_conflicts_with_limit_and_cursor() {
 fn tail_composes_with_filter() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "oldest observation");
     std::thread::sleep(std::time::Duration::from_millis(2));
     add_validation_check(&repo);
@@ -673,7 +678,7 @@ fn tail_composes_with_filter() {
     add_observation(&repo, "agent:codex", "newest observation");
 
     let document = parse_json(
-        &shore([
+        &pointbreak([
             "history",
             "--repo",
             path,
@@ -699,9 +704,9 @@ fn tail_composes_with_filter() {
 fn history_filter_narrows_by_type() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "an observation");
-    shore([
+    pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -712,7 +717,7 @@ fn history_filter_narrows_by_type() {
         "accepted",
     ]);
 
-    let out = shore(["history", "--repo", path, "--filter", "type:assessment"]);
+    let out = pointbreak(["history", "--repo", path, "--filter", "type:assessment"]);
     assert!(
         out.status.success(),
         "stderr:\n{}",
@@ -738,8 +743,8 @@ fn history_filter_narrows_by_type() {
 fn history_filter_tag_matches_first_colon_key_and_full_string() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
-    shore([
+    pointbreak(["capture", "--repo", path]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -753,7 +758,8 @@ fn history_filter_tag_matches_first_colon_key_and_full_string() {
     ]);
 
     // The full tag string matches the dual index.
-    let full = parse_json(&shore(["history", "--repo", path, "--filter", "tag:issue:191"]).stdout);
+    let full =
+        parse_json(&pointbreak(["history", "--repo", path, "--filter", "tag:issue:191"]).stdout);
     assert!(
         full["entries"]
             .as_array()
@@ -762,7 +768,7 @@ fn history_filter_tag_matches_first_colon_key_and_full_string() {
             .any(|e| e["summary"]["title"] == "Tagged")
     );
     // The first-colon key matches the same record.
-    let key = parse_json(&shore(["history", "--repo", path, "--filter", "tag:issue"]).stdout);
+    let key = parse_json(&pointbreak(["history", "--repo", path, "--filter", "tag:issue"]).stdout);
     assert!(
         key["entries"]
             .as_array()
@@ -776,11 +782,11 @@ fn history_filter_tag_matches_first_colon_key_and_full_string() {
 fn history_filter_rejects_unsupported_qualifier_nonzero() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
 
     // `attention:` is known-but-unsupported on the event surface: a
     // diagnostic and a non-zero exit, never a silent-empty match.
-    let out = shore(["history", "--repo", path, "--filter", "attention:x"]);
+    let out = pointbreak(["history", "--repo", path, "--filter", "attention:x"]);
     assert!(
         !out.status.success(),
         "an unsupported qualifier is a usage error"
@@ -796,12 +802,12 @@ fn history_filter_rejects_unsupported_qualifier_nonzero() {
 fn history_filter_status_alias_runs_and_hints_on_stderr() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_validation_check(&repo); // records a passed validation check on agent:codex
 
     // `status:` aliases to `check:` on the event surface — the command
     // runs (exit 0) and emits a deprecation hint on stderr.
-    let out = shore(["history", "--repo", path, "--filter", "status:passed"]);
+    let out = pointbreak(["history", "--repo", path, "--filter", "status:passed"]);
     assert!(
         out.status.success(),
         "the deprecated alias still runs: {}",
@@ -826,7 +832,7 @@ fn history_filter_status_alias_runs_and_hints_on_stderr() {
 fn history_filter_applies_before_windowing() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
     add_validation_check(&repo);
@@ -835,7 +841,7 @@ fn history_filter_applies_before_windowing() {
     // filtered set: the single entry is an observation (never the capture/validation),
     // and a nextCursor remains because two observations matched.
     let page = parse_json(
-        &shore([
+        &pointbreak([
             "history",
             "--repo",
             path,
@@ -866,11 +872,11 @@ fn history_filter_composes_with_ref() {
     repo.git(["branch", "-M", "main"]);
     let path = repo.path().to_str().unwrap();
     // A commit-range capture anchors the target (HEAD) commit under refs/heads/main.
-    shore(["capture", "--repo", path, "--base", "HEAD~1"]);
+    pointbreak(["capture", "--repo", path, "--base", "HEAD~1"]);
 
     // --ref and --filter compose: the ref narrows to the capture's revision, grammar to captures.
     let matched = parse_json(
-        &shore([
+        &pointbreak([
             "history",
             "--repo",
             path,
@@ -894,7 +900,7 @@ fn history_filter_composes_with_ref() {
     // A ref matching no unit yields nothing, even though type:capture would otherwise match —
     // proof --ref applies alongside --filter before windowing.
     let unmatched = parse_json(
-        &shore([
+        &pointbreak([
             "history",
             "--repo",
             path,
@@ -912,12 +918,12 @@ fn history_filter_composes_with_ref() {
 fn history_filter_body_visibility_follows_include_body_flag() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     add_observation_with_body(&repo, "agent:codex", "Body", "searchable detail");
 
     // Without --include-body: output rides the flagless path, which omits body text.
     let plain =
-        parse_json(&shore(["history", "--repo", path, "--filter", "type:observation"]).stdout);
+        parse_json(&pointbreak(["history", "--repo", path, "--filter", "type:observation"]).stdout);
     let obs = plain["entries"]
         .as_array()
         .unwrap()
@@ -930,14 +936,15 @@ fn history_filter_body_visibility_follows_include_body_flag() {
     );
     assert!(
         !String::from_utf8_lossy(
-            &shore(["history", "--repo", path, "--filter", "type:observation"]).stdout
+            &pointbreak(["history", "--repo", path, "--filter", "type:observation"]).stdout
         )
         .contains("artifacts/notes/"),
         "no artifact paths leak"
     );
 
     // A body-word free-text term still MATCHES (the oracle hydrates), body still not shown.
-    let searched = parse_json(&shore(["history", "--repo", path, "--filter", "searchable"]).stdout);
+    let searched =
+        parse_json(&pointbreak(["history", "--repo", path, "--filter", "searchable"]).stdout);
     assert!(
         searched["entries"]
             .as_array()
@@ -949,7 +956,7 @@ fn history_filter_body_visibility_follows_include_body_flag() {
 
     // With --include-body: the body text is hydrated in the output.
     let hydrated = parse_json(
-        &shore([
+        &pointbreak([
             "history",
             "--repo",
             path,
@@ -990,7 +997,7 @@ fn modified_repo() -> GitRepo {
 
 fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -1016,7 +1023,7 @@ fn add_validation_check(repo: &GitRepo) {
 
 fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -1034,7 +1041,7 @@ fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &st
 
 fn add_observation_with_key(repo: &GitRepo, key: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "add",
             "--repo",
@@ -1054,7 +1061,7 @@ fn add_observation_with_key(repo: &GitRepo, key: &str) -> Value {
 
 fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -1074,7 +1081,7 @@ fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
 
 fn add_input_request_with_mode(repo: &GitRepo, title: &str, mode: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -1094,7 +1101,7 @@ fn add_input_request_with_mode(repo: &GitRepo, title: &str, mode: &str) -> Value
 
 fn respond_to_input_request(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "respond",
             "--repo",

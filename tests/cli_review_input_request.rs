@@ -6,13 +6,13 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 #[test]
 fn input_request_open_runs_at_top_level() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    let output = shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -39,10 +39,10 @@ fn input_request_open_runs_at_top_level() {
 #[test]
 fn input_request_show_reads_back_with_frozen_fetch_schema() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request_with_body(&repo, "Need details", "full request body");
     let id = requested["inputRequestId"].as_str().unwrap();
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "show",
         id,
@@ -65,7 +65,7 @@ fn input_request_show_reads_back_with_frozen_fetch_schema() {
 #[test]
 fn input_request_show_accepts_a_prefixed_short_id() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let full = request(&repo, "Need approval")["inputRequestId"]
         .as_str()
         .unwrap()
@@ -73,7 +73,7 @@ fn input_request_show_accepts_a_prefixed_short_id() {
     // full = "input-request:sha256:<64hex>"; prefixed-short = "input-request:<first 8 hex>".
     let hex = full.rsplit(':').next().unwrap();
     let short = format!("input-request:{}", &hex[..8]);
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "show",
         &short,
@@ -92,9 +92,9 @@ fn input_request_show_accepts_a_prefixed_short_id() {
 fn open_accepts_insufficient_evidence_reason() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
 
-    let opened = shore([
+    let opened = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -116,7 +116,7 @@ fn open_accepts_insufficient_evidence_reason() {
     let opened_json = parse_json(&opened.stdout);
     assert_eq!(opened_json["reasonCode"], "insufficient_evidence");
 
-    let listed = shore([
+    let listed = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -139,9 +139,9 @@ fn open_accepts_insufficient_evidence_reason() {
 #[test]
 fn input_request_open_defaults_to_operative_mode_and_emits_v1_json() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -186,9 +186,9 @@ fn input_request_open_defaults_to_operative_mode_and_emits_v1_json() {
 #[test]
 fn input_request_open_accepts_advisory_and_rejects_blocking() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let advisory = shore([
+    let advisory = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -210,7 +210,7 @@ fn input_request_open_accepts_advisory_and_rejects_blocking() {
     let json = parse_json(&advisory.stdout);
     assert_eq!(json["mode"], "advisory");
 
-    let blocking = shore([
+    let blocking = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -231,10 +231,10 @@ fn input_request_open_accepts_advisory_and_rejects_blocking() {
 #[test]
 fn input_request_list_emits_v1_json_and_json_pretty_prints() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     request(&repo, "First");
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -263,9 +263,9 @@ fn input_request_list_emits_v1_json_and_json_pretty_prints() {
 #[test]
 fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     request(&repo, "Default");
-    shore([
+    pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -280,7 +280,7 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
         "advisory",
     ]);
 
-    let operative = shore([
+    let operative = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -298,7 +298,7 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     assert_eq!(operative_json["inputRequests"][0]["title"], "Default");
     assert_eq!(operative_json["inputRequests"][0]["mode"], "operative");
 
-    let advisory = shore([
+    let advisory = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -316,7 +316,7 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     assert_eq!(advisory_json["inputRequests"][0]["title"], "Advisory");
     assert_eq!(advisory_json["inputRequests"][0]["mode"], "advisory");
 
-    let blocking = shore([
+    let blocking = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -331,10 +331,10 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
 #[test]
 fn input_request_list_collapses_duplicate_request_events() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let first = parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -353,7 +353,7 @@ fn input_request_list_collapses_duplicate_request_events() {
         .stdout,
     );
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -372,7 +372,7 @@ fn input_request_list_collapses_duplicate_request_events() {
         .stdout,
     );
 
-    let list = shore([
+    let list = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -400,11 +400,11 @@ fn input_request_list_collapses_duplicate_request_events() {
 #[test]
 fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request_with_body(&repo, "Need details", "full request body");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "show",
         input_request_id,
@@ -433,11 +433,11 @@ fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
 #[test]
 fn input_request_respond_records_response_and_emits_v1_json() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "respond",
         input_request_id,
@@ -473,12 +473,12 @@ fn input_request_respond_records_response_and_emits_v1_json() {
 #[test]
 fn input_request_fetch_collapses_duplicate_response_events() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
     let first = parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "respond",
             input_request_id,
@@ -494,7 +494,7 @@ fn input_request_fetch_collapses_duplicate_response_events() {
         .stdout,
     );
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "respond",
             input_request_id,
@@ -510,7 +510,7 @@ fn input_request_fetch_collapses_duplicate_response_events() {
         .stdout,
     );
 
-    let fetch = shore([
+    let fetch = pointbreak([
         "input-request",
         "show",
         input_request_id,
@@ -546,10 +546,10 @@ fn input_request_fetch_collapses_duplicate_response_events() {
 #[test]
 fn input_request_list_filters_responded_requests() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
-    let response = shore([
+    let response = pointbreak([
         "input-request",
         "respond",
         input_request_id,
@@ -564,7 +564,7 @@ fn input_request_list_filters_responded_requests() {
         String::from_utf8_lossy(&response.stderr)
     );
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -588,7 +588,7 @@ fn input_request_list_filters_responded_requests() {
 #[test]
 fn input_request_open_body_stdin_reads_from_stdin() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore_with_stdin(
         [
@@ -613,7 +613,7 @@ fn input_request_open_body_stdin_reads_from_stdin() {
     );
     let requested = parse_json(&output.stdout);
 
-    let fetch = shore([
+    let fetch = pointbreak([
         "input-request",
         "show",
         requested["inputRequestId"].as_str().unwrap(),
@@ -628,7 +628,7 @@ fn input_request_open_body_stdin_reads_from_stdin() {
 #[test]
 fn input_request_respond_reason_stdin_reads_from_stdin() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
@@ -662,9 +662,9 @@ fn input_request_respond_reason_stdin_reads_from_stdin() {
 #[test]
 fn input_request_open_requires_track() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -682,9 +682,9 @@ fn input_request_open_requires_track() {
 #[test]
 fn input_request_open_rejects_invalid_reason_and_mode_values() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let bad_reason = shore([
+    let bad_reason = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -696,7 +696,7 @@ fn input_request_open_rejects_invalid_reason_and_mode_values() {
         "--reason",
         "not-a-reason",
     ]);
-    let bad_mode = shore([
+    let bad_mode = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -720,10 +720,10 @@ fn input_request_open_rejects_invalid_reason_and_mode_values() {
 #[test]
 fn input_request_respond_rejects_invalid_outcome() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "respond",
         requested["inputRequestId"].as_str().unwrap(),
@@ -740,8 +740,8 @@ fn input_request_respond_rejects_invalid_outcome() {
 #[test]
 fn input_request_open_observation_target_conflicts_with_file_and_lines() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    let observation = shore([
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let observation = pointbreak([
         "observation",
         "add",
         "--repo",
@@ -753,7 +753,7 @@ fn input_request_open_observation_target_conflicts_with_file_and_lines() {
     ]);
     let observation_json = parse_json(&observation.stdout);
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -781,11 +781,11 @@ fn input_request_open_observation_target_conflicts_with_file_and_lines() {
 #[test]
 fn input_request_open_body_inputs_are_mutually_exclusive() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let body_file = repo.path().join("body.txt");
     std::fs::write(&body_file, "file body").unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -809,12 +809,12 @@ fn input_request_open_body_inputs_are_mutually_exclusive() {
 #[test]
 fn input_request_respond_reason_inputs_are_mutually_exclusive() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let reason_file = repo.path().join("reason.txt");
     std::fs::write(&reason_file, "file reason").unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "respond",
         requested["inputRequestId"].as_str().unwrap(),
@@ -835,12 +835,14 @@ fn input_request_respond_reason_inputs_are_mutually_exclusive() {
 #[test]
 fn input_request_open_requires_revision_when_current_is_ambiguous() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
-    let ambiguous = shore([
+    let ambiguous = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -855,7 +857,7 @@ fn input_request_open_requires_revision_when_current_is_ambiguous() {
     assert!(!ambiguous.status.success());
     assert!(String::from_utf8_lossy(&ambiguous.stderr).contains("multiple captured revisions"));
 
-    let explicit = shore([
+    let explicit = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -882,7 +884,7 @@ fn input_request_open_requires_revision_when_current_is_ambiguous() {
 fn unknown_top_level_commands_keep_clap_suggestions() {
     // A typo of a top-level command still draws clap's did-you-mean suggestion;
     // the removed-command hint table never suppresses it.
-    let output = shore(["revison"]);
+    let output = pointbreak(["revison"]);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -891,7 +893,7 @@ fn unknown_top_level_commands_keep_clap_suggestions() {
         "stderr:\n{stderr}"
     );
     assert!(stderr.contains("revision"), "stderr:\n{stderr}");
-    assert!(stderr.contains("Usage: shore"), "stderr:\n{stderr}");
+    assert!(stderr.contains("Usage: pointbreak"), "stderr:\n{stderr}");
 }
 
 fn request(repo: &GitRepo, title: &str) -> Value {
@@ -914,7 +916,7 @@ fn request_with_body(repo: &GitRepo, title: &str, body: &str) -> Value {
     if !body.is_empty() {
         args.extend(["--body", body]);
     }
-    parse_json(&shore(args).stdout)
+    parse_json(&pointbreak(args).stdout)
 }
 
 fn shore_with_stdin<I, S>(args: I, stdin: &str) -> Output
@@ -922,7 +924,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_shore"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pointbreak"))
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
@@ -930,22 +932,22 @@ where
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn shore binary");
+        .expect("spawn pointbreak binary");
     child
         .stdin
         .as_mut()
-        .expect("shore stdin is piped")
+        .expect("pointbreak stdin is piped")
         .write_all(stdin.as_bytes())
-        .expect("write shore stdin");
-    child.wait_with_output().expect("run shore binary")
+        .expect("write pointbreak stdin");
+    child.wait_with_output().expect("run pointbreak binary")
 }
 
 #[test]
 fn text_input_request_list_shows_open_titles() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
-    shore([
+    pointbreak(["capture", "--repo", repo_arg]);
+    pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -959,7 +961,7 @@ fn text_input_request_list_shows_open_titles() {
         "--mode",
         "advisory",
     ]);
-    shore([
+    pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -974,7 +976,7 @@ fn text_input_request_list_shows_open_titles() {
         "operative",
     ]);
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -995,9 +997,9 @@ fn text_input_request_list_shows_open_titles() {
 fn text_respond_ack_confirms_outcome() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", repo_arg]);
+    pointbreak(["capture", "--repo", repo_arg]);
     let requested = parse_json(
-        &shore([
+        &pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -1013,7 +1015,7 @@ fn text_respond_ack_confirms_outcome() {
     );
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "respond",
         input_request_id,
@@ -1071,7 +1073,7 @@ fn modified_repo() -> GitRepo {
 
 /// Respond to `input_request_id` with `reason`; returns the respond document.
 fn respond_with_reason(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
-    let output = shore([
+    let output = pointbreak([
         "input-request",
         "respond",
         input_request_id,
@@ -1106,7 +1108,7 @@ fn delete_note_blob(repo: &GitRepo, content_hash: &str) {
 #[test]
 fn externalized_response_reason_hydrates_with_include_body() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
     let reason = "x".repeat(5000);
@@ -1117,7 +1119,7 @@ fn externalized_response_reason_hydrates_with_include_body() {
     );
     let arg = repo.path().to_str().unwrap();
 
-    let list = shore([
+    let list = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -1138,7 +1140,7 @@ fn externalized_response_reason_hydrates_with_include_body() {
         "list --include-body must hydrate the externalized reason"
     );
 
-    let fetch = shore([
+    let fetch = pointbreak([
         "input-request",
         "show",
         input_request_id,
@@ -1158,7 +1160,7 @@ fn externalized_response_reason_hydrates_with_include_body() {
         "fetch --include-body must hydrate the externalized reason"
     );
 
-    let show = shore(["revision", "show", "--repo", arg, "--include-body"]);
+    let show = pointbreak(["revision", "show", "--repo", arg, "--include-body"]);
     assert!(
         show.status.success(),
         "stderr:\n{}",
@@ -1175,13 +1177,13 @@ fn externalized_response_reason_hydrates_with_include_body() {
 #[test]
 fn response_reason_renders_only_with_include_body() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
     respond_with_reason(&repo, input_request_id, "a short inline reason");
     let arg = repo.path().to_str().unwrap();
 
-    let without = shore(["input-request", "list", "--repo", arg, "--status", "all"]);
+    let without = pointbreak(["input-request", "list", "--repo", arg, "--status", "all"]);
     assert!(
         without.status.success(),
         "stderr:\n{}",
@@ -1196,7 +1198,7 @@ fn response_reason_renders_only_with_include_body() {
     );
     assert!(response["reasonContentHash"].as_str().is_some());
 
-    let with = shore([
+    let with = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -1215,7 +1217,7 @@ fn response_reason_renders_only_with_include_body() {
 #[test]
 fn missing_reason_artifact_errors_only_when_reading() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
     let responded = respond_with_reason(&repo, input_request_id, &"x".repeat(5000));
@@ -1227,7 +1229,7 @@ fn missing_reason_artifact_errors_only_when_reading() {
     );
     let arg = repo.path().to_str().unwrap();
 
-    let hydrating = shore([
+    let hydrating = pointbreak([
         "input-request",
         "show",
         input_request_id,
@@ -1245,7 +1247,7 @@ fn missing_reason_artifact_errors_only_when_reading() {
         String::from_utf8_lossy(&hydrating.stderr)
     );
 
-    let state_only = shore(["input-request", "show", input_request_id, "--repo", arg]);
+    let state_only = pointbreak(["input-request", "show", input_request_id, "--repo", arg]);
     assert!(
         state_only.status.success(),
         "without --include-body no read is attempted, so no error: stderr:\n{}",
@@ -1257,7 +1259,7 @@ fn missing_reason_artifact_errors_only_when_reading() {
 fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads() {
     let repo = modified_repo();
     let arg = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", arg]);
+    pointbreak(["capture", "--repo", arg]);
     let broken = request(&repo, "Broken");
     let broken_id = broken["inputRequestId"].as_str().unwrap();
     let responded = respond_with_reason(&repo, broken_id, &"x".repeat(5000));
@@ -1272,7 +1274,7 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
 
     // The broken request is responded, so `--status open` excludes it; the
     // list must not resolve a reason it will not return.
-    let open_list = shore([
+    let open_list = pointbreak([
         "input-request",
         "list",
         "--repo",
@@ -1291,7 +1293,7 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
     assert_eq!(open_list["inputRequests"][0]["title"], "Healthy");
 
     // Fetching a different request must not resolve the broken one's reason.
-    let fetch_healthy = shore([
+    let fetch_healthy = pointbreak([
         "input-request",
         "show",
         healthy_id,
@@ -1308,7 +1310,7 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
     // A later revision does not carry the broken request; show/list of the
     // latest revision must not resolve it either.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let recapture = shore(["capture", "--repo", arg]);
+    let recapture = pointbreak(["capture", "--repo", arg]);
     assert!(
         recapture.status.success(),
         "stderr:\n{}",
@@ -1316,7 +1318,7 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
     );
     let recapture = parse_json(&recapture.stdout);
     let latest_revision = recapture["revision"]["id"].as_str().unwrap();
-    let show = shore([
+    let show = pointbreak([
         "revision",
         "show",
         latest_revision,

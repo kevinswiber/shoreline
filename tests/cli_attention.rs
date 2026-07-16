@@ -2,7 +2,7 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 fn parse_json(stdout: &[u8]) -> Value {
     serde_json::from_slice(stdout).expect("stdout is valid JSON")
@@ -12,10 +12,10 @@ fn parse_json(stdout: &[u8]) -> Value {
 /// current assessments from distinct tracks (an ambiguity).
 fn store_with_attention(repo: &GitRepo) -> String {
     let repo_arg = repo.path().to_str().unwrap().to_owned();
-    let capture = parse_json(&shore(["capture", "--repo", &repo_arg]).stdout);
+    let capture = parse_json(&pointbreak(["capture", "--repo", &repo_arg]).stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
-    let open = shore([
+    let open = pointbreak([
         "input-request",
         "open",
         "--repo",
@@ -37,7 +37,7 @@ fn store_with_attention(repo: &GitRepo) -> String {
         ("human:kevin", "accepted"),
         ("agent:codex", "needs-changes"),
     ] {
-        let added = shore([
+        let added = pointbreak([
             "assessment",
             "add",
             "--repo",
@@ -62,7 +62,7 @@ fn attention_list_emits_versioned_document() {
     let repo = modified_repo();
     store_with_attention(&repo);
 
-    let output = shore([
+    let output = pointbreak([
         "attention",
         "list",
         "--repo",
@@ -121,7 +121,7 @@ fn attention_list_scopes_by_revision_short_id() {
     let hex = revision_id.rsplit(':').next().unwrap();
     let short = format!("rev:{}", &hex[..8]);
 
-    let output = shore([
+    let output = pointbreak([
         "attention",
         "list",
         "--repo",
@@ -162,12 +162,12 @@ fn attention_list_scopes_by_revision_short_id() {
 fn text_digest_renders_counts_items_and_empty_state() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
-    shore(["capture", "--repo", &repo_arg]);
+    pointbreak(["capture", "--repo", &repo_arg]);
     for (title, mode) in [
         ("Operative gate", "operative"),
         ("Advisory question", "advisory"),
     ] {
-        let opened = shore([
+        let opened = pointbreak([
             "input-request",
             "open",
             "--repo",
@@ -188,7 +188,7 @@ fn text_digest_renders_counts_items_and_empty_state() {
         );
     }
 
-    let output = shore(["attention", "list", "--repo", &repo_arg, "--format", "text"]);
+    let output = pointbreak(["attention", "list", "--repo", &repo_arg, "--format", "text"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // A count headline, never raw JSON.
@@ -210,8 +210,8 @@ fn text_digest_renders_counts_items_and_empty_state() {
     empty.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     empty.commit_all("base");
     empty.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    shore(["capture", "--repo", empty.path().to_str().unwrap()]);
-    let empty_out = shore([
+    pointbreak(["capture", "--repo", empty.path().to_str().unwrap()]);
+    let empty_out = pointbreak([
         "attention",
         "list",
         "--repo",
@@ -241,7 +241,7 @@ fn modified_repo() -> GitRepo {
 fn accepted_after_failed_validation_clears_the_attention_item() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
-    let capture = shore(["capture", "--repo", &repo_arg]);
+    let capture = pointbreak(["capture", "--repo", &repo_arg]);
     assert!(
         capture.status.success(),
         "stderr:\n{}",
@@ -252,7 +252,7 @@ fn accepted_after_failed_validation_clears_the_attention_item() {
         .unwrap()
         .to_owned();
 
-    let failed = shore([
+    let failed = pointbreak([
         "validation",
         "add",
         "--repo",
@@ -273,10 +273,10 @@ fn accepted_after_failed_validation_clears_the_attention_item() {
     );
 
     // Before the judgment: the failure claims attention.
-    let before = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    let before = parse_json(&pointbreak(["attention", "list", "--repo", &repo_arg]).stdout);
     assert_eq!(before["items"].as_array().unwrap().len(), 1);
 
-    let accepted = shore([
+    let accepted = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -295,7 +295,7 @@ fn accepted_after_failed_validation_clears_the_attention_item() {
     );
 
     // After: the judgment subsumes the failure; the queue is empty.
-    let after = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    let after = parse_json(&pointbreak(["attention", "list", "--repo", &repo_arg]).stdout);
     assert_eq!(after["items"].as_array().unwrap().len(), 0);
 }
 
@@ -303,7 +303,7 @@ fn accepted_after_failed_validation_clears_the_attention_item() {
 fn assessed_successor_clears_the_stale_assessment_item() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
-    let first = shore(["capture", "--repo", &repo_arg]);
+    let first = pointbreak(["capture", "--repo", &repo_arg]);
     assert!(
         first.status.success(),
         "stderr:\n{}",
@@ -314,7 +314,7 @@ fn assessed_successor_clears_the_stale_assessment_item() {
         .unwrap()
         .to_owned();
 
-    let accepted = shore([
+    let accepted = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -333,7 +333,7 @@ fn assessed_successor_clears_the_stale_assessment_item() {
     );
 
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = shore([
+    let second = pointbreak([
         "capture",
         "--repo",
         &repo_arg,
@@ -352,7 +352,7 @@ fn assessed_successor_clears_the_stale_assessment_item() {
 
     // The accepted decision now anchors to a superseded revision whose
     // successor is unjudged: the stale_assessment item claims attention.
-    let before = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    let before = parse_json(&pointbreak(["attention", "list", "--repo", &repo_arg]).stdout);
     let kinds: Vec<String> = before["items"]
         .as_array()
         .unwrap()
@@ -361,7 +361,7 @@ fn assessed_successor_clears_the_stale_assessment_item() {
         .collect();
     assert_eq!(kinds, vec!["stale_assessment".to_owned()]);
 
-    let re_judged = shore([
+    let re_judged = pointbreak([
         "assessment",
         "add",
         "--repo",
@@ -380,6 +380,6 @@ fn assessed_successor_clears_the_stale_assessment_item() {
     );
 
     // The successor has been re-judged: the stale decision is resolved.
-    let after = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    let after = parse_json(&pointbreak(["attention", "list", "--repo", &repo_arg]).stdout);
     assert_eq!(after["items"].as_array().unwrap().len(), 0);
 }

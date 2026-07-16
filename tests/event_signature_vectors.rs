@@ -387,11 +387,13 @@ fn producer_rename_left_signed_material_untouched() {
     );
     assert_eq!(historical.event_id, prospective.event_id);
     assert_eq!(historical.payload_hash, prospective.payload_hash);
-    assert_ne!(
-        historical_record_hash,
-        prospective.event_record_hash().unwrap(),
-        "producer remains included in event-record hashing"
+    let prospective_record_hash = prospective.event_record_hash().unwrap();
+    assert_eq!(
+        prospective_record_hash,
+        "sha256:200a2d7290302d440cbcb86dbd77ae92f54e828347dd92455a5af48057839550",
+        "the native producer has its own pinned event-record hash"
     );
+    assert_ne!(historical_record_hash, prospective_record_hash);
 }
 
 #[test]

@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use support::git_repo::GitRepo;
 
 fn command(repo: &GitRepo, home: &std::path::Path, format: &str) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
     command
         .args(["store", "paths", "--repo"])
         .arg(repo.path())
@@ -16,7 +16,7 @@ fn command(repo: &GitRepo, home: &std::path::Path, format: &str) -> Command {
 }
 
 fn output(command: &mut Command) -> Output {
-    command.output().expect("run shore store paths")
+    command.output().expect("run pointbreak store paths")
 }
 
 fn planted_old_layout(repo: &GitRepo) {
@@ -90,7 +90,7 @@ fn store_paths_text_reports_the_same_five_paths() {
 
 #[test]
 fn version_registry_adds_only_store_paths_to_the_frozen_document_set() {
-    let output = support::shore(["version"]);
+    let output = support::pointbreak(["version"]);
     assert!(output.status.success());
     let mut actual: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(

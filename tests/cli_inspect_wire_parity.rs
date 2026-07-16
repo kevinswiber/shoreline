@@ -12,12 +12,12 @@
 //! per-test tempdir worktree path and its display label, the base git object
 //! ids, the rolling `eventSetHash`/`payloadHash`, and the text-metric'd DAG node
 //! geometry (which further differs across platforms, so it must not be pinned on
-//! the Linux/Windows CI legs), and the producer version compiled into the binary.
+//! the Linux/Windows CI legs), and the prospective native producer identity.
 //! Both the live payload and the committed fixture pass through the same
 //! [`Normalizer`] before comparison: content-addressed ids are canonicalized to
 //! first-seen tokens (so cross-references stay meaningful), timestamps collapse
-//! to a single token, environment-derived fields are blanked by key, producer
-//! versions are masked in their object context, and DAG geometry is zeroed. The
+//! to a single token, environment-derived fields are blanked by key, native
+//! producers are mapped to the historical fixture producer, and DAG geometry is zeroed. The
 //! gate therefore asserts the wire *shape* and every stable value while ignoring
 //! the volatile ones.
 //!
@@ -158,21 +158,28 @@ impl Normalizer {
     }
 }
 
-fn replace_producer_versions(value: &mut Value, replacement: &str) {
+fn normalize_producers_for_historical_fixtures(value: &mut Value, version: &str) {
     match value {
         Value::Array(items) => {
             for item in items {
-                replace_producer_versions(item, replacement);
+                normalize_producers_for_historical_fixtures(item, version);
             }
         }
         Value::Object(map) => {
             if let Some(Value::Object(producer)) = map.get_mut("producer")
                 && producer.get("version").is_some_and(Value::is_string)
             {
-                producer.insert("version".to_owned(), Value::String(replacement.to_owned()));
+                if producer
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| matches!(name, "shore" | "pointbreak"))
+                {
+                    producer.insert("name".to_owned(), Value::String("shore".to_owned()));
+                }
+                producer.insert("version".to_owned(), Value::String(version.to_owned()));
             }
             for child in map.values_mut() {
-                replace_producer_versions(child, replacement);
+                normalize_producers_for_historical_fixtures(child, version);
             }
         }
         _ => {}
@@ -181,7 +188,7 @@ fn replace_producer_versions(value: &mut Value, replacement: &str) {
 
 fn normalized(value: &Value) -> Value {
     let mut clone = value.clone();
-    replace_producer_versions(&mut clone, "<producerVersion>");
+    normalize_producers_for_historical_fixtures(&mut clone, "<producerVersion>");
     Normalizer::new().walk(&mut clone);
     clone
 }
@@ -204,7 +211,7 @@ fn fixtures_for_bless(payloads: &[(Value, Option<Value>)]) -> Vec<Value> {
                 .as_ref()
                 .expect("preserve mode requires every committed fixture")
                 .clone();
-            replace_producer_versions(&mut blessed, env!("CARGO_PKG_VERSION"));
+            normalize_producers_for_historical_fixtures(&mut blessed, env!("CARGO_PKG_VERSION"));
             blessed
         })
         .collect()
@@ -217,7 +224,7 @@ fn fixture_for_bless(live: &Value, committed: &Value) -> Value {
 }
 
 #[test]
-fn normalizer_masks_producer_version_without_masking_schema_version() {
+fn normalizer_preserves_historical_fixture_across_native_producer_cutover() {
     let old = serde_json::json!({
         "version": 1,
         "writer": {
@@ -231,7 +238,7 @@ fn normalizer_masks_producer_version_without_masking_schema_version() {
         "version": 1,
         "writer": {
             "producer": {
-                "name": "shore",
+                "name": "pointbreak",
                 "version": "0.6.0"
             }
         }
@@ -251,7 +258,7 @@ fn bless_preserves_volatile_identity_when_only_producer_version_changes() {
     let live = serde_json::json!({
         "version": 1,
         "revisionId": "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "writer": {"producer": {"name": "shore", "version": env!("CARGO_PKG_VERSION")}}
+        "writer": {"producer": {"name": "pointbreak", "version": env!("CARGO_PKG_VERSION")}}
     });
 
     let blessed = fixture_for_bless(&live, &committed);

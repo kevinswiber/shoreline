@@ -1,11 +1,11 @@
 mod support;
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{shore, shore_env};
+use support::{pointbreak, pointbreak_env};
 
 #[test]
 fn identity_help_lists_the_group() {
-    let out = shore(["identity", "--help"]);
+    let out = pointbreak(["identity", "--help"]);
     assert!(
         out.status.success(),
         "stderr:\n{}",
@@ -25,7 +25,7 @@ fn identity_help_lists_the_group() {
 #[test]
 fn delegate_stages_delegates_file_and_reader_resolves_principal() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "delegate",
@@ -67,7 +67,7 @@ fn delegate_stages_delegates_file_and_reader_resolves_principal() {
 #[test]
 fn delegate_defaults_from_to_now_rfc3339() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "delegate",
@@ -98,7 +98,7 @@ fn delegate_defaults_from_to_now_rfc3339() {
 #[test]
 fn delegate_rejects_agent_principal_depth0() {
     let repo = GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "delegate",
@@ -122,7 +122,7 @@ fn delegate_rejects_agent_principal_depth0() {
 fn delegate_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
     let repo = GitRepo::new();
     // A committed record first.
-    let _ = shore_env(
+    let _ = pointbreak_env(
         [
             "identity",
             "delegate",
@@ -135,7 +135,7 @@ fn delegate_local_writes_override_excludes_it_and_surfaces_full_replace_caveat()
         &[],
     );
     // Then a local override for the same agent.
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "identity",
             "delegate",
@@ -178,7 +178,7 @@ fn delegate_local_writes_override_excludes_it_and_surfaces_full_replace_caveat()
 #[test]
 fn delegate_never_commits() {
     let repo = GitRepo::new();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         [
             "identity",
             "delegate",
@@ -204,7 +204,7 @@ fn delegate_never_commits() {
 
 #[test]
 fn identity_enroll_is_unregistered() {
-    let out = shore(["identity", "enroll", "--help"]);
+    let out = pointbreak(["identity", "enroll", "--help"]);
     assert!(!out.status.success(), "identity enroll should be retired");
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("unrecognized subcommand"),

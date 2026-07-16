@@ -10,9 +10,9 @@ use pointbreak::session::{
 };
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore_env;
+use support::pointbreak_env;
 
-/// A repo with a committed base and an uncommitted change, so `shore capture`
+/// A repo with a committed base and an uncommitted change, so `pointbreak capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -49,7 +49,7 @@ fn capture_status(repo: &Path, trust: TrustSet) -> Option<EventVerificationStatu
 fn write_with_no_key_is_unsigned_and_exit_zero() {
     let home = tempfile::tempdir().unwrap();
     let repo = modified_repo();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -71,14 +71,14 @@ fn write_with_signing_off_is_unsigned_and_exit_zero_even_with_a_default_key() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
     // A "default" key exists, but POINTBREAK_SIGNING=off forces no signing.
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
     let repo = modified_repo();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
     );
@@ -96,7 +96,7 @@ fn write_is_unsigned_and_exit_zero_when_keygen_is_forced_to_fail() {
     // the keystore directory cannot be created and keygen fails.
     let file_home = tempfile::NamedTempFile::new().unwrap();
     let repo = modified_repo();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[
             ("POINTBREAK_HOME", file_home.path().to_str().unwrap()),
@@ -118,14 +118,14 @@ fn write_is_unsigned_and_exit_zero_when_keygen_is_forced_to_fail() {
 fn present_but_unenrolled_key_signs_and_verifies_untrusted_key() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
     let repo = modified_repo();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -141,7 +141,7 @@ fn present_but_unenrolled_key_signs_and_verifies_untrusted_key() {
 fn ci_ephemeral_did_key_self_certifies_valid_under_empty_trust_set() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "ci"],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -150,7 +150,7 @@ fn ci_ephemeral_did_key_self_certifies_valid_under_empty_trust_set() {
 
     let repo = modified_repo();
     // The writing actor IS the signing key's did:key -> self-certifying.
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "capture",
             "--repo",
@@ -180,14 +180,14 @@ fn ci_ephemeral_did_key_self_certifies_valid_under_empty_trust_set() {
 fn sign_key_flag_signs_the_write() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "mykey"],
         &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
     let repo = modified_repo();
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "capture",
             "--repo",
@@ -212,7 +212,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
 
-    let capture = shore_env(["capture", "--repo", &repo_arg], &env);
+    let capture = pointbreak_env(["capture", "--repo", &repo_arg], &env);
     assert_eq!(
         capture.status.code(),
         Some(0),
@@ -220,7 +220,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
         String::from_utf8_lossy(&capture.stderr)
     );
 
-    let observation = shore_env(
+    let observation = pointbreak_env(
         [
             "observation",
             "add",
@@ -237,7 +237,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
     );
     assert_eq!(observation.status.code(), Some(0));
 
-    let assessment = shore_env(
+    let assessment = pointbreak_env(
         [
             "assessment",
             "add",
@@ -254,7 +254,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
     );
     assert_eq!(assessment.status.code(), Some(0));
 
-    let validation = shore_env(
+    let validation = pointbreak_env(
         [
             "validation",
             "add",
@@ -271,7 +271,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
     );
     assert_eq!(validation.status.code(), Some(0));
 
-    let open = shore_env(
+    let open = pointbreak_env(
         [
             "input-request",
             "open",
@@ -296,7 +296,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
     );
     let input_request_id = parse(&open)["inputRequestId"].as_str().unwrap().to_owned();
 
-    let respond = shore_env(
+    let respond = pointbreak_env(
         [
             "input-request",
             "respond",
@@ -324,7 +324,7 @@ fn all_six_write_paths_accept_sign_key_flag() {
     let env_home = home.path().to_str().unwrap();
     let env = [("POINTBREAK_HOME", env_home)];
     assert!(
-        shore_env(["key", "init", "--name", "default"], &env)
+        pointbreak_env(["key", "init", "--name", "default"], &env)
             .status
             .success()
     );
@@ -332,13 +332,13 @@ fn all_six_write_paths_accept_sign_key_flag() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
 
-    let capture = shore_env(
+    let capture = pointbreak_env(
         ["capture", "--repo", &repo_arg, "--sign-key", "default"],
         &env,
     );
     assert_eq!(capture.status.code(), Some(0));
 
-    let observation = shore_env(
+    let observation = pointbreak_env(
         [
             "observation",
             "add",
@@ -357,7 +357,7 @@ fn all_six_write_paths_accept_sign_key_flag() {
     );
     assert_eq!(observation.status.code(), Some(0));
 
-    let assessment = shore_env(
+    let assessment = pointbreak_env(
         [
             "assessment",
             "add",
@@ -376,7 +376,7 @@ fn all_six_write_paths_accept_sign_key_flag() {
     );
     assert_eq!(assessment.status.code(), Some(0));
 
-    let validation = shore_env(
+    let validation = pointbreak_env(
         [
             "validation",
             "add",
@@ -395,7 +395,7 @@ fn all_six_write_paths_accept_sign_key_flag() {
     );
     assert_eq!(validation.status.code(), Some(0));
 
-    let open = shore_env(
+    let open = pointbreak_env(
         [
             "input-request",
             "open",
@@ -422,7 +422,7 @@ fn all_six_write_paths_accept_sign_key_flag() {
     );
     let input_request_id = parse(&open)["inputRequestId"].as_str().unwrap().to_owned();
 
-    let respond = shore_env(
+    let respond = pointbreak_env(
         [
             "input-request",
             "respond",
@@ -455,7 +455,7 @@ fn agent_unavailable_write_is_unsigned_and_exit_zero() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
     // Adopt an agent-backed `default` reference (no live agent needed to write it).
-    let adopt = shore_env(
+    let adopt = pointbreak_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
         &[("POINTBREAK_HOME", env_home)],
     );
@@ -469,7 +469,7 @@ fn agent_unavailable_write_is_unsigned_and_exit_zero() {
     // A dead SSH_AUTH_SOCK makes the agent pre-flight fail deterministically (and
     // portably — a bogus path fails to open on every OS), so the write degrades to
     // unsigned without gating.
-    let out = shore_env(
+    let out = pointbreak_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[
             ("POINTBREAK_HOME", env_home),

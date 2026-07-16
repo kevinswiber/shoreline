@@ -1,6 +1,6 @@
 ---
 name: pointbreak-author-response
-description: Use when the coding agent that authored a change should pick up a Pointbreak reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
+description: Use when the coding agent that authored a change should pick up a Pointbreak reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with pointbreak input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
 ---
 
 # Pointbreak Author Review Response
@@ -10,10 +10,10 @@ existing revision, and you are picking that review back up. Your job is to triag
 respond through structured input-request channels, make required changes when the review asks for
 them, and record your response on your author track.
 
-Do not run `shore assessment add`. The reviewer owns the assessment. Do not run
-`shore capture`; this response attaches to the existing revision with `--revision`.
+Do not run `pointbreak assessment add`. The reviewer owns the assessment. Do not run
+`pointbreak capture`; this response attaches to the existing revision with `--revision`.
 
-Do not run `shore revision show --format json-pretty` as a readback surface. Use bounded list commands for the
+Do not run `pointbreak revision show --format json-pretty` as a readback surface. Use bounded list commands for the
 reviewer's observations, input requests, and assessment.
 
 ## Workflow at a glance
@@ -39,12 +39,12 @@ Set the revision ID, reviewer track, and your existing author track. If the revi
 known, list captured units first:
 
 ```bash
-shore revision list --format json-pretty
+pointbreak revision list --format json-pretty
 revision_id="<revision-id>"
 reviewer_track="<reviewer-track>"
 author_track="<author-track>"
 agent_name="<agent-name>"
-export SHORE_ACTOR_ID="actor:agent:${agent_name}"
+export POINTBREAK_ACTOR_ID="actor:agent:${agent_name}"
 ```
 
 Set `agent_name` to the **same canonical spelling** the original author run used (`claude-code`,
@@ -55,30 +55,30 @@ segment is reserved.
 Because the author-response pass writes under the same `actor:agent:*` id as the author, it reuses
 the same auto-generated key and enrollment — **signing is automatic** here too: your first write
 under this id generates a passphrase-less per-machine key (or reuses the author run's) and signs the
-event, printing a one-line notice with your `did:key` and `shore key enroll` so a human can add you
+event, printing a one-line notice with your `did:key` and `pointbreak key enroll` so a human can add you
 to the committed allow-list. Signing never blocks a write — if no key can be made the write still
-succeeds, unsigned. Set `SHORE_SIGNING=off` to disable signing. A human can instead reuse an existing
-SSH key via `shore key use-ssh` (agents still auto-keygen, unchanged).
+succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to disable signing. A human can instead reuse an existing
+SSH key via `pointbreak key use-ssh` (agents still auto-keygen, unchanged).
 
 Read the reviewer's durable review facts:
 
 ```bash
-shore observation list \
+pointbreak observation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --format json-pretty
 
-shore validation list \
+pointbreak validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --format json-pretty
 
-shore assessment show \
+pointbreak assessment show \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-summary --format json-pretty
 
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status open \
@@ -103,7 +103,7 @@ unless the user asks you to.
 Use a focused operative-request read when the classification is unclear:
 
 ```bash
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --mode operative \
@@ -114,17 +114,17 @@ shore input-request list \
 ## Respond to advisory requests
 
 Reviewer follow-ups that need your decision should arrive as advisory input requests. Respond to
-them with `shore input-request respond`; do not answer only in an observation body.
+them with `pointbreak input-request respond`; do not answer only in an observation body.
 
 ```bash
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --mode advisory \
   --status open \
   --include-body --format json-pretty
 
-shore input-request respond <input-request-id> \
+pointbreak input-request respond <input-request-id> \
   --outcome approved \
   --reason "agreed; tracking the parser cleanup as a separate follow-up because changing it here would widen the reviewed change"
 ```
@@ -136,11 +136,11 @@ should state the author decision and why it is appropriate for this revision.
 
 An open operative input request is actionable, but it is not automatically yours to close. If the
 reviewer opened it and your response now answers it, do the required work or make the required
-decision, then respond with `shore input-request respond` and a reason that names what
+decision, then respond with `pointbreak input-request respond` and a reason that names what
 changed or what decision was made.
 
 ```bash
-shore input-request respond <input-request-id> \
+pointbreak input-request respond <input-request-id> \
   --outcome approved \
   --reason "answered by the parser cleanup change and verified with the targeted parser test"
 ```
@@ -170,13 +170,13 @@ Record responses on your author track. Reference the reviewer observation IDs, i
 and assessment ID in the body so a reader can connect the response to the review.
 
 ```bash
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$author_track" \
   --title "Response to reviewer parser follow-up" \
   --body "Responded to reviewer advisory request <input-request-id> from assessment <assessment-id>: accepted the follow-up but kept it out of this revision because the current assessment is accepted-with-follow-up and the cleanup would widen the reviewed change."
 
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$author_track" \
   --title "Addressed reviewer observation <observation-id>" \
@@ -201,17 +201,17 @@ commit as a structural association on your author track — the first-class "the
 X" record (a `RevisionCommitAssociated` edge, ADR-0014):
 
 ```bash
-shore association record \
+pointbreak association record \
   --revision "$revision_id" \
   --track "$author_track" \
   --commit <landed-sha>
 ```
 
 Unlike a prose note, this association is git-resolved and machine-readable: the unit then reports
-`anchored` with merged/live reachability in `shore revision show`, and `shore revision list
---ref <branch>` / `shore history --ref <branch>` can find the landed work by branch. It is an
+`anchored` with merged/live reachability in `pointbreak revision show`, and `pointbreak revision list
+--ref <branch>` / `pointbreak history --ref <branch>` can find the landed work by branch. It is an
 author fact — it never goes on the reviewer track, never becomes an assessment, and is never a
-recapture (`shore capture` is not re-run for the landing).
+recapture (`pointbreak capture` is not re-run for the landing).
 
 Pick the landed commit deliberately:
 
@@ -224,12 +224,12 @@ Pick the landed commit deliberately:
   diagnostic. Successive passes landing more commits on the same revision accrete the same way —
   that is history, not divergence. `divergent_commit_association` appears only when two genuinely
   forked commits (neither an ancestor of the other, different content) both claim the landing;
-  resolve that by withdrawing the wrong edge with `shore association withdraw`.
+  resolve that by withdrawing the wrong edge with `pointbreak association withdraw`.
 
 Optionally also record a human-readable companion for readers scanning observations:
 
 ```bash
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$author_track" \
   --tag state-change:landed \
@@ -243,7 +243,7 @@ exactly, while passing a superseded revision resolves its thread's current head 
 competing heads errors, listing them). Sibling captures stay current, but routine
 list/history/exact reads no longer emit an ambient `ambiguous_current_revision` diagnostic just
 because multiple captures exist. A stale or nested capture is retired by a later capture that
-supersedes it (`shore capture --supersedes <revision>`); competing heads stay visible, so there
+supersedes it (`pointbreak capture --supersedes <revision>`); competing heads stay visible, so there
 is no single "canonical" scalar to set.
 
 ## Read back and stand down
@@ -251,23 +251,23 @@ is no single "canonical" scalar to set.
 Verify the author response with bounded read commands:
 
 ```bash
-shore observation list \
+pointbreak observation list \
   --revision "$revision_id" \
   --track "$author_track" \
   --include-body --format json-pretty
 
-shore validation list \
+pointbreak validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --format json-pretty
 
-shore input-request list \
+pointbreak input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \
   --include-body --format json-pretty
 
-shore assessment show \
+pointbreak assessment show \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-summary --format json-pretty
@@ -280,24 +280,24 @@ did not change, and which input requests you responded to. Leave the assessment 
 
 - **Adding an assessment as the author.** The author never assesses. Only the reviewer records the
   review call.
-- **Putting the run id in `SHORE_ACTOR_ID`.** The run/issue id belongs in `--track`
-  (`agent:claude-code-234`), never the actor id. `SHORE_ACTOR_ID=actor:agent:claude-code-234` mints a
+- **Putting the run id in `POINTBREAK_ACTOR_ID`.** The run/issue id belongs in `--track`
+  (`agent:claude-code-234`), never the actor id. `POINTBREAK_ACTOR_ID=actor:agent:claude-code-234` mints a
   new per-run identity whose auto-generated key is **not enrolled**, so events land
   signed-but-**untrusted** with no diagnostic while the durable, already-enrolled
   `actor:agent:claude-code` key goes unused. Always
-  `export SHORE_ACTOR_ID="actor:agent:<agent-name>"` (the same canonical, run-free id the author run
+  `export POINTBREAK_ACTOR_ID="actor:agent:<agent-name>"` (the same canonical, run-free id the author run
   used); if the run id arrives as a skill arg, take it as the track only.
 - **Recapturing the revision.** Attach to the existing revision with `--revision`; do not run
-  `shore capture` for the response leg.
+  `pointbreak capture` for the response leg.
 - **Using full revision show for readback.** Use bounded observation, input-request, and
-  assessment read commands. Do not use `shore revision show --format json-pretty` for this response loop.
-- **Ignoring reviewer validation evidence.** Read `shore validation list` on the reviewer
+  assessment read commands. Do not use `pointbreak revision show --format json-pretty` for this response loop.
+- **Ignoring reviewer validation evidence.** Read `pointbreak validation list` on the reviewer
   track before deciding what checks to rerun.
 - **Attaching live-code checks to an old snapshot.** If response edits moved the checkout beyond the
   captured revision, record rerun checks as observations unless you can prove the snapshot matches.
 - **Manufacturing work after an accepted review.** Accepted follow-ups often need triage, not a new
   code change.
-- **Answering advisory requests only in prose.** Use `shore input-request respond` so the
+- **Answering advisory requests only in prose.** Use `pointbreak input-request respond` so the
   request has a structured response.
 - **Closing operative requests mechanically.** Respond only when the request is genuinely answered;
   otherwise leave it open and record what is still blocked.

@@ -1,4 +1,4 @@
-// Document builders for `shore association` verbs.
+// Document builders for `pointbreak association` verbs.
 use crate::documents::{DiagnosticDocument, EventWriteDocument};
 use crate::session::{
     AssociateCommitResult, AssociateRefResult, CurrentCommitAssociation, CurrentRefAssociation,

@@ -1,10 +1,10 @@
 //! Acceptance suite for the shared-store default: every worktree of a clone —
 //! main and linked — reads and writes the same common-dir store (`.git/pointbreak`)
-//! with NO `shore store link` step. The surviving opt-out is an ephemeral
+//! with NO `pointbreak store link` step. The surviving opt-out is an ephemeral
 //! worktree (its own discardable `.pointbreak/data`). A pre-default worktree-local
-//! store is routed to `shore store migrate`.
+//! store is routed to `pointbreak store migrate`.
 //!
-//! No test here invokes `shore store link`, and no raw worktree / `.git` /
+//! No test here invokes `pointbreak store link`, and no raw worktree / `.git` /
 //! `.pointbreak/data` path may leak into JSON output.
 
 mod support;
@@ -15,17 +15,17 @@ use std::process::Command;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::{common_dir_store, shore};
+use support::{common_dir_store, pointbreak};
 
 fn run_json(args: &[&str]) -> Value {
-    let output = shore(args.iter().copied());
+    let output = pointbreak(args.iter().copied());
     assert!(
         output.status.success(),
-        "shore {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+        "pointbreak {args:?} failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).expect("shore stdout is json")
+    serde_json::from_slice(&output.stdout).expect("pointbreak stdout is json")
 }
 
 fn run_git_os<I>(cwd: &Path, args: I)
@@ -220,7 +220,7 @@ fn ephemeral_worktree_keeps_its_capture_out_of_the_shared_store() {
 }
 
 // 4. A non-ephemeral worktree carrying a pre-default `.pointbreak/data` store errors
-//    on any read, naming `.pointbreak/data` AND `shore store migrate`; after
+//    on any read, naming `.pointbreak/data` AND `pointbreak store migrate`; after
 //    migration the record resolves from the shared store.
 #[test]
 fn legacy_worktree_local_store_errors_until_migrated() {
@@ -240,7 +240,7 @@ fn legacy_worktree_local_store_errors_until_migrated() {
     assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
     // Any read now errors, naming both the legacy path and the migrate command.
-    let read = shore(["revision", "list", "--repo", repo_arg]);
+    let read = pointbreak(["revision", "list", "--repo", repo_arg]);
     assert!(!read.status.success(), "a legacy store must fail the read");
     let stderr = String::from_utf8_lossy(&read.stderr);
     assert!(
@@ -248,7 +248,7 @@ fn legacy_worktree_local_store_errors_until_migrated() {
         "the error names the legacy store: {stderr}"
     );
     assert!(
-        stderr.contains("shore store migrate"),
+        stderr.contains("pointbreak store migrate"),
         "the error names the fix: {stderr}"
     );
 
@@ -298,7 +298,7 @@ fn legacy_worktree_local_store_resolves_after_migrate_retire_source() {
     assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
     // The guard fires and its hint names the one-command completion.
-    let read = shore(["revision", "list", "--repo", repo_arg]);
+    let read = pointbreak(["revision", "list", "--repo", repo_arg]);
     assert!(!read.status.success(), "a legacy store must fail the read");
     let stderr = String::from_utf8_lossy(&read.stderr);
     assert!(

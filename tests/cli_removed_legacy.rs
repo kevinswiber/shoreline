@@ -1,6 +1,6 @@
 mod support;
 
-use support::shore;
+use support::pointbreak;
 
 struct RemovedPath {
     argv: &'static [&'static str],
@@ -31,85 +31,88 @@ const REMOVED_PATHS: &[RemovedPath] = &[
     // Retired names that point at their post-reshape successors.
     RemovedPath {
         argv: &["review", "intervention", "--help"],
-        hint_contains: &["shore input-request"],
+        hint_contains: &["pointbreak input-request"],
     },
     RemovedPath {
         argv: &["review", "lineage", "--help"],
-        hint_contains: &["shore capture --supersedes", "shore revision list"],
+        hint_contains: &[
+            "pointbreak capture --supersedes",
+            "pointbreak revision list",
+        ],
     },
     RemovedPath {
         argv: &["review", "unit", "--help"],
-        hint_contains: &["shore revision list", "shore revision show"],
+        hint_contains: &["pointbreak revision list", "pointbreak revision show"],
     },
-    // Flattened families: `shore review <verb>` retired, points at `shore <verb>`.
+    // Flattened families: `pointbreak review <verb>` retired, points at `pointbreak <verb>`.
     RemovedPath {
         argv: &["review", "capture", "--help"],
-        hint_contains: &["shore capture"],
+        hint_contains: &["pointbreak capture"],
     },
     RemovedPath {
         argv: &["review", "history", "--help"],
-        hint_contains: &["shore history"],
+        hint_contains: &["pointbreak history"],
     },
     RemovedPath {
         argv: &["review", "endorse", "--help"],
-        hint_contains: &["shore endorse"],
+        hint_contains: &["pointbreak endorse"],
     },
     RemovedPath {
         argv: &["review", "observation", "add", "--help"],
-        hint_contains: &["shore observation"],
+        hint_contains: &["pointbreak observation"],
     },
     RemovedPath {
         argv: &["review", "assessment", "add", "--help"],
-        hint_contains: &["shore assessment"],
+        hint_contains: &["pointbreak assessment"],
     },
     RemovedPath {
         argv: &["review", "validation", "add", "--help"],
-        hint_contains: &["shore validation"],
+        hint_contains: &["pointbreak validation"],
     },
     RemovedPath {
         argv: &["review", "input-request", "open", "--help"],
-        hint_contains: &["shore input-request"],
+        hint_contains: &["pointbreak input-request"],
     },
     // The association grammar rewrite: compounds point at the new verbs, and the
     // family path points at the top-level family.
     RemovedPath {
         argv: &["review", "association", "associate-commit", "--help"],
-        hint_contains: &["shore association record"],
+        hint_contains: &["pointbreak association record"],
     },
     RemovedPath {
         argv: &["review", "association", "associate-ref", "--help"],
-        hint_contains: &["shore association record --ref"],
+        hint_contains: &["pointbreak association record --ref"],
     },
     RemovedPath {
         argv: &["review", "association", "withdraw-commit", "--help"],
-        hint_contains: &["shore association withdraw"],
+        hint_contains: &["pointbreak association withdraw"],
     },
     RemovedPath {
         argv: &["review", "association", "withdraw-ref", "--help"],
-        hint_contains: &["shore association withdraw"],
+        hint_contains: &["pointbreak association withdraw"],
     },
     RemovedPath {
         argv: &["review", "association", "list", "--help"],
-        hint_contains: &["shore association record|withdraw|list"],
+        hint_contains: &["pointbreak association record|withdraw|list"],
     },
     // The old get-one verb `fetch` at the new top level points at `show`.
     RemovedPath {
         argv: &["input-request", "fetch", "--help"],
-        hint_contains: &["shore input-request show"],
+        hint_contains: &["pointbreak input-request show"],
     },
     // The revision family: the verb-less plural and the digest both moved.
     RemovedPath {
         argv: &["review", "revisions", "--help"],
-        hint_contains: &["shore revision list"],
+        hint_contains: &["pointbreak revision list"],
     },
     RemovedPath {
         argv: &["review", "show", "--help"],
-        hint_contains: &["shore revision show"],
+        hint_contains: &["pointbreak revision show"],
     },
     // `identity enroll` renamed to `delegate` (the verb collided with `keys enroll`).
     RemovedPath {
         argv: &["identity", "enroll", "--help"],
-        hint_contains: &["shore identity delegate <AGENT> --principal <P>"],
+        hint_contains: &["pointbreak identity delegate <AGENT> --principal <P>"],
     },
     // The `keys` family noun singularized; subverbs are unchanged.
     RemovedPath {
@@ -119,22 +122,30 @@ const REMOVED_PATHS: &[RemovedPath] = &[
     // The legacy working-tree surfaces retired end-to-end (ADR-0030 second amendment).
     RemovedPath {
         argv: &["dump", "--help"],
-        hint_contains: &["shore diff", "shore inspect", "shore revision show"],
+        hint_contains: &[
+            "pointbreak diff",
+            "pointbreak inspect",
+            "pointbreak revision show",
+        ],
     },
     RemovedPath {
         argv: &["show", "--help"],
-        hint_contains: &["shore diff", "shore inspect", "shore revision show"],
+        hint_contains: &[
+            "pointbreak diff",
+            "pointbreak inspect",
+            "pointbreak revision show",
+        ],
     },
     RemovedPath {
         argv: &["notes", "apply", "--help"],
-        hint_contains: &["shore observation", "shore revision show"],
+        hint_contains: &["pointbreak observation", "pointbreak revision show"],
     },
 ];
 
 #[test]
 fn review_namespace_is_retired_with_a_hint() {
     for argv in [vec!["review"], vec!["review", "--help"]] {
-        let out = shore(argv.clone());
+        let out = pointbreak(argv.clone());
         assert!(!out.status.success(), "{argv:?} should be unregistered");
         let err = String::from_utf8_lossy(&out.stderr);
         assert!(
@@ -152,7 +163,7 @@ fn review_namespace_is_retired_with_a_hint() {
 #[test]
 fn removed_review_paths_are_unregistered_and_hint_at_successors() {
     for case in REMOVED_PATHS {
-        let output = shore(case.argv.iter().copied());
+        let output = pointbreak(case.argv.iter().copied());
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         assert!(!output.status.success(), "{:?} must be rejected", case.argv);

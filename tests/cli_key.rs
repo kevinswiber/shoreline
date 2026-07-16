@@ -5,7 +5,7 @@ use std::process::Command;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::Value;
-use support::shore_env;
+use support::pointbreak_env;
 
 /// Mirror the encoding the `keys show --pubkey` command emits (base64 standard),
 /// so the consistency test pins agreement rather than a hardcoded string.
@@ -33,7 +33,7 @@ const EXPLICIT_SIGNER_DID: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhow
 #[test]
 fn keys_init_writes_key_and_emits_did_key_document() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -60,7 +60,7 @@ fn keys_init_writes_key_and_emits_did_key_document() {
 #[test]
 fn keys_init_defaults_name_to_default() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "init"],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -73,10 +73,10 @@ fn keys_init_defaults_name_to_default() {
 fn keys_init_twice_same_name_is_a_clean_error_not_a_panic() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let first = shore_env(["key", "init", "--name", "default"], &env);
+    let first = pointbreak_env(["key", "init", "--name", "default"], &env);
     assert!(first.status.success());
 
-    let second = shore_env(["key", "init", "--name", "default"], &env);
+    let second = pointbreak_env(["key", "init", "--name", "default"], &env);
     assert!(!second.status.success(), "second init must fail");
     let stderr = String::from_utf8_lossy(&second.stderr);
     // A clean CLI error: a message on stderr, not a Rust panic.
@@ -87,7 +87,7 @@ fn keys_init_twice_same_name_is_a_clean_error_not_a_panic() {
 #[test]
 fn keys_init_rejects_path_unsafe_name_without_escaping_the_keystore() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "init", "--name", "../../id_ed25519"],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -108,11 +108,11 @@ fn keys_init_rejects_path_unsafe_name_without_escaping_the_keystore() {
 fn keys_list_reports_generated_keys_and_marks_default() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let _ = shore_env(["key", "init", "--name", "default"], &env);
-    let _ = shore_env(["key", "init", "--name", "work"], &env);
+    let _ = pointbreak_env(["key", "init", "--name", "default"], &env);
+    let _ = pointbreak_env(["key", "init", "--name", "work"], &env);
 
     let repo = support::git_repo::GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -137,7 +137,7 @@ fn keys_list_reports_generated_keys_and_marks_default() {
 fn keys_list_marks_enrolled_only_when_did_key_is_in_allowed_signers() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let init = shore_env(["key", "init", "--name", "default"], &env);
+    let init = pointbreak_env(["key", "init", "--name", "default"], &env);
     let init_json: Value = serde_json::from_slice(&init.stdout).unwrap();
     let did_key = init_json["didKey"].as_str().unwrap().to_owned();
 
@@ -147,7 +147,7 @@ fn keys_list_marks_enrolled_only_when_did_key_is_in_allowed_signers() {
         format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{did_key}"]}}}}"#);
     repo.write(".pointbreak/allowed-signers.json", &allowed);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -166,7 +166,7 @@ fn keys_list_empty_keystore_is_empty_list_exit_zero() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let repo = support::git_repo::GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -180,11 +180,11 @@ fn keys_list_empty_keystore_is_empty_list_exit_zero() {
 fn keys_show_default_with_did_prints_the_did_key() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let init = shore_env(["key", "init", "--name", "default"], &env);
+    let init = pointbreak_env(["key", "init", "--name", "default"], &env);
     let init_json: Value = serde_json::from_slice(&init.stdout).unwrap();
     let did_key = init_json["didKey"].as_str().unwrap().to_owned();
 
-    let out = shore_env(["key", "show", "default", "--did"], &env);
+    let out = pointbreak_env(["key", "show", "default", "--did"], &env);
     assert!(
         out.status.success(),
         "show stderr:\n{}",
@@ -200,10 +200,10 @@ fn keys_show_default_with_did_prints_the_did_key() {
 fn keys_show_defaults_to_did_key_with_no_field_flags() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let _ = shore_env(["key", "init"], &env);
+    let _ = pointbreak_env(["key", "init"], &env);
 
     // No name and no field flags: defaults to `default` key, did:key field present.
-    let out = shore_env(["key", "show"], &env);
+    let out = pointbreak_env(["key", "show"], &env);
     assert!(out.status.success());
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(json["didKey"].as_str().unwrap().starts_with("did:key:z"));
@@ -213,13 +213,13 @@ fn keys_show_defaults_to_did_key_with_no_field_flags() {
 fn keys_show_pubkey_is_consistent_with_the_did_key() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let init = shore_env(["key", "init", "--name", "default"], &env);
+    let init = pointbreak_env(["key", "init", "--name", "default"], &env);
     let did_key = serde_json::from_slice::<Value>(&init.stdout).unwrap()["didKey"]
         .as_str()
         .unwrap()
         .to_owned();
 
-    let out = shore_env(["key", "show", "default", "--pubkey"], &env);
+    let out = pointbreak_env(["key", "show", "default", "--pubkey"], &env);
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
     let pubkey_field = json["publicKey"].as_str().expect("publicKey present");
 
@@ -237,7 +237,7 @@ fn keys_show_works_for_an_agent_backed_reference() {
     // public key) from the stored public material, like `list`/`enroll` do.
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let adopt = shore_env(
+    let adopt = pointbreak_env(
         [
             "key",
             "use-ssh",
@@ -257,7 +257,7 @@ fn keys_show_works_for_an_agent_backed_reference() {
         .unwrap()
         .to_owned();
 
-    let did_out = shore_env(["key", "show", "ssh-test", "--did"], &env);
+    let did_out = pointbreak_env(["key", "show", "ssh-test", "--did"], &env);
     assert!(
         did_out.status.success(),
         "keys show --did must work for an agent-backed key:\n{}",
@@ -268,7 +268,7 @@ fn keys_show_works_for_an_agent_backed_reference() {
         did
     );
 
-    let pub_out = shore_env(["key", "show", "ssh-test", "--pubkey"], &env);
+    let pub_out = pointbreak_env(["key", "show", "ssh-test", "--pubkey"], &env);
     assert!(
         pub_out.status.success(),
         "keys show --pubkey must work for an agent-backed key:\n{}",
@@ -285,7 +285,7 @@ fn keys_show_works_for_an_agent_backed_reference() {
 fn keys_show_missing_name_is_a_clean_error_not_a_panic() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let out = shore_env(["key", "show", "does-not-exist", "--did"], &env);
+    let out = pointbreak_env(["key", "show", "does-not-exist", "--did"], &env);
     assert!(!out.status.success(), "missing key must fail");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("panicked"), "no panic: {stderr}");
@@ -296,7 +296,7 @@ fn keys_show_missing_name_is_a_clean_error_not_a_panic() {
 fn keys_enroll_defaults_to_default_key_name_without_signer() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -306,7 +306,7 @@ fn keys_enroll_defaults_to_default_key_name_without_signer() {
         .to_owned();
 
     let repo = support::git_repo::GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &[
             ("POINTBREAK_HOME", home_str),
@@ -339,7 +339,7 @@ fn keys_enroll_accepts_explicit_signer_without_local_key() {
     let home_str = home.path().to_str().unwrap();
     let repo = support::git_repo::GitRepo::new();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "enroll",
@@ -376,7 +376,7 @@ fn keys_enroll_rejects_invalid_explicit_signer_without_fallback() {
     let home_str = home.path().to_str().unwrap();
     let repo = support::git_repo::GitRepo::new();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "enroll",
@@ -421,7 +421,7 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
     // Adopt an agent-backed `default` reference: no agent running, no private key.
-    let adopt = shore_env(
+    let adopt = pointbreak_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -436,7 +436,7 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
         .to_owned();
 
     let repo = support::git_repo::GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &[
             ("POINTBREAK_HOME", home_str),
@@ -464,10 +464,10 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
 fn keys_list_reports_file_custody_for_a_seed_key() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let _ = shore_env(["key", "init", "--name", "default"], &env);
+    let _ = pointbreak_env(["key", "init", "--name", "default"], &env);
 
     let repo = support::git_repo::GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -493,7 +493,7 @@ fn keys_list_reports_file_custody_for_a_seed_key() {
 fn keys_list_reports_agent_custody_and_enrollment_for_an_adopted_key() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
-    let adopt = shore_env(
+    let adopt = pointbreak_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
         &env,
     );
@@ -508,7 +508,7 @@ fn keys_list_reports_agent_custody_and_enrollment_for_an_adopted_key() {
         format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{did_key}"]}}}}"#);
     repo.write(".pointbreak/allowed-signers.json", &allowed);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -531,13 +531,13 @@ fn keys_list_succeeds_and_agent_loaded_is_unknown_when_no_agent() {
         // A dead socket path: connect fails. The probe must NOT gate the listing.
         ("SSH_AUTH_SOCK", "/nonexistent/shore-no-agent.sock"),
     ];
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
         &env,
     );
 
     let repo = support::git_repo::GitRepo::new();
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -567,7 +567,7 @@ fn keys_list_succeeds_and_agent_loaded_is_unknown_when_no_agent() {
 fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -577,7 +577,7 @@ fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
         ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
     ];
 
-    let first = shore_env(
+    let first = pointbreak_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -588,7 +588,7 @@ fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
     let path = repo.path().join(".pointbreak/allowed-signers.json");
     let before = std::fs::read(&path).unwrap();
 
-    let second = shore_env(
+    let second = pointbreak_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &env,
     );
@@ -602,12 +602,12 @@ fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
 fn keys_enroll_does_not_commit_or_stage_to_git() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &[
             ("POINTBREAK_HOME", home_str),
@@ -642,13 +642,13 @@ fn keys_enroll_does_not_commit_or_stage_to_git() {
 fn keys_enroll_explicit_actor_flag_overrides_resolution() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "enroll",
@@ -673,13 +673,13 @@ fn keys_enroll_explicit_actor_flag_overrides_resolution() {
 fn keys_enroll_rejects_invalid_explicit_actor_without_fallback() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "enroll",
@@ -723,7 +723,7 @@ fn keys_enroll_rejects_invalid_explicit_actor_without_fallback() {
 fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
-    let _ = shore_env(
+    let _ = pointbreak_env(
         ["key", "init", "--name", "default"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -732,7 +732,7 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
     let subdir = repo.path().join("nested/dir");
     std::fs::create_dir_all(&subdir).unwrap();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "enroll", "--repo", subdir.to_str().unwrap()],
         &[
             ("POINTBREAK_HOME", home_str),
@@ -759,7 +759,7 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
     );
 
     // keys list from the subdir now sees the key as enrolled (single discovery path).
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "show", "default", "--did"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -767,7 +767,7 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
         .as_str()
         .unwrap()
         .to_owned();
-    let list = shore_env(
+    let list = pointbreak_env(
         ["key", "list", "--repo", subdir.to_str().unwrap()],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -789,7 +789,7 @@ fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
     // Plant a valid key file as a sibling of keys/, reachable only via traversal.
-    let init = shore_env(
+    let init = pointbreak_env(
         ["key", "init", "--name", "planted"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -800,7 +800,7 @@ fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
     )
     .unwrap();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "show", "../outside-key", "--did"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -823,7 +823,7 @@ fn key_discover_reports_git_user_signing_key_candidate() {
     repo.git(["config", "gpg.format", "ssh"]);
     repo.git(["config", "user.signingKey", &literal]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -864,7 +864,7 @@ fn key_discover_marks_known_local_and_enrolled_signer_without_duplicate_commands
         .unwrap()
         .as_str()
         .to_owned();
-    let adopt = shore_env(
+    let adopt = pointbreak_env(
         ["key", "use-ssh", &literal, "--name", "kevin"],
         &[("POINTBREAK_HOME", home_str)],
     );
@@ -883,7 +883,7 @@ fn key_discover_marks_known_local_and_enrolled_signer_without_duplicate_commands
         format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{signer_id}"]}}}}"#),
     );
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -944,7 +944,7 @@ fn key_discover_suppresses_option_line_diagnostic_when_user_signing_key_succeeds
         allowed_signers_path.to_str().unwrap(),
     ]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -985,7 +985,7 @@ fn key_discover_reports_allowed_signers_candidate_with_key_literal_argument() {
         allowed_signers_path.to_str().unwrap(),
     ]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -1034,7 +1034,7 @@ fn key_discover_expands_tilde_user_signing_key_path() {
     repo.git(["config", "gpg.format", "ssh"]);
     repo.git(["config", "user.signingKey", "~/.ssh/id_ed25519"]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -1080,7 +1080,7 @@ fn key_discover_expands_tilde_allowed_signers_file_path() {
         "~/.ssh/allowed_signers",
     ]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -1114,7 +1114,7 @@ fn key_discover_is_read_only() {
     repo.git(["config", "gpg.format", "ssh"]);
     repo.git(["config", "user.signingKey", &literal]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -1161,7 +1161,7 @@ fn key_discover_reports_diagnostics_for_missing_pub_companion() {
     repo.git(["config", "gpg.format", "ssh"]);
     repo.git(["config", "user.signingKey", private_path.to_str().unwrap()]);
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -1194,7 +1194,7 @@ fn key_discover_reports_diagnostics_for_missing_pub_companion() {
 fn key_discover_reports_non_repo_diagnostic() {
     let dir = tempfile::tempdir().expect("create non-git directory");
 
-    let out = shore_env(
+    let out = pointbreak_env(
         [
             "key",
             "discover",
@@ -1229,7 +1229,7 @@ fn keys_use_ssh_from_pubkey_path_writes_reference_and_emits_did_key() {
     let pubfile = pubdir.path().join("id_ed25519.pub");
     std::fs::write(&pubfile, SSH_ED25519_PUBKEY).unwrap();
 
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "use-ssh", pubfile.to_str().unwrap()],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -1257,7 +1257,7 @@ fn keys_use_ssh_from_pubkey_path_writes_reference_and_emits_did_key() {
 fn keys_use_ssh_accepts_a_key_literal() {
     let home = tempfile::tempdir().expect("create keystore home");
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "use-ssh", &literal],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -1278,7 +1278,7 @@ fn keys_use_ssh_path_and_literal_derive_the_same_did_key() {
     let pubfile = pubdir.path().join("id_ed25519.pub");
     std::fs::write(&pubfile, SSH_ED25519_PUBKEY).unwrap();
 
-    let from_path = shore_env(
+    let from_path = pointbreak_env(
         [
             "key",
             "use-ssh",
@@ -1289,7 +1289,7 @@ fn keys_use_ssh_path_and_literal_derive_the_same_did_key() {
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
-    let from_literal = shore_env(
+    let from_literal = pointbreak_env(
         ["key", "use-ssh", "--name", "vialiteral", &literal],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -1305,7 +1305,7 @@ fn keys_use_ssh_path_and_literal_derive_the_same_did_key() {
 fn keys_use_ssh_writes_a_did_key_sidecar() {
     let home = tempfile::tempdir().expect("create keystore home");
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "use-ssh", &literal],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -1321,7 +1321,7 @@ fn keys_use_ssh_writes_a_did_key_sidecar() {
 fn keys_use_ssh_rejects_a_non_ed25519_key_with_a_clear_error() {
     let home = tempfile::tempdir().expect("create keystore home");
     let literal = format!("key::{SSH_RSA_PUBKEY}");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "use-ssh", &literal],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -1340,10 +1340,10 @@ fn keys_use_ssh_collision_refuses_to_overwrite() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
-    let first = shore_env(["key", "use-ssh", &literal], &env);
+    let first = pointbreak_env(["key", "use-ssh", &literal], &env);
     assert!(first.status.success());
 
-    let second = shore_env(["key", "use-ssh", &literal], &env);
+    let second = pointbreak_env(["key", "use-ssh", &literal], &env);
     assert!(
         !second.status.success(),
         "a --name collision must refuse to overwrite"
@@ -1359,7 +1359,7 @@ fn keys_use_ssh_collision_refuses_to_overwrite() {
 fn keys_use_ssh_rejects_a_path_unsafe_name() {
     let home = tempfile::tempdir().expect("create keystore home");
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
-    let out = shore_env(
+    let out = pointbreak_env(
         ["key", "use-ssh", "--name", "../../id_ed25519", &literal],
         &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
@@ -1376,7 +1376,7 @@ fn keys_use_ssh_rejects_a_path_unsafe_name() {
 
 #[test]
 fn keys_family_is_retired() {
-    let out = shore_env(["keys", "init", "--help"], &[]);
+    let out = pointbreak_env(["keys", "init", "--help"], &[]);
     assert!(!out.status.success(), "the keys family should be retired");
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("unrecognized subcommand"),

@@ -7,14 +7,14 @@ use std::process::Command;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 #[test]
 fn revision_list_runs_at_top_level() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -28,10 +28,10 @@ fn revision_list_runs_at_top_level() {
 #[test]
 fn revision_list_object_filter_resolves_a_short_id() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     let path = repo.path().to_str().unwrap();
 
-    let listed = parse_json(&shore(["revision", "list", "--repo", path]).stdout);
+    let listed = parse_json(&pointbreak(["revision", "list", "--repo", path]).stdout);
     let object_id = listed["entries"][0]["objectId"]
         .as_str()
         .unwrap()
@@ -40,7 +40,7 @@ fn revision_list_object_filter_resolves_a_short_id() {
     let digest = object_id.rsplit_once("sha256:").unwrap().1;
     let prefixed_short = format!("obj:{}", &digest[..8]);
 
-    let filtered = shore([
+    let filtered = pointbreak([
         "revision",
         "list",
         "--repo",
@@ -62,9 +62,10 @@ fn revision_list_object_filter_resolves_a_short_id() {
 #[test]
 fn revision_list_emits_v1_json_with_freshness_metadata() {
     let repo = modified_repo();
-    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -103,9 +104,9 @@ fn revision_list_emits_v1_json_with_freshness_metadata() {
 #[test]
 fn revision_list_does_not_expose_storage_paths() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json = parse_json(&output.stdout);
 
@@ -119,9 +120,9 @@ fn revision_list_does_not_expose_storage_paths() {
 #[test]
 fn revision_list_json_pretty_prints() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let output = shore([
+    let output = pointbreak([
         "revision",
         "list",
         "--repo",
@@ -136,11 +137,13 @@ fn revision_list_json_pretty_prints() {
 #[test]
 fn revision_list_returns_multiple_entries_in_capture_order() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
     let json = parse_json(&output.stdout);
     let entries = json["entries"].as_array().unwrap();
 
@@ -162,7 +165,7 @@ fn revision_list_returns_multiple_entries_in_capture_order() {
 fn revision_list_succeeds_without_events() {
     let repo = GitRepo::new();
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
     let json = parse_json(&output.stdout);
 
     assert!(output.status.success());
@@ -175,7 +178,8 @@ fn revision_list_succeeds_without_events() {
 fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed in seed\n").unwrap();
-    let capture = parse_json(&shore(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
+    let capture =
+        parse_json(&pointbreak(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
 
     // The capture wrote through to the shared common-dir store; removing the seed
     // worktree cannot strand the record. No `store link` step.
@@ -191,7 +195,7 @@ fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed
     let reader = fixture.add_worktree("reader");
     assert!(!reader.join(".pointbreak/data/events").exists());
 
-    let output = shore(["revision", "list", "--repo", reader.to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", reader.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "list stderr:\n{}",
@@ -212,15 +216,17 @@ fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed
 fn revision_list_omits_ambient_ambiguous_current_diagnostic_from_shared_store() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed once\n").unwrap();
-    let first = parse_json(&shore(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
     fs::write(fixture.seed.join("README.md"), "changed twice\n").unwrap();
-    let second = parse_json(&shore(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
 
     // Both captures wrote through to the shared common-dir store; a sibling reader
     // sees them with no `store link` step.
     let reader = fixture.add_worktree("reader");
 
-    let output = shore(["revision", "list", "--repo", reader.to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", reader.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "list stderr:\n{}",
@@ -254,7 +260,7 @@ fn revision_list_omits_ambient_ambiguous_current_diagnostic_from_shared_store() 
 #[test]
 fn unit_list_renders_commit_range_source_without_paths() {
     let repo = support::committed_repo();
-    shore([
+    pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -262,7 +268,7 @@ fn unit_list_renders_commit_range_source_without_paths() {
         "HEAD~1",
     ]);
 
-    let output = shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         output.status.success(),
         "stderr:\n{}",
@@ -293,7 +299,7 @@ fn unit_list_shows_unreachable_revisions_by_default_and_filters_explicitly() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo.commit_all("feature work");
     let orphan = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -308,7 +314,8 @@ fn unit_list_shows_unreachable_revisions_by_default_and_filters_explicitly() {
 
     // A floating worktree capture on main → never hidden.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let floating = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let floating =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let floating_id = floating["revision"]["id"].as_str().unwrap().to_owned();
     assert_ne!(orphan_id, floating_id);
 
@@ -345,7 +352,7 @@ fn unit_list_keeps_revision_after_capture_target_is_amended() {
     repo.commit_all("captured change");
 
     let captured = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -377,8 +384,9 @@ fn unit_list_keeps_revision_after_capture_target_is_amended() {
         "the captured target must be unreachable from live refs"
     );
 
-    let listed =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let listed = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     let entry = listed["entries"]
         .as_array()
         .unwrap()
@@ -387,7 +395,7 @@ fn unit_list_keeps_revision_after_capture_target_is_amended() {
         .unwrap_or_else(|| panic!("amended capture target removed the revision: {listed}"));
     assert_eq!(entry["mergeStatus"], "orphaned");
 
-    let shown = shore([
+    let shown = pointbreak([
         "revision",
         "show",
         "--repo",
@@ -415,17 +423,17 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
     // "merged": with no explicit --integration-ref the list narrows to the
     // repository's detected default branch, the same default `revision show`
     // applies, and tip equality counts as landed (#466).
-    let range = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
+    let range = parse_json(&pointbreak(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
     let range_id = range["revision"]["id"].as_str().unwrap().to_owned();
 
     // A floating worktree capture reads "unknown"; its worktree path lets it
     // survive the worktree-identity scope.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let worktree = parse_json(&shore(["capture", "--repo", repo_arg]).stdout);
+    let worktree = parse_json(&pointbreak(["capture", "--repo", repo_arg]).stdout);
     let worktree_id = worktree["revision"]["id"].as_str().unwrap().to_owned();
 
     // Default list: each entry carries a structural merge-status.
-    let default = parse_json(&shore(["revision", "list", "--repo", repo_arg]).stdout);
+    let default = parse_json(&pointbreak(["revision", "list", "--repo", repo_arg]).stdout);
     let status_for = |id: &str| -> String {
         default["entries"]
             .as_array()
@@ -442,7 +450,7 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
 
     // --integration-ref and --worktree parse; the worktree-identity scope keeps
     // the worktree capture.
-    let scoped = shore([
+    let scoped = pointbreak([
         "revision",
         "list",
         "--repo",
@@ -468,8 +476,9 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
 
 /// The merge-status `revision list` reports for `revision_id`.
 fn unit_list_merge_status(repo: &GitRepo, revision_id: &str) -> String {
-    let listed =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let listed = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     listed["entries"]
         .as_array()
         .unwrap()
@@ -492,7 +501,8 @@ fn unit_list_reads_merged_for_landed_capture_with_deleted_source_branch() {
     repo.git(["checkout", "-b", "feature"]);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo.commit_all("change");
-    let captured = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
+    let captured =
+        parse_json(&pointbreak(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
     let revision_id = captured["revision"]["id"].as_str().unwrap().to_owned();
 
     // Land it: a follow-up commit, fast-forward main to the branch tip, record
@@ -503,7 +513,7 @@ fn unit_list_reads_merged_for_landed_capture_with_deleted_source_branch() {
     repo.commit_all("follow-up");
     repo.git(["checkout", "main"]);
     repo.git(["merge", "--ff-only", "feature"]);
-    let record = shore([
+    let record = pointbreak([
         "association",
         "record",
         "--repo",
@@ -530,7 +540,7 @@ fn unit_list_reads_merged_for_landed_capture_with_deleted_source_branch() {
     repo.git(["checkout", "-b", "unmerged"]);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 4 }\n");
     repo.commit_all("unmerged change");
-    let open = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
+    let open = parse_json(&pointbreak(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
     let open_id = open["revision"]["id"].as_str().unwrap().to_owned();
     assert_eq!(unit_list_merge_status(&repo, &open_id), "open");
 }
@@ -543,7 +553,7 @@ fn unit_list_keeps_broad_merge_status_without_a_detectable_default_branch() {
     repo.git(["branch", "-m", "main", "trunk"]);
     let repo_arg = repo.path().to_str().unwrap();
 
-    let range = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
+    let range = parse_json(&pointbreak(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
     let range_id = range["revision"]["id"].as_str().unwrap().to_owned();
 
     // The trunk tip is live and no other ref contains it → broad reads "open".
@@ -566,7 +576,8 @@ fn unit_list_reads_side_branch_only_landing_as_orphaned_but_still_shown() {
     repo.git(["checkout", "-b", "develop"]);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo.commit_all("change");
-    let captured = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
+    let captured =
+        parse_json(&pointbreak(["capture", "--repo", repo_arg, "--base", "main"]).stdout);
     let revision_id = captured["revision"]["id"].as_str().unwrap().to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     repo.commit_all("develop advance");
@@ -589,7 +600,7 @@ fn unit_list_ids(repo: &GitRepo, extra: &[&str]) -> Vec<String> {
         repo.path().to_str().unwrap().to_owned(),
     ];
     args.extend(extra.iter().map(|flag| (*flag).to_owned()));
-    let output = shore(args);
+    let output = pointbreak(args);
     assert!(
         output.status.success(),
         "stderr:\n{}",
@@ -607,14 +618,14 @@ fn unit_list_ids(repo: &GitRepo, extra: &[&str]) -> Vec<String> {
 fn revision_list_filter_by_is_superseded() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    let first = parse_json(&shore(["capture", "--repo", path]).stdout);
+    let first = parse_json(&pointbreak(["capture", "--repo", path]).stdout);
     let predecessor = first["revision"]["id"].as_str().unwrap().to_owned();
     // A successor must carry different content or it collapses to the same snapshot id.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    shore(["capture", "--repo", path, "--supersedes", &predecessor]);
+    pointbreak(["capture", "--repo", path, "--supersedes", &predecessor]);
 
     let json = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "list",
             "--repo",
@@ -642,8 +653,8 @@ fn revision_list_filter_by_is_superseded() {
 fn revision_list_filter_by_tag_key() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
-    shore([
+    pointbreak(["capture", "--repo", path]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -658,7 +669,7 @@ fn revision_list_filter_by_tag_key() {
 
     // First-colon key facet matches the revision whose observation carries the tag.
     let json = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "list",
             "--repo",
@@ -675,11 +686,11 @@ fn revision_list_filter_by_tag_key() {
 fn revision_list_filter_rejects_type_qualifier_on_revision_surface() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
 
     // `type:` is a known-but-unsupported qualifier on the revision surface:
     // a diagnostic and a non-zero exit, never a silent-empty match.
-    let out = shore([
+    let out = pointbreak([
         "revision",
         "list",
         "--repo",
@@ -702,10 +713,10 @@ fn revision_list_filter_rejects_type_qualifier_on_revision_surface() {
 fn revision_list_flagless_output_unchanged() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
+    pointbreak(["capture", "--repo", path]);
     // An observation would appear in an overview build; the flagless path builds none,
     // so its bytes are the shared list document with no filter-added fields.
-    shore([
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -718,7 +729,7 @@ fn revision_list_flagless_output_unchanged() {
         "state-change:landed",
     ]);
 
-    let out = shore(["revision", "list", "--repo", path]);
+    let out = pointbreak(["revision", "list", "--repo", path]);
     let json = parse_json(&out.stdout);
     assert_eq!(json["schema"], "pointbreak.review-revision-list");
     let entry = &json["entries"][0];
@@ -738,8 +749,8 @@ fn revision_list_flagless_output_unchanged() {
 fn tag_shared_convention_holds_across_observation_list_and_revision_filter() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["capture", "--repo", path]);
-    shore([
+    pointbreak(["capture", "--repo", path]);
+    pointbreak([
         "observation",
         "add",
         "--repo",
@@ -754,7 +765,7 @@ fn tag_shared_convention_holds_across_observation_list_and_revision_filter() {
 
     // `observation list --tag` is exact whole-string (byte-untouched).
     let obs = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",
@@ -778,7 +789,7 @@ fn tag_shared_convention_holds_across_observation_list_and_revision_filter() {
     );
     // A partial key is NOT a whole-string tag, so `observation list --tag` finds nothing.
     let partial = parse_json(
-        &shore([
+        &pointbreak([
             "observation",
             "list",
             "--repo",
@@ -794,7 +805,7 @@ fn tag_shared_convention_holds_across_observation_list_and_revision_filter() {
     );
     // But the revision grammar's key facet matches the same store (dual index).
     let rev = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "list",
             "--repo",

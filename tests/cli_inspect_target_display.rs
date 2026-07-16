@@ -4,7 +4,7 @@
 //! The derivation lives in the binary crate (`src/cli/inspect/api.rs`), so it is
 //! not reachable from an integration test by a direct call. These tests instead
 //! exercise the genuine production JSON end to end: they spawn the real
-//! `shore inspect --port 0` server (which prints its bound URL and supports an
+//! `pointbreak inspect --port 0` server (which prints its bound URL and supports an
 //! ephemeral port) and issue raw HTTP/1.1 GETs against `/api/revisions` and
 //! `/api/revisions/{id}`. That locks the additive on-the-wire contract — a derived
 //! worktree/head label spliced in without disturbing any existing field.
@@ -20,7 +20,7 @@ use support::inspect::{
     Inspector, WorktreeCapture, add_worktree, capture, capture_supersession_round, run_git,
     urlencode,
 };
-use support::shore;
+use support::pointbreak;
 
 /// Test A: a worktree on a symbolic branch derives `label = <basename>` and a
 /// short head OID, while every prior field stays intact and no branch is claimed
@@ -103,7 +103,7 @@ fn inspector_units_render_commit_target_display_for_range_capture() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo.commit_all("change");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -464,7 +464,7 @@ fn linked_inspector_unit_error_message_stays_path_free_for_unknown_unit() {
 
 /// Capture the repo, returning the full capture document.
 fn capture_json(repo: &Path) -> Value {
-    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -529,10 +529,10 @@ fn record_review_facts(repo: &Path) {
             "passed",
         ],
     ] {
-        let output = shore(args.iter().copied());
+        let output = pointbreak(args.iter().copied());
         assert!(
             output.status.success(),
-            "shore {args:?} failed:\n{}",
+            "pointbreak {args:?} failed:\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
     }

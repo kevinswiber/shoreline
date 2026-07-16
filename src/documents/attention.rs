@@ -1,8 +1,8 @@
-// Document builder for the `shore attention list` command.
+// Document builder for the `pointbreak attention list` command.
 use crate::documents::DiagnosticDocument;
 use crate::session::{AttentionItem, AttentionListResult};
 
-/// Emitted schema for `shore attention list` (D1: attention is product-level
+/// Emitted schema for `pointbreak attention list` (D1: attention is product-level
 /// vocabulary, so the class stays off the de-review rename pile).
 pub const ATTENTION_LIST_SCHEMA: &str = "pointbreak.attention-list";
 

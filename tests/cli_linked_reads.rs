@@ -12,7 +12,7 @@ use pointbreak::session::{
 };
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::pointbreak;
 
 /// Shared-store review fixture: the seed worktree captures one review unit,
 /// which writes through to the shared common-dir store (`.git/pointbreak`) by default.
@@ -953,14 +953,14 @@ fn event_set_hash(json: &Value) -> &str {
 }
 
 fn run_shore_json(args: &[&str]) -> Value {
-    let output = shore(args.iter().copied());
+    let output = pointbreak(args.iter().copied());
     assert!(
         output.status.success(),
-        "shore {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+        "pointbreak {args:?} failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).expect("shore stdout is json")
+    serde_json::from_slice(&output.stdout).expect("pointbreak stdout is json")
 }
 
 fn add_worktree(repo: &Path, path: &Path, branch: &str) {

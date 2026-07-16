@@ -1,4 +1,4 @@
-// Document builders for `shore review-assessment add` and `show`.
+// Document builders for `pointbreak review-assessment add` and `show`.
 use crate::documents::{
     AssessmentViewDocument, CurrentAssessmentDocument, DiagnosticDocument, EventWriteDocument,
 };

@@ -1,6 +1,6 @@
 ---
 name: pointbreak-author
-description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Pointbreak review record. Capture with shore capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
+description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Pointbreak review record. Capture with pointbreak capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
 ---
 
 # Pointbreak Author Handoff
@@ -9,14 +9,14 @@ You are the coding agent that just authored the change. At the end of a coherent
 durable Pointbreak handoff record before you tell the user the task is done. Your job is to make your
 change legible for review, not to review your own work.
 
-Do not run `shore assessment add`. Assessments are the reviewer's call. If you assess your own
+Do not run `pointbreak assessment add`. Assessments are the reviewer's call. If you assess your own
 work, you turn the handoff into self-grading and pollute the review surface the reviewer owns.
 
 ## Workflow at a glance
 
 ```text
 1. Confirm the full task change you intend to hand off — uncommitted in the worktree, or landed in commits.
-2. Capture the revision: `shore capture`, or `shore capture --base <rev>` for a landed range.
+2. Capture the revision: `pointbreak capture`, or `pointbreak capture --base <rev>` for a landed range.
 3. Choose one author track for this handoff.
 4. Add observations on that track for what changed, why, and review risks.
 5. Record validation evidence on that track for checks you actually ran.
@@ -32,12 +32,12 @@ edit.
 
 ## Capture The Right Revision
 
-If the task is still uncommitted, plain `shore capture` records the Git worktree diff from `HEAD`
+If the task is still uncommitted, plain `pointbreak capture` records the Git worktree diff from `HEAD`
 to the working tree. Default worktree capture excludes untracked files to match `git diff HEAD`, so
-use `shore capture --include-untracked` when the intended change includes new files that are not
+use `pointbreak capture --include-untracked` when the intended change includes new files that are not
 staged.
 
-If the task is committed, capture the landed range with `shore capture --base <rev>`. That captures
+If the task is committed, capture the landed range with `pointbreak capture --base <rev>`. That captures
 the tree diff from `<rev>` to `--target` (default `HEAD`) without reading the working tree or
 untracked files. `--base` resolves any rev — a branch, tag, `HEAD~N`, or commit OID — so point it at
 the commit the task started from.
@@ -47,13 +47,13 @@ git status --short
 
 # Uncommitted task in the worktree.
 capture_file=$(mktemp)
-shore capture | tee "$capture_file" | jq .
+pointbreak capture | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 
 # Committed task: capture the landed range from the task's starting commit.
 capture_file=$(mktemp)
-shore capture --base <commit-before-task> | tee "$capture_file" | jq .
+pointbreak capture --base <commit-before-task> | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 ```
@@ -65,7 +65,7 @@ capturable diff: do not `git reset --soft` back to the base just to fake a workt
 
 If `git status --short` is empty and no commits belong to this task, there is nothing to hand off:
 tell the user there is no change for Pointbreak to capture. If you committed only part of the task
-and left the rest uncommitted, plain `shore capture` sees only the uncommitted remainder; capture
+and left the rest uncommitted, plain `pointbreak capture` sees only the uncommitted remainder; capture
 the whole change with `--base` from the task's starting commit, or finish the remaining work before
 capturing.
 
@@ -82,14 +82,14 @@ issue or PR number, use the branch's distinctive segment as a fallback, and use 
 neither exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps lanes legible when more than one
-agent run writes to the same `.shore/data/` store; Pointbreak still records writer provenance separately in
+agent run writes to the same `.pointbreak/data/` store; Pointbreak still records writer provenance separately in
 the event envelope.
 
 ```bash
 agent_name="<agent-name>"
 run_id="<id>"
 track="agent:${agent_name}-${run_id}"
-export SHORE_ACTOR_ID="actor:agent:${agent_name}"
+export POINTBREAK_ACTOR_ID="actor:agent:${agent_name}"
 ```
 
 The actor id is your durable identity across sessions and runs — it carries no run id. Use **one
@@ -99,10 +99,10 @@ hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
 **Signing is automatic.** On your first write under this `actor:agent:*` id, Pointbreak generates a
 passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
-and `shore key enroll` so a human can add you to the committed allow-list (once enrolled, your
+and `pointbreak key enroll` so a human can add you to the committed allow-list (once enrolled, your
 signed events verify and bind). Signing never blocks a write — if no key can be made the write still
-succeeds, unsigned. Set `SHORE_SIGNING=off` to disable signing. A human can instead reuse an existing
-SSH key via `shore key use-ssh` (agents still auto-keygen, unchanged).
+succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to disable signing. A human can instead reuse an existing
+SSH key via `pointbreak key use-ssh` (agents still auto-keygen, unchanged).
 
 ## Record observations
 
@@ -111,20 +111,20 @@ the reviewer should inspect first. Prefer file and line anchors when the observa
 specific part of the diff.
 
 ```bash
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Parser keeps the existing whitespace contract" \
   --file src/parser.rs --start-line 84 --end-line 123 \
   --body "The parser now accepts the new token form while preserving the old whitespace path. The branch stays local to parsing so callers do not need a compatibility shim."
 
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
-shore observation add \
+pointbreak observation add \
   --revision "$revision_id" \
   --track "$track" \
   --title "Targeted parser test was red first" \
@@ -140,7 +140,7 @@ To acknowledge or dispose of a reviewer's observation non-destructively — "not
 [ADR-0026](../../docs/adr/adr-0026-fact-to-fact-response-relationship.md)). This leaves the reviewer's
 observation `Active` and records who responded. Do not use `--supersedes` to acknowledge; that retires
 the target from the current set. Answer a reviewer's *decision* request with
-`shore input-request respond --outcome {dismissed|superseded|abandoned} --reason …`, not a plain
+`pointbreak input-request respond --outcome {dismissed|superseded|abandoned} --reason …`, not a plain
 observation.
 
 **Body content type — prefer Markdown for review content.** Observation and input-request `--body`,
@@ -162,7 +162,7 @@ review context only. It never accepts, rejects, merges, blocks, or replaces the 
 assessment.
 
 ```bash
-shore validation add \
+pointbreak validation add \
   --revision "$revision_id" \
   --track "$track" \
   --check-name "targeted parser test" \
@@ -171,7 +171,7 @@ shore validation add \
   --exit-code 0 \
   --summary "Passed after the final edit against the captured revision."
 
-shore validation add \
+pointbreak validation add \
   --revision "$revision_id" \
   --track "$track" \
   --check-name "just check" \
@@ -193,7 +193,7 @@ the answer should block landing. Use `--mode advisory` for durable context that 
 pause the workflow.
 
 ```bash
-shore input-request open \
+pointbreak input-request open \
   --revision "$revision_id" \
   --track "$track" \
   --title "Confirm whether the relaxed parser should be documented" \
@@ -201,7 +201,7 @@ shore input-request open \
   --mode advisory \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
-shore input-request open \
+pointbreak input-request open \
   --revision "$revision_id" \
   --track "$track" \
   --title "Choose the default for conflicting config values" \
@@ -210,7 +210,7 @@ shore input-request open \
   --body "Both existing call sites are plausible defaults. I left the behavior unchanged and need a reviewer to choose before landing the new option."
 ```
 
-Use the current command name `shore input-request`. Use `shore assessment` only when you
+Use the current command name `pointbreak input-request`. Use `pointbreak assessment` only when you
 are acting as the reviewer, not while authoring the handoff.
 
 ## Read back and hand off
@@ -218,13 +218,13 @@ are acting as the reviewer, not while authoring the handoff.
 Verify that the handoff is visible before you stop:
 
 ```bash
-shore observation list --revision "$revision_id" --track "$track" --format json-pretty
-shore validation list --revision "$revision_id" --track "$track" --include-body --format json-pretty
-shore input-request list --revision "$revision_id" --track "$track" --status open --format json-pretty
+pointbreak observation list --revision "$revision_id" --track "$track" --format json-pretty
+pointbreak validation list --revision "$revision_id" --track "$track" --include-body --format json-pretty
+pointbreak input-request list --revision "$revision_id" --track "$track" --status open --format json-pretty
 ```
 
 These commands verify the author's writes without replaying the captured snapshot. The
-`shore revision show --format json-pretty` command emits the full integration-JSON document: it includes the
+`pointbreak revision show --format json-pretty` command emits the full integration-JSON document: it includes the
 complete captured snapshot, is large for any real change, and is meant for tooling or the rare case
 where the full snapshot is genuinely needed. It is not the human readback surface.
 
@@ -232,11 +232,11 @@ Then stand down with a concise message:
 
 ```text
 Created the Pointbreak handoff record on `<track>`. Read it with
-`shore observation list --revision <id> --track <track> --include-body --format json-pretty`
+`pointbreak observation list --revision <id> --track <track> --include-body --format json-pretty`
 and
-`shore validation list --revision <id> --track <track> --include-body --format json-pretty`
+`pointbreak validation list --revision <id> --track <track> --include-body --format json-pretty`
 and
-`shore input-request list --revision <id> --track <track> --status open --include-body --format json-pretty`.
+`pointbreak input-request list --revision <id> --track <track> --status open --include-body --format json-pretty`.
 I did not add an assessment; that is for the reviewer.
 ```
 
@@ -252,18 +252,18 @@ capture a separate handoff when that task reaches its own end.
 ## Common errors
 
 - **Faking a worktree diff after a commit.** Committing first is not an error: capture the landed
-  change with `shore capture --base <commit-before-task>`. The error is rewriting history —
+  change with `pointbreak capture --base <commit-before-task>`. The error is rewriting history —
   for example `git reset --soft` — to manufacture a worktree diff. Never do that; use `--base`.
 - **Recapturing because a commit landed.** A commit that lands the already-captured change — during
   review or after an assessment — is recorded with
-  `shore association record --commit <sha> --revision <id> --track <track>` on the same revision,
+  `pointbreak association record --commit <sha> --revision <id> --track <track>` on the same revision,
   never with a new capture. Successive landed commits accreting on one revision are the expected
-  multi-pass shape. `shore capture --supersedes` is only for a genuinely new content state
+  multi-pass shape. `pointbreak capture --supersedes` is only for a genuinely new content state
   replacing the reviewed one.
 - **Claiming verification you did not run.** Record only checks you actually performed, including
   failures or skipped checks when they matter.
 - **Putting check results only in observations.** Record concrete command results with
-  `shore validation add`; use observations for the surrounding decision or risk context.
+  `pointbreak validation add`; use observations for the surrounding decision or risk context.
 - **Treating validation as acceptance.** Validation evidence is advisory and never replaces the
   reviewer's assessment.
 - **Forgetting `--revision`.** If more than one revision is current, write commands fail until
@@ -276,11 +276,11 @@ capture a separate handoff when that task reaches its own end.
 - **Capturing every small edit.** Wait for a coherent unit of implementation work.
 - **Using inconsistent tracks.** Set one `track` value for the handoff and reuse it for every author
   observation, input request, and readback command.
-- **Putting the run id in `SHORE_ACTOR_ID`.** The run/issue id belongs in the `--track`
-  (`agent:claude-code-234`), NEVER in the actor id. `SHORE_ACTOR_ID=actor:agent:claude-code-234` mints
+- **Putting the run id in `POINTBREAK_ACTOR_ID`.** The run/issue id belongs in the `--track`
+  (`agent:claude-code-234`), NEVER in the actor id. `POINTBREAK_ACTOR_ID=actor:agent:claude-code-234` mints
   a brand-new per-run identity whose auto-generated key is **not enrolled**, so every event lands
   signed-but-**untrusted** with no diagnostic — while the durable, already-enrolled
   `actor:agent:claude-code` key goes unused. Always
-  `export SHORE_ACTOR_ID="actor:agent:<agent-name>"` with no run suffix (`shore key list` shows the
-  canonical name as `enrolled:true`). Do not `shore key enroll` a throwaway per-run key to paper
+  `export POINTBREAK_ACTOR_ID="actor:agent:<agent-name>"` with no run suffix (`pointbreak key list` shows the
+  canonical name as `enrolled:true`). Do not `pointbreak key enroll` a throwaway per-run key to paper
   over it. When these instructions arrive as skill args, take the run id as the track only.

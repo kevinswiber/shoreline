@@ -13,7 +13,7 @@ fn review_capture_creates_revision_from_subdir() {
     let repo = modified_repo();
     let subdir = repo.path().join("src");
 
-    let output = shore(["capture", "--repo", subdir.to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", subdir.to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -58,9 +58,10 @@ fn review_capture_creates_revision_from_subdir() {
 fn review_capture_is_idempotent_for_unchanged_diff() {
     let repo = modified_repo();
 
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -80,7 +81,7 @@ fn review_capture_rejects_empty_default_capture_without_allow_empty() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
 
-    let output = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -98,7 +99,7 @@ fn review_capture_allow_empty_records_empty_snapshot() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -123,9 +124,11 @@ fn review_capture_allow_empty_records_empty_snapshot() {
 fn review_capture_ignores_untracked_content_by_default() {
     let repo = modified_repo();
 
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("untracked.txt", "new review content\n");
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     assert_eq!(first["revision"]["id"], second["revision"]["id"]);
 }
@@ -134,10 +137,11 @@ fn review_capture_ignores_untracked_content_by_default() {
 fn review_capture_include_untracked_changes_when_untracked_content_changes() {
     let repo = modified_repo();
 
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("untracked.txt", "new review content\n");
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -158,7 +162,7 @@ fn review_capture_writes_through_to_the_shared_store_without_a_link_step() {
     repo.commit_all("base");
 
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture stderr:\n{}",
@@ -179,7 +183,7 @@ fn review_capture_writes_through_to_the_shared_store_without_a_link_step() {
 
     // `store status` sees the captured event in place — eventCount reflects the
     // write-through capture, with the single-store view (no clone/family refs).
-    let status = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    let status = pointbreak(["store", "status", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         status.status.success(),
         "status stderr:\n{}",
@@ -194,7 +198,8 @@ fn review_capture_writes_through_to_the_shared_store_without_a_link_step() {
 #[test]
 fn capture_preserves_inline_rows_for_normal_added_file() {
     let repo = bounded_added_file_repo();
-    let _capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let _capture =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let snapshots_dir = common_dir_store(&repo).join("artifacts/objects");
     let artifact_path = std::fs::read_dir(&snapshots_dir)
@@ -231,7 +236,7 @@ fn capture_with_base_captures_committed_range_on_clean_worktree() {
     let repo = committed_repo();
     let head_oid = rev(&repo, "HEAD");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -265,7 +270,7 @@ fn capture_with_base_and_target_pins_both_endpoints() {
     let head_oid = rev(&repo, "HEAD");
 
     let json = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -291,7 +296,7 @@ fn cli_capture_root_outputs_added_files_for_one_commit_repo() {
     repo.write("README.md", "hello\n");
     repo.commit_all("initial");
 
-    let output = shore(["capture", "--repo", repo.path().to_str().unwrap(), "--root"]);
+    let output = pointbreak(["capture", "--repo", repo.path().to_str().unwrap(), "--root"]);
 
     assert!(
         output.status.success(),
@@ -310,7 +315,7 @@ fn cli_capture_root_with_target_pins_target_commit() {
     let repo = committed_repo();
     let first_oid = rev(&repo, "HEAD~1");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -336,7 +341,7 @@ fn cli_capture_root_with_path_scopes_added_files() {
     repo.write("b/two.txt", "two\n");
     repo.commit_all("initial");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -366,7 +371,7 @@ fn cli_capture_root_with_path_scopes_added_files() {
 
     let revision_id = json["revision"]["id"].as_str().unwrap();
     let shown = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             revision_id,
@@ -380,7 +385,7 @@ fn cli_capture_root_with_path_scopes_added_files() {
 
 #[test]
 fn cli_capture_root_rejects_base() {
-    let output = shore(["capture", "--root", "--base", "HEAD"]);
+    let output = pointbreak(["capture", "--root", "--base", "HEAD"]);
 
     assert!(!output.status.success());
     assert!(
@@ -401,7 +406,7 @@ fn cli_capture_staged_ignores_unstaged_and_untracked_files() {
     repo.write("tracked.txt", "unstaged\n");
     repo.write("untracked.txt", "untracked\n");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -437,7 +442,7 @@ fn cli_capture_staged_in_unborn_repo_uses_empty_tree_base() {
     repo.write("README.md", "hello\n");
     repo.git(["add", "README.md"]);
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -467,7 +472,7 @@ fn cli_capture_unstaged_excludes_staged_and_untracked_by_default() {
     repo.write("tracked.txt", "unstaged\n");
     repo.write("untracked.txt", "untracked\n");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -506,7 +511,7 @@ fn cli_capture_unstaged_include_untracked_does_not_mutate_the_index() {
     repo.write("tracked.txt", "unstaged\n");
     repo.write("untracked.txt", "untracked\n");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -548,7 +553,7 @@ fn cli_capture_unstaged_include_untracked_excludes_generated_gitignore() {
     let repo = modified_repo();
     pointbreak::session::ensure_pointbreak_gitignore(repo.path()).unwrap();
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -581,7 +586,7 @@ fn cli_capture_unstaged_include_untracked_works_in_unborn_repo() {
     let repo = GitRepo::new();
     repo.write("README.md", "hello\n");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -606,14 +611,14 @@ fn cli_capture_unstaged_include_untracked_works_in_unborn_repo() {
 fn cli_capture_include_untracked_requires_unstaged() {
     let repo = modified_repo();
 
-    let staged = shore([
+    let staged = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
         "--staged",
         "--include-untracked",
     ]);
-    let root = shore([
+    let root = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -637,7 +642,7 @@ fn cli_capture_include_untracked_works_with_default_worktree_capture() {
     let repo = modified_repo();
     repo.write("untracked.txt", "untracked\n");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -671,7 +676,7 @@ fn cli_capture_include_untracked_works_in_unborn_repo_without_root() {
     let repo = GitRepo::new();
     repo.write("README.md", "hello\n");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -699,7 +704,7 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
     repo.write("untracked.txt", "untracked\n");
 
     let capture = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -727,7 +732,7 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
 fn capture_target_without_base_or_root_is_rejected() {
     let repo = committed_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -747,7 +752,7 @@ fn capture_target_without_base_or_root_is_rejected() {
 fn capture_with_unresolvable_base_fails_honestly() {
     let repo = committed_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -765,7 +770,7 @@ fn capture_with_unresolvable_base_fails_honestly() {
 fn capture_with_non_commit_rev_fails_honestly() {
     let repo = committed_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -781,10 +786,11 @@ fn capture_with_non_commit_rev_fails_honestly() {
 #[test]
 fn capture_without_base_keeps_worktree_behavior() {
     let repo = modified_repo();
-    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
-    let show =
-        parse_json(&shore(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let show = parse_json(
+        &pointbreak(["revision", "show", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
 
     assert_eq!(show["revision"]["source"]["kind"], "git_worktree");
     assert_eq!(show["revision"]["target"]["kind"], "git_working_tree");
@@ -795,7 +801,8 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
     let repo = modified_repo();
 
     // The first revision (no predecessors).
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     // A capture never attaches lineage now.
     assert!(first.get("lineageAttach").is_none());
@@ -803,7 +810,7 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
     // A changed file yields a distinct revision that supersedes the first.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -819,7 +826,7 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
     // The supersession is readable: --revision on the superseded id resolves to
     // the single current head (the second revision).
     let resolved = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             &first_id,
@@ -834,12 +841,13 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
 #[test]
 fn capture_exact_payload_rerun_with_supersedes_is_idempotent() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
 
     let capture = || {
-        shore([
+        pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -864,11 +872,12 @@ fn capture_exact_payload_rerun_with_supersedes_is_idempotent() {
 #[test]
 fn capture_rejects_a_different_proposal_for_an_existing_head_before_append() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let successor = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -878,10 +887,11 @@ fn capture_rejects_a_different_proposal_for_an_existing_head_before_append() {
         .stdout,
     );
     let successor_id = successor["revision"]["id"].as_str().unwrap().to_owned();
-    let before =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let before = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
 
-    let conflict = shore([
+    let conflict = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -899,8 +909,9 @@ fn capture_rejects_a_different_proposal_for_an_existing_head_before_append() {
         stderr.contains("genuinely new content state"),
         "stderr:\n{stderr}"
     );
-    let after =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let after = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     assert_eq!(after["eventCount"], before["eventCount"]);
     assert_eq!(after["revisionCount"], before["revisionCount"]);
 }
@@ -908,11 +919,12 @@ fn capture_rejects_a_different_proposal_for_an_existing_head_before_append() {
 #[test]
 fn capture_rejects_a_different_proposal_for_an_existing_non_head_before_append() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -924,7 +936,7 @@ fn capture_rejects_a_different_proposal_for_an_existing_non_head_before_append()
     let second_id = second["revision"]["id"].as_str().unwrap().to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 4 }\n");
     let third = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -935,10 +947,11 @@ fn capture_rejects_a_different_proposal_for_an_existing_non_head_before_append()
     );
     let third_id = third["revision"]["id"].as_str().unwrap().to_owned();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let before =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let before = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
 
-    let conflict = shore([
+    let conflict = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -956,8 +969,9 @@ fn capture_rejects_a_different_proposal_for_an_existing_non_head_before_append()
         stderr.contains("genuinely new content state"),
         "stderr:\n{stderr}"
     );
-    let after =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let after = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     assert_eq!(after["eventCount"], before["eventCount"]);
     assert_eq!(after["revisionCount"], before["revisionCount"]);
 }
@@ -975,7 +989,8 @@ fn rebased_recapture_with_stable_object_id_writes_distinct_artifact() {
 
     let reviewed = base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
     repo.write("src/lib.rs", reviewed);
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     let first_object = first["revision"]["objectId"].as_str().unwrap().to_owned();
     let first_artifact_hash = first["revision"]["objectArtifactContentHash"]
@@ -991,7 +1006,7 @@ fn rebased_recapture_with_stable_object_id_writes_distinct_artifact() {
         rebased_base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
     repo.write("src/lib.rs", rebased_reviewed);
 
-    let recapture = shore([
+    let recapture = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -1020,7 +1035,7 @@ fn capture_with_base_twice_reports_existing_event() {
     let repo = committed_repo();
 
     let first = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1030,7 +1045,7 @@ fn capture_with_base_twice_reports_existing_event() {
         .stdout,
     );
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1060,7 +1075,7 @@ fn rev(repo: &GitRepo, rev: &str) -> String {
 }
 
 /// The shared common-dir store a clone resolves by default
-/// (`<git-common-dir>/shore`). Every non-ephemeral worktree reads and writes
+/// (`<git-common-dir>/pointbreak`). Every non-ephemeral worktree reads and writes
 /// here, so post-capture store assertions look here instead of the raw
 /// worktree-local `.pointbreak/data`.
 fn common_dir_store(repo: &GitRepo) -> std::path::PathBuf {
@@ -1075,7 +1090,7 @@ fn common_dir_store(repo: &GitRepo) -> std::path::PathBuf {
 #[test]
 fn text_capture_ack_shows_short_revision_and_diffstat() {
     let repo = modified_repo();
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -1104,17 +1119,17 @@ fn bounded_added_file_repo() -> GitRepo {
     repo
 }
 
-fn shore<I, S>(args: I) -> std::process::Output
+fn pointbreak<I, S>(args: I) -> std::process::Output
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_shore"))
+    Command::new(env!("CARGO_BIN_EXE_pointbreak"))
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         .output()
-        .expect("run shore binary")
+        .expect("run pointbreak binary")
 }
 
 fn parse_json(stdout: &[u8]) -> Value {
@@ -1123,7 +1138,7 @@ fn parse_json(stdout: &[u8]) -> Value {
 
 fn show_revision_json(repo: &std::path::Path, revision_id: &str) -> Value {
     parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             revision_id,
@@ -1156,7 +1171,7 @@ fn two_dir_repo() -> GitRepo {
 fn capture_is_available_at_the_top_level() {
     let repo = modified_repo();
 
-    let output = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -1170,14 +1185,15 @@ fn capture_is_available_at_the_top_level() {
 #[test]
 fn abbreviated_supersedes_resolves_to_the_full_id_before_it_is_stored() {
     let repo = modified_repo();
-    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
     // first_id = "rev:sha256:<64hex>" (capture.rs's revision ids always take this shape).
     let fragment = &first_id["rev:sha256:".len()..][..8];
 
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let second = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1189,7 +1205,7 @@ fn abbreviated_supersedes_resolves_to_the_full_id_before_it_is_stored() {
     let second_id = second["revision"]["id"].as_str().unwrap().to_owned();
 
     let resolved = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             &first_id,
@@ -1209,7 +1225,7 @@ fn abbreviated_supersedes_resolves_to_the_full_id_before_it_is_stored() {
 fn review_capture_with_path_scopes_the_captured_revision() {
     let repo = two_dir_repo();
 
-    let scoped = shore([
+    let scoped = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -1223,7 +1239,8 @@ fn review_capture_with_path_scopes_the_captured_revision() {
     );
     let scoped = parse_json(&scoped.stdout);
 
-    let unscoped = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let unscoped =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     // A scoped capture is a distinct revision from the whole-repo capture of the
     // same worktree (their content and provenance both differ here).
@@ -1234,7 +1251,7 @@ fn review_capture_with_path_scopes_the_captured_revision() {
 fn review_capture_path_is_repeatable() {
     let repo = two_dir_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -1254,7 +1271,7 @@ fn review_capture_path_is_repeatable() {
 fn review_capture_with_path_matching_nothing_fails_with_a_pathspec_error() {
     let repo = two_dir_repo();
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -1274,7 +1291,7 @@ fn review_capture_with_path_matching_nothing_fails_with_a_pathspec_error() {
 fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
     let repo = two_dir_repo();
     let captured = parse_json(
-        &shore([
+        &pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1286,7 +1303,7 @@ fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
     let revision_id = captured["revision"]["id"].as_str().unwrap();
 
     let shown = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             revision_id,
@@ -1297,8 +1314,9 @@ fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
     );
     assert_eq!(shown["revision"]["source"]["pathspecs"][0], "a");
 
-    let listed =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let listed = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     let entry = listed["entries"]
         .as_array()
         .unwrap()
@@ -1308,7 +1326,7 @@ fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
     assert_eq!(entry["source"]["pathspecs"][0], "a");
 
     let history = parse_json(
-        &shore([
+        &pointbreak([
             "history",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1335,7 +1353,7 @@ fn differently_scoped_range_captures_stay_distinct_in_revisions() {
     repo.commit_all("change");
 
     for scope in ["a", "b"] {
-        let output = shore([
+        let output = pointbreak([
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -1353,8 +1371,9 @@ fn differently_scoped_range_captures_stay_distinct_in_revisions() {
         );
     }
 
-    let listed =
-        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let listed = parse_json(
+        &pointbreak(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
     assert_eq!(listed["revisionCount"], 2);
     let mut scopes: Vec<String> = listed["entries"]
         .as_array()
@@ -1374,11 +1393,12 @@ fn differently_scoped_range_captures_stay_distinct_in_revisions() {
 #[test]
 fn unscoped_capture_surfaces_no_pathspecs_key() {
     let repo = two_dir_repo();
-    let captured = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let captured =
+        parse_json(&pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let revision_id = captured["revision"]["id"].as_str().unwrap();
 
     let shown = parse_json(
-        &shore([
+        &pointbreak([
             "revision",
             "show",
             revision_id,
@@ -1395,7 +1415,7 @@ fn review_capture_path_composes_with_base_and_target() {
     let repo = two_dir_repo();
     repo.commit_all("change");
 
-    let output = shore([
+    let output = pointbreak([
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
