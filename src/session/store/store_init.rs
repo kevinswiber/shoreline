@@ -285,25 +285,20 @@ mod tests {
 
         let repo = git_repo();
         let home = tempfile::tempdir().unwrap();
-        // SAFETY: single-threaded test; nextest isolates each test in its own
-        // process; POINTBREAK_HOME is the documented hermetic seam (keys/home.rs).
-        unsafe {
-            std::env::set_var("POINTBREAK_HOME", home.path());
-        }
+        let (family_dir, from_public_helper, from_resolver) =
+            crate::environment::test_support::with_home_override(home.path(), || {
+                let slug = "acme-web";
+                let family_dir = user_level_store_dir(slug).unwrap();
+                ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
+                set_family_binding_for_repo(repo.path(), slug, "0123abcd4567ef89").unwrap();
 
-        let slug = "acme-web";
-        let family_dir = user_level_store_dir(slug).unwrap();
-        ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
-        set_family_binding_for_repo(repo.path(), slug, "0123abcd4567ef89").unwrap();
-
-        let from_public_helper = store_dir_for_repo(repo.path()).unwrap();
-        let from_resolver = crate::session::store::resolution::resolve_store(repo.path())
-            .unwrap()
-            .store_dir()
-            .to_path_buf();
-        unsafe {
-            std::env::remove_var("POINTBREAK_HOME");
-        }
+                let from_public_helper = store_dir_for_repo(repo.path()).unwrap();
+                let from_resolver = crate::session::store::resolution::resolve_store(repo.path())
+                    .unwrap()
+                    .store_dir()
+                    .to_path_buf();
+                (family_dir, from_public_helper, from_resolver)
+            });
 
         assert_eq!(from_public_helper, from_resolver);
         // Both are computed from the same POINTBREAK_HOME root, so they are byte-equal.
