@@ -15,4 +15,5 @@ Open a Git worktree with a Pointbreak store, then open the Pointbreak activity-b
 extension checks the bundled CLI handshake before it reads review data.
 
 To use a development build without repackaging, set `pointbreak.binaryPath` to the absolute path
-of that `shore` binary and reload the extension host.
+of that Pointbreak binary and reload the extension host. The configured file may have any basename,
+but it must provide the exact compatible `pointbreak.version` handshake.

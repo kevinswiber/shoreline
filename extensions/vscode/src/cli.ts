@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { ResolvedBinary } from "./binary";
+import { POINTBREAK_CLI_NAME, type ResolvedBinary } from "./binary";
 
 export type ExecFn = (
   file: string,
@@ -437,7 +437,7 @@ export const REQUIRED_DOCUMENTS: Record<string, number> = {
 };
 
 // This extension targets the CLI minor that first provides the version handshake.
-export const COMPATIBLE_CLI_RANGE = "0.6";
+export const COMPATIBLE_CLI_RANGE = "0.7";
 
 export type HandshakeResult =
   | { ok: true; cliVersion: string }
@@ -458,8 +458,8 @@ export function sanitizedEnv(
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const env = { ...base };
-  delete env.SHORE_ACTOR_ID;
-  delete env.SHORE_FORMAT;
+  delete env.POINTBREAK_ACTOR_ID;
+  delete env.POINTBREAK_FORMAT;
   return env;
 }
 
@@ -637,7 +637,7 @@ export class PointbreakCli {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new PointbreakCliError(
-        `Pointbreak CLI is too old or incompatible: shore version failed (${detail})`,
+        `Pointbreak CLI is too old or incompatible: ${POINTBREAK_CLI_NAME} version failed (${detail})`,
         error instanceof PointbreakCliError ? error.exitCode : undefined,
         error instanceof PointbreakCliError ? error.stderr : "",
       );
@@ -676,7 +676,7 @@ export class PointbreakCli {
     if (result.exitCode !== 0) {
       const detail = result.stderr.trim() || "no error output";
       throw new PointbreakCliError(
-        `shore ${args.join(" ")} failed: ${detail}`,
+        `${POINTBREAK_CLI_NAME} ${args.join(" ")} failed: ${detail}`,
         result.exitCode,
         result.stderr,
       );
@@ -687,12 +687,12 @@ export class PointbreakCli {
       parsed = JSON.parse(result.stdout);
     } catch {
       throw new PointbreakCliError(
-        `shore ${args.join(" ")} returned invalid JSON`,
+        `${POINTBREAK_CLI_NAME} ${args.join(" ")} returned invalid JSON`,
       );
     }
     if (!isDocument(parsed)) {
       throw new PointbreakCliError(
-        `shore ${args.join(" ")} returned an invalid document`,
+        `${POINTBREAK_CLI_NAME} ${args.join(" ")} returned an invalid document`,
       );
     }
 

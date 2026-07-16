@@ -36,7 +36,7 @@ vi.mock("../src/attentionView", () => ({
   refreshAfterWrite: vi.fn(async () => undefined),
 }));
 vi.mock("../src/binary", () => ({
-  resolveBinary: vi.fn(() => ({ path: "/shore", source: "setting" })),
+  resolveBinary: vi.fn(() => ({ path: "/pointbreak", source: "setting" })),
 }));
 vi.mock("../src/cli", () => ({ PointbreakCli: class {} }));
 vi.mock("../src/commands/capture", () => ({ runCaptureCommand: vi.fn() }));

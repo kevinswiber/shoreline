@@ -171,12 +171,12 @@
         "pointbreak.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to a shore CLI binary (overrides the bundled one)."
+          "description": "Absolute path to a Pointbreak CLI binary (overrides the bundled one)."
         },
         "pointbreak.useGlobalCli": {
           "type": "boolean",
           "default": false,
-          "description": "Resolve the shore CLI from PATH instead of the bundled binary."
+          "description": "Resolve the Pointbreak CLI from PATH instead of the bundled binary."
         },
         "pointbreak.reviewUrl": {
           "type": "string",

@@ -6,7 +6,7 @@ import {
   window,
   workspace,
 } from "vscode";
-import type { ResolvedBinary } from "../binary";
+import { POINTBREAK_CLI_NAME, type ResolvedBinary } from "../binary";
 import type { PointbreakCli } from "../cli";
 import {
   type FetchFn,
@@ -24,7 +24,7 @@ import { pickFolder, type TargetResolution } from "../targetResolver";
 
 const RETRY_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 1_000;
-const START_REVIEW_ACTION = "Start `shore inspect` here";
+const START_REVIEW_ACTION = `Start \`${POINTBREAK_CLI_NAME} inspect\` here`;
 const OPEN_INTEGRATED_BROWSER_COMMAND = "workbench.action.browser.open";
 const LOCAL_BROWSER_HOSTS = new Set([
   "localhost",

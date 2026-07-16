@@ -3,15 +3,15 @@ import { describe, expect, it } from "vitest";
 import { resolveBinary } from "../src/binary";
 
 const extensionRoot = "/extension";
-const bundled = path.join(extensionRoot, "bin", "darwin-arm64", "shore");
-const global = "/tools/shore";
+const bundled = path.join(extensionRoot, "bin", "darwin-arm64", "pointbreak");
+const global = "/tools/pointbreak";
 
 describe("resolveBinary", () => {
   it("always uses an explicit binary path", () => {
     expect(
       resolveBinary(
         {
-          binaryPath: "/custom/shore",
+          binaryPath: "/custom/arbitrarily-named-review-cli",
           useGlobalCli: false,
           platform: "darwin",
           arch: "arm64",
@@ -20,7 +20,10 @@ describe("resolveBinary", () => {
         },
         extensionRoot,
       ),
-    ).toEqual({ path: "/custom/shore", source: "setting" });
+    ).toEqual({
+      path: "/custom/arbitrarily-named-review-cli",
+      source: "setting",
+    });
   });
 
   it("prefers bundled when global CLI use is disabled", () => {
@@ -102,5 +105,25 @@ describe("resolveBinary", () => {
         extensionRoot,
       ),
     ).toThrow(/install pointbreak|binaryPath/i);
+  });
+
+  it("ignores the retired executable in the bundle and on PATH", () => {
+    const retired = new Set([
+      path.join(extensionRoot, "bin", "darwin-arm64", "shore"),
+      "/tools/shore",
+    ]);
+
+    expect(() =>
+      resolveBinary(
+        {
+          useGlobalCli: false,
+          platform: "darwin",
+          arch: "arm64",
+          path: "/tools",
+          exists: (candidate) => retired.has(candidate),
+        },
+        extensionRoot,
+      ),
+    ).toThrow(/pointbreak/i);
   });
 });

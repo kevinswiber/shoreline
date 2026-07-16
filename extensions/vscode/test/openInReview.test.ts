@@ -179,7 +179,7 @@ describe("runOpenInReviewCommand", () => {
 
   it("starts only the explicit text-web surface and cleans it up when probing fails", async () => {
     vscodeMocks.showInformationMessage.mockResolvedValue(
-      "Start `shore inspect` here",
+      "Start `pointbreak inspect` here",
     );
     const probe = vi.fn(async () => UNREACHABLE);
     const start = vi.fn(async () => CAPABILITY);
@@ -288,7 +288,7 @@ function response(document: unknown) {
 }
 
 function binary(): ResolvedBinary {
-  return { path: "/usr/local/bin/shore", source: "path" };
+  return { path: "/usr/local/bin/pointbreak", source: "path" };
 }
 
 function cli(): PointbreakCli {

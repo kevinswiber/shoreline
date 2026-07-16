@@ -10,16 +10,16 @@ import {
 } from "../src/cli";
 import { ATTENTION_JSON, REVISION_LIST_JSON, VERSION_JSON } from "./fixtures";
 
-const binary: ResolvedBinary = { path: "/bin/shore", source: "setting" };
+const binary: ResolvedBinary = { path: "/bin/pointbreak", source: "setting" };
 
 afterEach(() => {
-  delete process.env.SHORE_ACTOR_ID;
-  delete process.env.SHORE_FORMAT;
+  delete process.env.POINTBREAK_ACTOR_ID;
+  delete process.env.POINTBREAK_FORMAT;
 });
 
 it("strips actor and format overrides from every spawn env", async () => {
-  process.env.SHORE_ACTOR_ID = "actor:agent:leaked";
-  process.env.SHORE_FORMAT = "text";
+  process.env.POINTBREAK_ACTOR_ID = "actor:agent:leaked";
+  process.env.POINTBREAK_FORMAT = "text";
   const seen: NodeJS.ProcessEnv[] = [];
   const exec: ExecFn = async (_file, args, opts) => {
     seen.push(opts.env);
@@ -32,14 +32,14 @@ it("strips actor and format overrides from every spawn env", async () => {
 
   expect(seen).toHaveLength(2);
   for (const env of seen) {
-    expect(env).not.toHaveProperty("SHORE_ACTOR_ID");
-    expect(env).not.toHaveProperty("SHORE_FORMAT");
+    expect(env).not.toHaveProperty("POINTBREAK_ACTOR_ID");
+    expect(env).not.toHaveProperty("POINTBREAK_FORMAT");
   }
 });
 
 it("sanitizes writes through the same spawn seam", async () => {
-  process.env.SHORE_ACTOR_ID = "actor:agent:leaked";
-  process.env.SHORE_FORMAT = "text";
+  process.env.POINTBREAK_ACTOR_ID = "actor:agent:leaked";
+  process.env.POINTBREAK_FORMAT = "text";
   const seen: NodeJS.ProcessEnv[] = [];
   const exec: ExecFn = async (_file, args, opts) => {
     seen.push(opts.env);
@@ -66,8 +66,8 @@ it("sanitizes writes through the same spawn seam", async () => {
   });
 
   expect(seen).toHaveLength(2);
-  expect(seen.every((env) => env.SHORE_ACTOR_ID === undefined)).toBe(true);
-  expect(seen.every((env) => env.SHORE_FORMAT === undefined)).toBe(true);
+  expect(seen.every((env) => env.POINTBREAK_ACTOR_ID === undefined)).toBe(true);
+  expect(seen.every((env) => env.POINTBREAK_FORMAT === undefined)).toBe(true);
 });
 
 describe("captureArgs", () => {
@@ -233,8 +233,8 @@ describe("observationArgs", () => {
 });
 
 it("uses typed exact-write documents, sanitized env, and stdin bytes", async () => {
-  process.env.SHORE_ACTOR_ID = "actor:agent:leaked";
-  process.env.SHORE_FORMAT = "text";
+  process.env.POINTBREAK_ACTOR_ID = "actor:agent:leaked";
+  process.env.POINTBREAK_FORMAT = "text";
   const calls: Array<{
     args: string[];
     opts: { cwd: string; env: NodeJS.ProcessEnv; stdin?: Uint8Array };
@@ -364,8 +364,8 @@ it("uses typed exact-write documents, sanitized env, and stdin bytes", async () 
   expect(
     calls.every(
       ({ opts }) =>
-        opts.env.SHORE_ACTOR_ID === undefined &&
-        opts.env.SHORE_FORMAT === undefined,
+        opts.env.POINTBREAK_ACTOR_ID === undefined &&
+        opts.env.POINTBREAK_FORMAT === undefined,
     ),
   ).toBe(true);
   expect(JSON.stringify(calls.map(({ args }) => args))).not.toContain(

@@ -6,9 +6,12 @@ import {
   REQUIRED_DOCUMENTS,
   verifyHandshake,
 } from "../src/cli";
-import { VERSION_DOC } from "./fixtures";
+import { VERSION_DOC, VERSION_JSON } from "./fixtures";
 
-const binary: ResolvedBinary = { path: "/bin/shore", source: "setting" };
+const binary: ResolvedBinary = {
+  path: "/bin/arbitrarily-named-review-cli",
+  source: "setting",
+};
 
 it("pins the exact extension document handshake", () => {
   expect(REQUIRED_DOCUMENTS).toEqual({
@@ -45,11 +48,42 @@ it("fails closed when a required document version mismatches", () => {
   expect(result.ok === false && result.reason).toMatch(/attention-list/);
 });
 
+it("accepts the exact Pointbreak 0.7 handshake through an arbitrary path", () => {
+  expect(verifyHandshake(VERSION_DOC)).toEqual({
+    ok: true,
+    cliVersion: "0.7.0",
+  });
+});
+
+it("executes an arbitrary configured path only through the exact handshake", async () => {
+  const invocations: Array<{ file: string; args: string[] }> = [];
+  const exec: ExecFn = async (file, args) => {
+    invocations.push({ file, args });
+    return { stdout: VERSION_JSON, stderr: "", exitCode: 0 };
+  };
+  const cli = new PointbreakCli(binary, exec);
+
+  await expect(cli.version("/repo")).resolves.toEqual(VERSION_DOC);
+  expect(invocations).toEqual([{ file: binary.path, args: ["version"] }]);
+});
+
 it("fails closed when the CLI minor is incompatible", () => {
-  const result = verifyHandshake({ ...VERSION_DOC, cliVersion: "0.7.0" });
+  const result = verifyHandshake({ ...VERSION_DOC, cliVersion: "0.8.0" });
 
   expect(result.ok).toBe(false);
-  expect(result.ok === false && result.reason).toMatch(/0\.7\.0/);
+  expect(result.ok === false && result.reason).toMatch(/0\.8\.0/);
+});
+
+it("fails closed when the document map omits a required member", () => {
+  const documents = { ...VERSION_DOC.documents };
+  delete documents["pointbreak.store-status"];
+  const result = verifyHandshake({
+    ...VERSION_DOC,
+    documents,
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.ok === false && result.reason).toMatch(/store-status|missing/i);
 });
 
 it("fails closed when the version document body is malformed", () => {
@@ -62,7 +96,7 @@ it("fails closed when the version document body is malformed", () => {
   expect(result.ok).toBe(false);
 });
 
-it("fails closed when the binary does not speak shore version", async () => {
+it("fails closed with Pointbreak-only wording when version is unavailable", async () => {
   const exec: ExecFn = async () => ({
     stdout: "",
     stderr: "unknown subcommand 'version'",
@@ -70,5 +104,7 @@ it("fails closed when the binary does not speak shore version", async () => {
   });
   const cli = new PointbreakCli(binary, exec);
 
-  await expect(cli.version("/repo")).rejects.toThrow(/version|too old/i);
+  await expect(cli.version("/repo")).rejects.toThrow(
+    /pointbreak version failed/i,
+  );
 });

@@ -5,7 +5,7 @@ export { REQUIRED_DOCUMENTS };
 export const VERSION_DOC: VersionDoc = {
   schema: "pointbreak.version",
   version: 1,
-  cliVersion: "0.6.0",
+  cliVersion: "0.7.0",
   documents: { ...REQUIRED_DOCUMENTS },
   diagnostics: [],
 };

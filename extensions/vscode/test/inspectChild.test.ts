@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter as NodeEventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StatusBarItem, WorkspaceFolder } from "vscode";
 import type { ResolvedBinary } from "../src/binary";
 import {
@@ -41,12 +41,19 @@ vi.mock("vscode", () => ({
 }));
 
 beforeEach(() => {
+  process.env.POINTBREAK_ACTOR_ID = "actor:agent:leaked";
+  process.env.POINTBREAK_FORMAT = "text";
   vscodeMocks.status.command = undefined;
   vscodeMocks.status.dispose.mockReset();
   vscodeMocks.status.hide.mockReset();
   vscodeMocks.status.show.mockReset();
   vscodeMocks.status.text = "";
   vscodeMocks.status.tooltip = "";
+});
+
+afterEach(() => {
+  delete process.env.POINTBREAK_ACTOR_ID;
+  delete process.env.POINTBREAK_FORMAT;
 });
 
 describe("inspect startup parsing", () => {
@@ -148,13 +155,13 @@ describe("InspectChildManager", () => {
 
     expect(store.forget).toHaveBeenCalledWith(resolution().target.key);
     expect(spawn).toHaveBeenCalledWith(
-      "/custom/shore",
+      "/custom/arbitrarily-named-review-cli",
       ["inspect", "--port", "0", "--api-only", "--format", "json"],
       expect.objectContaining({ cwd: "/repo" }),
     );
     const env = spawn.mock.calls[0]?.[2].env;
-    expect(env.SHORE_ACTOR_ID).toBeUndefined();
-    expect(env.SHORE_FORMAT).toBeUndefined();
+    expect(env.POINTBREAK_ACTOR_ID).toBeUndefined();
+    expect(env.POINTBREAK_FORMAT).toBeUndefined();
     expect(store.remember).toHaveBeenCalledWith(
       expect.objectContaining({
         targetKey: resolution().target.key,
@@ -361,7 +368,10 @@ function managerWith(
 }
 
 function binary(): ResolvedBinary {
-  return { path: "/custom/shore", source: "setting" };
+  return {
+    path: "/custom/arbitrarily-named-review-cli",
+    source: "setting",
+  };
 }
 
 function resolution(

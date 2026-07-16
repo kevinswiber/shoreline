@@ -47,11 +47,19 @@ export function stopReviewTerminal(targetKey: string): void {
   running.terminal.dispose();
 }
 
-export function inspectInvocation(binary: ResolvedBinary): {
+export function inspectInvocation(
+  binary: ResolvedBinary,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): {
   file: string;
   args: string[];
+  env: NodeJS.ProcessEnv;
 } {
-  return { file: binary.path, args: ["inspect", "--port", "0"] };
+  return {
+    file: binary.path,
+    args: ["inspect", "--port", "0"],
+    env: sanitizedEnv(baseEnv),
+  };
 }
 
 /** Incrementally extracts a loopback origin and bearer from inspect text output. */
@@ -139,7 +147,7 @@ class InspectPseudoterminal implements Pseudoterminal {
     const invocation = inspectInvocation(this.binary);
     this.process = spawn(invocation.file, invocation.args, {
       cwd: this.folder.uri.fsPath,
-      env: sanitizedEnv(),
+      env: invocation.env,
       stdio: "pipe",
       windowsHide: true,
     });

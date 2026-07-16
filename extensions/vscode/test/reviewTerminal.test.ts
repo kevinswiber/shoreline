@@ -16,13 +16,20 @@ const TOKEN =
 describe("inspectInvocation", () => {
   it("starts only an ephemeral text-web server with sanitized spawn arguments", () => {
     const binary: ResolvedBinary = {
-      path: "/Pointbreak & Dev/$shore",
+      path: "/Pointbreak & Dev/$pointbreak",
       source: "setting",
     };
 
-    expect(inspectInvocation(binary)).toEqual({
-      file: "/Pointbreak & Dev/$shore",
+    expect(
+      inspectInvocation(binary, {
+        POINTBREAK_ACTOR_ID: "actor:agent:leaked",
+        POINTBREAK_FORMAT: "text",
+        SAFE_INPUT: "preserved",
+      }),
+    ).toEqual({
+      file: "/Pointbreak & Dev/$pointbreak",
       args: ["inspect", "--port", "0"],
+      env: { SAFE_INPUT: "preserved" },
     });
   });
 });

@@ -1,6 +1,14 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+export const POINTBREAK_CLI_NAME = "pointbreak";
+
+export function pointbreakExecutable(platform: NodeJS.Platform): string {
+  return platform === "win32"
+    ? `${POINTBREAK_CLI_NAME}.exe`
+    : POINTBREAK_CLI_NAME;
+}
+
 export interface ResolvedBinary {
   path: string;
   source: "setting" | "bundled" | "path";
@@ -27,7 +35,7 @@ export function resolveBinary(
 
   const platform = config.platform ?? process.platform;
   const arch = config.arch ?? process.arch;
-  const executable = platform === "win32" ? "shore.exe" : "shore";
+  const executable = pointbreakExecutable(platform);
   const bundledPath = path.join(
     extensionRoot,
     "bin",
@@ -57,14 +65,14 @@ export function resolveBinary(
   if (fallback) {
     config.announceFallback?.(
       config.useGlobalCli
-        ? "The shore CLI was not found on PATH; using the bundled CLI."
-        : "The bundled shore CLI was not found; using the CLI from PATH.",
+        ? "The Pointbreak CLI was not found on PATH; using the bundled CLI."
+        : "The bundled Pointbreak CLI was not found; using the CLI from PATH.",
     );
     return fallback;
   }
 
   throw new Error(
-    "Pointbreak could not find the shore CLI. Install Pointbreak globally or set pointbreak.binaryPath.",
+    "Pointbreak could not find its CLI. Install Pointbreak globally or set pointbreak.binaryPath.",
   );
 }
 

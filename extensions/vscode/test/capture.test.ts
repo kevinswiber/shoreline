@@ -33,7 +33,7 @@ describe("runCaptureCommand", () => {
       .fn<(repo: string, options: CaptureOptions) => Promise<never>>()
       .mockRejectedValueOnce(
         new PointbreakCliError(
-          "shore capture failed",
+          "pointbreak capture failed",
           1,
           "capture produced no changed files; pass --allow-empty",
         ),
