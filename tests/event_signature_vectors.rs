@@ -22,6 +22,7 @@ use pointbreak::session::{
     event_signature_trust_set, event_to_be_signed, verify_event_signature,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 mod support;
 
@@ -50,6 +51,17 @@ fn fixture_json(name: &str) -> Value {
 
 fn fixture_event(name: &str) -> ShoreEvent {
     serde_json::from_value(fixture_json(name)).expect("fixture event decodes")
+}
+
+fn naming_cutover_fixture_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/naming-cutover")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 const FRIENDLY_SIGNER: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
@@ -293,15 +305,6 @@ fn vector_fixture_inventory_covers_required_case_families() {
 /// `sigVersion` stays 1, and no envelope fixture carries a `tool` key.
 #[test]
 fn producer_rename_left_signed_material_untouched() {
-    use sha2::{Digest, Sha256};
-
-    fn sha256_hex(bytes: &[u8]) -> String {
-        Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
-    }
-
     // Digests pinned to the current signed envelope shape. Regeneration must
     // reproduce these bytes exactly; an unexpected change here is a
     // stop-the-line signal that an edit touched the signed material.
@@ -359,6 +362,140 @@ fn producer_rename_left_signed_material_untouched() {
                 signature["sigVersion"], 1,
                 "every signed envelope in {name} keeps sigVersion 1"
             );
+        }
+    }
+
+    let historical = fixture_event("friendly-valid-event.json");
+    assert_eq!(historical.writer.producer.name, "shore");
+    let historical_tbs = event_to_be_signed(&historical).unwrap();
+    let historical_tbs_bytes = historical_tbs.canonical_bytes().unwrap();
+    let historical_pae = event_signature_pre_authentication_encoding(&historical_tbs).unwrap();
+    let historical_record_hash = historical.event_record_hash().unwrap();
+
+    let mut prospective = historical.clone();
+    prospective.writer.producer.name = "pointbreak".to_owned();
+    let prospective_tbs = event_to_be_signed(&prospective).unwrap();
+    assert_eq!(
+        historical_tbs_bytes,
+        prospective_tbs.canonical_bytes().unwrap(),
+        "producer remains excluded from signed TBS bytes"
+    );
+    assert_eq!(
+        historical_pae,
+        event_signature_pre_authentication_encoding(&prospective_tbs).unwrap(),
+        "producer remains excluded from signed PAE bytes"
+    );
+    assert_eq!(historical.event_id, prospective.event_id);
+    assert_eq!(historical.payload_hash, prospective.payload_hash);
+    assert_ne!(
+        historical_record_hash,
+        prospective.event_record_hash().unwrap(),
+        "producer remains included in event-record hashing"
+    );
+}
+
+#[test]
+fn naming_cutover_fixture_manifest_pins_current_compatibility_bytes() {
+    let root = naming_cutover_fixture_dir();
+    let manifest = std::fs::read_to_string(root.join("manifest.sha256"))
+        .expect("read the pinned pre-cutover naming manifest");
+    let mut entries = manifest
+        .lines()
+        .map(|line| {
+            let (digest, relative) = line
+                .split_once("  ")
+                .unwrap_or_else(|| panic!("invalid manifest line: {line}"));
+            (relative, digest)
+        })
+        .collect::<Vec<_>>();
+    entries.sort_unstable_by_key(|(relative, _)| *relative);
+
+    let required = [
+        "baseline.json",
+        "identity/object-identity-v1.json",
+        "identity/revision-identity-v1.json",
+        "identity/worktree-fingerprint-v1.json",
+        "protocol/event-set-v1.json",
+        "protocol/state-v1.json",
+        "protocol/version-v1.json",
+        "topology/git-common/shore.link.json",
+        "topology/git-common/shore/state.json",
+        "topology/home/.shore/stores/acme-web/family.json",
+        "topology/home/.shore/stores/acme-web/registry.json",
+        "topology/repo/.shore/data/state.json",
+        "topology/repo/.shore/store.json",
+    ];
+    assert_eq!(
+        entries
+            .iter()
+            .map(|(relative, _)| *relative)
+            .collect::<Vec<_>>(),
+        required,
+        "the manifest inventory is the compatibility boundary"
+    );
+
+    for (relative, expected) in entries {
+        let bytes = std::fs::read(root.join(relative))
+            .unwrap_or_else(|error| panic!("read {relative}: {error}"));
+        assert_eq!(sha256_hex(&bytes), expected, "SHA-256 drift for {relative}");
+    }
+
+    let baseline: Value = serde_json::from_slice(
+        &std::fs::read(root.join("baseline.json")).expect("read naming-cutover baseline"),
+    )
+    .expect("baseline is valid JSON");
+    assert_eq!(
+        baseline["sourceCommit"],
+        "b767f0d7c1b2d8c7496eea3bb547d8cea8548290"
+    );
+    assert_eq!(baseline["cargoTarget"], "shore");
+    assert_eq!(baseline["historicalProducer"], "shore");
+    assert_eq!(baseline["versionDocument"], "pointbreak.version");
+    assert_eq!(baseline["versionDocumentVersion"], 1);
+    assert_eq!(
+        baseline["canonicalTbsSha256"],
+        sha256_hex(&std::fs::read(fixture_path("canonical-tbs-v1.bytes")).unwrap())
+    );
+    assert_eq!(
+        baseline["paeSha256"],
+        sha256_hex(&std::fs::read(fixture_path("pae-v1.bytes")).unwrap())
+    );
+    assert_eq!(
+        baseline["signatureEnvelopeSha256"],
+        sha256_hex(&std::fs::read(fixture_path("friendly-valid-event.json")).unwrap())
+    );
+    assert_eq!(
+        baseline["eventRecordHash"],
+        fixture_event("friendly-valid-event.json")
+            .event_record_hash()
+            .unwrap()
+    );
+
+    let version: Value =
+        serde_json::from_slice(&std::fs::read(root.join("protocol/version-v1.json")).unwrap())
+            .unwrap();
+    assert_eq!(version["schema"], "pointbreak.version");
+    assert_eq!(version["version"], 1);
+
+    for (relative, schema) in [
+        ("protocol/event-set-v1.json", "shore.event-set.v1"),
+        ("protocol/state-v1.json", "shore.state"),
+        ("topology/repo/.shore/store.json", "shore.store-config"),
+        ("topology/git-common/shore.link.json", "shore.store-link"),
+        (
+            "topology/home/.shore/stores/acme-web/family.json",
+            "shore.family-manifest",
+        ),
+        (
+            "topology/home/.shore/stores/acme-web/registry.json",
+            "shore.family-registry",
+        ),
+    ] {
+        let document: Value = serde_json::from_slice(&std::fs::read(root.join(relative)).unwrap())
+            .unwrap_or_else(|error| panic!("parse {relative}: {error}"));
+        assert_eq!(document["schema"], schema, "schema drift for {relative}");
+        if relative != "protocol/event-set-v1.json" {
+            assert_eq!(document["version"], 1, "version drift for {relative}");
         }
     }
 }

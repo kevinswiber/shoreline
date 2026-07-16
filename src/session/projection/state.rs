@@ -382,6 +382,16 @@ mod tests {
     }
 
     #[test]
+    fn naming_cutover_state_v1_bytes_are_frozen() {
+        let expected =
+            crate::test_fixtures::naming_cutover_contract_bytes("protocol/state-v1.json");
+        let state: SessionState = serde_json::from_slice(&expected).unwrap();
+        assert_eq!(state.schema, STATE_SCHEMA);
+        assert_eq!(state.version, STATE_VERSION);
+        assert_eq!(serde_json::to_vec(&state).unwrap(), expected);
+    }
+
+    #[test]
     fn projection_defaults_include_event_set_hash() {
         let state = SessionState::from_events(&[]).unwrap();
 

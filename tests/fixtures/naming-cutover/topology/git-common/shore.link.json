@@ -1,0 +1,6 @@
+{
+  "schema": "shore.store-link",
+  "version": 1,
+  "familyRef": "acme-web",
+  "cloneRef": "0123abcd4567ef89"
+}

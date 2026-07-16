@@ -882,4 +882,21 @@ mod tests {
 
     const SHARED_DOC: &str = r#"{"schema":"shore.store-config","version":1,"mode":"shared"}"#;
     const EPHEMERAL_DOC: &str = r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral"}"#;
+
+    #[test]
+    fn naming_cutover_store_config_and_binding_bytes_are_frozen() {
+        let repo = git_repo();
+        write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
+        assert_eq!(
+            std::fs::read(repo.path().join(STORE_CONFIG_REL_PATH)).unwrap(),
+            crate::test_fixtures::naming_cutover_bytes("topology/repo/.shore/store.json")
+        );
+
+        let common = tempfile::tempdir().unwrap();
+        write_common_dir_binding(common.path(), "acme-web", "0123abcd4567ef89").unwrap();
+        assert_eq!(
+            std::fs::read(common.path().join(STORE_LINK_FILE)).unwrap(),
+            crate::test_fixtures::naming_cutover_bytes("topology/git-common/shore.link.json")
+        );
+    }
 }

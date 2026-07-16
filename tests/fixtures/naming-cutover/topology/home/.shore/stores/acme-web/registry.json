@@ -1,0 +1,11 @@
+{
+  "schema": "shore.family-registry",
+  "version": 1,
+  "entries": [
+    {
+      "cloneRef": "0123abcd4567ef89",
+      "worktreePath": "/fixture/repo",
+      "linkedAt": "2026-07-15T00:00:00.000Z"
+    }
+  ]
+}

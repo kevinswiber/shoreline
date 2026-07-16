@@ -215,3 +215,9 @@ wire and storage identity, not argv.
   their fate; this ADR only positions them (hidden, family-scoped).
 - **Family-noun placement** (`store`, `key`, `identity`) — revisit only if a subject appears
   that is genuinely not the review record's (none exists today).
+
+## Amendment: Operational naming cutover
+
+The original grammar, short-id input rules, and machine-output invariants remain accepted. ADR-0036
+supersedes the `shore` executable examples in Decisions 1–3 and Decision 5's operational path and
+environment names for the `0.7.0` cutover. Decision 5's frozen schema invariants remain unchanged.

@@ -1,0 +1,9 @@
+{
+  "schema": "shore.family-manifest",
+  "version": 1,
+  "familyId": "acme-web",
+  "createdAt": "2026-07-15T00:00:00.000Z",
+  "rootCommitOids": [
+    "3333333333333333333333333333333333333333"
+  ]
+}

@@ -78,6 +78,24 @@ mod tests {
     }
 
     #[test]
+    fn naming_cutover_version_v1_bytes_are_frozen() {
+        let mut actual = serde_json::to_value(version_document()).unwrap();
+        actual["cliVersion"] = serde_json::Value::String("0.6.0".to_owned());
+        if let Some(store_paths) = actual["documents"]
+            .as_object_mut()
+            .unwrap()
+            .remove("pointbreak.store-paths")
+        {
+            assert_eq!(store_paths, 1, "the approved registry addition stays v1");
+        }
+        let expected: serde_json::Value = serde_json::from_slice(
+            &crate::test_fixtures::naming_cutover_contract_bytes("protocol/version-v1.json"),
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn registry_is_cli_documents_plus_the_exact_promoted_inspect_set() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut emitted = BTreeSet::from([VERSION_SCHEMA.to_owned()]);

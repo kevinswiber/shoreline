@@ -1,0 +1,1 @@
+{"files":[{"is_binary":false,"is_mode_only":false,"is_submodule":false,"old_path":"src/lib.rs","path":"src/lib.rs","rows":[{"kind":"added","text":"pub fn value() -> u32 { 2 }"}],"status":"modified","synthetic":false}],"schema":"shore.object-identity","version":1}

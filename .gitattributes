@@ -10,6 +10,10 @@ tests/fixtures/review_documents/*.snap text eol=lf
 tests/fixtures/event_signatures/*.bytes text eol=lf
 tests/fixtures/event_signatures/*.json text eol=lf
 
+# Naming-cutover fixtures are hashed and compared byte-for-byte against live
+# serializers. Preserve their canonical LF bytes in Windows checkouts.
+tests/fixtures/naming-cutover/** text eol=lf
+
 # The inspector bundle is esbuild-emitted with LF and byte-compared by the CI
 # freshness gate; pin LF so a CRLF checkout (Windows git autocrlf) cannot flap the
 # diff.

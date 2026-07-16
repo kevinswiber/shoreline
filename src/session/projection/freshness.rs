@@ -98,6 +98,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn naming_cutover_event_set_bytes_and_producer_exclusion_are_frozen() {
+        let original: ShoreEvent = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/event_signatures/friendly-valid-event.json"
+        ))
+        .unwrap();
+        let material = EventSetHashMaterial {
+            schema: EVENT_SET_HASH_SCHEMA,
+            events: vec![EventSetHashEntry {
+                event_id: original.event_id.as_str(),
+                payload_hash: original.payload_hash.as_str(),
+            }],
+        };
+        let expected =
+            crate::test_fixtures::naming_cutover_contract_bytes("protocol/event-set-v1.json");
+        assert_eq!(
+            crate::canonical_hash::canonical_json_bytes(&serde_json::to_value(material).unwrap())
+                .unwrap(),
+            expected
+        );
+
+        let original_hash = event_set_hash_for_events([&original]).unwrap();
+        let mut prospective = original.clone();
+        prospective.writer.producer.name = "pointbreak".to_owned();
+        assert_eq!(
+            event_set_hash_for_events([&prospective]).unwrap(),
+            original_hash,
+            "producer remains excluded from event-set freshness"
+        );
+        assert_eq!(
+            original_hash,
+            "sha256:22a21da8c0ecdec0b614af34ca483840f9b89d9a26011e36ff916b978164c7ce"
+        );
+    }
+
     fn event(suffix: &str) -> ShoreEvent {
         let journal_id = JournalId::new(format!("journal:{suffix}"));
         ShoreEvent::new(

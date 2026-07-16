@@ -22,3 +22,6 @@ pub mod bench_support;
 
 #[cfg(test)]
 mod test_tracing;
+
+#[cfg(test)]
+mod test_fixtures;

@@ -689,6 +689,88 @@ mod tests {
     }
 
     #[test]
+    fn naming_cutover_object_revision_and_worktree_identity_bytes_are_frozen() {
+        let files = clone_a_files();
+        let mut projected = files.iter().map(content_only_file).collect::<Vec<_>>();
+        projected.sort_by(|a, b| (a.path, a.old_path).cmp(&(b.path, b.old_path)));
+        let object_descriptor = ContentOnlyObject {
+            schema: OBJECT_IDENTITY_SCHEMA,
+            version: OBJECT_IDENTITY_VERSION,
+            files: projected,
+        };
+        assert_eq!(
+            crate::canonical_hash::canonical_json_bytes(
+                &serde_json::to_value(&object_descriptor).unwrap()
+            )
+            .unwrap(),
+            crate::test_fixtures::naming_cutover_contract_bytes("identity/object-identity-v1.json")
+        );
+        let object_id = object_identity(&files);
+        assert_eq!(
+            object_id.as_str(),
+            "obj:sha256:e82eaf636b08fc81ff63222401c7be101bf8e9ef3fa96db2880055a80ccebb74"
+        );
+
+        let provenance = GitProvenance {
+            source: RevisionSource::GitWorktree {
+                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                include_untracked: true,
+                pathspecs: Vec::new(),
+            },
+            base: ReviewEndpoint::GitCommit {
+                commit_oid: "1".repeat(40),
+                tree_oid: "2".repeat(40),
+            },
+            target: ReviewEndpoint::GitWorkingTree {
+                worktree_root: "/fixture/repo".to_owned(),
+            },
+        };
+        let revision_descriptor = RevisionIdentityDescriptor {
+            schema: REVISION_IDENTITY_SCHEMA,
+            version: REVISION_IDENTITY_VERSION,
+            object_id: &object_id,
+            git_provenance: Some(&provenance),
+        };
+        assert_eq!(
+            crate::canonical_hash::canonical_json_bytes(
+                &serde_json::to_value(&revision_descriptor).unwrap()
+            )
+            .unwrap(),
+            crate::test_fixtures::naming_cutover_contract_bytes(
+                "identity/revision-identity-v1.json"
+            )
+        );
+        assert_eq!(
+            revision_id_from(&object_id, Some(&provenance))
+                .unwrap()
+                .as_str(),
+            "rev:sha256:e4472bfc989282c65cbecfdd38a454ea296dae45ef6772ba8c79df29fd65bde3"
+        );
+
+        let no_files = Vec::new();
+        let worktree_descriptor = WorktreeFingerprintDescriptor {
+            schema: FINGERPRINT_SCHEMA,
+            version: FINGERPRINT_VERSION,
+            worktree_root: "/fixture/repo".to_owned(),
+            base_head: "1".repeat(40),
+            files: &no_files,
+        };
+        assert_eq!(
+            crate::canonical_hash::canonical_json_bytes(
+                &serde_json::to_value(&worktree_descriptor).unwrap()
+            )
+            .unwrap(),
+            crate::test_fixtures::naming_cutover_contract_bytes(
+                "identity/worktree-fingerprint-v1.json"
+            )
+        );
+        assert_eq!(
+            crate::canonical_hash::sha256_json_hex(&worktree_descriptor).unwrap(),
+            "a6fcfcd50b1fdfab1938bd095828f5f4171d81600c48c538376c570b366bdbcd"
+        );
+    }
+
+    #[test]
     fn object_identity_converges_for_two_clones() {
         // Identical content under different namespaces / blob oids -> one id.
         assert_eq!(

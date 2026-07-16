@@ -186,3 +186,9 @@ The accepted decision body above is preserved as written. Its Decision 4 sidecar
 and the `shore.notes-apply` / `shore.dump` rows in Decision 3 are no-ops in the live code at landing:
 the legacy terminal, dump, and review-notes sidecar surfaces were retired before this ADR landed.
 No reader or alias is resurrected by this ADR.
+
+## Amendment: Operational naming cutover
+
+The original emitted-document and at-rest protocol split remains accepted. ADR-0036 resolves the
+operational-name revisit trigger: executable, path, and environment names move to Pointbreak in
+`0.7.0`, while frozen at-rest `shore.*` v1 identifiers remain unchanged.

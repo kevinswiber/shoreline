@@ -1,0 +1,17 @@
+{
+  "sourceCommit": "b767f0d7c1b2d8c7496eea3bb547d8cea8548290",
+  "package": "pointbreak",
+  "packageVersion": "0.6.0",
+  "cargoTarget": "shore",
+  "cargoTargetPath": "src/main.rs",
+  "historicalProducer": "shore",
+  "canonicalTbsSha256": "c9d734fe39395b4280137048d20a87b13acb69cf53f5ab0bc68c1348fb71b6f5",
+  "paeSha256": "a90d1927745b03816f2cb9bca079bc4d5f919de8bda7d3da18f77a8547bd2039",
+  "signatureEnvelopeSha256": "a63ac5db3b4646a7141bbbfe9158a7ecc97bcf2564e5deb43bcc2bca8b1d92e6",
+  "eventRecordHash": "sha256:cea1dd4ffbd3952266fb35b5a72fd369c74caa6b246ac446bcdc40f0920309a4",
+  "objectId": "obj:sha256:e82eaf636b08fc81ff63222401c7be101bf8e9ef3fa96db2880055a80ccebb74",
+  "revisionId": "rev:sha256:e4472bfc989282c65cbecfdd38a454ea296dae45ef6772ba8c79df29fd65bde3",
+  "worktreeFingerprint": "rev:worktree:sha256:a6fcfcd50b1fdfab1938bd095828f5f4171d81600c48c538376c570b366bdbcd",
+  "versionDocument": "pointbreak.version",
+  "versionDocumentVersion": 1
+}
