@@ -502,7 +502,7 @@ mod convergence_tests {
     #[test]
     fn re_record_returns_existing_and_distinct_edge_is_a_new_member() {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore/data"));
+        let store = EventStore::open(root.path().join(".pointbreak/data"));
 
         let a = commit_assoc_event("oid123", "alice", "author");
         let b = commit_assoc_event("oid123", "bob", "reviewer");
@@ -542,7 +542,7 @@ mod convergence_tests {
         );
 
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore/data"));
+        let store = EventStore::open(root.path().join(".pointbreak/data"));
         assert_eq!(
             store.record_event_once(&a).unwrap(),
             EventWriteOutcome::Created

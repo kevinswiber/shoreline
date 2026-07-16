@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(inventory.untracked_bytes, Some(0));
         assert!(inventory.largest_artifacts.iter().all(|artifact| {
             !artifact.artifact_ref.contains("artifacts/")
-                && !artifact.artifact_ref.contains(".shore/data")
+                && !artifact.artifact_ref.contains(".pointbreak/data")
                 && !artifact.artifact_ref.contains("state.json")
         }));
         assert!(inventory.revision_objects.iter().any(|snapshot| {

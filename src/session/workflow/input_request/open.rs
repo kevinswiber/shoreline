@@ -64,7 +64,7 @@ impl InputRequestOpenOptions {
     }
 
     /// Attribute the durable write to an explicit actor, overriding the
-    /// `SHORE_ACTOR_ID` env var and the local Git identity. A malformed id is
+    /// `POINTBREAK_ACTOR_ID` env var and the local Git identity. A malformed id is
     /// ignored (falls back to env, then Git); `None` keeps the default
     /// resolution. The chosen actor is part of the input request's
     /// content-addressed identity.

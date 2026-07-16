@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::Args;
 use pointbreak::model::ActorId;
 use pointbreak::session::{
-    ACTOR_ATTRIBUTES_LOCAL_REL_PATH, ACTOR_ATTRIBUTES_REL_PATH, ActorAttributesStageOutcome,
-    ActorAttributesWriteRecord, ensure_shore_gitignore, stage_actor_attributes,
+    ActorAttributesStageOutcome, ActorAttributesWriteRecord, ensure_pointbreak_gitignore,
+    stage_actor_attributes,
 };
 use serde::Serialize;
 
@@ -27,11 +27,11 @@ pub(super) struct AttestArgs {
     /// Free-text comment for the human maintaining the file (not interpreted).
     #[arg(long)]
     comment: Option<String>,
-    /// Stage the private `.shore/actor-attributes.local.json` override (git-excluded).
+    /// Stage the private `.pointbreak/actor-attributes.local.json` override (git-excluded).
     /// The local entry FULLY REPLACES the committed entry for this actor on this machine.
     #[arg(long)]
     local: bool,
-    /// Repository root or a path inside it whose worktree-root `.shore/` receives the entry.
+    /// Repository root or a path inside it whose worktree-root `.pointbreak/` receives the entry.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
     #[command(flatten)]
@@ -62,15 +62,15 @@ pub(super) fn run(
 
     let worktree_root =
         pointbreak::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
-    let rel = if args.local {
-        ACTOR_ATTRIBUTES_LOCAL_REL_PATH
+    let paths = pointbreak::paths::RepositoryPaths::from_worktree_root(&worktree_root);
+    let path = if args.local {
+        paths.actor_attributes_local()
     } else {
-        ACTOR_ATTRIBUTES_REL_PATH
+        paths.actor_attributes()
     };
-    let path = worktree_root.join(rel);
 
     if args.local {
-        ensure_shore_gitignore(&worktree_root)?; // INV-E
+        ensure_pointbreak_gitignore(&worktree_root)?; // INV-E
         let _ = writeln!(
             stderr,
             "note: this local entry fully replaces any committed attributes for {} locally",

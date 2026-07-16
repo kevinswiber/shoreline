@@ -533,7 +533,7 @@ fn payloads_never_expose_raw_repository_paths_on_path_private_surfaces() {
 fn inspect_history_endpoint_renders_endorsement_readback() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let env: [(&str, &str); 1] = [("SHORE_HOME", env_home)];
+    let env: [(&str, &str); 1] = [("POINTBREAK_HOME", env_home)];
     assert!(
         shore_env(["key", "init", "--name", "default"], &env)
             .status
@@ -565,7 +565,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     assert!(
         shore_env(
             ["capture", "--repo", repo_arg],
-            &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
+            &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
         )
         .status
         .success()
@@ -575,8 +575,8 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
         shore_env(
             ["endorse", &target, "--repo", repo_arg],
             &[
-                ("SHORE_HOME", env_home),
-                ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+                ("POINTBREAK_HOME", env_home),
+                ("POINTBREAK_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
             ],
         )
         .status
@@ -1649,7 +1649,7 @@ fn api_history_distinct_values_are_lowercased_identically_cold_and_warm() {
         // scheme or it's rejected and the writer silently falls back to Git
         // identity — the mixed casing has to live in the remainder, not the
         // prefix.
-        &[("SHORE_ACTOR_ID", "actor:Mixed:Case")],
+        &[("POINTBREAK_ACTOR_ID", "actor:Mixed:Case")],
     );
     assert!(
         written.status.success(),

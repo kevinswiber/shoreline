@@ -23,7 +23,7 @@ use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_write_store, resolve_write_validation_store,
 };
-use crate::session::store_init::ShoreStorePaths;
+use crate::session::store_init::RepositoryPaths;
 use crate::session::workflow::util::sorted_unique;
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp,
@@ -72,7 +72,7 @@ impl ObservationAddOptions {
     }
 
     /// Attribute the durable write to an explicit actor, overriding the
-    /// `SHORE_ACTOR_ID` env var and the local Git identity. A malformed id is
+    /// `POINTBREAK_ACTOR_ID` env var and the local Git identity. A malformed id is
     /// ignored (falls back to env, then Git); `None` keeps the default
     /// resolution. The chosen actor is part of the observation's
     /// content-addressed identity.
@@ -180,7 +180,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     // visible to reads in place.
     let validation_store = resolve_write_validation_store(&options.repo)?;
     let events = validation_store.validation_events()?;
-    let worktree_root = ShoreStorePaths::resolve(&options.repo)?
+    let worktree_root = RepositoryPaths::resolve(&options.repo)?
         .worktree_root()
         .to_path_buf();
     let resolved = resolve_revision(

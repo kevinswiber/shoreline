@@ -705,9 +705,9 @@ mod tests {
 
     /// The store a workflow actually lands in for `repo` — the shared common-dir
     /// store by default. Reads that follow a workflow resolve here, not the raw
-    /// worktree-local `.shore/data`.
+    /// worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
-        crate::git::git_common_dir(repo).unwrap().join("shore")
+        crate::git::git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     struct TestRepo {

@@ -13,11 +13,11 @@ use support::{dump_repo, shore};
 
 const FIXTURE_STORE: &str = "tests/fixtures/legacy_stores/review_note_imported/store";
 
-/// A fresh repo whose resolved store is the checked-in legacy store.
+/// A fresh repo whose canonical store contains the checked-in legacy event bytes.
 fn repo_with_legacy_store() -> support::git_repo::GitRepo {
     let repo = dump_repo();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_STORE);
-    let target = repo.path().join(".git/shore");
+    let target = repo.path().join(".git/pointbreak");
     copy_dir(&source, &target);
     repo
 }
@@ -40,7 +40,7 @@ fn parse_json(bytes: &[u8]) -> Value {
 }
 
 #[test]
-fn legacy_store_with_imported_notes_still_loads_and_reads() {
+fn legacy_event_bytes_at_the_canonical_store_still_load_and_read() {
     let repo = repo_with_legacy_store();
     let repo_arg = repo.path().to_str().unwrap();
 

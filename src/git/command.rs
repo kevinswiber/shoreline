@@ -223,12 +223,16 @@ pub(crate) fn git_paths_are_ignored(repo: &Path, pathspecs: &[&str]) -> Result<V
     if pathspecs.is_empty() {
         return Ok(Vec::new());
     }
+    let git_pathspecs: Vec<String> = pathspecs
+        .iter()
+        .map(|path| git_pathspec_for_separator(path, std::path::MAIN_SEPARATOR))
+        .collect();
     // Plain (non-verbose) check-ignore prints only the SUBSET that is ignored, each
     // echoed as given on its own line, and exits 1 when none match — both 0 and 1 are
     // non-error.
-    let mut args: Vec<&str> = Vec::with_capacity(pathspecs.len() + 1);
+    let mut args: Vec<&str> = Vec::with_capacity(git_pathspecs.len() + 1);
     args.push("check-ignore");
-    args.extend_from_slice(pathspecs);
+    args.extend(git_pathspecs.iter().map(String::as_str));
     let output = run_git_allowing_statuses(repo, args, &[0, 1])?;
 
     let ignored: std::collections::HashSet<&[u8]> = output
@@ -237,10 +241,20 @@ pub(crate) fn git_paths_are_ignored(repo: &Path, pathspecs: &[&str]) -> Result<V
         .map(|token| token.strip_suffix(b"\r").unwrap_or(token))
         .filter(|token| !token.is_empty())
         .collect();
-    Ok(pathspecs
+    Ok(git_pathspecs
         .iter()
         .map(|path| ignored.contains(path.as_bytes()))
         .collect())
+}
+
+/// Convert native path separators to Git's slash-form pathspec spelling.
+/// Backslashes remain literal filename characters on Unix.
+fn git_pathspec_for_separator(path: &str, separator: char) -> String {
+    if separator == '/' {
+        path.to_owned()
+    } else {
+        path.replace(separator, "/")
+    }
 }
 
 /// Read one Git config value with the fallback semantics writer identity needs:
@@ -1220,18 +1234,30 @@ mod tests {
         // Write a repo-local exclude so exactly one of the probed paths is ignored.
         let exclude = repo.path().join(".git/info/exclude");
         fs::create_dir_all(exclude.parent().unwrap()).unwrap();
-        fs::write(&exclude, ".shore/data/\n").unwrap();
+        fs::write(&exclude, ".pointbreak/data/\n").unwrap();
 
         let verdicts = git_paths_are_ignored(
             repo.path(),
             &[
-                ".shore/data/state.json",      // ignored (matches `.shore/data/`)
-                ".shore/delegates.local.json", // not ignored
+                ".pointbreak/data/state.json", // ignored (matches `.pointbreak/data/`)
+                ".pointbreak/delegates.local.json", // not ignored
             ],
         )
         .unwrap();
 
         assert_eq!(verdicts, vec![true, false]);
+    }
+
+    #[test]
+    fn git_pathspecs_use_forward_slashes_for_windows_git() {
+        assert_eq!(
+            git_pathspec_for_separator(r".pointbreak\data\state.json", '\\'),
+            ".pointbreak/data/state.json"
+        );
+        assert_eq!(
+            git_pathspec_for_separator(r"literal\backslash", '/'),
+            r"literal\backslash"
+        );
     }
 
     #[test]

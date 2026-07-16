@@ -19,11 +19,11 @@ pub(super) struct IdentityArgs {
 #[derive(Debug, Subcommand)]
 enum IdentityCommand {
     /// Stage a delegation record binding an agent actor to its responsible principal.
-    /// Possession-style: stages the working-tree `.shore/delegates.json` edit only;
+    /// Possession-style: stages the working-tree `.pointbreak/delegates.json` edit only;
     /// commit it to authorize the delegation.
     Delegate(DelegateArgs),
     /// Stage an actor-attributes entry (kind + roles) for an actor. Possession-style:
-    /// stages the working-tree `.shore/actor-attributes.json` edit only; commit to apply.
+    /// stages the working-tree `.pointbreak/actor-attributes.json` edit only; commit to apply.
     Attest(AttestArgs),
     /// Show the actor identity that repository writes will use.
     Whoami(WhoamiArgs),

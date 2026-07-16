@@ -3,8 +3,8 @@
 //! `support::inspect` harness (spawn the real `shore inspect --port 0` server).
 //!
 //! The family (user-level) placement is covered by the lib unit tests in
-//! `src/session/workflow/store_identity.rs` (the `SHORE_HOME` seam); the integration
-//! harness does not inject `SHORE_HOME`, so it exercises the clone-local and
+//! `src/session/workflow/store_identity.rs` (the `POINTBREAK_HOME` seam); the integration
+//! harness does not inject `POINTBREAK_HOME`, so it exercises the clone-local and
 //! linked-worktree cases here.
 
 mod support;

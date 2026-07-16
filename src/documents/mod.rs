@@ -111,6 +111,7 @@ const CLI_DOCUMENT_REGISTRY: &[(&str, u32)] = &[
     ("pointbreak.store-list", 1),
     ("pointbreak.store-migrate", 1),
     ("pointbreak.store-mode", 1),
+    ("pointbreak.store-paths", 1),
     ("pointbreak.store-remove", 1),
     ("pointbreak.store-status", 1),
     ("pointbreak.store-unlink", 1),

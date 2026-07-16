@@ -291,7 +291,7 @@ mod tests {
     /// through the handle for either backend.
     fn each_backend() -> Vec<(Option<tempfile::TempDir>, StoreBackend)> {
         let root = tempfile::tempdir().unwrap();
-        let store_dir = root.path().join(".shore/data");
+        let store_dir = root.path().join(".pointbreak/data");
         vec![
             (Some(root), StoreBackend::Local(store_dir)),
             (None, StoreBackend::memory()),

@@ -19,24 +19,24 @@ where
 {
     Command::new(env!("CARGO_BIN_EXE_shore"))
         .args(args)
-        .env_remove("SHORE_LOG")
+        .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         // Isolate byte-asserting tests from a developer's ambient output-lane
-        // selector; tests that exercise SHORE_FORMAT set it explicitly via shore_env.
-        .env_remove("SHORE_FORMAT")
+        // selector; tests that exercise POINTBREAK_FORMAT set it explicitly via shore_env.
+        .env_remove("POINTBREAK_FORMAT")
         // Isolate color-asserting tests from an ambient NO_COLOR / CLICOLOR_FORCE;
         // color tests select the lane explicitly with `--color`.
         .env_remove("NO_COLOR")
         .env_remove("CLICOLOR_FORCE")
         // Isolate theme-asserting tests from a developer's ambient theme
         // selection; theme tests set these explicitly via shore_env.
-        .env_remove("SHORE_THEME")
+        .env_remove("POINTBREAK_THEME")
         .env_remove("BAT_THEME")
         .output()
         .expect("run shore binary")
 }
 
-/// Run `shore` with extra environment variables — e.g. `SHORE_ACTOR_ID` to
+/// Run `shore` with extra environment variables — e.g. `POINTBREAK_ACTOR_ID` to
 /// attribute a write to a specific actor.
 #[allow(dead_code)]
 pub fn shore_env<I, S>(args: I, env: &[(&str, &str)]) -> Output
@@ -47,12 +47,12 @@ where
     let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
     command
         .args(args)
-        .env_remove("SHORE_LOG")
+        .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
-        // Clear ambient selectors first; a caller that passes SHORE_FORMAT or
+        // Clear ambient selectors first; a caller that passes POINTBREAK_FORMAT or
         // a theme variable in `env` re-sets it below and still wins.
-        .env_remove("SHORE_FORMAT")
-        .env_remove("SHORE_THEME")
+        .env_remove("POINTBREAK_FORMAT")
+        .env_remove("POINTBREAK_THEME")
         .env_remove("BAT_THEME");
     for (key, value) in env {
         command.env(key, value);
@@ -107,10 +107,10 @@ pub fn committed_repo() -> git_repo::GitRepo {
 }
 
 /// The shared common-dir store a clone resolves by default
-/// (`<git-common-dir>/shore`, i.e. `.git/shore`). Every non-ephemeral worktree of
+/// (`<git-common-dir>/pointbreak`, i.e. `.git/pointbreak`). Every non-ephemeral worktree of
 /// a clone — main and linked — reads and writes here, with no `store link`. Use
 /// this for store-path assertions after a `shore` write instead of the raw
-/// worktree-local `.shore/data`.
+/// worktree-local `.pointbreak/data`.
 #[allow(dead_code)]
 pub fn common_dir_store(repo_root: &Path) -> std::path::PathBuf {
     let output = Command::new("git")
@@ -127,7 +127,7 @@ pub fn common_dir_store(repo_root: &Path) -> std::path::PathBuf {
         .expect("git-common-dir is utf-8")
         .trim()
         .to_owned();
-    Path::new(&common_dir).join("shore")
+    Path::new(&common_dir).join("pointbreak")
 }
 
 #[track_caller]

@@ -422,7 +422,7 @@ fn history_renders_verification_status_for_a_signed_capture() {
     assert!(
         shore_env(
             ["key", "init", "--name", "default"],
-            &[("SHORE_HOME", env_home)]
+            &[("POINTBREAK_HOME", env_home)]
         )
         .status
         .success()
@@ -431,12 +431,18 @@ fn history_renders_verification_status_for_a_signed_capture() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
     assert!(
-        shore_env(["capture", "--repo", repo_arg], &[("SHORE_HOME", env_home)],)
-            .status
-            .success()
+        shore_env(
+            ["capture", "--repo", repo_arg],
+            &[("POINTBREAK_HOME", env_home)],
+        )
+        .status
+        .success()
     );
 
-    let out = shore_env(["history", "--repo", repo_arg], &[("SHORE_HOME", env_home)]);
+    let out = shore_env(
+        ["history", "--repo", repo_arg],
+        &[("POINTBREAK_HOME", env_home)],
+    );
     assert!(
         out.status.success(),
         "stderr:\n{}",
@@ -460,7 +466,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     assert!(
         shore_env(
             ["key", "init", "--name", "default"],
-            &[("SHORE_HOME", env_home)]
+            &[("POINTBREAK_HOME", env_home)]
         )
         .status
         .success()
@@ -472,7 +478,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     assert!(
         shore_env(
             ["capture", "--repo", repo_arg],
-            &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
+            &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
         )
         .status
         .success()
@@ -482,15 +488,18 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
         shore_env(
             ["endorse", &target, "--repo", repo_arg],
             &[
-                ("SHORE_HOME", env_home),
-                ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+                ("POINTBREAK_HOME", env_home),
+                ("POINTBREAK_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
             ],
         )
         .status
         .success()
     );
 
-    let out = shore_env(["history", "--repo", repo_arg], &[("SHORE_HOME", env_home)]);
+    let out = shore_env(
+        ["history", "--repo", repo_arg],
+        &[("POINTBREAK_HOME", env_home)],
+    );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     let captured = doc["entries"]
         .as_array()

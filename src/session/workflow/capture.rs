@@ -212,7 +212,7 @@ impl CaptureOptions {
     }
 
     /// Attribute the captured `revision_captured` event to an explicit
-    /// actor, overriding the `SHORE_ACTOR_ID` env var and the local Git
+    /// actor, overriding the `POINTBREAK_ACTOR_ID` env var and the local Git
     /// identity. A malformed id is ignored (falls back to env, then Git);
     /// `None` keeps the default resolution. The Revision id is derived from
     /// snapshot content, so the override changes attribution only, not identity.
@@ -769,13 +769,13 @@ fn worktree_ingest_options(
     include_untracked: bool,
 ) -> Result<IngestOptions> {
     // Auto-exclude Shore's own generated files (today just an untracked, byte-
-    // identical `.shore/.gitignore`) through the provenance-free helper-path filter:
+    // identical `.pointbreak/.gitignore`) through the provenance-free helper-path filter:
     // the file is dropped from the inventory before fingerprinting and nothing is
     // recorded in provenance, so its presence never forks the revision id. A
     // user-edited or committed file is not returned, so it stays a visible reviewable
     // change. This applies to working-tree backed adapters; commit/range and staged
     // captures never synthesize untracked rows.
-    crate::session::store::shore_generated_excluded_paths(worktree_root).map(|paths| {
+    crate::session::store::pointbreak_generated_excluded_paths(worktree_root).map(|paths| {
         paths.into_iter().fold(
             capture_ingest_options(options)
                 .with_pathspecs(pathspecs.to_vec())
@@ -1003,9 +1003,9 @@ mod tests {
     use crate::session::workflow::capture::diffstat_from_files;
     use crate::session::{
         ArtifactKind, CaptureOptions, CommitRangeSpec, EventStore, ImportArtifactOptions,
-        ImportArtifactOutcome, RevisionShowOptions, RootCommitSpec, ShoreStorePaths, StagedSpec,
+        ImportArtifactOutcome, RepositoryPaths, RevisionShowOptions, RootCommitSpec, StagedSpec,
         UnstagedSpec, WorktreeSpec, capture_review, capture_worktree_review,
-        ensure_shore_gitignore, export_artifact, import_artifact, read_object_artifact,
+        ensure_pointbreak_gitignore, export_artifact, import_artifact, read_object_artifact,
         referenced_artifacts, show_revision,
     };
 
@@ -1087,9 +1087,9 @@ mod tests {
     #[test]
     fn untracked_shore_generated_gitignore_is_excluded_from_worktree_capture() {
         // #349 headline: one code change + a freshly generated, untracked, byte-
-        // identical .shore/.gitignore captures as a ONE-file review.
+        // identical .pointbreak/.gitignore captures as a ONE-file review.
         let repo = modified_repo();
-        ensure_shore_gitignore(repo.path()).unwrap();
+        ensure_pointbreak_gitignore(repo.path()).unwrap();
 
         let result = capture_worktree_review(
             CaptureOptions::new(repo.path())
@@ -1110,12 +1110,12 @@ mod tests {
     #[test]
     fn generated_gitignore_presence_does_not_fork_capture_identity() {
         // With a fixed base + code change (SAME repo), generating an untracked
-        // canonical .shore/.gitignore changes neither the revision id nor the object
+        // canonical .pointbreak/.gitignore changes neither the revision id nor the object
         // id, and recapture is idempotent — nothing folds into provenance.
         let repo = modified_repo();
         let absent = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        ensure_shore_gitignore(repo.path()).unwrap(); // untracked canonical file now present
+        ensure_pointbreak_gitignore(repo.path()).unwrap(); // untracked canonical file now present
         let present = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
         assert_eq!(present.revision_id, absent.revision_id);
@@ -1130,11 +1130,11 @@ mod tests {
         // so the base-bearing revision id necessarily differs. No exclusion mechanism
         // can make the revision id equal across a commit.
         let repo = modified_repo();
-        ensure_shore_gitignore(repo.path()).unwrap();
+        ensure_pointbreak_gitignore(repo.path()).unwrap();
         let untracked = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
         // Commit ONLY the generated file; src/lib.rs stays uncommitted.
-        repo.git(["add", ".shore/.gitignore"]);
+        repo.git(["add", ".pointbreak/.gitignore"]);
         repo.git(["commit", "-m", "commit shore gitignore"]);
         let committed = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
@@ -1144,12 +1144,12 @@ mod tests {
 
     #[test]
     fn user_edited_gitignore_stays_a_visible_reviewable_change() {
-        // A non-canonical (user-edited) untracked .shore/.gitignore is NOT suppressed
+        // A non-canonical (user-edited) untracked .pointbreak/.gitignore is NOT suppressed
         // — it stays a real, visible reviewable change.
         let repo = modified_repo();
-        ensure_shore_gitignore(repo.path()).unwrap();
+        ensure_pointbreak_gitignore(repo.path()).unwrap();
         fs::write(
-            repo.path().join(".shore/.gitignore"),
+            repo.path().join(".pointbreak/.gitignore"),
             "data/\n*.local.json\nmy-notes/\n",
         )
         .unwrap();
@@ -1167,7 +1167,7 @@ mod tests {
             .filter_map(|file| file.new_path.as_deref())
             .collect();
         assert!(
-            paths.contains(&".shore/.gitignore"),
+            paths.contains(&".pointbreak/.gitignore"),
             "a user-edited generated file stays visible: {paths:?}"
         );
     }
@@ -1175,14 +1175,14 @@ mod tests {
     #[test]
     fn committed_then_modified_to_canonical_gitignore_stays_visible() {
         // Even edited back to a byte-identical canonical body, a committed
-        // .shore/.gitignore is TRACKED (not untracked), so the untracked gate keeps it
+        // .pointbreak/.gitignore is TRACKED (not untracked), so the untracked gate keeps it
         // visible. Proves the untracked gate does independent work from the byte oracle.
         let repo = TestRepo::new();
         repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
-        repo.write(".shore/.gitignore", "data/\n"); // committed PARTIAL body
+        repo.write(".pointbreak/.gitignore", "data/\n"); // committed PARTIAL body
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-        repo.write(".shore/.gitignore", "data/\n*.local.json\n"); // canonical, but tracked + modified
+        repo.write(".pointbreak/.gitignore", "data/\n*.local.json\n"); // canonical, but tracked + modified
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
@@ -1193,7 +1193,7 @@ mod tests {
             .filter_map(|file| file.new_path.as_deref())
             .collect();
         assert!(
-            paths.contains(&".shore/.gitignore"),
+            paths.contains(&".pointbreak/.gitignore"),
             "a committed-and-modified generated file stays visible: {paths:?}"
         );
     }
@@ -1494,7 +1494,7 @@ mod tests {
     #[test]
     fn unstaged_capture_include_untracked_excludes_generated_gitignore() {
         let repo = modified_repo();
-        ensure_shore_gitignore(repo.path()).unwrap();
+        ensure_pointbreak_gitignore(repo.path()).unwrap();
 
         let result = capture_review(
             CaptureOptions::new(repo.path())
@@ -2375,9 +2375,9 @@ mod tests {
             .collect();
         assert_eq!(captured.len(), 1);
 
-        // Worktree-local .shore/data did NOT receive the capture event.
-        let worktree_local = ShoreStorePaths::resolve(&fixture.linked_path).unwrap();
-        let local: Vec<_> = EventStore::open(worktree_local.store_dir())
+        // Worktree-local .pointbreak/data did NOT receive the capture event.
+        let worktree_local = RepositoryPaths::resolve(&fixture.linked_path).unwrap();
+        let local: Vec<_> = EventStore::open(worktree_local.worktree_store())
             .list_events()
             .unwrap_or_default()
             .into_iter()
@@ -2389,20 +2389,20 @@ mod tests {
     #[test]
     fn default_capture_lands_in_shared_common_dir_store() {
         // The shared-store default: a capture in a plain (non-ephemeral) worktree
-        // lands in the common-dir store, not the worktree-local .shore/data.
+        // lands in the common-dir store, not the worktree-local .pointbreak/data.
         let repo = modified_repo();
         capture_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let common_dir = git_common_dir(repo.path()).unwrap().join("shore");
+        let common_dir = git_common_dir(repo.path()).unwrap().join("pointbreak");
         assert!(
             !EventStore::open(&common_dir)
                 .list_events()
                 .unwrap()
                 .is_empty()
         );
-        // The worktree-local .shore/data is NOT the resolved store anymore.
-        let worktree_local = ShoreStorePaths::resolve(repo.path()).unwrap();
-        let local = EventStore::open(worktree_local.store_dir())
+        // The worktree-local .pointbreak/data is NOT the resolved store anymore.
+        let worktree_local = RepositoryPaths::resolve(repo.path()).unwrap();
+        let local = EventStore::open(worktree_local.worktree_store())
             .list_events()
             .unwrap_or_default();
         assert!(local.is_empty());
@@ -2505,7 +2505,7 @@ mod tests {
     /// a `--base HEAD~1` capture from each resolves the identical commit range. A
     /// commit-range capture's provenance is the commit pair (no working-tree path),
     /// so both captures converge to one `object_id` and one `revision_id`. Both
-    /// share the clone-local `.git/shore` store.
+    /// share the clone-local `.git/pointbreak` store.
     struct SharedRangeCapture {
         _main: TestRepo,
         _parent: tempfile::TempDir,
@@ -2548,7 +2548,7 @@ mod tests {
         }
 
         fn clone_local_store_dir(&self) -> std::path::PathBuf {
-            git_common_dir(&self.worktree_a).unwrap().join("shore")
+            git_common_dir(&self.worktree_a).unwrap().join("pointbreak")
         }
     }
 
@@ -2607,7 +2607,9 @@ mod tests {
         }
 
         fn clone_local_store_dir(&self) -> std::path::PathBuf {
-            git_common_dir(&self.linked_path).unwrap().join("shore")
+            git_common_dir(&self.linked_path)
+                .unwrap()
+                .join("pointbreak")
         }
     }
 
@@ -2621,9 +2623,9 @@ mod tests {
 
     /// The store a workflow actually lands in for `repo` — the shared common-dir
     /// store by default. Reads that follow a capture/observation/etc. resolve
-    /// here, never the raw worktree-local `.shore/data`.
+    /// here, never the raw worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
-        git_common_dir(repo).unwrap().join("shore")
+        git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     fn committed_repo() -> TestRepo {

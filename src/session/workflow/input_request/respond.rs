@@ -53,7 +53,7 @@ impl InputRequestRespondOptions {
     }
 
     /// Attribute the durable write to an explicit actor, overriding the
-    /// `SHORE_ACTOR_ID` env var and the local Git identity. A malformed id is
+    /// `POINTBREAK_ACTOR_ID` env var and the local Git identity. A malformed id is
     /// ignored (falls back to env, then Git); `None` keeps the default
     /// resolution. The chosen actor is part of the response's content-addressed
     /// identity, so distinct actors produce distinct responses.
@@ -380,9 +380,9 @@ mod tests {
 
     /// The store a workflow actually lands in for `repo` — the shared common-dir
     /// store by default. Seeds and reads that pair with a workflow resolve here,
-    /// not the raw worktree-local `.shore/data`.
+    /// not the raw worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &Path) -> PathBuf {
-        crate::git::git_common_dir(repo).unwrap().join("shore")
+        crate::git::git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     struct TestRepo {

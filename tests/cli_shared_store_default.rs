@@ -1,11 +1,11 @@
 //! Acceptance suite for the shared-store default: every worktree of a clone —
-//! main and linked — reads and writes the same common-dir store (`.git/shore`)
+//! main and linked — reads and writes the same common-dir store (`.git/pointbreak`)
 //! with NO `shore store link` step. The surviving opt-out is an ephemeral
-//! worktree (its own discardable `.shore/data`). A pre-default worktree-local
+//! worktree (its own discardable `.pointbreak/data`). A pre-default worktree-local
 //! store is routed to `shore store migrate`.
 //!
 //! No test here invokes `shore store link`, and no raw worktree / `.git` /
-//! `.shore/data` path may leak into JSON output.
+//! `.pointbreak/data` path may leak into JSON output.
 
 mod support;
 
@@ -76,12 +76,15 @@ fn add_detached_worktree(repo: &Path, path: &Path, at_rev: &str) {
 /// No raw storage path leaks into a JSON document.
 fn assert_no_storage_path_leak(json: &Value) {
     let text = json.to_string();
-    assert!(!text.contains(".shore/data"), "leaked .shore/data: {text}");
+    assert!(
+        !text.contains(".pointbreak/data"),
+        "leaked .pointbreak/data: {text}"
+    );
     assert!(!text.contains("/.git/"), "leaked a .git path: {text}");
 }
 
 // 1. A fresh MAIN worktree resolves and round-trips a capture in place, with no
-//    `store link`, and the store lives in the common dir (`.git/shore`).
+//    `store link`, and the store lives in the common dir (`.git/pointbreak`).
 #[test]
 fn main_worktree_capture_round_trips_through_the_common_dir_store() {
     let repo = GitRepo::new();
@@ -94,12 +97,12 @@ fn main_worktree_capture_round_trips_through_the_common_dir_store() {
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The shared common-dir store holds the events; the worktree-local
-    // `.shore/data` is not the store.
+    // `.pointbreak/data` is not the store.
     assert!(
         common_dir_store(repo.path()).join("events").is_dir(),
         "capture lands in the common-dir store"
     );
-    assert!(!repo.path().join(".shore/data/events").exists());
+    assert!(!repo.path().join(".pointbreak/data/events").exists());
 
     let list = run_json(&["revision", "list", "--repo", repo_arg]);
     assert_eq!(list["revisionCount"], 1);
@@ -158,7 +161,7 @@ fn capture_is_visible_from_a_sibling_worktree_without_a_link() {
     assert_no_storage_path_leak(&list);
 }
 
-// 3. An ephemeral worktree writes to its own discardable `.shore/data`; its
+// 3. An ephemeral worktree writes to its own discardable `.pointbreak/data`; its
 //    captures are absent from the shared store, and removing the worktree
 //    discards its bytes.
 #[test]
@@ -180,7 +183,7 @@ fn ephemeral_worktree_keeps_its_capture_out_of_the_shared_store() {
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The capture landed in the worktree-local store, not the shared one.
-    assert!(ephemeral.join(".shore/data/events").is_dir());
+    assert!(ephemeral.join(".pointbreak/data/events").is_dir());
     assert!(
         !common_dir_store(&ephemeral).join("events").exists(),
         "the ephemeral capture is absent from the shared common-dir store"
@@ -216,8 +219,8 @@ fn ephemeral_worktree_keeps_its_capture_out_of_the_shared_store() {
     assert!(!common_dir_store(main.path()).join("events").exists());
 }
 
-// 4. A non-ephemeral worktree carrying a pre-default `.shore/data` store errors
-//    on any read, naming `.shore/data` AND `shore store migrate`; after
+// 4. A non-ephemeral worktree carrying a pre-default `.pointbreak/data` store errors
+//    on any read, naming `.pointbreak/data` AND `shore store migrate`; after
 //    migration the record resolves from the shared store.
 #[test]
 fn legacy_worktree_local_store_errors_until_migrated() {
@@ -228,20 +231,20 @@ fn legacy_worktree_local_store_errors_until_migrated() {
     let repo_arg = repo.path().to_str().unwrap();
 
     // Seed a pre-default worktree-local store: capture while ephemeral so the
-    // write lands in `.shore/data`, then restore the shared default. The
-    // populated `.shore/data` is now a legacy store on a non-ephemeral worktree.
+    // write lands in `.pointbreak/data`, then restore the shared default. The
+    // populated `.pointbreak/data` is now a legacy store on a non-ephemeral worktree.
     run_json(&["store", "mode", "ephemeral", "--repo", repo_arg]);
     let capture = run_json(&["capture", "--repo", repo_arg]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     run_json(&["store", "mode", "shared", "--repo", repo_arg]);
-    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
     // Any read now errors, naming both the legacy path and the migrate command.
     let read = shore(["revision", "list", "--repo", repo_arg]);
     assert!(!read.status.success(), "a legacy store must fail the read");
     let stderr = String::from_utf8_lossy(&read.stderr);
     assert!(
-        stderr.contains(".shore/data"),
+        stderr.contains(".pointbreak/data"),
         "the error names the legacy store: {stderr}"
     );
     assert!(
@@ -250,19 +253,19 @@ fn legacy_worktree_local_store_errors_until_migrated() {
     );
 
     // Migration folds the legacy store into the shared store, non-destructively:
-    // the events land in `.git/shore` while `.shore/data` is left intact.
+    // the events land in `.git/pointbreak` while `.pointbreak/data` is left intact.
     let migrate = run_json(&["store", "migrate", "--repo", repo_arg]);
     assert!(migrate["eventsCreated"].as_u64().unwrap() >= 1);
     assert!(common_dir_store(repo.path()).join("events").is_dir());
     assert!(
-        repo.path().join(".shore/data/events").is_dir(),
+        repo.path().join(".pointbreak/data/events").is_dir(),
         "migration is non-destructive: the source store is preserved"
     );
 
     // Once the migrated legacy store is retired, the record resolves from the
     // shared store. (Clearing the source is the operator's step after migrating;
     // migration never deletes it.)
-    std::fs::remove_dir_all(repo.path().join(".shore/data")).unwrap();
+    std::fs::remove_dir_all(repo.path().join(".pointbreak/data")).unwrap();
     let list = run_json(&["revision", "list", "--repo", repo_arg]);
     let ids: Vec<&str> = list["entries"]
         .as_array()
@@ -278,7 +281,7 @@ fn legacy_worktree_local_store_errors_until_migrated() {
 }
 
 // 4b. The one-command completion: `store migrate --retire-source` folds,
-//     verifies, and deletes `.shore/data` so the very next read resolves —
+//     verifies, and deletes `.pointbreak/data` so the very next read resolves —
 //     no undocumented manual `rm` step.
 #[test]
 fn legacy_worktree_local_store_resolves_after_migrate_retire_source() {
@@ -292,7 +295,7 @@ fn legacy_worktree_local_store_resolves_after_migrate_retire_source() {
     let capture = run_json(&["capture", "--repo", repo_arg]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     run_json(&["store", "mode", "shared", "--repo", repo_arg]);
-    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
     // The guard fires and its hint names the one-command completion.
     let read = shore(["revision", "list", "--repo", repo_arg]);
@@ -306,7 +309,7 @@ fn legacy_worktree_local_store_resolves_after_migrate_retire_source() {
     // ONE command completes the switch: fold + verify + retire.
     let migrate = run_json(&["store", "migrate", "--retire-source", "--repo", repo_arg]);
     assert_eq!(migrate["sourceRetired"], serde_json::Value::Bool(true));
-    assert!(!repo.path().join(".shore/data").exists());
+    assert!(!repo.path().join(".pointbreak/data").exists());
 
     let list = run_json(&["revision", "list", "--repo", repo_arg]);
     let ids: Vec<&str> = list["entries"]

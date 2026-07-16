@@ -35,7 +35,7 @@ fn keys_init_writes_key_and_emits_did_key_document() {
     let home = tempfile::tempdir().expect("create keystore home");
     let out = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         out.status.success(),
@@ -62,7 +62,7 @@ fn keys_init_defaults_name_to_default() {
     let home = tempfile::tempdir().expect("create keystore home");
     let out = shore_env(
         ["key", "init"],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(out.status.success());
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -72,7 +72,7 @@ fn keys_init_defaults_name_to_default() {
 #[test]
 fn keys_init_twice_same_name_is_a_clean_error_not_a_panic() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let first = shore_env(["key", "init", "--name", "default"], &env);
     assert!(first.status.success());
 
@@ -89,7 +89,7 @@ fn keys_init_rejects_path_unsafe_name_without_escaping_the_keystore() {
     let home = tempfile::tempdir().expect("create keystore home");
     let out = shore_env(
         ["key", "init", "--name", "../../id_ed25519"],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         !out.status.success(),
@@ -107,7 +107,7 @@ fn keys_init_rejects_path_unsafe_name_without_escaping_the_keystore() {
 #[test]
 fn keys_list_reports_generated_keys_and_marks_default() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let _ = shore_env(["key", "init", "--name", "default"], &env);
     let _ = shore_env(["key", "init", "--name", "work"], &env);
 
@@ -136,7 +136,7 @@ fn keys_list_reports_generated_keys_and_marks_default() {
 #[test]
 fn keys_list_marks_enrolled_only_when_did_key_is_in_allowed_signers() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let init = shore_env(["key", "init", "--name", "default"], &env);
     let init_json: Value = serde_json::from_slice(&init.stdout).unwrap();
     let did_key = init_json["didKey"].as_str().unwrap().to_owned();
@@ -145,7 +145,7 @@ fn keys_list_marks_enrolled_only_when_did_key_is_in_allowed_signers() {
     // Enroll the default key's did:key under some actor, custom JSON (NOT OpenSSH format).
     let allowed =
         format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{did_key}"]}}}}"#);
-    repo.write(".shore/allowed-signers.json", &allowed);
+    repo.write(".pointbreak/allowed-signers.json", &allowed);
 
     let out = shore_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
@@ -164,7 +164,7 @@ fn keys_list_marks_enrolled_only_when_did_key_is_in_allowed_signers() {
 #[test]
 fn keys_list_empty_keystore_is_empty_list_exit_zero() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let repo = support::git_repo::GitRepo::new();
     let out = shore_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
@@ -179,7 +179,7 @@ fn keys_list_empty_keystore_is_empty_list_exit_zero() {
 #[test]
 fn keys_show_default_with_did_prints_the_did_key() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let init = shore_env(["key", "init", "--name", "default"], &env);
     let init_json: Value = serde_json::from_slice(&init.stdout).unwrap();
     let did_key = init_json["didKey"].as_str().unwrap().to_owned();
@@ -199,7 +199,7 @@ fn keys_show_default_with_did_prints_the_did_key() {
 #[test]
 fn keys_show_defaults_to_did_key_with_no_field_flags() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let _ = shore_env(["key", "init"], &env);
 
     // No name and no field flags: defaults to `default` key, did:key field present.
@@ -212,7 +212,7 @@ fn keys_show_defaults_to_did_key_with_no_field_flags() {
 #[test]
 fn keys_show_pubkey_is_consistent_with_the_did_key() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let init = shore_env(["key", "init", "--name", "default"], &env);
     let did_key = serde_json::from_slice::<Value>(&init.stdout).unwrap()["didKey"]
         .as_str()
@@ -236,7 +236,7 @@ fn keys_show_works_for_an_agent_backed_reference() {
     // An agent-backed reference has no seed; `show` must derive the did:key (and
     // public key) from the stored public material, like `list`/`enroll` do.
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let adopt = shore_env(
         [
             "key",
@@ -284,7 +284,7 @@ fn keys_show_works_for_an_agent_backed_reference() {
 #[test]
 fn keys_show_missing_name_is_a_clean_error_not_a_panic() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let out = shore_env(["key", "show", "does-not-exist", "--did"], &env);
     assert!(!out.status.success(), "missing key must fail");
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -298,7 +298,7 @@ fn keys_enroll_defaults_to_default_key_name_without_signer() {
     let home_str = home.path().to_str().unwrap();
     let init = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let did = serde_json::from_slice::<Value>(&init.stdout).unwrap()["didKey"]
         .as_str()
@@ -309,8 +309,8 @@ fn keys_enroll_defaults_to_default_key_name_without_signer() {
     let out = shore_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
         ],
     );
     assert!(
@@ -325,7 +325,7 @@ fn keys_enroll_defaults_to_default_key_name_without_signer() {
     assert_eq!(doc["added"], true);
 
     // The working-tree file exists and the existing reader loads the entry.
-    let path = repo.path().join(".shore/allowed-signers.json");
+    let path = repo.path().join(".pointbreak/allowed-signers.json");
     assert!(path.exists(), "enroll stages the working-tree file");
     let trust = pointbreak::session::TrustSet::from_allowed_signers_file(&path).unwrap();
     let actor = pointbreak::model::ActorId::new("actor:agent:claude-code");
@@ -350,7 +350,7 @@ fn keys_enroll_accepts_explicit_signer_without_local_key() {
             "--actor",
             "actor:git-email:dev@example.com",
         ],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         out.status.success(),
@@ -363,7 +363,7 @@ fn keys_enroll_accepts_explicit_signer_without_local_key() {
     assert_eq!(doc["signerId"], EXPLICIT_SIGNER_DID);
     assert_eq!(doc["added"], true);
 
-    let path = repo.path().join(".shore/allowed-signers.json");
+    let path = repo.path().join(".pointbreak/allowed-signers.json");
     let trust = pointbreak::session::TrustSet::from_allowed_signers_file(&path).unwrap();
     let actor = pointbreak::model::ActorId::new("actor:git-email:dev@example.com");
     let signer = pointbreak::crypto::SignerId::parse(EXPLICIT_SIGNER_DID).unwrap();
@@ -387,7 +387,7 @@ fn keys_enroll_rejects_invalid_explicit_signer_without_fallback() {
             "--actor",
             "actor:git-email:dev@example.com",
         ],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
 
     assert!(
@@ -408,7 +408,10 @@ fn keys_enroll_rejects_invalid_explicit_signer_without_fallback() {
         "stderr should include did:key validation detail: {stderr}"
     );
     assert!(
-        !repo.path().join(".shore/allowed-signers.json").exists(),
+        !repo
+            .path()
+            .join(".pointbreak/allowed-signers.json")
+            .exists(),
         "invalid explicit signer must not stage trust through a fallback key"
     );
 }
@@ -420,7 +423,7 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
     // Adopt an agent-backed `default` reference: no agent running, no private key.
     let adopt = shore_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         adopt.status.success(),
@@ -436,8 +439,8 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
     let out = shore_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:git-email:dev@example.com"),
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:git-email:dev@example.com"),
         ],
     );
     assert!(
@@ -450,7 +453,7 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
     assert_eq!(doc["signerId"], did, "enrolled the offline-derived did:key");
     assert_eq!(doc["added"], true);
 
-    let path = repo.path().join(".shore/allowed-signers.json");
+    let path = repo.path().join(".pointbreak/allowed-signers.json");
     let trust = pointbreak::session::TrustSet::from_allowed_signers_file(&path).unwrap();
     let actor = pointbreak::model::ActorId::new("actor:git-email:dev@example.com");
     let signer = pointbreak::crypto::SignerId::parse(&did).unwrap();
@@ -460,7 +463,7 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
 #[test]
 fn keys_list_reports_file_custody_for_a_seed_key() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let _ = shore_env(["key", "init", "--name", "default"], &env);
 
     let repo = support::git_repo::GitRepo::new();
@@ -489,7 +492,7 @@ fn keys_list_reports_file_custody_for_a_seed_key() {
 #[test]
 fn keys_list_reports_agent_custody_and_enrollment_for_an_adopted_key() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let adopt = shore_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
         &env,
@@ -503,7 +506,7 @@ fn keys_list_reports_agent_custody_and_enrollment_for_an_adopted_key() {
     let repo = support::git_repo::GitRepo::new();
     let allowed =
         format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{did_key}"]}}}}"#);
-    repo.write(".shore/allowed-signers.json", &allowed);
+    repo.write(".pointbreak/allowed-signers.json", &allowed);
 
     let out = shore_env(
         ["key", "list", "--repo", repo.path().to_str().unwrap()],
@@ -524,7 +527,7 @@ fn keys_list_reports_agent_custody_and_enrollment_for_an_adopted_key() {
 fn keys_list_succeeds_and_agent_loaded_is_unknown_when_no_agent() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [
-        ("SHORE_HOME", home.path().to_str().unwrap()),
+        ("POINTBREAK_HOME", home.path().to_str().unwrap()),
         // A dead socket path: connect fails. The probe must NOT gate the listing.
         ("SSH_AUTH_SOCK", "/nonexistent/shore-no-agent.sock"),
     ];
@@ -566,12 +569,12 @@ fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
     let env = [
-        ("SHORE_HOME", home_str),
-        ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
+        ("POINTBREAK_HOME", home_str),
+        ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
     ];
 
     let first = shore_env(
@@ -582,7 +585,7 @@ fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
         serde_json::from_slice::<Value>(&first.stdout).unwrap()["added"],
         true
     );
-    let path = repo.path().join(".shore/allowed-signers.json");
+    let path = repo.path().join(".pointbreak/allowed-signers.json");
     let before = std::fs::read(&path).unwrap();
 
     let second = shore_env(
@@ -601,14 +604,14 @@ fn keys_enroll_does_not_commit_or_stage_to_git() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
     let _ = shore_env(
         ["key", "enroll", "--repo", repo.path().to_str().unwrap()],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
         ],
     );
 
@@ -620,7 +623,7 @@ fn keys_enroll_does_not_commit_or_stage_to_git() {
         .unwrap();
     let out = String::from_utf8_lossy(&status.stdout);
     assert!(
-        out.contains(".shore/allowed-signers.json"),
+        out.contains(".pointbreak/allowed-signers.json"),
         "the enrolled file is a pending working-tree change: {out}"
     );
     let log = Command::new("git")
@@ -641,7 +644,7 @@ fn keys_enroll_explicit_actor_flag_overrides_resolution() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
 
@@ -655,8 +658,11 @@ fn keys_enroll_explicit_actor_flag_overrides_resolution() {
             "actor:agent:explicit-override",
         ],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:git-email:resolved@example.com"),
+            ("POINTBREAK_HOME", home_str),
+            (
+                "POINTBREAK_ACTOR_ID",
+                "actor:git-email:resolved@example.com",
+            ),
         ],
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -669,7 +675,7 @@ fn keys_enroll_rejects_invalid_explicit_actor_without_fallback() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let repo = support::git_repo::GitRepo::new();
 
@@ -683,8 +689,11 @@ fn keys_enroll_rejects_invalid_explicit_actor_without_fallback() {
             "agent:codex",
         ],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:git-email:resolved@example.com"),
+            ("POINTBREAK_HOME", home_str),
+            (
+                "POINTBREAK_ACTOR_ID",
+                "actor:git-email:resolved@example.com",
+            ),
         ],
     );
 
@@ -702,7 +711,10 @@ fn keys_enroll_rejects_invalid_explicit_actor_without_fallback() {
         "stderr should show the fully-qualified form: {stderr}"
     );
     assert!(
-        !repo.path().join(".shore/allowed-signers.json").exists(),
+        !repo
+            .path()
+            .join(".pointbreak/allowed-signers.json")
+            .exists(),
         "invalid explicit actor must not stage trust under a fallback identity"
     );
 }
@@ -713,7 +725,7 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
 
     let repo = support::git_repo::GitRepo::new();
@@ -723,8 +735,8 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
     let out = shore_env(
         ["key", "enroll", "--repo", subdir.to_str().unwrap()],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
         ],
     );
     assert!(
@@ -736,18 +748,20 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
     // Enrollment must land at the worktree root, where trust discovery reads it —
     // not under the subdirectory the command was pointed at.
     assert!(
-        repo.path().join(".shore/allowed-signers.json").exists(),
+        repo.path()
+            .join(".pointbreak/allowed-signers.json")
+            .exists(),
         "enrolled at the worktree root"
     );
     assert!(
-        !subdir.join(".shore/allowed-signers.json").exists(),
+        !subdir.join(".pointbreak/allowed-signers.json").exists(),
         "not written under the subdirectory (would be invisible to discovery)"
     );
 
     // keys list from the subdir now sees the key as enrolled (single discovery path).
     let init = shore_env(
         ["key", "show", "default", "--did"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let did = serde_json::from_slice::<Value>(&init.stdout).unwrap()["didKey"]
         .as_str()
@@ -755,7 +769,7 @@ fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
         .to_owned();
     let list = shore_env(
         ["key", "list", "--repo", subdir.to_str().unwrap()],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let listed: Value = serde_json::from_slice(&list.stdout).unwrap();
     let default = listed["keys"]
@@ -777,7 +791,7 @@ fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
     // Plant a valid key file as a sibling of keys/, reachable only via traversal.
     let init = shore_env(
         ["key", "init", "--name", "planted"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(init.status.success());
     std::fs::copy(
@@ -788,7 +802,7 @@ fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
 
     let out = shore_env(
         ["key", "show", "../outside-key", "--did"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         !out.status.success(),
@@ -852,7 +866,7 @@ fn key_discover_marks_known_local_and_enrolled_signer_without_duplicate_commands
         .to_owned();
     let adopt = shore_env(
         ["key", "use-ssh", &literal, "--name", "kevin"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         adopt.status.success(),
@@ -865,7 +879,7 @@ fn key_discover_marks_known_local_and_enrolled_signer_without_duplicate_commands
     repo.git(["config", "gpg.format", "ssh"]);
     repo.git(["config", "user.signingKey", &literal]);
     repo.write(
-        ".shore/allowed-signers.json",
+        ".pointbreak/allowed-signers.json",
         format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{signer_id}"]}}}}"#),
     );
 
@@ -879,8 +893,8 @@ fn key_discover_marks_known_local_and_enrolled_signer_without_duplicate_commands
             "json",
         ],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:git-email:dev@example.com"),
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:git-email:dev@example.com"),
         ],
     );
     assert!(
@@ -939,7 +953,7 @@ fn key_discover_suppresses_option_line_diagnostic_when_user_signing_key_succeeds
             "--format",
             "json",
         ],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         out.status.success(),
@@ -1109,7 +1123,7 @@ fn key_discover_is_read_only() {
             "--format",
             "json",
         ],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         out.status.success(),
@@ -1122,7 +1136,10 @@ fn key_discover_is_read_only() {
         "discovery must not adopt a local key"
     );
     assert!(
-        !repo.path().join(".shore/allowed-signers.json").exists(),
+        !repo
+            .path()
+            .join(".pointbreak/allowed-signers.json")
+            .exists(),
         "discovery must not stage Pointbreak trust"
     );
     let status = Command::new("git")
@@ -1214,7 +1231,7 @@ fn keys_use_ssh_from_pubkey_path_writes_reference_and_emits_did_key() {
 
     let out = shore_env(
         ["key", "use-ssh", pubfile.to_str().unwrap()],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         out.status.success(),
@@ -1242,7 +1259,7 @@ fn keys_use_ssh_accepts_a_key_literal() {
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
     let out = shore_env(
         ["key", "use-ssh", &literal],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         out.status.success(),
@@ -1269,12 +1286,12 @@ fn keys_use_ssh_path_and_literal_derive_the_same_did_key() {
             "viapath",
             pubfile.to_str().unwrap(),
         ],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
     let from_literal = shore_env(
         ["key", "use-ssh", "--name", "vialiteral", &literal],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let a: Value = serde_json::from_slice(&from_path.stdout).unwrap();
     let b: Value = serde_json::from_slice(&from_literal.stdout).unwrap();
@@ -1290,7 +1307,7 @@ fn keys_use_ssh_writes_a_did_key_sidecar() {
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
     let out = shore_env(
         ["key", "use-ssh", &literal],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
     let did_key = json["didKey"].as_str().unwrap();
@@ -1306,7 +1323,7 @@ fn keys_use_ssh_rejects_a_non_ed25519_key_with_a_clear_error() {
     let literal = format!("key::{SSH_RSA_PUBKEY}");
     let out = shore_env(
         ["key", "use-ssh", &literal],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(!out.status.success(), "an ssh-rsa key must be rejected");
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1321,7 +1338,7 @@ fn keys_use_ssh_rejects_a_non_ed25519_key_with_a_clear_error() {
 #[test]
 fn keys_use_ssh_collision_refuses_to_overwrite() {
     let home = tempfile::tempdir().expect("create keystore home");
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
     let first = shore_env(["key", "use-ssh", &literal], &env);
     assert!(first.status.success());
@@ -1344,7 +1361,7 @@ fn keys_use_ssh_rejects_a_path_unsafe_name() {
     let literal = format!("key::{SSH_ED25519_PUBKEY}");
     let out = shore_env(
         ["key", "use-ssh", "--name", "../../id_ed25519", &literal],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert!(
         !out.status.success(),

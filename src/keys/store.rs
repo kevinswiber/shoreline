@@ -137,7 +137,7 @@ impl KeyName {
 ///
 /// `generate_key` is a thin wrapper over the root-injecting `generate_key_in`.
 /// Unit tests call `generate_key_in` with a `tempdir` root and never set
-/// `SHORE_HOME`; only the production path and subprocess CLI tests read the env.
+/// `POINTBREAK_HOME`; only the production path and subprocess CLI tests read the env.
 pub fn generate_key(name: &str) -> Result<KeyHandle> {
     generate_key_in(&keys_dir()?, &KeyName::parse(name)?)
 }
@@ -223,7 +223,7 @@ pub fn write_agent_reference(name: &str, public_key: [u8; 32]) -> Result<KeyHand
 }
 
 /// Root-injecting variant: write the reference under `dir`. `pub` so unit tests
-/// inject a `tempdir` root and never set `SHORE_HOME`, like `generate_key_in`.
+/// inject a `tempdir` root and never set `POINTBREAK_HOME`, like `generate_key_in`.
 pub fn write_agent_reference_in(
     dir: &Path,
     name: &KeyName,
@@ -263,7 +263,7 @@ pub fn load_signer(name: &str) -> Result<FileEd25519Signer> {
 }
 
 /// Root-injecting loader: the resolver CLI tests pass a `tempdir` root so they
-/// never mutate `SHORE_HOME`. `pub` for the same reason `generate_key_in` is.
+/// never mutate `POINTBREAK_HOME`. `pub` for the same reason `generate_key_in` is.
 ///
 /// `name` is validated via [`KeyName::parse`] before it becomes a filename, so a
 /// keystore-name lookup can never traverse outside `dir` (e.g. `../outside-key`).

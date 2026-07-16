@@ -9,9 +9,9 @@ fn whoami_command(repo: &GitRepo) -> Command {
     command
         .args(["identity", "whoami", "--repo"])
         .arg(repo.path())
-        .env_remove("SHORE_ACTOR_ID")
-        .env_remove("SHORE_FORMAT")
-        .env_remove("SHORE_LOG")
+        .env_remove("POINTBREAK_ACTOR_ID")
+        .env_remove("POINTBREAK_FORMAT")
+        .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null");
@@ -55,7 +55,7 @@ fn identity_whoami_json_is_the_exact_v1_contract() {
 fn identity_whoami_honors_an_inherited_actor() {
     let repo = GitRepo::new();
     let mut command = whoami_command(&repo);
-    command.env("SHORE_ACTOR_ID", "actor:agent:inherited");
+    command.env("POINTBREAK_ACTOR_ID", "actor:agent:inherited");
 
     assert_eq!(actor_id(&output(&mut command)), "actor:agent:inherited");
 }
@@ -83,8 +83,8 @@ fn identity_whoami_falls_back_through_git_name_and_local() {
 fn identity_whoami_sanitized_invocation_uses_git_email() {
     let repo = GitRepo::new();
     let mut command = whoami_command(&repo);
-    command.env("SHORE_ACTOR_ID", "actor:agent:ambient");
-    command.env_remove("SHORE_ACTOR_ID");
+    command.env("POINTBREAK_ACTOR_ID", "actor:agent:ambient");
+    command.env_remove("POINTBREAK_ACTOR_ID");
 
     assert_eq!(
         actor_id(&output(&mut command)),

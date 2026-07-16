@@ -125,7 +125,7 @@ mod convergence_tests {
     #[test]
     fn re_record_returns_existing_and_distinct_blob_is_a_new_member() {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore/data"));
+        let store = EventStore::open(root.path().join(".pointbreak/data"));
 
         let a = removal_event("sha256:blob", "alpha", "alice", "2026-06-19T00:00:00Z");
         let b = removal_event("sha256:blob", "beta", "bob", "2026-06-19T09:09:09Z");

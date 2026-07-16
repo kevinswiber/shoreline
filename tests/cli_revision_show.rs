@@ -307,7 +307,7 @@ fn revision_show_include_body_hydrates_without_internal_paths() {
     assert!(stdout.contains("visible body"));
     assert!(!stdout.contains("artifacts/notes/"));
     assert!(!stdout.contains("artifacts/objects/"));
-    assert!(!stdout.contains(".shore/data/events"));
+    assert!(!stdout.contains(".pointbreak/data/events"));
     assert!(json.get("statePath").is_none());
     assert!(json.get("snapshotArtifactPath").is_none());
 }
@@ -345,7 +345,7 @@ fn revision_show_includes_input_requests_and_omits_legacy_fields() {
     assert_eq!(json["summary"]["inputRequestCount"], 1);
     assert!(!stdout.contains("artifacts/notes/"));
     assert!(!stdout.contains("artifacts/objects/"));
-    assert!(!stdout.contains(".shore/data/events"));
+    assert!(!stdout.contains(".pointbreak/data/events"));
     assert!(!stdout.contains("\"blocking\""));
     assert!(json.get("interventions").is_none());
     assert!(json["summary"].get("interventionCount").is_none());
@@ -528,7 +528,7 @@ fn unit_show_disambiguates_worktree_and_range_units() {
 fn unit_show_renders_verification_status_on_members_and_capture() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let env: [(&str, &str); 1] = [("SHORE_HOME", env_home)];
+    let env: [(&str, &str); 1] = [("POINTBREAK_HOME", env_home)];
     // A present-but-unenrolled key → signs, verifies untrusted_key under the empty trust set.
     assert!(
         shore_env(["key", "init", "--name", "default"], &env)
@@ -583,7 +583,7 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
 fn unit_show_renders_endorsement_on_capture_identity() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let env: [(&str, &str); 1] = [("SHORE_HOME", env_home)];
+    let env: [(&str, &str); 1] = [("POINTBREAK_HOME", env_home)];
     assert!(
         shore_env(["key", "init", "--name", "default"], &env)
             .status
@@ -630,7 +630,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     assert!(
         shore_env(
             ["capture", "--repo", repo_arg],
-            &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
+            &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
         )
         .status
         .success()
@@ -640,8 +640,8 @@ fn unit_show_renders_endorsement_on_capture_identity() {
         shore_env(
             ["endorse", &target, "--repo", repo_arg],
             &[
-                ("SHORE_HOME", env_home),
-                ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+                ("POINTBREAK_HOME", env_home),
+                ("POINTBREAK_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
             ],
         )
         .status
@@ -650,7 +650,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
 
     let out = shore_env(
         ["revision", "show", "--repo", repo_arg],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     let endorsement = &doc["revision"]["endorsements"][0];
@@ -695,7 +695,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
     // Enrolled key signs the assessment → the current call verifies valid.
     let yes_home = tempfile::tempdir().unwrap();
     let yes_home_s = yes_home.path().to_str().unwrap();
-    let yes_env: [(&str, &str); 1] = [("SHORE_HOME", yes_home_s)];
+    let yes_env: [(&str, &str); 1] = [("POINTBREAK_HOME", yes_home_s)];
     assert!(
         shore_env(["key", "init", "--name", "default"], &yes_env)
             .status
@@ -738,7 +738,10 @@ fn text_digest_reports_signed_by_enrolled_key() {
                 "--summary",
                 "ship it",
             ],
-            &[("SHORE_HOME", yes_home_s), ("SHORE_ACTOR_ID", ENROLLED)],
+            &[
+                ("POINTBREAK_HOME", yes_home_s),
+                ("POINTBREAK_ACTOR_ID", ENROLLED)
+            ],
         )
         .status
         .success()
@@ -768,7 +771,10 @@ fn text_digest_reports_signed_by_enrolled_key() {
     assert!(
         shore_env(
             ["capture", "--repo", no_repo_arg],
-            &[("SHORE_HOME", no_home_s), ("SHORE_SIGNING", "off")],
+            &[
+                ("POINTBREAK_HOME", no_home_s),
+                ("POINTBREAK_SIGNING", "off")
+            ],
         )
         .status
         .success()
@@ -787,7 +793,10 @@ fn text_digest_reports_signed_by_enrolled_key() {
                 "--summary",
                 "ship it",
             ],
-            &[("SHORE_HOME", no_home_s), ("SHORE_SIGNING", "off")],
+            &[
+                ("POINTBREAK_HOME", no_home_s),
+                ("POINTBREAK_SIGNING", "off")
+            ],
         )
         .status
         .success()
@@ -801,7 +810,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
             "--format",
             "text",
         ],
-        &[("SHORE_HOME", no_home_s)],
+        &[("POINTBREAK_HOME", no_home_s)],
     );
     let no_stdout = String::from_utf8_lossy(&no_out.stdout);
     assert!(

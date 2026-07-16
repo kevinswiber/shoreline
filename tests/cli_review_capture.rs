@@ -169,7 +169,7 @@ fn review_capture_writes_through_to_the_shared_store_without_a_link_step() {
 
     // No storage paths leak into the capture JSON.
     assert!(!capture_stdout.contains(".git"));
-    assert!(!capture_stdout.contains(".shore/data"));
+    assert!(!capture_stdout.contains(".pointbreak/data"));
 
     // The capture landed in the shared common-dir store with no link step.
     assert!(
@@ -546,7 +546,7 @@ fn cli_capture_unstaged_include_untracked_does_not_mutate_the_index() {
 #[test]
 fn cli_capture_unstaged_include_untracked_excludes_generated_gitignore() {
     let repo = modified_repo();
-    pointbreak::session::ensure_shore_gitignore(repo.path()).unwrap();
+    pointbreak::session::ensure_pointbreak_gitignore(repo.path()).unwrap();
 
     let output = shore([
         "capture",
@@ -1062,14 +1062,14 @@ fn rev(repo: &GitRepo, rev: &str) -> String {
 /// The shared common-dir store a clone resolves by default
 /// (`<git-common-dir>/shore`). Every non-ephemeral worktree reads and writes
 /// here, so post-capture store assertions look here instead of the raw
-/// worktree-local `.shore/data`.
+/// worktree-local `.pointbreak/data`.
 fn common_dir_store(repo: &GitRepo) -> std::path::PathBuf {
     let common_dir = repo
         .git(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .stdout
         .trim()
         .to_owned();
-    std::path::Path::new(&common_dir).join("shore")
+    std::path::Path::new(&common_dir).join("pointbreak")
 }
 
 #[test]
@@ -1111,7 +1111,7 @@ where
 {
     Command::new(env!("CARGO_BIN_EXE_shore"))
         .args(args)
-        .env_remove("SHORE_LOG")
+        .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         .output()
         .expect("run shore binary")

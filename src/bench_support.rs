@@ -40,6 +40,21 @@ pub struct StoreBenchHarness {
     next_index: AtomicUsize,
 }
 
+/// Derive a repository root from its canonical common-directory store.
+///
+/// This fallback is intentionally limited to the standard `<repo>/.git`
+/// layout. Callers benchmarking linked worktrees or separate Git directories
+/// must provide the repository explicitly.
+pub fn repository_for_common_store(store_dir: impl AsRef<Path>) -> Option<PathBuf> {
+    let store_dir = store_dir.as_ref();
+    let common_dir = store_dir.parent()?;
+    let canonical = crate::paths::CommonDirPaths::from_common_dir(common_dir).store_dir();
+    if store_dir != canonical || common_dir.file_name()?.to_str()? != ".git" {
+        return None;
+    }
+    common_dir.parent().map(Path::to_path_buf)
+}
+
 impl StoreBenchHarness {
     /// Open a file-backed event store rooted at `store_dir`.
     pub fn open(store_dir: impl AsRef<Path>) -> Self {
@@ -164,9 +179,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn canonical_common_store_derives_the_repository_fixture() {
+        let root = tempfile::tempdir().expect("a temp dir");
+        let common_dir = root.path().join(".git");
+        let store_dir = crate::paths::CommonDirPaths::from_common_dir(&common_dir).store_dir();
+
+        assert_eq!(
+            repository_for_common_store(&store_dir),
+            Some(root.path().to_path_buf())
+        );
+        assert_eq!(repository_for_common_store(common_dir.join("shore")), None);
+        assert_eq!(
+            repository_for_common_store(root.path().join(".pointbreak/data")),
+            None
+        );
+    }
+
+    #[test]
     fn harness_measures_a_synthetic_store_without_panicking() {
         let root = tempfile::tempdir().expect("a temp dir");
-        let harness = StoreBenchHarness::open(root.path().join(".shore/data"));
+        let harness = StoreBenchHarness::open(root.path().join(".pointbreak/data"));
 
         harness.populate(50);
         assert_eq!(harness.read_all(), 50, "every populated event reads back");
@@ -192,7 +224,7 @@ mod tests {
 
     /// Schema-currency guard: a store authored by the current code must read back
     /// through the harness's strict `list_events`. This is the exact seam the
-    /// `SHORE_BENCH_FIXTURE` real-world group uses to decide whether to run — so a
+    /// `POINTBREAK_BENCH_FIXTURE` real-world group uses to decide whether to run — so a
     /// schema break that regressed it would silently skip the benchmark instead of
     /// failing. Here it fails loudly.
     #[test]

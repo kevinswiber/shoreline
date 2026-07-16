@@ -2,14 +2,15 @@ use pointbreak::git::{git_worktree_root, ingest_tracked_diff};
 use pointbreak::session::event::EventType;
 use pointbreak::session::{
     CaptureOptions, SessionState, capture_worktree_fingerprint, capture_worktree_review,
-    ensure_shore_gitignore, read_events, read_object_artifact, rebuild_state, store_dir_for_repo,
+    ensure_pointbreak_gitignore, read_events, read_object_artifact, rebuild_state,
+    store_dir_for_repo,
 };
 
 use crate::support::git_repo::GitRepo;
 use crate::support::{assert_existing_paths_eq, common_dir_store};
 
 #[test]
-fn shore_dir_resolves_to_git_worktree_root_from_subdirectory() {
+fn store_dir_resolves_to_git_worktree_root_from_subdirectory() {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn demo() {}\n");
     let subdir = repo.path().join("src");
@@ -19,22 +20,22 @@ fn shore_dir_resolves_to_git_worktree_root_from_subdirectory() {
 
     assert_existing_paths_eq(&root, repo.path());
     // From a subdirectory, the public helper resolves the repo's shared common-dir
-    // store (`.git/shore`), the same store the read/write seams use.
-    assert_eq!(path_file_name(&store_dir), "shore");
+    // store (`.git/pointbreak`), the same store the read/write seams use.
+    assert_eq!(path_file_name(&store_dir), "pointbreak");
     assert_eq!(path_file_name(path_parent(&store_dir)), ".git");
     assert_existing_paths_eq(path_parent(path_parent(&store_dir)), repo.path());
 }
 
 #[test]
-fn ensure_shore_gitignore_writes_the_shore_scoped_ignore_file() {
+fn ensure_pointbreak_gitignore_writes_the_pointbreak_scoped_ignore_file() {
     let repo = GitRepo::new();
 
-    ensure_shore_gitignore(repo.path()).expect("gitignore is written");
-    ensure_shore_gitignore(repo.path()).expect("gitignore write is idempotent");
+    ensure_pointbreak_gitignore(repo.path()).expect("gitignore is written");
+    ensure_pointbreak_gitignore(repo.path()).expect("gitignore write is idempotent");
 
-    // The committed .shore/.gitignore carries the canonical body, even across repeats.
+    // The committed .pointbreak/.gitignore carries the canonical body, even across repeats.
     assert_eq!(
-        repo.read(".shore/.gitignore"),
+        repo.read(".pointbreak/.gitignore"),
         "data/\n*.local.json\n",
         "each line is written at most once"
     );
@@ -46,7 +47,7 @@ fn ensure_shore_gitignore_writes_the_shore_scoped_ignore_file() {
     assert!(
         !read_local_exclude(&repo)
             .lines()
-            .any(|line| line.trim().contains(".shore")),
+            .any(|line| line.trim().contains(".pointbreak")),
         "ensure must not write .git/info/exclude"
     );
     // The generated file is deliberately VISIBLE — it is a repo file the user
@@ -54,75 +55,75 @@ fn ensure_shore_gitignore_writes_the_shore_scoped_ignore_file() {
     let status = repo.git(["status", "--short"]).stdout;
     assert_eq!(
         status.trim(),
-        "?? .shore/",
-        "the generated .shore/.gitignore is the only untracked entry"
+        "?? .pointbreak/",
+        "the generated .pointbreak/.gitignore is the only untracked entry"
     );
-    // `.shore/data/` is now effectively ignored.
+    // `.pointbreak/data/` is now effectively ignored.
     assert!(shore_is_ignored(&repo));
 }
 
 #[test]
-fn ensure_shore_gitignore_leaves_tracked_root_gitignore_untouched() {
+fn ensure_pointbreak_gitignore_leaves_tracked_root_gitignore_untouched() {
     let repo = GitRepo::new();
     repo.write(".gitignore", "target/\n");
     repo.commit_all("add gitignore");
 
-    ensure_shore_gitignore(repo.path()).expect("gitignore is written");
+    ensure_pointbreak_gitignore(repo.path()).expect("gitignore is written");
 
     // The tracked root .gitignore is never rewritten.
     assert_eq!(repo.read(".gitignore"), "target/\n");
-    // The .shore-scoped file carries the exclusions instead, and they work.
-    assert_eq!(repo.read(".shore/.gitignore"), "data/\n*.local.json\n");
+    // The .pointbreak-scoped file carries the exclusions instead, and they work.
+    assert_eq!(repo.read(".pointbreak/.gitignore"), "data/\n*.local.json\n");
     assert!(shore_is_ignored(&repo));
 }
 
 #[test]
-fn ensure_shore_gitignore_is_noop_when_ignores_are_already_covered() {
+fn ensure_pointbreak_gitignore_is_noop_when_ignores_are_already_covered() {
     let repo = GitRepo::new();
     repo.write(
         ".gitignore",
-        "# shore paths are intentionally ignored below\n.shore/data\n.shore/*.local.json\n",
+        "# shore paths are intentionally ignored below\n.pointbreak/data\n.pointbreak/*.local.json\n",
     );
     repo.commit_all("ignore shore paths in gitignore");
 
-    ensure_shore_gitignore(repo.path()).expect("existing ignore is respected");
+    ensure_pointbreak_gitignore(repo.path()).expect("existing ignore is respected");
 
     // The user's .gitignore choice is respected: no generated file, no local entry.
     assert!(
-        !repo.path().join(".shore/.gitignore").exists(),
-        "must not generate a redundant .shore/.gitignore"
+        !repo.path().join(".pointbreak/.gitignore").exists(),
+        "must not generate a redundant .pointbreak/.gitignore"
     );
     assert!(
         !read_local_exclude(&repo)
             .lines()
-            .any(|line| line.trim().contains(".shore")),
+            .any(|line| line.trim().contains(".pointbreak")),
         "must not add a redundant local exclude entry"
     );
 }
 
 #[test]
-fn ensure_shore_gitignore_is_noop_against_legacy_local_exclude_entries() {
+fn ensure_pointbreak_gitignore_is_noop_against_legacy_local_exclude_entries() {
     let repo = GitRepo::new();
     // A pre-existing clone carries the entries the retired mechanism wrote to the
     // repo-local exclude; they still count as coverage, so nothing new is written.
     let exclude_path = repo.path().join(".git/info/exclude");
     std::fs::write(
         &exclude_path,
-        "# local excludes\n.shore/delegates.local.json\n.shore/actor-attributes.local.json\n\
-         .shore/store.local.json\n.shore/data/\n",
+        "# local excludes\n.pointbreak/delegates.local.json\n.pointbreak/actor-attributes.local.json\n\
+         .pointbreak/store.local.json\n.pointbreak/data/\n",
     )
     .expect("seed local exclude");
 
-    ensure_shore_gitignore(repo.path()).expect("existing local exclude is respected");
+    ensure_pointbreak_gitignore(repo.path()).expect("existing local exclude is respected");
 
     assert!(
-        !repo.path().join(".shore/.gitignore").exists(),
+        !repo.path().join(".pointbreak/.gitignore").exists(),
         "legacy narrow exclude entries already cover the probes"
     );
     assert_eq!(
         read_local_exclude(&repo),
-        "# local excludes\n.shore/delegates.local.json\n.shore/actor-attributes.local.json\n\
-         .shore/store.local.json\n.shore/data/\n",
+        "# local excludes\n.pointbreak/delegates.local.json\n.pointbreak/actor-attributes.local.json\n\
+         .pointbreak/store.local.json\n.pointbreak/data/\n",
         "the legacy exclude body is never rewritten"
     );
 }
@@ -190,10 +191,10 @@ fn same_working_tree_diff_produces_same_revision_and_snapshot_ids() {
 #[test]
 fn shore_state_does_not_affect_revision_fingerprint() {
     let repo = modified_repo();
-    ensure_shore_gitignore(repo.path()).expect("ignore shore state");
+    ensure_pointbreak_gitignore(repo.path()).expect("ignore shore state");
 
     let before = capture_worktree_fingerprint(repo.path()).expect("capture before shore state");
-    repo.write(".shore/data/state.json", "changed notes");
+    repo.write(".pointbreak/data/state.json", "changed notes");
     let after = capture_worktree_fingerprint(repo.path()).expect("capture after shore state");
 
     assert_eq!(before.revision_id, after.revision_id);
@@ -240,15 +241,15 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     assert!(store.join("state.json").is_file());
     // The shared store lives inside .git/, which git already ignores, so a
     // shared-store capture writes NO ignore entries anywhere: no generated
-    // .shore/.gitignore, nothing in the repo-local exclude, no root .gitignore.
+    // .pointbreak/.gitignore, nothing in the repo-local exclude, no root .gitignore.
     assert!(
-        !repo.path().join(".shore/.gitignore").exists(),
-        "a shared-store capture generates no .shore/.gitignore"
+        !repo.path().join(".pointbreak/.gitignore").exists(),
+        "a shared-store capture generates no .pointbreak/.gitignore"
     );
     assert!(
         !read_local_exclude(&repo)
             .lines()
-            .any(|line| line.trim().contains(".shore")),
+            .any(|line| line.trim().contains(".pointbreak")),
         "capture must not write .git/info/exclude"
     );
     assert!(
@@ -281,7 +282,7 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
         .expect("capture succeeds");
 
     // A shared-store capture must never mutate the worktree it is capturing:
-    // no generated .shore/.gitignore (the shared store lives inside .git/),
+    // no generated .pointbreak/.gitignore (the shared store lives inside .git/),
     // no root .gitignore, nothing in git status. Mutating here would fork the
     // content-only object id between a worktree capture and a range capture
     // of identical content.
@@ -300,7 +301,7 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
     assert!(
         snapshot.files.iter().all(|file| {
             let mentions_shore_state = |path: &str| {
-                path == ".gitignore" || path == ".shore" || path.starts_with(".shore/")
+                path == ".gitignore" || path == ".pointbreak" || path.starts_with(".pointbreak/")
             };
             !file.new_path.as_deref().is_some_and(mentions_shore_state)
                 && !file.old_path.as_deref().is_some_and(mentions_shore_state)
@@ -414,9 +415,9 @@ fn worktree_capture_excludes_untracked_shore_generated_gitignore() {
     // Baseline: capture the code change with no generated file present.
     let baseline = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-    // Generate the ephemeral-mode .shore/.gitignore (untracked, canonical) and recapture.
-    ensure_shore_gitignore(repo.path()).unwrap();
-    assert_eq!(repo.read(".shore/.gitignore"), "data/\n*.local.json\n");
+    // Generate the ephemeral-mode .pointbreak/.gitignore (untracked, canonical) and recapture.
+    ensure_pointbreak_gitignore(repo.path()).unwrap();
+    assert_eq!(repo.read(".pointbreak/.gitignore"), "data/\n*.local.json\n");
     let with_generated = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
     // Identity-neutral: same revision id and object id, and an idempotent recapture.
@@ -457,7 +458,7 @@ fn shore_is_ignored(repo: &GitRepo) -> bool {
     // `git check-ignore` prints the path when it is ignored and exits 1 (no
     // output) otherwise, so a non-empty stdout means storage is excluded.
     let output = std::process::Command::new("git")
-        .args(["check-ignore", ".shore/data/state.json"])
+        .args(["check-ignore", ".pointbreak/data/state.json"])
         .current_dir(repo.path())
         .output()
         .expect("run git check-ignore");

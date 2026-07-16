@@ -6,7 +6,7 @@
 //! visibility: create-if-absent is atomic **within the process** (one lock, one
 //! `HashMap::entry`), the single-process weakening the file backend's
 //! `O_CREAT|O_EXCL` does not need. So this backend is **injection-only** — it is
-//! never a `SHORE_BACKEND` value, only constructed directly in-process — and a
+//! never a `POINTBREAK_BACKEND` value, only constructed directly in-process — and a
 //! spawned child can never inherit an empty, lost-on-exit store.
 
 use std::collections::HashMap;

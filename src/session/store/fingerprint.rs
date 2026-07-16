@@ -93,7 +93,7 @@ pub fn capture_worktree_fingerprint(repo: &Path) -> Result<WorktreeFingerprint> 
 #[cfg(test)]
 pub fn compute_revision_fingerprint(repo: &Path) -> Result<RevisionFingerprint> {
     let files = capture_worktree_diff_files(repo)?;
-    let files = exclude_shore_storage_files(files);
+    let files = exclude_pointbreak_storage_files(files);
     revision_fingerprint_for_files(repo, &files, &[])
 }
 
@@ -398,19 +398,25 @@ pub(in crate::session) fn engagement_id_provisional(supersedes: &[RevisionId]) -
 }
 
 #[cfg(test)]
-fn exclude_shore_storage_files(files: Vec<DiffFile>) -> Vec<DiffFile> {
+fn exclude_pointbreak_storage_files(files: Vec<DiffFile>) -> Vec<DiffFile> {
     files
         .into_iter()
         .filter(|file| {
-            !file.old_path.as_deref().is_some_and(is_shore_storage_path)
-                && !file.new_path.as_deref().is_some_and(is_shore_storage_path)
+            !file
+                .old_path
+                .as_deref()
+                .is_some_and(is_pointbreak_storage_path)
+                && !file
+                    .new_path
+                    .as_deref()
+                    .is_some_and(is_pointbreak_storage_path)
         })
         .collect()
 }
 
 #[cfg(test)]
-fn is_shore_storage_path(path: &str) -> bool {
-    path == ".shore/data" || path.starts_with(".shore/data/")
+fn is_pointbreak_storage_path(path: &str) -> bool {
+    crate::paths::RepositoryPaths::is_worktree_store_relative(Path::new(path))
 }
 
 /// Revision identity hashes the content object id plus its optional git
@@ -939,8 +945,8 @@ mod tests {
         let repo = modified_repo();
         let first = compute_revision_fingerprint(repo.path()).unwrap();
 
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::write(repo.path().join(".shore/data/events/noise.json"), "{}").unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::write(repo.path().join(".pointbreak/data/events/noise.json"), "{}").unwrap();
         let second = compute_revision_fingerprint(repo.path()).unwrap();
 
         assert_eq!(first.revision_id, second.revision_id);
@@ -948,18 +954,22 @@ mod tests {
 
     #[test]
     fn excludes_nested_shore_data_storage_paths() {
-        assert!(is_shore_storage_path(".shore/data"));
-        assert!(is_shore_storage_path(".shore/data/events/abc.json"));
-        assert!(is_shore_storage_path(".shore/data/state.json"));
-        // The bare .shore/ dir and the pre-migration flat store are NOT the
+        assert!(is_pointbreak_storage_path(".pointbreak/data"));
+        assert!(is_pointbreak_storage_path(
+            ".pointbreak/data/events/abc.json"
+        ));
+        assert!(is_pointbreak_storage_path(".pointbreak/data/state.json"));
+        // The bare .pointbreak/ dir and the pre-migration flat store are NOT the
         // storage path.
-        assert!(!is_shore_storage_path(".shore"));
-        assert!(!is_shore_storage_path(".shore/events/abc.json"));
-        // Committed config siblings under .shore/ are NOT store storage and must
+        assert!(!is_pointbreak_storage_path(".pointbreak"));
+        assert!(!is_pointbreak_storage_path(".pointbreak/events/abc.json"));
+        // Committed config siblings under .pointbreak/ are NOT store storage and must
         // stay visible in review fingerprints (a delegates.json edit is a real
         // reviewable change).
-        assert!(!is_shore_storage_path(".shore/delegates.json"));
-        assert!(!is_shore_storage_path(".shore/allowed-signers.json"));
+        assert!(!is_pointbreak_storage_path(".pointbreak/delegates.json"));
+        assert!(!is_pointbreak_storage_path(
+            ".pointbreak/allowed-signers.json"
+        ));
     }
 
     #[test]

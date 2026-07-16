@@ -1123,7 +1123,7 @@ mod tests {
         );
 
         let json = serde_json::to_string(&manifest).unwrap();
-        assert!(!json.contains(".shore/data"));
+        assert!(!json.contains(".pointbreak/data"));
         assert!(!json.contains("artifacts/objects"));
         assert!(!json.contains("events/"));
     }
@@ -1176,7 +1176,7 @@ mod tests {
     #[test]
     fn store_bundle_import_preserves_externalized_validation_summary_artifacts() {
         let source = tempfile::tempdir().unwrap();
-        let source_store_dir = source.path().join(".shore/data");
+        let source_store_dir = source.path().join(".pointbreak/data");
         let summary = "validation summary\n".repeat(BODY_INLINE_LIMIT);
         let (summary_artifact_path, summary_content_hash, summary_byte_size) =
             write_note_body_artifact(&source_store_dir, summary.clone());
@@ -1206,7 +1206,7 @@ mod tests {
         );
 
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
         import_store_bundle(&source_store_dir, &target_store_dir).unwrap();
 
         let imported_bytes = fs::read(target_store_dir.join(&summary_artifact_path)).unwrap();
@@ -1301,7 +1301,7 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
 
         let first =
             import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
@@ -1322,8 +1322,8 @@ mod tests {
     fn bundle_import_uses_verification_policy_before_event_commit() {
         let source = tempfile::tempdir().unwrap();
         let target = tempfile::tempdir().unwrap();
-        let source_store_dir = source.path().join(".shore/data");
-        let target_store_dir = target.path().join(".shore/data");
+        let source_store_dir = source.path().join(".pointbreak/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
         write_event_to_store(
             &source_store_dir,
             invalid_signed_review_initialized_event("signed-invalid"),
@@ -1344,7 +1344,7 @@ mod tests {
         );
 
         let strict_target = tempfile::tempdir().unwrap();
-        let strict_target_store_dir = strict_target.path().join(".shore/data");
+        let strict_target_store_dir = strict_target.path().join(".pointbreak/data");
         let error = import_store_bundle_with_verification(
             &source_store_dir,
             &strict_target_store_dir,
@@ -1373,27 +1373,27 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
         let idempotency_key = "review_initialized:session:default:work:default";
         write_event_to_store(
-            &source_one.path().join(".shore/data"),
+            &source_one.path().join(".pointbreak/data"),
             review_initialized_event(idempotency_key, 1),
         );
         write_event_to_store(
-            &source_two.path().join(".shore/data"),
+            &source_two.path().join(".pointbreak/data"),
             review_initialized_event(idempotency_key, 2),
         );
         import_store_bundle(
-            source_one.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source_one.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
         )
         .unwrap();
 
         let error = import_store_bundle(
-            source_two.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source_two.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
         )
         .expect_err("conflicting event is rejected");
 
         assert!(error.to_string().contains("event conflict"));
-        let stored = EventStore::open(target.path().join(".shore/data"))
+        let stored = EventStore::open(target.path().join(".pointbreak/data"))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), 1);
@@ -1409,7 +1409,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         remove_object_artifacts(repo.path());
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
 
         let result =
             import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
@@ -1436,7 +1436,7 @@ mod tests {
         )
         .unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
 
         let result =
             import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
@@ -1461,7 +1461,7 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
 
         import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
 
@@ -1494,15 +1494,15 @@ mod tests {
             via: IngestVia::IngestEvents,
             received_at: "unix-ms:1".to_owned(),
         });
-        write_event_to_store(&source.path().join(".shore/data"), event);
+        write_event_to_store(&source.path().join(".pointbreak/data"), event);
 
         import_store_bundle(
-            source.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
         )
         .unwrap();
 
-        let stored = EventStore::open(target.path().join(".shore/data"))
+        let stored = EventStore::open(target.path().join(".pointbreak/data"))
             .list_events()
             .unwrap();
         let stamp = stored[0].ingest.as_ref().unwrap();
@@ -1515,7 +1515,7 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
 
         import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
         let first_stamps: Vec<_> = EventStore::open(&target_store_dir)
@@ -1548,7 +1548,7 @@ mod tests {
             "../../../tests/fixtures/event_signatures/friendly-valid-event.json"
         ))
         .unwrap();
-        write_event_to_store(&source.path().join(".shore/data"), signed);
+        write_event_to_store(&source.path().join(".pointbreak/data"), signed);
         let trust = event_signature_trust_set(
             serde_json::from_str(include_str!(
                 "../../../tests/fixtures/event_signatures/did-key-ed25519.json"
@@ -1558,8 +1558,8 @@ mod tests {
         .unwrap();
 
         let result = import_store_bundle_with_verification(
-            source.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
             EventVerificationPolicy::advisory(),
             trust.clone(),
         )
@@ -1571,7 +1571,7 @@ mod tests {
         );
 
         // The stamped target copy still verifies valid.
-        let stored = EventStore::open(target.path().join(".shore/data"))
+        let stored = EventStore::open(target.path().join(".pointbreak/data"))
             .list_events()
             .unwrap();
         assert!(stored[0].ingest.is_some());
@@ -1583,8 +1583,8 @@ mod tests {
         // Preflight does not treat the stamp difference (target stamped,
         // source unstamped) as a conflict: payload_hash comparison only.
         let again = import_store_bundle_with_verification(
-            source.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
             EventVerificationPolicy::advisory(),
             trust,
         )
@@ -1599,7 +1599,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let source = resolved_store_dir(repo.path());
         let target_root = tempfile::tempdir().unwrap();
-        let target = target_root.path().join(".shore/data");
+        let target = target_root.path().join(".pointbreak/data");
 
         let preview = preview_import_store_bundle(&source, &target).unwrap();
 
@@ -1621,7 +1621,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let source = resolved_store_dir(repo.path());
         let target_root = tempfile::tempdir().unwrap();
-        let target = target_root.path().join(".shore/data");
+        let target = target_root.path().join(".pointbreak/data");
         import_store_bundle(&source, &target).unwrap();
 
         let preview = preview_import_store_bundle(&source, &target).unwrap();
@@ -1638,7 +1638,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         remove_object_artifacts(repo.path());
         let target_root = tempfile::tempdir().unwrap();
-        let target = target_root.path().join(".shore/data");
+        let target = target_root.path().join(".pointbreak/data");
 
         // Mirrors the real fold: no refusal, the absent object is disclosed, and the
         // preview still writes nothing.
@@ -1657,22 +1657,22 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
         let key = "review_initialized:session:default:work:default";
         write_event_to_store(
-            &source_one.path().join(".shore/data"),
+            &source_one.path().join(".pointbreak/data"),
             review_initialized_event(key, 1),
         );
         write_event_to_store(
-            &source_two.path().join(".shore/data"),
+            &source_two.path().join(".pointbreak/data"),
             review_initialized_event(key, 2),
         );
         import_store_bundle(
-            source_one.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source_one.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
         )
         .unwrap();
 
         let error = preview_import_store_bundle(
-            source_two.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            source_two.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
         )
         .expect_err("a divergent payload under the same key must conflict");
 
@@ -1727,7 +1727,7 @@ mod tests {
         );
         remove_object_artifacts(repo.path());
         let target = tempfile::tempdir().unwrap();
-        let target_store_dir = target.path().join(".shore/data");
+        let target_store_dir = target.path().join(".pointbreak/data");
 
         let result =
             import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
@@ -1780,7 +1780,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let source = resolved_store_dir(repo.path());
         let target_root = tempfile::tempdir().unwrap();
-        let target = target_root.path().join(".shore/data");
+        let target = target_root.path().join(".pointbreak/data");
         import_store_bundle(&source, &target).unwrap();
         (repo, source, target_root, target)
     }
@@ -1998,9 +1998,9 @@ mod tests {
 
     /// The store a capture/workflow actually lands in for `repo` — the shared
     /// common-dir store by default. A repo used as an export/import bundle source
-    /// is read from here, not the raw worktree-local `.shore/data`.
+    /// is read from here, not the raw worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &std::path::Path) -> std::path::PathBuf {
-        crate::git::git_common_dir(repo).unwrap().join("shore")
+        crate::git::git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     fn review_initialized_event(idempotency_key: &str, value: u32) -> ShoreEvent {

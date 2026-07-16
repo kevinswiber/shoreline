@@ -24,7 +24,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     assert!(
         shore_env(
             ["key", "init", "--name", "default"],
-            &[("SHORE_HOME", home)]
+            &[("POINTBREAK_HOME", home)]
         )
         .status
         .success()
@@ -42,7 +42,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
                 [
                     "key", "enroll", "default", "--actor", ENDORSER, "--repo", &repo_arg
                 ],
-                &[("SHORE_HOME", home)],
+                &[("POINTBREAK_HOME", home)],
             )
             .status
             .success()
@@ -66,7 +66,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home), ("SHORE_SIGNING", "off")],
+            &[("POINTBREAK_HOME", home), ("POINTBREAK_SIGNING", "off")],
         )
         .status
         .success()
@@ -76,7 +76,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     assert!(
         shore_env(
             ["endorse", &target, "--repo", &repo_arg],
-            &[("SHORE_HOME", home), ("SHORE_ACTOR_ID", ENDORSER)],
+            &[("POINTBREAK_HOME", home), ("POINTBREAK_ACTOR_ID", ENDORSER)],
         )
         .status
         .success()
@@ -102,7 +102,7 @@ fn enrolled_endorser_reads_endorsement_trusted_with_endorser() {
     let (repo, target) = endorsed_repo(home.path().to_str().unwrap(), true, false);
     let out = shore_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     let endorsement = endorsement_for_target(&doc, &target);
@@ -116,7 +116,7 @@ fn unenrolled_signer_reads_unknown_endorser() {
     let (repo, target) = endorsed_repo(home.path().to_str().unwrap(), false, false);
     let out = shore_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     let endorsement = endorsement_for_target(&doc, &target);
@@ -130,7 +130,7 @@ fn attested_kind_and_roles_surface_in_enrichment() {
     let (repo, target) = endorsed_repo(home.path().to_str().unwrap(), true, true);
     let out = shore_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     let endorsement = endorsement_for_target(&doc, &target);

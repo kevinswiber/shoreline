@@ -9,13 +9,13 @@ fn endorse_is_available_at_the_top_level() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let (repo, target) = capture_target(home_str);
 
     let out = shore_env(
         ["endorse", &target, "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
 
     assert!(
@@ -33,7 +33,7 @@ fn endorse_target_accepts_a_bare_fragment() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let (repo, target) = capture_target(home_str);
     // target = "evt:sha256:<64hex>".
@@ -41,7 +41,7 @@ fn endorse_target_accepts_a_bare_fragment() {
 
     let out = shore_env(
         ["endorse", fragment, "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
 
     assert!(
@@ -78,7 +78,7 @@ fn endorse_with_signing_off_is_a_hard_error() {
     repo.write("src/lib.rs", "pub fn v() -> u32 { 2 }\n");
     let _ = shore_env(["capture", "--repo", repo.path().to_str().unwrap()], &[]);
 
-    // SHORE_SIGNING=off → no signer resolves → endorsement has no content → hard error.
+    // POINTBREAK_SIGNING=off → no signer resolves → endorsement has no content → hard error.
     let out = shore_env(
         [
             "endorse",
@@ -86,7 +86,7 @@ fn endorse_with_signing_off_is_a_hard_error() {
             "--repo",
             repo.path().to_str().unwrap(),
         ],
-        &[("SHORE_SIGNING", "off")],
+        &[("POINTBREAK_SIGNING", "off")],
     );
     assert!(
         !out.status.success(),
@@ -132,7 +132,7 @@ fn capture_target(home_str: &str) -> (GitRepo, String) {
     repo.write("src/lib.rs", "pub fn v() -> u32 { 2 }\n");
     let cap = shore_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         cap.status.success(),
@@ -150,15 +150,15 @@ fn endorse_with_a_key_emits_review_endorse_document_and_writes_a_carrier() {
     // A signing key in an overridden keystore.
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
 
     let (repo, target) = capture_target(home_str);
     let out = shore_env(
         ["endorse", &target, "--repo", repo.path().to_str().unwrap()],
         &[
-            ("SHORE_HOME", home_str),
-            ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
         ],
     );
     assert!(
@@ -193,12 +193,12 @@ fn endorse_is_idempotent_for_the_same_signer_and_target() {
     let home_str = home.path().to_str().unwrap();
     let _ = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let (repo, target) = capture_target(home_str);
     let env = [
-        ("SHORE_HOME", home_str),
-        ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+        ("POINTBREAK_HOME", home_str),
+        ("POINTBREAK_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
     ];
 
     let first = shore_env(

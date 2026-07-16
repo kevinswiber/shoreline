@@ -3,6 +3,7 @@ use std::path::Path;
 
 use clap::ValueEnum;
 use pointbreak::crypto::EventSigner;
+use pointbreak::environment;
 use pointbreak::keys::{
     AgentUnavailable, FileEd25519Signer, KeyHandle, KeyMaterial, KeyName, generate_key,
     generate_key_in, load_key_material, load_key_material_in, load_signer, load_signer_from_path,
@@ -50,11 +51,11 @@ pub(crate) fn current_call_line(status: &CurrentAssessmentStatus) -> String {
     }
 }
 
-/// Discover the layered delegation map under `<worktree-root>/.shore/`.
+/// Discover the layered delegation map under `<worktree-root>/.pointbreak/`.
 ///
 /// Two files compose, git-config style: the committed shared default
-/// `.shore/delegates.json` and a locally-excluded private override
-/// `.shore/delegates.local.json`. The local file's records for an agent fully
+/// `.pointbreak/delegates.json` and a locally-excluded private override
+/// `.pointbreak/delegates.local.json`. The local file's records for an agent fully
 /// replace the committed records for that agent (via
 /// [`DelegationMap::with_local_override`]); agents absent from the local file
 /// inherit the committed map; either file may exist alone.
@@ -73,8 +74,9 @@ pub(crate) fn current_call_line(status: &CurrentAssessmentStatus) -> String {
 pub(crate) fn discover_delegation_map(repo: &Path) -> Option<DelegationMap> {
     let worktree_root =
         pointbreak::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
-    let committed = load_optional_delegates(&worktree_root.join(".shore/delegates.json"));
-    let local = load_optional_delegates(&worktree_root.join(".shore/delegates.local.json"));
+    let paths = pointbreak::paths::RepositoryPaths::from_worktree_root(worktree_root);
+    let committed = load_optional_delegates(&paths.delegates());
+    let local = load_optional_delegates(&paths.delegates_local());
     match (committed, local) {
         (None, None) => None,
         (committed, local) => Some(
@@ -101,10 +103,10 @@ fn load_optional_delegates(path: &Path) -> Option<DelegationMap> {
     }
 }
 
-/// Discover the layered actor-attributes map under `<worktree-root>/.shore/`.
+/// Discover the layered actor-attributes map under `<worktree-root>/.pointbreak/`.
 ///
-/// Mirrors [`discover_delegation_map`]: the committed `.shore/actor-attributes.json` and a
-/// locally-excluded `.shore/actor-attributes.local.json` override compose git-config style (a local
+/// Mirrors [`discover_delegation_map`]: the committed `.pointbreak/actor-attributes.json` and a
+/// locally-excluded `.pointbreak/actor-attributes.local.json` override compose git-config style (a local
 /// entry for an actor fully replaces the committed entry). Returns `None` when neither file exists; a
 /// malformed file is advisory (one-line stderr warning, treated as absent). This is reader-supplied
 /// config, never store content, and is advisory/reader-relative (ADR-0012).
@@ -115,10 +117,9 @@ fn load_optional_delegates(path: &Path) -> Option<DelegationMap> {
 pub(crate) fn discover_actor_attributes(repo: &Path) -> Option<ActorAttributesMap> {
     let worktree_root =
         pointbreak::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
-    let committed =
-        load_optional_actor_attributes(&worktree_root.join(".shore/actor-attributes.json"));
-    let local =
-        load_optional_actor_attributes(&worktree_root.join(".shore/actor-attributes.local.json"));
+    let paths = pointbreak::paths::RepositoryPaths::from_worktree_root(worktree_root);
+    let committed = load_optional_actor_attributes(&paths.actor_attributes());
+    let local = load_optional_actor_attributes(&paths.actor_attributes_local());
     match (committed, local) {
         (None, None) => None,
         (committed, local) => Some(
@@ -144,11 +145,11 @@ fn load_optional_actor_attributes(path: &Path) -> Option<ActorAttributesMap> {
     }
 }
 
-/// Discover the committed signature allow-list under `<worktree-root>/.shore/`.
+/// Discover the committed signature allow-list under `<worktree-root>/.pointbreak/`.
 ///
 /// Symmetric to [`discover_delegation_map`]: `repo` may be the worktree root or
 /// any path inside it, so discovery resolves the worktree root first (a non-git
-/// context falls back to `repo` as given), then loads `.shore/allowed-signers.json`
+/// context falls back to `repo` as given), then loads `.pointbreak/allowed-signers.json`
 /// — the custom Pointbreak JSON allow-list (`{"allowedSigners": {...}}`), not the
 /// OpenSSH `allowed_signers` format. An absent file yields the empty
 /// `TrustSet::default()` (zero-setup stores see no change); a malformed file is
@@ -159,7 +160,8 @@ fn load_optional_actor_attributes(path: &Path) -> Option<ActorAttributesMap> {
 pub(crate) fn discover_trust_set(repo: &Path) -> TrustSet {
     let worktree_root =
         pointbreak::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
-    load_optional_trust_set(&worktree_root.join(".shore/allowed-signers.json")).unwrap_or_default()
+    let paths = pointbreak::paths::RepositoryPaths::from_worktree_root(worktree_root);
+    load_optional_trust_set(&paths.allowed_signers()).unwrap_or_default()
 }
 
 /// Load the allow-list if present; a malformed file is advisory — warn once to
@@ -177,12 +179,6 @@ fn load_optional_trust_set(path: &Path) -> Option<TrustSet> {
         }
     }
 }
-
-/// Environment override selecting signing mode: `off` disables signing entirely,
-/// `auto` (the default) resolves a signer where possible.
-const SHORE_SIGNING_ENV: &str = "SHORE_SIGNING";
-/// Environment override naming the signing key (a keystore key name or a path).
-const SHORE_SIGNING_KEY_ENV: &str = "SHORE_SIGNING_KEY";
 
 // Diagnostic codes — single-sourced so the write-path stderr surfacing and the
 // docs reference one spelling. Each diagnostic embeds its code as the leading
@@ -262,10 +258,10 @@ pub(crate) struct ResolvedSigner {
 /// (`sign_event_if_requested`) propagates errors via `?`, so resolution must be
 /// done — and only ever yield a known-good signer — ahead of the signing call.
 ///
-/// Precedence: per-call `--sign-key` > `SHORE_SIGNING_KEY` env > agent-context
-/// auto-keygen > user-default `default` key > none. `SHORE_SIGNING=off`
+/// Precedence: per-call `--sign-key` > `POINTBREAK_SIGNING_KEY` env > agent-context
+/// auto-keygen > user-default `default` key > none. `POINTBREAK_SIGNING=off`
 /// short-circuits to none. An **explicitly** selected key (`--sign-key` /
-/// `SHORE_SIGNING_KEY`) that fails to load is terminal — `None` + diagnostic,
+/// `POINTBREAK_SIGNING_KEY`) that fails to load is terminal — `None` + diagnostic,
 /// never a silent fall-through to a different identity.
 pub(crate) fn resolve_signer(
     repo: &Path,
@@ -276,8 +272,8 @@ pub(crate) fn resolve_signer(
         repo,
         actor,
         sign_key,
-        std::env::var(SHORE_SIGNING_ENV).ok().as_deref(),
-        std::env::var(SHORE_SIGNING_KEY_ENV).ok().as_deref(),
+        std::env::var(environment::SIGNING).ok().as_deref(),
+        std::env::var(environment::SIGNING_KEY).ok().as_deref(),
         None, // production: key lookups resolve keys_dir(); tests inject Some(tempdir)
     )
 }
@@ -388,12 +384,12 @@ fn resolve_signer_with_env(
     repo: &Path,
     actor: &ActorId,
     sign_key: Option<&str>,
-    shore_signing: Option<&str>,
-    shore_signing_key: Option<&str>,
+    signing: Option<&str>,
+    signing_key: Option<&str>,
     keys_root: Option<&Path>,
 ) -> SignerResolution {
     // Mode override first: `off` is an explicit opt-out.
-    if let Some(mode) = shore_signing
+    if let Some(mode) = signing
         && mode.eq_ignore_ascii_case("off")
     {
         return SignerResolution::strict(None, None);
@@ -404,18 +400,14 @@ fn resolve_signer_with_env(
     // failing an agent-backed reference's pre-flight — return None + the named
     // diagnostic and STOP, never falling through to agent-keygen or the default
     // key, which would sign under a different identity than the one named.
-    if let Some(candidate) = [sign_key, shore_signing_key].into_iter().flatten().next() {
+    if let Some(candidate) = [sign_key, signing_key].into_iter().flatten().next() {
         // An agent-backed keystore reference resolves through the agent pre-flight;
         // it is terminal whether the pre-flight succeeds or fails.
-        if let Some(resolution) =
-            resolve_agent_backed_reference(candidate, keys_root, shore_signing)
-        {
+        if let Some(resolution) = resolve_agent_backed_reference(candidate, keys_root, signing) {
             return resolution;
         }
         return match load_configured_signer(candidate, keys_root) {
-            Ok(signer) => {
-                SignerResolution::strict(Some(Box::new(signer)), mode_note(shore_signing))
-            }
+            Ok(signer) => SignerResolution::strict(Some(Box::new(signer)), mode_note(signing)),
             Err(diagnostic) => SignerResolution::strict(None, Some(diagnostic)),
         };
     }
@@ -433,13 +425,13 @@ fn resolve_signer_with_env(
     // an agent-backed reference, pre-flight the agent (a failure is the clean
     // unsigned path with a named reason). A missing default is the clean unsigned
     // path, not a failure.
-    if let Some(resolution) = resolve_agent_backed_reference("default", keys_root, shore_signing) {
+    if let Some(resolution) = resolve_agent_backed_reference("default", keys_root, signing) {
         return resolution;
     }
     SignerResolution::strict(
         load_default_signer(keys_root)
             .map(|signer| Box::new(signer) as Box<dyn EventSigner + Send + Sync>),
-        mode_note(shore_signing),
+        mode_note(signing),
     )
 }
 
@@ -454,7 +446,7 @@ fn resolve_signer_with_env(
 fn resolve_agent_backed_reference(
     candidate: &str,
     keys_root: Option<&Path>,
-    shore_signing: Option<&str>,
+    signing: Option<&str>,
 ) -> Option<SignerResolution> {
     if candidate_is_path(candidate) {
         return None;
@@ -464,7 +456,7 @@ fn resolve_agent_backed_reference(
             Some(match resolve_agent_backed_signer(public_key) {
                 // The network-backed agent signer is best-effort: a sign-time
                 // failure degrades to an unsigned write rather than gating.
-                Ok(signer) => SignerResolution::best_effort(signer, mode_note(shore_signing)),
+                Ok(signer) => SignerResolution::best_effort(signer, mode_note(signing)),
                 Err(diagnostic) => SignerResolution::strict(None, Some(diagnostic)),
             })
         }
@@ -522,7 +514,7 @@ fn map_agent_unavailable(unavailable: AgentUnavailable) -> String {
     }
 }
 
-/// Whether a `--sign-key`/`SHORE_SIGNING_KEY` candidate is an explicit filesystem
+/// Whether a `--sign-key`/`POINTBREAK_SIGNING_KEY` candidate is an explicit filesystem
 /// path (loaded by the by-path seed loader) rather than a keystore key name.
 fn candidate_is_path(candidate: &str) -> bool {
     candidate.contains('/')
@@ -668,10 +660,10 @@ fn generate_agent_key(
     generated.map_err(|error| error.to_string())
 }
 
-/// An unrecognized `SHORE_SIGNING` value is advisory, never an error: it is
+/// An unrecognized `POINTBREAK_SIGNING` value is advisory, never an error: it is
 /// treated as `auto` with a `signing_mode_unrecognized` note.
-fn mode_note(shore_signing: Option<&str>) -> Option<String> {
-    match shore_signing {
+fn mode_note(signing: Option<&str>) -> Option<String> {
+    match signing {
         Some(mode) if mode.eq_ignore_ascii_case("auto") || mode.eq_ignore_ascii_case("off") => None,
         Some(other) => Some(format!(
             "{SIGNING_MODE_UNRECOGNIZED}: {other:?} treated as auto"
@@ -762,7 +754,7 @@ mod tests {
     #[test]
     fn discovers_committed_delegates_json() {
         let repo = git_repo();
-        write(&repo, ".shore/delegates.json", COMMITTED);
+        write(&repo, ".pointbreak/delegates.json", COMMITTED);
         let map = super::discover_delegation_map(repo.path()).expect("committed map discovered");
         assert!(matches!(
             map.resolve(&ActorId::new("actor:agent:claude-code"), "2026-06-12T00:00:00Z"),
@@ -772,8 +764,8 @@ mod tests {
     #[test]
     fn local_override_layers_over_committed() {
         let repo = git_repo();
-        write(&repo, ".shore/delegates.json", COMMITTED);
-        write(&repo, ".shore/delegates.local.json", LOCAL);
+        write(&repo, ".pointbreak/delegates.json", COMMITTED);
+        write(&repo, ".pointbreak/delegates.local.json", LOCAL);
         let map = super::discover_delegation_map(repo.path()).expect("layered map");
         assert!(matches!(
             map.resolve(&ActorId::new("actor:agent:claude-code"), "2026-06-12T00:00:00Z"),
@@ -783,7 +775,7 @@ mod tests {
     #[test]
     fn local_alone_is_used_when_committed_absent() {
         let repo = git_repo();
-        write(&repo, ".shore/delegates.local.json", LOCAL);
+        write(&repo, ".pointbreak/delegates.local.json", LOCAL);
         assert!(super::discover_delegation_map(repo.path()).is_some());
     }
 
@@ -801,7 +793,7 @@ mod tests {
         use pointbreak::crypto::SignerId;
 
         let repo = git_repo();
-        write(&repo, ".shore/allowed-signers.json", ALLOWED);
+        write(&repo, ".pointbreak/allowed-signers.json", ALLOWED);
         let trust = super::discover_trust_set(repo.path());
         let actor = ActorId::new("actor:git-email:alice@example.com");
         let signer =
@@ -819,7 +811,7 @@ mod tests {
     #[test]
     fn discover_trust_set_malformed_is_advisory_and_falls_back_to_default() {
         let repo = git_repo();
-        write(&repo, ".shore/allowed-signers.json", "{ not json");
+        write(&repo, ".pointbreak/allowed-signers.json", "{ not json");
         // Malformed is advisory: a one-line warning, then the empty default.
         let trust = super::discover_trust_set(repo.path());
         assert_eq!(trust, pointbreak::session::TrustSet::default());
@@ -828,8 +820,8 @@ mod tests {
     #[test]
     fn malformed_local_is_advisory_and_falls_back_to_committed() {
         let repo = git_repo();
-        write(&repo, ".shore/delegates.json", COMMITTED);
-        write(&repo, ".shore/delegates.local.json", "{ not json");
+        write(&repo, ".pointbreak/delegates.json", COMMITTED);
+        write(&repo, ".pointbreak/delegates.local.json", "{ not json");
         // Malformed local is advisory (ADR-0003): the committed default still applies.
         let map =
             super::discover_delegation_map(repo.path()).expect("committed survives bad local");
@@ -846,7 +838,7 @@ mod tests {
     #[test]
     fn discovers_committed_actor_attributes() {
         let repo = git_repo();
-        write(&repo, ".shore/actor-attributes.json", ATTRS);
+        write(&repo, ".pointbreak/actor-attributes.json", ATTRS);
         let map = super::discover_actor_attributes(repo.path()).expect("committed map discovered");
         assert_eq!(
             map.resolve(&ActorId::new("actor:git-email:kevin@swiber.dev"))
@@ -858,8 +850,12 @@ mod tests {
     #[test]
     fn actor_attributes_local_override_layers_over_committed() {
         let repo = git_repo();
-        write(&repo, ".shore/actor-attributes.json", ATTRS);
-        write(&repo, ".shore/actor-attributes.local.json", ATTRS_LOCAL);
+        write(&repo, ".pointbreak/actor-attributes.json", ATTRS);
+        write(
+            &repo,
+            ".pointbreak/actor-attributes.local.json",
+            ATTRS_LOCAL,
+        );
         let map = super::discover_actor_attributes(repo.path()).expect("layered map");
         assert_eq!(
             map.resolve(&ActorId::new("actor:git-email:kevin@swiber.dev"))
@@ -877,8 +873,12 @@ mod tests {
     #[test]
     fn malformed_actor_attributes_local_is_advisory_and_falls_back_to_committed() {
         let repo = git_repo();
-        write(&repo, ".shore/actor-attributes.json", ATTRS);
-        write(&repo, ".shore/actor-attributes.local.json", "{ not json");
+        write(&repo, ".pointbreak/actor-attributes.json", ATTRS);
+        write(
+            &repo,
+            ".pointbreak/actor-attributes.local.json",
+            "{ not json",
+        );
         let map =
             super::discover_actor_attributes(repo.path()).expect("committed survives bad local");
         assert_eq!(
@@ -1018,7 +1018,7 @@ mod resolve_signer_tests {
 
     #[test]
     fn explicit_agent_key_that_fails_preflight_is_terminal_no_fall_through() {
-        // An EXPLICIT agent-backed SHORE_SIGNING_KEY whose pre-flight fails (dead
+        // An EXPLICIT agent-backed POINTBREAK_SIGNING_KEY whose pre-flight fails (dead
         // socket) must NOT substitute the file-backed "default" key.
         let root = tempfile::tempdir().unwrap();
         write_agent_into(root.path(), "agentref");
@@ -1150,7 +1150,7 @@ mod resolve_signer_tests {
             );
             assert!(
                 resolution.signer.is_none(),
-                "SHORE_SIGNING={value} must disable signing"
+                "POINTBREAK_SIGNING={value} must disable signing"
             );
         }
     }

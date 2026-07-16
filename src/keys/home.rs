@@ -5,7 +5,7 @@ use crate::error::{Result, ShoreError};
 /// Resolve and create the user-level keystore's `keys/` directory, returning its
 /// path. The directory tree is created if absent; on Unix it is created `0700`.
 pub(crate) fn keys_dir() -> Result<PathBuf> {
-    let keys = crate::shore_home::shore_home_root()?.join("keys");
+    let keys = crate::paths::UserHomePaths::resolve()?.keys_dir();
     create_private_dir(&keys)?;
     Ok(keys)
 }
@@ -36,12 +36,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         // SAFETY: single-threaded test; the override is the documented hermetic seam.
         unsafe {
-            std::env::set_var(crate::shore_home::SHORE_HOME_ENV, tmp.path());
+            std::env::set_var(crate::environment::HOME, tmp.path());
         }
         let first = keys_dir().unwrap();
         let second = keys_dir().unwrap();
         unsafe {
-            std::env::remove_var(crate::shore_home::SHORE_HOME_ENV);
+            std::env::remove_var(crate::environment::HOME);
         }
 
         assert_eq!(first, second, "resolution is deterministic under override");
@@ -56,11 +56,11 @@ mod tests {
 
         let tmp = tempfile::tempdir().unwrap();
         unsafe {
-            std::env::set_var(crate::shore_home::SHORE_HOME_ENV, tmp.path());
+            std::env::set_var(crate::environment::HOME, tmp.path());
         }
         let dir = keys_dir().unwrap();
         unsafe {
-            std::env::remove_var(crate::shore_home::SHORE_HOME_ENV);
+            std::env::remove_var(crate::environment::HOME);
         }
 
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();

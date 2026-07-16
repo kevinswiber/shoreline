@@ -121,7 +121,7 @@ impl Inspector {
             command.args(["--format", "json"]);
         }
         let mut child = command
-            .env_remove("SHORE_LOG")
+            .env_remove("POINTBREAK_LOG")
             .env_remove("RUST_LOG")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

@@ -327,16 +327,16 @@ mod tests {
         }
     }
 
-    /// Set `SHORE_HOME` for the duration of `f`. nextest's process-per-test keeps the
+    /// Set `POINTBREAK_HOME` for the duration of `f`. nextest's process-per-test keeps the
     /// mutation contained (the `keys/home.rs` seam). SAFETY: single-threaded test
     /// process.
-    fn with_shore_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    fn with_pointbreak_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
         unsafe {
-            std::env::set_var("SHORE_HOME", home);
+            std::env::set_var("POINTBREAK_HOME", home);
         }
         let out = f();
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
         out
     }
@@ -375,11 +375,11 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path()).with_allow_empty()).unwrap();
 
         let home = tempfile::tempdir().unwrap();
-        // The scoped, single-threaded SHORE_HOME seam (nextest's process-per-test
+        // The scoped, single-threaded POINTBREAK_HOME seam (nextest's process-per-test
         // contains the mutation). This is the one phase-7 test that needs it — the
         // positive user-level case cannot be reached purely before the CLI link
         // subcommand exists.
-        let result = with_shore_home(home.path(), || {
+        let result = with_pointbreak_home(home.path(), || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("acme".to_owned())))
                 .expect("link succeeds against a clean, non-ephemeral, non-sensitive worktree");
             store_status(StoreStatusOptions::new(repo.path()))
@@ -396,13 +396,12 @@ mod tests {
     }
 
     #[test]
-    fn status_surfaces_the_family_link_advisory_for_an_unbound_sibling() {
+    fn status_ignores_stale_per_worktree_binding_on_a_sibling() {
         let repo = TestRepo::new();
         repo.write("README.md", "base\n");
         repo.commit_all("base");
-        // Main carries a legacy binding; add an unbound sibling worktree of the clone.
         repo.write(
-            ".shore/store.local.json",
+            ".pointbreak/store.local.json",
             r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme","cloneRef":"deadbeefdeadbeef"}"#,
         );
         let wt_parent = TempDir::new().unwrap();
@@ -416,14 +415,7 @@ mod tests {
         ]);
 
         let result = store_status(StoreStatusOptions::new(&wt)).unwrap();
-        assert!(
-            result
-                .family_link_advisory
-                .as_deref()
-                .is_some_and(|m| m.contains("acme") && m.contains("shore store link")),
-            "the unbound sibling is advised to link: {:?}",
-            result.family_link_advisory
-        );
+        assert!(result.family_link_advisory.is_none());
     }
 
     #[test]

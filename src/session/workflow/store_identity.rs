@@ -301,15 +301,15 @@ mod tests {
         }
     }
 
-    /// Set `SHORE_HOME` for the duration of `f`. nextest's process-per-test keeps the
+    /// Set `POINTBREAK_HOME` for the duration of `f`. nextest's process-per-test keeps the
     /// mutation contained (the `keys/home.rs` seam). SAFETY: single-threaded test.
-    fn with_shore_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    fn with_pointbreak_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
         unsafe {
-            std::env::set_var("SHORE_HOME", home);
+            std::env::set_var("POINTBREAK_HOME", home);
         }
         let out = f();
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
         out
     }
@@ -356,7 +356,7 @@ mod tests {
         repo.commit_all("base");
 
         let home = TempDir::new().unwrap();
-        let id = with_shore_home(home.path(), || {
+        let id = with_pointbreak_home(home.path(), || {
             link_store_to_family(StoreLinkOptions::new(
                 repo.path(),
                 Some("acme-web".to_owned()),

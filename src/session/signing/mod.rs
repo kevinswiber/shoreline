@@ -14,7 +14,8 @@ pub use cosignature::{
     gate_cosignature_for_store, verify_cosignature,
 };
 pub use enroll::{
-    ALLOWED_SIGNERS_REL_PATH, EnrollmentDiff, enroll_signer, stage_enrollment, trust_set_to_value,
+    EnrollmentDiff, allowed_signers_path_for_repo, enroll_signer, stage_enrollment,
+    trust_set_to_value,
 };
 pub use ingest::IngestEventVerification;
 pub(crate) use ingest::verify_events_for_ingest;

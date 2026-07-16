@@ -707,8 +707,8 @@ fn library_api_documents_event_signing_surface() {
 fn shore_gitignore_helper_is_public() {
     let repo = support::git_repo::GitRepo::new();
     // Reachable from outside the crate ⇒ it is pub (INV-A).
-    pointbreak::session::ensure_shore_gitignore(repo.path()).unwrap();
-    let body = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+    pointbreak::session::ensure_pointbreak_gitignore(repo.path()).unwrap();
+    let body = std::fs::read_to_string(repo.path().join(".pointbreak/.gitignore")).unwrap();
     assert!(body.lines().any(|l| l.trim() == "*.local.json"));
     assert!(body.lines().any(|l| l.trim() == "data/"));
 }

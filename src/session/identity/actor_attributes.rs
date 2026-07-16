@@ -1,6 +1,6 @@
 //! The actor-attributes map: a sibling checked-in file
-//! (`.shore/actor-attributes.json`, with an optional locally-excluded
-//! `.shore/actor-attributes.local.json` override layered over it by the CLI
+//! (`.pointbreak/actor-attributes.json`, with an optional locally-excluded
+//! `.pointbreak/actor-attributes.local.json` override layered over it by the CLI
 //! discovery helper) that records what *kind* of party an actor is and which
 //! *roles* it carries. It is human-committed, advisory, reader-relative, and
 //! never self-asserted (ADR-0012) — a sibling of `delegates.json` and
@@ -200,10 +200,6 @@ fn invalid(reason: impl Into<String>) -> ShoreError {
         reason: format!("invalid actor attributes: {}", reason.into()),
     }
 }
-
-/// Repo-relative paths to the actor-attributes config. Mirrors `DELEGATES_REL_PATH`.
-pub const ACTOR_ATTRIBUTES_REL_PATH: &str = ".shore/actor-attributes.json";
-pub const ACTOR_ATTRIBUTES_LOCAL_REL_PATH: &str = ".shore/actor-attributes.local.json";
 
 /// The schema tag the writer emits. The reader ignores top-level `schema` (unknown
 /// top-level keys are forward-compatible) but the canonical file declares it.
@@ -500,7 +496,7 @@ mod tests {
     #[test]
     fn stage_actor_attributes_round_trips_through_the_reader() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/actor-attributes.json");
+        let path = dir.path().join(".pointbreak/actor-attributes.json");
         let actor = ActorId::new("actor:git-email:kevin@swiber.dev");
         let attrs = ActorAttributesWriteRecord::new("human".to_owned())
             .with_roles(vec!["reviewer".to_owned(), "author".to_owned()])
@@ -522,7 +518,7 @@ mod tests {
     #[test]
     fn stage_actor_attributes_normalizes_tokens_lowercase_kebab() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/actor-attributes.json");
+        let path = dir.path().join(".pointbreak/actor-attributes.json");
         let actor = ActorId::new("actor:agent:review-bot");
         // Mixed case + duplicate roles → normalized, deduped, sorted.
         let attrs = ActorAttributesWriteRecord::new("Reviewer-Model".to_owned()).with_roles(vec![
@@ -543,7 +539,7 @@ mod tests {
     #[test]
     fn stage_actor_attributes_replaces_per_actor_and_is_byte_stable() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/actor-attributes.json");
+        let path = dir.path().join(".pointbreak/actor-attributes.json");
         let actor = ActorId::new("actor:git-email:kevin@swiber.dev");
         let attrs = ActorAttributesWriteRecord::new("human".to_owned())
             .with_roles(vec!["author".to_owned()]);
@@ -579,7 +575,7 @@ mod tests {
     #[test]
     fn stage_actor_attributes_preserves_other_actors() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/actor-attributes.json");
+        let path = dir.path().join(".pointbreak/actor-attributes.json");
         stage_actor_attributes(
             &path,
             &ActorId::new("actor:git-email:kevin@swiber.dev"),
@@ -609,7 +605,7 @@ mod tests {
         // INV-B: a pre-existing malformed sibling (here, an entry with no kind — valid JSON,
         // invalid schema) must make the stage FAIL, not write a file the reader rejects.
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/actor-attributes.json");
+        let path = dir.path().join(".pointbreak/actor-attributes.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, br#"{"schema":"shore.actor-attributes.v1","actors":{"actor:agent:bad":{"roles":["reviewer"]}}}"#).unwrap();
         let before = std::fs::read(&path).unwrap();
@@ -633,7 +629,7 @@ mod tests {
     #[test]
     fn stage_actor_attributes_rejects_bad_key_and_bad_tokens() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/actor-attributes.json");
+        let path = dir.path().join(".pointbreak/actor-attributes.json");
         // Invalid actor key.
         assert!(
             stage_actor_attributes(

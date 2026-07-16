@@ -1,4 +1,4 @@
-//! Consent-gated, non-destructive fold of a worktree-local `.shore/data` store
+//! Consent-gated, non-destructive fold of a worktree-local `.pointbreak/data` store
 //! into the common-dir store (`<git-common-dir>/shore`).
 //!
 //! This is the user's path across the shared-default flip: it copies events and
@@ -24,7 +24,7 @@ use crate::session::store::bundle::{
 use crate::session::store::resolution::clone_local_store_dir;
 use crate::session::store::sensitivity::scan_worktree_sensitivity;
 use crate::session::store::store_config::{StoreMode, resolve_store_mode};
-use crate::session::store::store_init::ShoreStorePaths;
+use crate::session::store::store_init::RepositoryPaths;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MigrateToCommonDirOptions {
@@ -50,7 +50,7 @@ impl MigrateToCommonDirOptions {
         self
     }
 
-    /// Opt in to deleting the worktree-local `.shore/data` after the fold is
+    /// Opt in to deleting the worktree-local `.pointbreak/data` after the fold is
     /// independently verified (every source event and artifact file present in
     /// the shared store; see `verify_source_subset_of_target`), so reads
     /// resolve in one command. Off by default: the source is never discarded
@@ -73,7 +73,7 @@ pub struct MigrateToCommonDirResult {
     /// worktree is refused first, even when its source store is empty, so a
     /// refusal is never silently downgraded to a `sourceEmpty` no-op.
     pub source_empty: bool,
-    /// True when `--retire-source` deleted the worktree-local `.shore/data`
+    /// True when `--retire-source` deleted the worktree-local `.pointbreak/data`
     /// (after a verified fold, or as a no-durable-files husk).
     pub source_retired: bool,
     /// Files the retire verification confirmed in the shared store; zero when
@@ -98,9 +98,9 @@ const SENSITIVITY_BLOCK: &str = "block";
 pub fn migrate_store_to_common_dir(
     options: MigrateToCommonDirOptions,
 ) -> Result<MigrateToCommonDirResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let paths = RepositoryPaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root().to_path_buf();
-    let source = paths.store_dir().to_path_buf(); // worktree-local .shore/data
+    let source = paths.worktree_store().to_path_buf(); // worktree-local .pointbreak/data
 
     // Consent gate: refuse an ephemeral or scanned-sensitive worktree unless the
     // caller explicitly opted in. Checked BEFORE any write to the common dir, and
@@ -120,7 +120,7 @@ pub fn migrate_store_to_common_dir(
             return Err(ShoreError::Message(
                 "refusing to migrate a worktree flagged sensitive into the shared store; run \
                  `shore store status --show-paths` to see which files matched, then add \
-                 known-safe paths to .shore/sensitivity.json excludeGlobs for a targeted \
+                 known-safe paths to .pointbreak/sensitivity.json excludeGlobs for a targeted \
                  exclude, or re-run with the include-ephemeral override to fan it in wholesale"
                     .to_owned(),
             ));
@@ -186,7 +186,7 @@ pub fn migrate_store_to_common_dir(
         });
     }
 
-    // Source is resolved via the raw `ShoreStorePaths::resolve` and the target via
+    // Source is resolved via the raw `RepositoryPaths::resolve` and the target via
     // `clone_local_store_dir` (= `<git-common-dir>/shore`); both are reused, neither
     // recomputed. `import_store_bundle` only reads the source — by default this fn
     // performs no `remove`/`remove_dir` on it; the opt-in retire below deletes it
@@ -358,9 +358,9 @@ mod tests {
         repo
     }
 
-    /// Seed a pre-shared-default capture: a populated worktree-local `.shore/data`
+    /// Seed a pre-shared-default capture: a populated worktree-local `.pointbreak/data`
     /// store, which is exactly the source `shore store migrate` folds forward. We
-    /// capture under ephemeral mode (so the write lands in `.shore/data`), then
+    /// capture under ephemeral mode (so the write lands in `.pointbreak/data`), then
     /// restore the default Shared mode so the migration runs against a
     /// non-ephemeral worktree carrying a legacy worktree-local store.
     fn seed_worktree_local_capture(repo: &TestRepo) {
@@ -368,7 +368,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         write_store_config(repo.path(), StoreMode::Shared).unwrap();
         assert!(
-            repo.path().join(".shore/data/events").is_dir(),
+            repo.path().join(".pointbreak/data/events").is_dir(),
             "the seed lands a worktree-local store to migrate"
         );
     }
@@ -377,8 +377,8 @@ mod tests {
     fn folds_worktree_local_store_into_common_dir_non_destructively() {
         let repo = modified_repo();
         seed_worktree_local_capture(&repo);
-        let local = repo.path().join(".shore/data");
-        let common = git_common_dir(repo.path()).unwrap().join("shore");
+        let local = repo.path().join(".pointbreak/data");
+        let common = git_common_dir(repo.path()).unwrap().join("pointbreak");
         assert!(
             !common.join("events").exists(),
             "common-dir store has no events before migration"
@@ -434,7 +434,7 @@ mod tests {
             "the refusal names the ephemeral opt-out: {error}"
         );
         // Refused before any write to the common dir.
-        let common = git_common_dir(repo.path()).unwrap().join("shore");
+        let common = git_common_dir(repo.path()).unwrap().join("pointbreak");
         assert!(
             !common.join("events").exists(),
             "no fan-in happened on a refused ephemeral migration"
@@ -465,7 +465,7 @@ mod tests {
         repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
         repo.commit_all("base");
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
-        assert!(!repo.path().join(".shore/data/events").exists());
+        assert!(!repo.path().join(".pointbreak/data/events").exists());
 
         let error = migrate_store_to_common_dir(MigrateToCommonDirOptions::new(repo.path()))
             .expect_err("an ephemeral worktree refuses even with an empty source store");
@@ -496,11 +496,11 @@ mod tests {
         assert!(result.verified_events >= 1);
         assert!(result.verified_artifacts >= 1);
         assert!(
-            !repo.path().join(".shore/data").exists(),
+            !repo.path().join(".pointbreak/data").exists(),
             "the verified fold retires the worktree-local store"
         );
-        // The committed config siblings under .shore/ survive — only data/ goes.
-        assert!(repo.path().join(".shore/store.json").is_file());
+        // The committed config siblings under .pointbreak/ survive — only data/ goes.
+        assert!(repo.path().join(".pointbreak/store.json").is_file());
     }
 
     #[test]
@@ -514,7 +514,7 @@ mod tests {
         assert!(!result.source_retired);
         assert_eq!(result.verified_events, 0);
         assert_eq!(result.verified_artifacts, 0);
-        assert!(repo.path().join(".shore/data/events").is_dir());
+        assert!(repo.path().join(".pointbreak/data/events").is_dir());
     }
 
     #[test]
@@ -526,8 +526,8 @@ mod tests {
         // different occurredAt). Payload divergence would fail at import
         // preflight instead; envelope divergence dedups to the first-stored
         // target record, so only the verification can catch it.
-        let source = repo.path().join(".shore/data");
-        let common = git_common_dir(repo.path()).unwrap().join("shore");
+        let source = repo.path().join(".pointbreak/data");
+        let common = git_common_dir(repo.path()).unwrap().join("pointbreak");
         let name = EventStore::open(&source)
             .list_event_file_names()
             .unwrap()
@@ -554,7 +554,7 @@ mod tests {
             "the error says the source survives: {error}"
         );
         assert!(
-            repo.path().join(".shore/data/events").is_dir(),
+            repo.path().join(".pointbreak/data/events").is_dir(),
             "source untouched"
         );
     }
@@ -562,14 +562,14 @@ mod tests {
     #[test]
     fn retire_source_removes_a_husk_source_with_no_durable_files() {
         let repo = modified_repo();
-        // A .shore/data holding only a stale state.json plus the EMPTY dirs the
+        // A .pointbreak/data holding only a stale state.json plus the EMPTY dirs the
         // writer pre-creates trips the populated guard but has nothing durable:
         // state.json is a regenerable projection, the dirs are empty.
         // Classification is by FILE COUNT, so the empty events/ dir must not
         // route this down the populated path.
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::create_dir_all(repo.path().join(".shore/data/artifacts/objects")).unwrap();
-        fs::write(repo.path().join(".shore/data/state.json"), "{}").unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/artifacts/objects")).unwrap();
+        fs::write(repo.path().join(".pointbreak/data/state.json"), "{}").unwrap();
 
         let result = migrate_store_to_common_dir(
             MigrateToCommonDirOptions::new(repo.path()).with_retire_source(true),
@@ -577,7 +577,7 @@ mod tests {
         .unwrap();
 
         assert!(result.source_retired);
-        assert!(!repo.path().join(".shore/data").exists());
+        assert!(!repo.path().join(".pointbreak/data").exists());
     }
 
     #[test]
@@ -587,11 +587,11 @@ mod tests {
         // populated path — zero events means the fold verifies nothing — and
         // then delete the orphan artifact bytes unverified.
         let repo = modified_repo();
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::create_dir_all(repo.path().join(".shore/data/artifacts/objects")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/artifacts/objects")).unwrap();
         fs::write(
             repo.path()
-                .join(".shore/data/artifacts/objects/orphan.json"),
+                .join(".pointbreak/data/artifacts/objects/orphan.json"),
             "{}",
         )
         .unwrap();
@@ -603,7 +603,7 @@ mod tests {
         assert!(error.to_string().contains("artifact"));
         assert!(
             repo.path()
-                .join(".shore/data/artifacts/objects/orphan.json")
+                .join(".pointbreak/data/artifacts/objects/orphan.json")
                 .is_file(),
             "the unverified bytes survive"
         );
@@ -615,10 +615,11 @@ mod tests {
         // NAMED state.json is durable bytes — it must classify as an artifact
         // file (refusal), never be skipped as a husk and deleted unverified.
         let repo = modified_repo();
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::create_dir_all(repo.path().join(".shore/data/artifacts/objects")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/artifacts/objects")).unwrap();
         fs::write(
-            repo.path().join(".shore/data/artifacts/objects/state.json"),
+            repo.path()
+                .join(".pointbreak/data/artifacts/objects/state.json"),
             "{}",
         )
         .unwrap();
@@ -630,7 +631,7 @@ mod tests {
         assert!(error.to_string().contains("artifact"));
         assert!(
             repo.path()
-                .join(".shore/data/artifacts/objects/state.json")
+                .join(".pointbreak/data/artifacts/objects/state.json")
                 .is_file(),
             "the unverified bytes survive"
         );
@@ -639,10 +640,10 @@ mod tests {
     #[test]
     fn retire_source_refuses_a_source_with_artifacts_but_no_events_dir() {
         let repo = modified_repo();
-        fs::create_dir_all(repo.path().join(".shore/data/artifacts/objects")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/artifacts/objects")).unwrap();
         fs::write(
             repo.path()
-                .join(".shore/data/artifacts/objects/orphan.json"),
+                .join(".pointbreak/data/artifacts/objects/orphan.json"),
             "{}",
         )
         .unwrap();
@@ -652,7 +653,7 @@ mod tests {
         )
         .expect_err("artifacts without events must never be silently deleted");
         assert!(error.to_string().contains("artifact"));
-        assert!(repo.path().join(".shore/data/artifacts").is_dir());
+        assert!(repo.path().join(".pointbreak/data/artifacts").is_dir());
     }
 
     #[test]
@@ -665,7 +666,7 @@ mod tests {
         seed_worktree_local_capture(&repo);
         fs::write(
             repo.path()
-                .join(".shore/data/artifacts/objects/orphan.json"),
+                .join(".pointbreak/data/artifacts/objects/orphan.json"),
             "{}",
         )
         .unwrap();
@@ -679,7 +680,7 @@ mod tests {
             "names the file: {error}"
         );
         assert!(
-            repo.path().join(".shore/data/events").is_dir(),
+            repo.path().join(".pointbreak/data/events").is_dir(),
             "source untouched on refusal"
         );
     }
@@ -695,14 +696,14 @@ mod tests {
         )
         .expect_err("the consent gate fires before any fold or retire");
         assert!(error.to_string().contains("ephemeral"));
-        assert!(repo.path().join(".shore/data/events").is_dir());
+        assert!(repo.path().join(".pointbreak/data/events").is_dir());
     }
 
     #[test]
     fn source_shore_data_is_never_deleted_by_migration() {
         let repo = modified_repo();
         seed_worktree_local_capture(&repo);
-        let local = repo.path().join(".shore/data");
+        let local = repo.path().join(".pointbreak/data");
         let before = EventStore::open(&local).list_event_file_names().unwrap();
 
         migrate_store_to_common_dir(MigrateToCommonDirOptions::new(repo.path())).unwrap();

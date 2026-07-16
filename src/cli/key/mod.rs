@@ -36,7 +36,7 @@ enum KeyCommand {
     /// ssh-agent; no new key material). Parallel to `init`.
     UseSsh(UseSshArgs),
     /// Stage an allow-list entry binding a local key's did:key to an actor.
-    /// Possession-style: this stages the working-tree `.shore/allowed-signers.json`
+    /// Possession-style: this stages the working-tree `.pointbreak/allowed-signers.json`
     /// edit only; commit it to authorize the binding.
     Enroll(EnrollArgs),
 }

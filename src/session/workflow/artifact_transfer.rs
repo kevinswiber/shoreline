@@ -69,7 +69,7 @@ enum ArtifactLocator {
     Body { relative_path: String },
 }
 
-/// Options for importing a content-addressed artifact into a repo's `.shore/data`
+/// Options for importing a content-addressed artifact into a repo's `.pointbreak/data`
 /// store.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImportArtifactOptions {

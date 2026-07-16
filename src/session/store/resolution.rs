@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
-use crate::git::{git_common_dir, git_worktree_list};
+use crate::paths::{CommonDirPaths, RepositoryPaths, UserHomePaths};
 use crate::session::event::ShoreEvent;
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::event_store::EventStore;
 use crate::session::store::store_config::{StoreMode, resolve_family_binding, resolve_store_mode};
 use crate::session::store::store_init::{
-    ShoreStorePaths, prepare_store_writer_at, worktree_local_store_is_populated,
+    prepare_store_writer_at, worktree_local_store_is_populated,
 };
 use crate::session::store::user_level::{read_family_manifest, user_level_store_dir};
 use crate::storage::LocalStorage;
@@ -23,9 +23,9 @@ const STORE_REF_LOCAL: &str = "local";
 /// `command_view()` reports the real tier rather than a hardcoded mode.
 #[derive(Clone, Debug)]
 pub(crate) enum ResolvedTier {
-    /// Discardable worktree-local `.shore/data` (the Ephemeral opt-out).
+    /// Discardable worktree-local `.pointbreak/data` (the Ephemeral opt-out).
     Ephemeral,
-    /// The clone-local common-dir store (`.git/shore`) — the default.
+    /// The clone-local common-dir store (`.git/pointbreak`) — the default.
     CloneLocal,
     /// A user-level family store; carries the opaque refs the wire reports.
     UserLevel {
@@ -80,6 +80,67 @@ impl StoreResolution {
             },
         }
     }
+
+    fn tier_name(&self) -> &'static str {
+        match self.resolved_tier {
+            ResolvedTier::Ephemeral => "ephemeral",
+            ResolvedTier::CloneLocal => "clone-local",
+            ResolvedTier::UserLevel { .. } => "user-level",
+        }
+    }
+}
+
+/// Canonical operational paths for a repository and the tier selected for it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorePaths {
+    tier: &'static str,
+    worktree_store: PathBuf,
+    common_store: PathBuf,
+    binding: PathBuf,
+    home: PathBuf,
+    keys: PathBuf,
+}
+
+impl StorePaths {
+    pub fn tier(&self) -> &'static str {
+        self.tier
+    }
+
+    pub fn worktree_store(&self) -> &Path {
+        &self.worktree_store
+    }
+
+    pub fn common_store(&self) -> &Path {
+        &self.common_store
+    }
+
+    pub fn binding(&self) -> &Path {
+        &self.binding
+    }
+
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
+    pub fn keys(&self) -> &Path {
+        &self.keys
+    }
+}
+
+/// Resolve the public path projection once, using the same authorities as runtime reads/writes.
+pub fn store_paths_for_repo(repo: &Path) -> Result<StorePaths> {
+    let repository = RepositoryPaths::resolve(repo)?;
+    let common = CommonDirPaths::resolve(repo)?;
+    let home = UserHomePaths::resolve()?;
+    let resolution = resolve_store(repo)?;
+    Ok(StorePaths {
+        tier: resolution.tier_name(),
+        worktree_store: repository.worktree_store().to_path_buf(),
+        common_store: common.store_dir(),
+        binding: common.binding(),
+        home: home.root().to_path_buf(),
+        keys: home.keys_dir(),
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -143,38 +204,11 @@ pub fn event_log_head_marker(repo: impl AsRef<Path>) -> Result<u64> {
     resolve_read_store(repo)?.backend().journal().head_marker()
 }
 
-/// A discoverability advisory: when this worktree resolves the clone-local store but a
-/// sibling worktree of the same physical clone carries a family binding, tell the user
-/// their writes are splitting off from the family store. Best-effort — any
-/// worktree-enumeration failure returns `None` (the sibling scan must never turn a
-/// resolve into an error). Reads only; never writes.
+/// Compatibility seam for the former per-worktree binding advisory. Bindings now
+/// live only in the Git common directory, so sibling worktrees cannot diverge.
 pub fn family_link_advisory(repo: impl AsRef<Path>) -> Result<Option<String>> {
-    let repo = repo.as_ref();
-    // Only the unbound clone-local tier can split. A family-resolved worktree is already
-    // joined; an ephemeral worktree opted out on purpose.
-    if !matches!(resolve_store(repo)?.resolved_tier, ResolvedTier::CloneLocal) {
-        return Ok(None);
-    }
-    // This worktree has no binding (else it would not be clone-local), so scanning every
-    // worktree — including self, which contributes `None` — needs no self-skip.
-    let Ok(worktrees) = git_worktree_list(repo) else {
-        return Ok(None);
-    };
-    for worktree in worktrees {
-        if let Ok(Some(binding)) = resolve_family_binding(&worktree.path) {
-            return Ok(Some(family_split_advisory_message(&binding.family_ref)));
-        }
-    }
+    let _ = resolve_store(repo)?;
     Ok(None)
-}
-
-fn family_split_advisory_message(slug: &str) -> String {
-    format!(
-        "a family store `{slug}` is linked for another worktree of this clone, but this \
-         worktree is unlinked and writing to the clone-local store (.git/shore). Run \
-         `shore store link {slug}` to join it, or re-link the other worktree once to bind \
-         every worktree of this clone."
-    )
 }
 
 /// The write-validation seam: write surfaces resolve their validation/derivation
@@ -205,7 +239,7 @@ pub(crate) fn resolve_write_validation_store(
 
 /// The write-landing seam: events, artifacts, and `state.json` are written to the
 /// resolved store — the common-dir store shared across the clone (default), or the
-/// worktree-local `.shore/data` when the worktree is Ephemeral. Reuses
+/// worktree-local `.pointbreak/data` when the worktree is Ephemeral. Reuses
 /// [`resolve_store`] so reads and writes can never disagree on the store.
 ///
 /// Concurrency safety rests on content-addressed exclusive-create writes plus a
@@ -236,7 +270,7 @@ impl WriteStore {
 /// Resolve the write landing for `repo`. See [`WriteStore`]. Reuses [`resolve_store`]
 /// so it can never disagree with [`resolve_read_store`] on the store boundary.
 pub(crate) fn resolve_write_store(repo: impl AsRef<Path>) -> Result<WriteStore> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let paths = RepositoryPaths::resolve(repo.as_ref())?;
     let resolution = resolve_store(repo.as_ref())?;
     Ok(WriteStore {
         store_dir: resolution.store_dir().to_path_buf(),
@@ -246,7 +280,7 @@ pub(crate) fn resolve_write_store(repo: impl AsRef<Path>) -> Result<WriteStore> 
 }
 
 /// Prepare the resolved write landing: ensure the store directory layout on the
-/// *write* store dir while keeping the generated `.shore/.gitignore` anchored on
+/// *write* store dir while keeping the generated `.pointbreak/.gitignore` anchored on
 /// the worktree root. Delegates to the shared `prepare_store_writer_at` body, so
 /// write workflows can never drift on which paths are covered.
 pub(crate) fn prepare_write_landing(
@@ -261,41 +295,44 @@ pub(crate) fn prepare_write_landing(
 }
 
 pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let paths = RepositoryPaths::resolve(repo.as_ref())?;
 
     // Binding-configuration validation is UNCONDITIONAL: a committed or half
     // binding is a hard error even when ephemeral mode or the legacy guard outranks
     // the user-level arm below. The resolved binding is only *used* by the
     // user-level arm. `resolve_family_binding` reads the same two config documents
-    // `resolve_store_mode` reads — no `shore_home` access here.
+    // `resolve_store_mode` reads — no `pointbreak_home` access here.
     let binding = resolve_family_binding(paths.worktree_root())?;
 
     // Precedence (top-to-bottom decision table): ephemeral opt-out pins the
     // discardable worktree-local store; then the legacy-populated guard; then the
     // user-level family opt-in; then the clone-local common-dir default.
     if resolve_store_mode(paths.worktree_root())? == StoreMode::Ephemeral {
-        return store_resolution_for(paths.store_dir().to_path_buf(), ResolvedTier::Ephemeral);
+        return store_resolution_for(
+            paths.worktree_store().to_path_buf(),
+            ResolvedTier::Ephemeral,
+        );
     }
 
     // A non-ephemeral worktree that still carries a populated worktree-local
-    // `.shore/data/` store predates the shared-store default. Direct the user to
+    // `.pointbreak/data/` store predates the shared-store default. Direct the user to
     // `shore store migrate` rather than silently reading an empty common-dir store
     // and orphaning the history. This guard lives HERE (resolve_store), not in
-    // ShoreStorePaths::resolve, so the `shore store migrate` command — which reads
-    // its source via the raw ShoreStorePaths::resolve — is never blocked by it.
-    if worktree_local_store_is_populated(paths.store_dir()) {
+    // RepositoryPaths::resolve, so the `shore store migrate` command — which reads
+    // its source via the raw RepositoryPaths::resolve — is never blocked by it.
+    if worktree_local_store_is_populated(paths.worktree_store()) {
         return Err(ShoreError::Message(
-            "a worktree-local .shore/data/ review store from before the shared-store default \
-             was detected. Reads and writes now use the shared store under .git/shore, so this \
+            "a worktree-local .pointbreak/data/ review store from before the shared-store default \
+             was detected. Reads and writes now use the shared store under .git/pointbreak, so this \
              worktree-local store is no longer read automatically. Complete the switch in one \
              command with `shore store migrate --retire-source`, which copies its events and \
              artifacts into the shared store, independently verifies the fold, and then deletes \
-             .shore/data/. Or take it in two steps: (1) run `shore store migrate` to copy \
-             non-destructively, leaving .shore/data/ in place so you can verify the result \
-             first; then (2) delete the .shore/data/ directory. This message keeps appearing \
-             until .shore/data/ is removed, by design, so the original store is never discarded \
+             .pointbreak/data/. Or take it in two steps: (1) run `shore store migrate` to copy \
+             non-destructively, leaving .pointbreak/data/ in place so you can verify the result \
+             first; then (2) delete the .pointbreak/data/ directory. This message keeps appearing \
+             until .pointbreak/data/ is removed, by design, so the original store is never discarded \
              before the migration is confirmed. (If this worktree is meant to stay isolated and \
-             discardable instead, run `shore store mode ephemeral` and its .shore/data/ store is \
+             discardable instead, run `shore store mode ephemeral` and its .pointbreak/data/ store is \
              used as-is.)"
                 .to_owned(),
         ));
@@ -336,7 +373,7 @@ pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
 }
 
 /// Pair a resolved store directory with the selected backend handle and its tier.
-/// Both `resolve_store` return paths route through here so the `SHORE_BACKEND`
+/// Both `resolve_store` return paths route through here so the `POINTBREAK_BACKEND`
 /// selection is applied in exactly one place.
 fn store_resolution_for(store_dir: PathBuf, tier: ResolvedTier) -> Result<StoreResolution> {
     let backend = select_backend(store_dir.clone())?;
@@ -347,16 +384,11 @@ fn store_resolution_for(store_dir: PathBuf, tier: ResolvedTier) -> Result<StoreR
     })
 }
 
-/// Environment variable that selects the durable-storage backend. Unset is the
-/// `local` default; `memory` is rejected (it is in-process injection only); any
-/// other value is a hard error.
-const STORE_BACKEND_ENV: &str = "SHORE_BACKEND";
-
-/// Choose the backend for `store_dir` from the `SHORE_BACKEND` environment.
-/// Mechanism mirrors `SHORE_PERF`; the loud unknown-value posture mirrors
+/// Choose the backend for `store_dir` from the `POINTBREAK_BACKEND` environment.
+/// Mechanism mirrors `POINTBREAK_PERF`; the loud unknown-value posture mirrors
 /// `StoreMode`.
 fn select_backend(store_dir: PathBuf) -> Result<StoreBackend> {
-    classify_backend(std::env::var(STORE_BACKEND_ENV), store_dir)
+    classify_backend(std::env::var(crate::environment::BACKEND), store_dir)
 }
 
 /// Pure classifier for [`select_backend`], taking the raw `std::env::var`
@@ -370,25 +402,25 @@ fn classify_backend(
     match value.as_deref() {
         Ok("local") | Err(std::env::VarError::NotPresent) => Ok(StoreBackend::Local(store_dir)),
         Ok("memory") => Err(ShoreError::Message(
-            "the in-memory store backend is not selectable via SHORE_BACKEND; it is reachable only \
+            "the in-memory store backend is not selectable via POINTBREAK_BACKEND; it is reachable only \
              through in-process injection (a spawned `shore` child would otherwise inherit an empty, \
-             lost-on-exit store). Unset SHORE_BACKEND or set it to `local`."
+             lost-on-exit store). Unset POINTBREAK_BACKEND or set it to `local`."
                 .to_owned(),
         )),
         Ok(other) => Err(ShoreError::Message(format!(
-            "unknown SHORE_BACKEND value `{other}`; the only supported value is `local`, which is \
-             also the default when SHORE_BACKEND is unset"
+            "unknown POINTBREAK_BACKEND value `{other}`; the only supported value is `local`, which is \
+             also the default when POINTBREAK_BACKEND is unset"
         ))),
         Err(std::env::VarError::NotUnicode(_)) => Err(ShoreError::Message(
-            "SHORE_BACKEND is set to a non-UTF-8 value; the only supported value is `local`, which \
-             is also the default when SHORE_BACKEND is unset"
+            "POINTBREAK_BACKEND is set to a non-UTF-8 value; the only supported value is `local`, which \
+             is also the default when POINTBREAK_BACKEND is unset"
                 .to_owned(),
         )),
     }
 }
 
 pub(crate) fn clone_local_store_dir(worktree_root: &Path) -> Result<PathBuf> {
-    Ok(git_common_dir(worktree_root)?.join("shore"))
+    Ok(CommonDirPaths::resolve(worktree_root)?.store_dir())
 }
 
 #[cfg(test)]
@@ -406,28 +438,30 @@ mod tests {
         EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
     };
     use crate::session::store::store_config::write_store_config;
-    use crate::session::store::store_init::ShoreStorePaths;
+    use crate::session::store::store_init::RepositoryPaths;
 
     #[test]
     fn fresh_unregistered_worktree_resolves_common_dir_by_default() {
         // The shared-store default: an unregistered repo resolves the common-dir
-        // store (.git/shore), not the worktree-local .shore/data. No `store link`.
+        // store (.git/pointbreak), not the worktree-local .pointbreak/data. No `store link`.
         let repo = GitRepo::new();
         let resolution = resolve_store(repo.path()).unwrap();
 
-        let expected = git_common_dir(repo.path()).unwrap().join("shore");
+        let expected = git_common_dir(repo.path()).unwrap().join("pointbreak");
         assert_existing_paths_eq(resolution.store_dir(), &expected);
-        // The worktree-local .shore/data is NOT the resolved store anymore.
+        // The worktree-local .pointbreak/data is NOT the resolved store anymore.
         assert_ne!(
             resolution.store_dir(),
-            ShoreStorePaths::resolve(repo.path()).unwrap().store_dir()
+            RepositoryPaths::resolve(repo.path())
+                .unwrap()
+                .worktree_store()
         );
     }
 
     #[test]
     fn fresh_unregistered_worktree_read_write_and_validation_all_resolve_common_dir() {
         let repo = GitRepo::new();
-        let expected = git_common_dir(repo.path()).unwrap().join("shore");
+        let expected = git_common_dir(repo.path()).unwrap().join("pointbreak");
 
         let read = resolve_read_store(repo.path()).unwrap();
         assert_existing_paths_eq(read.store_dir(), &expected);
@@ -446,7 +480,9 @@ mod tests {
         // A real linked worktree resolves the same common-dir store as main, with
         // no registration step — sharing is the default.
         let fixture = LinkedWorktreeFixture::new();
-        let expected = git_common_dir(fixture.main.path()).unwrap().join("shore");
+        let expected = git_common_dir(fixture.main.path())
+            .unwrap()
+            .join("pointbreak");
 
         let main = resolve_store(fixture.main.path()).unwrap();
         let linked = resolve_store(&fixture.linked_path).unwrap();
@@ -458,14 +494,16 @@ mod tests {
     #[test]
     fn ephemeral_mode_resolves_worktree_local_after_flip() {
         // The surviving opt-out: an Ephemeral worktree still resolves the
-        // discardable worktree-local .shore/data.
+        // discardable worktree-local .pointbreak/data.
         let repo = GitRepo::new();
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
 
         let resolution = resolve_store(repo.path()).unwrap();
         assert_eq!(
             resolution.store_dir(),
-            ShoreStorePaths::resolve(repo.path()).unwrap().store_dir()
+            RepositoryPaths::resolve(repo.path())
+                .unwrap()
+                .worktree_store()
         );
         assert_eq!(path_file_name(resolution.store_dir()), "data");
     }
@@ -474,12 +512,12 @@ mod tests {
     fn ephemeral_mode_pins_read_write_and_validation_to_worktree_local() {
         let repo = GitRepo::new();
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
-        let worktree_local = ShoreStorePaths::resolve(repo.path()).unwrap();
+        let worktree_local = RepositoryPaths::resolve(repo.path()).unwrap();
 
         let read = resolve_read_store(repo.path()).unwrap();
-        assert_eq!(read.store_dir(), worktree_local.store_dir());
+        assert_eq!(read.store_dir(), worktree_local.worktree_store());
         let write = resolve_write_store(repo.path()).unwrap();
-        assert_eq!(write.store_dir(), worktree_local.store_dir());
+        assert_eq!(write.store_dir(), worktree_local.worktree_store());
     }
 
     #[test]
@@ -487,25 +525,25 @@ mod tests {
         // A residual store-registration.json no longer changes resolution — the
         // bit, not the registration, decides.
         let repo = GitRepo::new();
-        let shore = repo.path().join(".shore/data");
+        let shore = repo.path().join(".pointbreak/data");
         fs::create_dir_all(&shore).unwrap();
         fs::write(shore.join("store-registration.json"), "{}").unwrap();
 
         let resolution = resolve_store(repo.path()).unwrap();
-        let expected = git_common_dir(repo.path()).unwrap().join("shore");
+        let expected = git_common_dir(repo.path()).unwrap().join("pointbreak");
         assert_existing_paths_eq(resolution.store_dir(), &expected);
     }
 
     #[test]
     fn legacy_worktree_local_store_after_flip_returns_migrate_hint() {
-        // After the flip the default store is .git/shore, so a populated
-        // worktree-local .shore/data/ is a pre-flip store that must be migrated —
+        // After the flip the default store is .git/pointbreak, so a populated
+        // worktree-local .pointbreak/data/ is a pre-flip store that must be migrated —
         // never silently ignored in favor of an empty common-dir store. The guard is
-        // on resolve_store, NOT on ShoreStorePaths::resolve (which `shore store
+        // on resolve_store, NOT on RepositoryPaths::resolve (which `shore store
         // migrate` uses to read the source — see the raw-resolution test below).
         let repo = GitRepo::new();
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::write(repo.path().join(".shore/data/events/aaaa.json"), "{}").unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::write(repo.path().join(".pointbreak/data/events/aaaa.json"), "{}").unwrap();
 
         let err = resolve_store(repo.path())
             .expect_err("a populated worktree-local store after the flip must be a loud error");
@@ -519,31 +557,31 @@ mod tests {
             "names the one-command completion; got: {message}"
         );
         assert!(
-            message.contains(".shore/data"),
+            message.contains(".pointbreak/data"),
             "names the legacy worktree-local store; got: {message}"
         );
     }
 
     #[test]
     fn raw_path_resolution_does_not_trip_the_legacy_guard() {
-        // The escape valve for `shore store migrate`: ShoreStorePaths::resolve reads
+        // The escape valve for `shore store migrate`: RepositoryPaths::resolve reads
         // a nested worktree-local store without firing the migrate guard, so
         // migration can read its source even after the flip.
         let repo = GitRepo::new();
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::write(repo.path().join(".shore/data/events/aaaa.json"), "{}").unwrap();
-        ShoreStorePaths::resolve(repo.path())
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::write(repo.path().join(".pointbreak/data/events/aaaa.json"), "{}").unwrap();
+        RepositoryPaths::resolve(repo.path())
             .expect("raw path resolution of a nested store is unblocked (migration uses this)");
     }
 
     #[test]
     fn ephemeral_worktree_with_local_store_does_not_trip_the_legacy_guard() {
-        // An Ephemeral worktree legitimately keeps .shore/data; resolve_store must
+        // An Ephemeral worktree legitimately keeps .pointbreak/data; resolve_store must
         // resolve it, not error with the migrate hint.
         let repo = GitRepo::new();
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::write(repo.path().join(".shore/data/events/aaaa.json"), "{}").unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::write(repo.path().join(".pointbreak/data/events/aaaa.json"), "{}").unwrap();
         let resolution =
             resolve_store(repo.path()).expect("ephemeral resolves its worktree-local store");
         assert_eq!(path_file_name(resolution.store_dir()), "data");
@@ -554,7 +592,7 @@ mod tests {
         // The union is gone: reads open exactly one store.
         let repo = GitRepo::new();
         let read = resolve_read_store(repo.path()).unwrap();
-        let expected = git_common_dir(repo.path()).unwrap().join("shore");
+        let expected = git_common_dir(repo.path()).unwrap().join("pointbreak");
         assert_existing_paths_eq(read.store_dir(), &expected);
     }
 
@@ -563,7 +601,7 @@ mod tests {
         // The cheap marker matches the count a full read would report — without
         // doing the full read.
         let repo = GitRepo::new();
-        let store_dir = git_common_dir(repo.path()).unwrap().join("shore");
+        let store_dir = git_common_dir(repo.path()).unwrap().join("pointbreak");
         record_review_initialized(&store_dir, "session:a");
         record_review_initialized(&store_dir, "session:b");
         record_review_initialized(&store_dir, "session:c");
@@ -586,7 +624,7 @@ mod tests {
     fn write_validation_events_are_exactly_the_single_store_events() {
         // The union collapsed: validation events == the resolved store's events.
         let repo = GitRepo::new();
-        let store_dir = git_common_dir(repo.path()).unwrap().join("shore");
+        let store_dir = git_common_dir(repo.path()).unwrap().join("pointbreak");
         record_review_initialized(&store_dir, "session:a");
         record_review_initialized(&store_dir, "session:b");
 
@@ -669,9 +707,9 @@ mod tests {
         let repo = GitRepo::new();
         let home = TempDir::new().unwrap();
         // SAFETY: single-threaded test; nextest isolates each test in its own
-        // process, and SHORE_HOME is the documented hermetic seam (keys/home.rs).
+        // process, and POINTBREAK_HOME is the documented hermetic seam (keys/home.rs).
         unsafe {
-            std::env::set_var("SHORE_HOME", home.path());
+            std::env::set_var("POINTBREAK_HOME", home.path());
         }
 
         let slug = "acme-web";
@@ -682,7 +720,7 @@ mod tests {
         let write = resolve_write_store(repo.path()).unwrap();
         let read = resolve_read_store(repo.path()).unwrap();
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
 
         assert_eq!(write.store_dir(), read.store_dir());
@@ -700,7 +738,7 @@ mod tests {
         let home = TempDir::new().unwrap();
         // SAFETY: single-threaded test; nextest isolates each test in its own process.
         unsafe {
-            std::env::set_var("SHORE_HOME", home.path());
+            std::env::set_var("POINTBREAK_HOME", home.path());
         }
 
         let slug = "fam";
@@ -718,16 +756,18 @@ mod tests {
         let wt_validation = resolve_write_validation_store(&fixture.linked_path).unwrap();
         let _ = wt_validation.validation_events().unwrap();
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
 
         assert_existing_paths_eq(main_read.store_dir(), &family_dir);
         assert_existing_paths_eq(wt_read.store_dir(), &family_dir);
         assert_existing_paths_eq(wt_write.store_dir(), &family_dir);
-        // Regression guard: the worktree must NOT resolve the clone-local .git/shore.
+        // Regression guard: the worktree must NOT resolve the clone-local .git/pointbreak.
         assert_ne!(
             wt_read.store_dir(),
-            git_common_dir(fixture.main.path()).unwrap().join("shore")
+            git_common_dir(fixture.main.path())
+                .unwrap()
+                .join("pointbreak")
         );
     }
 
@@ -736,7 +776,7 @@ mod tests {
         use crate::session::store::store_config::write_common_dir_binding;
 
         // A common-dir binding is present, but this worktree opted out (ephemeral,
-        // per-worktree): arm 1 still wins, so the discardable .shore/data is used.
+        // per-worktree): arm 1 still wins, so the discardable .pointbreak/data is used.
         let repo = GitRepo::new();
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
         let common = git_common_dir(repo.path()).unwrap();
@@ -747,26 +787,20 @@ mod tests {
     }
 
     #[test]
-    fn advisory_fires_for_an_unbound_worktree_of_a_legacy_linked_clone() {
+    fn old_per_worktree_binding_does_not_create_a_sibling_advisory() {
         let fixture = LinkedWorktreeFixture::new();
-        // Main carries a LEGACY per-worktree binding; the linked worktree is unbound.
-        fs::create_dir_all(fixture.main.path().join(".shore")).unwrap();
+        // A stale per-worktree binding is not runtime authority.
+        fs::create_dir_all(fixture.main.path().join(".pointbreak")).unwrap();
         fs::write(
-            fixture.main.path().join(".shore/store.local.json"),
+            fixture.main.path().join(".pointbreak/store.local.json"),
             r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"shoreline","cloneRef":"deadbeefdeadbeef"}"#,
         )
         .unwrap();
 
-        let advisory = family_link_advisory(&fixture.linked_path)
-            .unwrap()
-            .expect("advisory fires");
         assert!(
-            advisory.contains("shoreline"),
-            "names the family: {advisory}"
-        );
-        assert!(
-            advisory.contains("shore store link"),
-            "actionable: {advisory}"
+            family_link_advisory(&fixture.linked_path)
+                .unwrap()
+                .is_none()
         );
     }
 
@@ -798,7 +832,7 @@ mod tests {
         let repo = GitRepo::new();
         let home = TempDir::new().unwrap();
         unsafe {
-            std::env::set_var("SHORE_HOME", home.path());
+            std::env::set_var("POINTBREAK_HOME", home.path());
         }
         let slug = "fam";
         ensure_family_store_scaffold(&user_level_store_dir(slug).unwrap(), slug, &[]).unwrap();
@@ -811,7 +845,7 @@ mod tests {
 
         let advisory = family_link_advisory(repo.path()).unwrap();
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
         assert!(
             advisory.is_none(),
@@ -820,20 +854,15 @@ mod tests {
     }
 
     #[test]
-    fn ephemeral_mode_outranks_a_family_binding() {
-        // A local file carrying BOTH the ephemeral opt-out and a (valid, local)
-        // binding resolves ephemeral: the binding is *validated* unconditionally
-        // but only *used* by the user-level arm, which the ephemeral arm outranks —
-        // so `shore_home` is never consulted here.
+    fn binding_fields_in_local_config_are_rejected_under_ephemeral_mode() {
         let repo = GitRepo::new();
-        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak")).unwrap();
         fs::write(
-            repo.path().join(".shore/store.local.json"),
+            repo.path().join(".pointbreak/store.local.json"),
             r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
         )
         .unwrap();
-        let resolution = resolve_store(repo.path()).unwrap();
-        assert_eq!(path_file_name(resolution.store_dir()), "data");
+        assert!(resolve_store(repo.path()).is_err());
     }
 
     #[test]
@@ -843,14 +872,14 @@ mod tests {
         // the user-level arm — the error exists to stop the binding being committed
         // at all, not merely to stop it resolving.
         let repo = GitRepo::new();
-        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::create_dir_all(repo.path().join(".pointbreak")).unwrap();
         fs::write(
-            repo.path().join(".shore/store.json"),
+            repo.path().join(".pointbreak/store.json"),
             r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
         )
         .unwrap();
         fs::write(
-            repo.path().join(".shore/store.local.json"),
+            repo.path().join(".pointbreak/store.local.json"),
             r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral"}"#,
         )
         .unwrap();
@@ -864,14 +893,16 @@ mod tests {
 
     #[test]
     fn legacy_populated_store_outranks_a_family_binding() {
-        // A populated worktree-local .shore/data AND a binding: the legacy migrate
+        use crate::session::store::store_config::write_common_dir_binding;
+        // A populated worktree-local .pointbreak/data AND a binding: the legacy migrate
         // guard fires before the user-level arm.
         let repo = GitRepo::new();
-        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
-        fs::write(repo.path().join(".shore/data/events/aaaa.json"), "{}").unwrap();
-        fs::write(
-            repo.path().join(".shore/store.local.json"),
-            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        fs::create_dir_all(repo.path().join(".pointbreak/data/events")).unwrap();
+        fs::write(repo.path().join(".pointbreak/data/events/aaaa.json"), "{}").unwrap();
+        write_common_dir_binding(
+            &git_common_dir(repo.path()).unwrap(),
+            "acme-web",
+            "0123abcd4567ef89",
         )
         .unwrap();
         let err = resolve_store(repo.path())
@@ -881,21 +912,22 @@ mod tests {
 
     #[test]
     fn a_dangling_family_binding_is_a_hard_error_naming_both_fixes() {
+        use crate::session::store::store_config::write_common_dir_binding;
         let repo = GitRepo::new();
         let home = TempDir::new().unwrap();
         unsafe {
-            std::env::set_var("SHORE_HOME", home.path());
+            std::env::set_var("POINTBREAK_HOME", home.path());
         }
         // Bind the clone but never scaffold the family store (no family.json).
-        fs::create_dir_all(repo.path().join(".shore")).unwrap();
-        fs::write(
-            repo.path().join(".shore/store.local.json"),
-            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        write_common_dir_binding(
+            &git_common_dir(repo.path()).unwrap(),
+            "acme-web",
+            "0123abcd4567ef89",
         )
         .unwrap();
         let result = resolve_store(repo.path());
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
         let message = result
             .expect_err("a dangling family_ref is a hard error")
@@ -934,7 +966,7 @@ mod tests {
             .expect_err("memory is not env-selectable")
             .to_string();
         assert!(
-            message.contains("SHORE_BACKEND"),
+            message.contains("POINTBREAK_BACKEND"),
             "names the env var: {message}"
         );
         assert!(
@@ -983,9 +1015,9 @@ mod tests {
     #[test]
     fn select_backend_reads_the_environment_and_defaults_to_local() {
         // Exercises the real env read (not just the pure classifier): with
-        // SHORE_BACKEND unset — the normal test/CI environment — the selector
+        // POINTBREAK_BACKEND unset — the normal test/CI environment — the selector
         // resolves the file backend at the given dir. This deliberately does not
-        // mutate SHORE_BACKEND: it is read by every resolve, so setting it here
+        // mutate POINTBREAK_BACKEND: it is read by every resolve, so setting it here
         // would poison concurrent resolves in a shared-process test runner. The
         // reject-on-unknown and reject-on-memory paths are covered by the pure
         // `classify_backend` tests above.
@@ -1012,8 +1044,8 @@ mod tests {
         assert!(write.store_dir().join("events").is_dir());
         assert!(write.store_dir().join("artifacts/objects").is_dir());
         // The common-dir store, not the worktree-local one.
-        let worktree_local = ShoreStorePaths::resolve(repo.path()).unwrap();
-        assert_ne!(write.store_dir(), worktree_local.store_dir());
+        let worktree_local = RepositoryPaths::resolve(repo.path()).unwrap();
+        assert_ne!(write.store_dir(), worktree_local.worktree_store());
     }
 
     fn record_review_initialized(store_dir: &Path, session: &str) -> ShoreEvent {
@@ -1137,7 +1169,7 @@ mod tests {
     /// Compare two paths for filesystem identity, tolerating a not-yet-created
     /// leaf: canonicalize the deepest existing ancestor (so macOS `/var` →
     /// `/private/var` symlinks normalize) and re-append the rest. The common-dir
-    /// store (`.git/shore`) does not exist until first write, but its parent does.
+    /// store (`.git/pointbreak`) does not exist until first write, but its parent does.
     fn assert_existing_paths_eq(actual: &Path, expected: &Path) {
         fn normalize(path: &Path) -> PathBuf {
             let mut ancestor = path.to_path_buf();

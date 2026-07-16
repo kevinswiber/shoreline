@@ -23,7 +23,7 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
     let repo = repo_with_pending_change();
 
     // Seed a pre-flip worktree-local store: capture while the worktree is
-    // ephemeral (so the write lands in `.shore/data`), then restore the shared
+    // ephemeral (so the write lands in `.pointbreak/data`), then restore the shared
     // default so the migration runs against a non-ephemeral worktree carrying a
     // legacy worktree-local store.
     let ephemeral = shore([
@@ -58,7 +58,7 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
     );
 
     // The seed landed worktree-local; the shared common-dir store is still empty.
-    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
     let migrate = shore(["store", "migrate", "--repo", repo.path().to_str().unwrap()]);
     assert!(
@@ -76,10 +76,10 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
     // The default run reports the source honestly un-retired (additive field).
     assert_eq!(json["sourceRetired"], Value::Bool(false));
     // No raw private paths leak into the JSON (the export-manifest discipline).
-    assert!(!stdout.contains(".shore/data"));
+    assert!(!stdout.contains(".pointbreak/data"));
     assert!(!stdout.contains(".git"));
     // Non-destructive: the worktree-local store still exists after migration.
-    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".pointbreak/data/events").is_dir());
     // The folded events now resolve from the shared common-dir store.
     assert!(
         support::common_dir_store(repo.path())
@@ -109,7 +109,7 @@ fn store_migrate_retire_source_completes_in_one_command() {
             .status
             .success()
     );
-    assert!(repo.path().join(".shore/data/events").is_dir());
+    assert!(repo.path().join(".pointbreak/data/events").is_dir());
 
     let migrate = shore(["store", "migrate", "--retire-source", "--repo", &repo_arg]);
     assert!(
@@ -124,10 +124,10 @@ fn store_migrate_retire_source_completes_in_one_command() {
     assert!(json["verifiedEvents"].as_u64().unwrap() >= 1);
     assert!(json["verifiedArtifacts"].as_u64().unwrap() >= 1);
     // No raw private paths leak into the JSON.
-    assert!(!stdout.contains(".shore/data"));
+    assert!(!stdout.contains(".pointbreak/data"));
     assert!(!stdout.contains(".git"));
     // The verified fold retired the source in the same command.
-    assert!(!repo.path().join(".shore/data").exists());
+    assert!(!repo.path().join(".pointbreak/data").exists());
     assert!(
         support::common_dir_store(repo.path())
             .join("events")
@@ -147,7 +147,7 @@ fn store_migrate_excluded_fixture_paths_unblock_the_gate() {
         "-----BEGIN PRIVATE KEY-----\nredacted\n",
     );
     repo.write(
-        ".shore/sensitivity.json",
+        ".pointbreak/sensitivity.json",
         r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
     );
     repo.commit_all("fixture and exclude config");

@@ -16,7 +16,7 @@ fn linked_repo(home: &str) -> GitRepo {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg, "--allow-empty"],
-            &[("SHORE_HOME", home)],
+            &[("POINTBREAK_HOME", home)],
         )
         .status
         .success()
@@ -24,7 +24,7 @@ fn linked_repo(home: &str) -> GitRepo {
     assert!(
         shore_env(
             ["store", "link", "acme", "--repo", &repo_arg],
-            &[("SHORE_HOME", home)]
+            &[("POINTBREAK_HOME", home)]
         )
         .status
         .success()
@@ -38,7 +38,10 @@ fn store_forget_without_yes_previews_and_refuses_to_delete() {
     let home_str = home.path().to_str().unwrap();
     let _repo = linked_repo(home_str);
 
-    let forget = shore_env(["store", "forget", "acme"], &[("SHORE_HOME", home_str)]);
+    let forget = shore_env(
+        ["store", "forget", "acme"],
+        &[("POINTBREAK_HOME", home_str)],
+    );
     assert!(
         forget.status.success(),
         "{}",
@@ -63,7 +66,7 @@ fn store_forget_yes_on_an_orphaned_family_deletes_it() {
     assert!(
         shore_env(
             ["store", "unlink", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -71,7 +74,7 @@ fn store_forget_yes_on_an_orphaned_family_deletes_it() {
 
     let forget = shore_env(
         ["store", "forget", "acme", "--yes"],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         forget.status.success(),
@@ -90,7 +93,7 @@ fn store_list_shows_the_linked_family_without_repo() {
     let home_str = home.path().to_str().unwrap();
     let _repo = linked_repo(home_str);
 
-    let list = shore_env(["store", "list"], &[("SHORE_HOME", home_str)]);
+    let list = shore_env(["store", "list"], &[("POINTBREAK_HOME", home_str)]);
     assert!(
         list.status.success(),
         "{}",
@@ -107,7 +110,7 @@ fn store_list_with_an_empty_home_prints_an_empty_result() {
     let home = tempfile::tempdir().unwrap();
     let home_str = home.path().to_str().unwrap();
 
-    let list = shore_env(["store", "list"], &[("SHORE_HOME", home_str)]);
+    let list = shore_env(["store", "list"], &[("POINTBREAK_HOME", home_str)]);
     assert!(
         list.status.success(),
         "{}",

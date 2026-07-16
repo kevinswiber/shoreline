@@ -60,7 +60,7 @@ pub fn forget_family_store(options: StoreForgetOptions) -> Result<StoreForgetRes
 }
 
 /// Pure test seam: identical logic, but the family directory is injected rather than
-/// resolved via `SHORE_HOME`, so unit tests never mutate process env.
+/// resolved via `POINTBREAK_HOME`, so unit tests never mutate process env.
 fn forget_family_store_at(
     family_dir: &Path,
     options: StoreForgetOptions,
@@ -313,8 +313,8 @@ mod tests {
         assert!(result.families.is_empty());
     }
 
-    /// A real git repo whose `.shore/store.local.json` binds it back to `slug` with
-    /// an arbitrary-but-fixed opaque clone ref, so `family_liveness`'s bidirectional
+    /// A real git repo whose common-dir binding points back to `slug` with an
+    /// arbitrary-but-fixed opaque clone ref, so `family_liveness`'s bidirectional
     /// check (git repo exists + binding names this family back) finds it live. The
     /// literal clone-ref string only needs to match what this same fixture registers
     /// via `register_clone`.
@@ -326,15 +326,9 @@ mod tests {
             .current_dir(repo.path())
             .output()
             .unwrap();
-        let local_config = repo.path().join(".shore/store.local.json");
-        std::fs::create_dir_all(local_config.parent().unwrap()).unwrap();
-        std::fs::write(
-            &local_config,
-            format!(
-                r#"{{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"{slug}","cloneRef":"{clone_ref}"}}"#
-            ),
-        )
-        .unwrap();
+        let common = crate::git::git_common_dir(repo.path()).unwrap();
+        crate::session::store::store_config::write_common_dir_binding(&common, slug, &clone_ref)
+            .unwrap();
         (repo, clone_ref)
     }
 }

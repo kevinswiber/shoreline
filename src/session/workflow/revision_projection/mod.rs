@@ -1958,7 +1958,7 @@ mod tests {
         let debug = format!("{result:?}");
 
         assert!(!debug.contains("artifacts/objects"));
-        assert!(!debug.contains(".shore/data/events"));
+        assert!(!debug.contains(".pointbreak/data/events"));
     }
 
     #[test]
@@ -2547,9 +2547,9 @@ mod tests {
 
     /// The store a workflow actually lands in for `repo` — the shared common-dir
     /// store by default. Reads that follow a workflow resolve here, not the raw
-    /// worktree-local `.shore/data`.
+    /// worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
-        crate::git::git_common_dir(repo).unwrap().join("shore")
+        crate::git::git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     fn tamper_object_artifact_snapshot_field(repo: &Path, object_id: &ObjectId) {

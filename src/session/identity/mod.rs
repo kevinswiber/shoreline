@@ -6,16 +6,14 @@ mod principal;
 mod writer;
 
 pub use actor_attributes::{
-    ACTOR_ATTRIBUTES_LOCAL_REL_PATH, ACTOR_ATTRIBUTES_REL_PATH, ActorAttributes,
-    ActorAttributesMap, ActorAttributesStageOutcome, ActorAttributesWriteRecord,
+    ActorAttributes, ActorAttributesMap, ActorAttributesStageOutcome, ActorAttributesWriteRecord,
     actor_attributes_from_value, stage_actor_attributes,
 };
 pub(crate) use clock::current_timestamp;
 pub use clock::now_rfc3339_utc;
 pub use delegates::{
-    DELEGATES_LOCAL_REL_PATH, DELEGATES_REL_PATH, DelegationMap, DelegationRecord,
-    DelegationStageOutcome, DelegationWriteRecord, PrincipalResolution, UnresolvedReason,
-    delegation_map_from_value, stage_delegation,
+    DelegationMap, DelegationRecord, DelegationStageOutcome, DelegationWriteRecord,
+    PrincipalResolution, UnresolvedReason, delegation_map_from_value, stage_delegation,
 };
 pub use instant::{compare_event_instants, format_rfc3339_utc_millis, parse_event_instant};
 pub use principal::{

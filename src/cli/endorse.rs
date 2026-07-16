@@ -19,7 +19,7 @@ pub(super) struct EndorseArgs {
     /// The event id to endorse: a full id, a prefixed short id (`evt:<hex>`), or
     /// a bare hex fragment inferred as an event id (any recorded event).
     target: String,
-    /// Signing key (name in the keystore, or a path). Honors `SHORE_SIGNING_KEY`
+    /// Signing key (name in the keystore, or a path). Honors `POINTBREAK_SIGNING_KEY`
     /// and the user-default key. UNLIKE ordinary writes, an endorsement has NO
     /// unsigned degrade: if no signer resolves, the command fails — the signature
     /// IS the endorsement's content.
@@ -65,7 +65,7 @@ pub(super) fn run(
     }
     let signer = resolution.signer.ok_or_else(|| -> Box<dyn std::error::Error> {
         "no signing key resolved: an endorsement has no unsigned form (the signature is its content). \
-         Set --sign-key / SHORE_SIGNING_KEY, or run `shore key init` and `shore key enroll`."
+         Set --sign-key / POINTBREAK_SIGNING_KEY, or run `shore key init` and `shore key enroll`."
             .into()
     })?;
 

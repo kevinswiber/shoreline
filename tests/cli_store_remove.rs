@@ -86,7 +86,7 @@ fn store_remove_by_snapshot_emits_removed_document() {
     assert_eq!(json["eventsCreated"], 1);
 
     // Path-free contract, matching `store status`.
-    assert!(!stdout.contains(".shore"));
+    assert!(!stdout.contains(".pointbreak"));
     assert!(!stdout.contains(".git"));
     assert!(!stdout.contains("state.json"));
     assert!(!stdout.contains("artifacts/"));
@@ -260,7 +260,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
     assert!(json["bytesReclaimed"].as_u64().unwrap() > 0);
 
     // The snapshot blob is physically gone.
-    let snapshots = repo.path().join(".shore/data/artifacts/objects");
+    let snapshots = repo.path().join(".pointbreak/data/artifacts/objects");
     let remaining = fs::read_dir(&snapshots)
         .map(|entries| entries.count())
         .unwrap_or(0);
@@ -344,7 +344,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
     let env_home = home.path().to_str().unwrap();
     let init = shore_env(
         ["key", "init", "--name", "mykey"],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
@@ -358,7 +358,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
                 "--sign-key",
                 "mykey",
             ],
-            &[("SHORE_HOME", env_home)],
+            &[("POINTBREAK_HOME", env_home)],
         )
         .stdout,
     );
@@ -375,7 +375,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
             "--sign-key",
             "mykey",
         ],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert!(
         output.status.success(),

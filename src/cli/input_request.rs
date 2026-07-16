@@ -87,7 +87,7 @@ struct InputRequestOpenArgs {
     idempotency_key: Option<String>,
 
     /// Sign this write with a specific key: a keystore key name or a path to a
-    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// key file. Overrides POINTBREAK_SIGNING_KEY. A key that cannot be loaded leaves
     /// the write unsigned (exit 0) with an advisory diagnostic — signing never
     /// blocks.
     #[arg(long)]
@@ -168,7 +168,7 @@ struct InputRequestRespondArgs {
     idempotency_key: Option<String>,
 
     /// Sign this write with a specific key: a keystore key name or a path to a
-    /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
+    /// key file. Overrides POINTBREAK_SIGNING_KEY. A key that cannot be loaded leaves
     /// the write unsigned (exit 0) with an advisory diagnostic — signing never
     /// blocks.
     #[arg(long)]

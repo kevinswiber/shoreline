@@ -54,7 +54,7 @@ fn enrolled_signer_renders_valid_unenrolled_renders_untrusted_key() {
     .unwrap();
 
     // Enroll the signer into the committed allow-list.
-    let path = origin.path().join(".shore/allowed-signers.json");
+    let path = origin.path().join(".pointbreak/allowed-signers.json");
     stage_enrollment(&path, &actor, key.signer_id()).unwrap();
 
     // Read under the discovered (committed) trust set: the loop closes -> valid.

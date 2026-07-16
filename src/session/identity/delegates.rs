@@ -1,5 +1,5 @@
-//! The delegation map: a sibling checked-in file (`.shore/delegates.json`, with
-//! an optional locally-excluded `.shore/delegates.local.json` override layered
+//! The delegation map: a sibling checked-in file (`.pointbreak/delegates.json`, with
+//! an optional locally-excluded `.pointbreak/delegates.local.json` override layered
 //! over it by the CLI discovery helper) that
 //! records which human principal an agent actor writes on behalf of, scoped to
 //! validity windows. It is deliberately separate from the allowed-signers trust
@@ -215,10 +215,6 @@ pub fn delegation_map_from_value(value: Value) -> Result<DelegationMap> {
 
     Ok(DelegationMap { delegates: parsed })
 }
-
-/// Repo-relative paths to the delegates config. Mirrors `ALLOWED_SIGNERS_REL_PATH`.
-pub const DELEGATES_REL_PATH: &str = ".shore/delegates.json";
-pub const DELEGATES_LOCAL_REL_PATH: &str = ".shore/delegates.local.json";
 
 /// Outcome of staging one delegation record: whether it was newly added (`true`)
 /// or already present (`false`, a byte-stable no-op).
@@ -873,7 +869,7 @@ mod tests {
     #[test]
     fn stage_delegation_round_trips_through_the_reader() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/delegates.json");
+        let path = dir.path().join(".pointbreak/delegates.json");
         let agent = ActorId::new("actor:agent:claude-code");
         let record = DelegationWriteRecord::new(
             ActorId::new("actor:git-email:kevin@swiber.dev"),
@@ -895,7 +891,7 @@ mod tests {
     #[test]
     fn stage_delegation_is_byte_stable_on_identical_restage() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/delegates.json");
+        let path = dir.path().join(".pointbreak/delegates.json");
         let agent = ActorId::new("actor:agent:claude-code");
         let record = DelegationWriteRecord::new(
             ActorId::new("actor:git-email:kevin@swiber.dev"),
@@ -921,7 +917,7 @@ mod tests {
     #[test]
     fn stage_delegation_appends_a_second_record_for_the_same_agent() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/delegates.json");
+        let path = dir.path().join(".pointbreak/delegates.json");
         let agent = ActorId::new("actor:agent:claude-code");
         stage_delegation(
             &path,
@@ -953,7 +949,7 @@ mod tests {
     #[test]
     fn stage_delegation_rejects_agent_principal_depth0_rule() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/delegates.json");
+        let path = dir.path().join(".pointbreak/delegates.json");
         let agent = ActorId::new("actor:agent:claude-code");
         // A principal that is itself an agent violates the v1 depth-0 rule.
         let bad = DelegationWriteRecord::new(
@@ -969,7 +965,7 @@ mod tests {
         // INV-B: a pre-existing malformed sibling (here, an agent-scheme principal — valid
         // JSON, invalid schema) must make the stage FAIL, not write a file the reader rejects.
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/delegates.json");
+        let path = dir.path().join(".pointbreak/delegates.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, br#"{"delegates":{"actor:agent:claude-code":[{"principal":"actor:agent:bad","validFrom":"2026-06-10T00:00:00Z","validUntil":null}]}}"#).unwrap();
         let before = std::fs::read(&path).unwrap();
@@ -996,7 +992,7 @@ mod tests {
     #[test]
     fn stage_delegation_rejects_non_agent_key_and_non_rfc3339_instants() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/delegates.json");
+        let path = dir.path().join(".pointbreak/delegates.json");
         let principal = ActorId::new("actor:git-email:kevin@swiber.dev");
         // Non-agent map key.
         assert!(

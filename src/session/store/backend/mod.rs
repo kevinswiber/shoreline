@@ -31,7 +31,7 @@ use crate::storage::{CreateOutcome, RemoveOutcome};
 ///
 /// `Local` is the production backend `resolve_store` selects; `Memory` is an
 /// injection-only backend constructed directly in-process (never a
-/// `SHORE_BACKEND` value) for tests and experiments, so it is compiled only
+/// `POINTBREAK_BACKEND` value) for tests and experiments, so it is compiled only
 /// under `cfg(test)`. Deliberately **not** `Eq`/`PartialEq`: no resolution is
 /// ever compared whole, and `Memory`'s shared map is not comparable.
 #[derive(Clone, Debug)]
@@ -45,7 +45,7 @@ pub(crate) enum StoreBackend {
 
 impl StoreBackend {
     /// A fresh in-memory backend over empty maps. Injection-only: there is no
-    /// `SHORE_BACKEND` value that resolves here (the selector rejects `memory`).
+    /// `POINTBREAK_BACKEND` value that resolves here (the selector rejects `memory`).
     #[cfg(test)]
     pub(crate) fn memory() -> Self {
         StoreBackend::Memory(InMemoryStore::new())
@@ -166,7 +166,7 @@ mod tests {
     /// test at the trait level.
     fn each_backend() -> Vec<(Option<tempfile::TempDir>, StoreBackend)> {
         let root = tempfile::tempdir().unwrap();
-        let store_dir = root.path().join(".shore/data");
+        let store_dir = root.path().join(".pointbreak/data");
         vec![
             (Some(root), StoreBackend::Local(store_dir)),
             (None, StoreBackend::memory()),

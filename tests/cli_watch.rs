@@ -41,9 +41,9 @@ impl Watcher {
         ]);
         let mut child = command
             .args(extra_args)
-            .env_remove("SHORE_LOG")
+            .env_remove("POINTBREAK_LOG")
             .env_remove("RUST_LOG")
-            .env_remove("SHORE_FORMAT")
+            .env_remove("POINTBREAK_FORMAT")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()

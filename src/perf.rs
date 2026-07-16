@@ -7,7 +7,7 @@
 //! when a root span closes emits a single `tracing::info!` event with a JSON
 //! `steps` field carrying the nested timing tree.
 //!
-//! Activation is gated by the `SHORE_PERF` environment variable. The layer is
+//! Activation is gated by the `POINTBREAK_PERF` environment variable. The layer is
 //! only installed when the variable is set to a truthy value; see
 //! `cli_tracing::init_tracing` for the wiring.
 
@@ -25,13 +25,9 @@ pub const PERF_TARGET: &str = "shore::perf";
 /// Static message used for the per-root perf event.
 pub const PERF_ROOT_EVENT: &str = "perf_root";
 
-/// Environment variable that enables the perf layer when set to a truthy
-/// value (`1`, `true`, case-insensitive).
-pub const PERF_ENV_VAR: &str = "SHORE_PERF";
-
 /// Returns `true` when the perf layer should be installed by the CLI.
 pub fn is_enabled() -> bool {
-    std::env::var(PERF_ENV_VAR)
+    std::env::var(crate::environment::PERF)
         .ok()
         .map(|value| is_truthy(&value))
         .unwrap_or(false)

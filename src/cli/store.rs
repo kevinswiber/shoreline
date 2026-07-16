@@ -12,7 +12,8 @@ use pointbreak::session::{
     StoreStatusSensitivity, StoreUnlinkOptions, StoreUnlinkResult, SweepOutcome, SweptBlob,
     compact_store, explain_store_sensitivity, forget_family_store, link_store_to_family,
     list_family_stores, migrate_store_to_common_dir, preview_link_to_family, remove_content,
-    resolve_store_mode_for_repo, set_store_mode_for_repo, store_status, unlink_store_from_family,
+    resolve_store_mode_for_repo, set_store_mode_for_repo, store_paths_for_repo, store_status,
+    unlink_store_from_family,
 };
 
 use crate::cli::common::{
@@ -30,6 +31,7 @@ pub(super) struct StoreArgs {
 #[derive(Debug, Subcommand)]
 enum StoreCommand {
     Status(StoreStatusArgs),
+    Paths(StorePathsArgs),
     Mode(StoreModeArgs),
     Migrate(StoreMigrateArgs),
     Link(StoreLinkArgs),
@@ -54,6 +56,16 @@ struct StoreStatusArgs {
     /// path-free — so it cannot be combined with a JSON format.
     #[arg(long)]
     show_paths: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
+}
+
+/// Report the operational paths selected by Pointbreak's shared path authorities.
+#[derive(Debug, Args)]
+struct StorePathsArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
 
     #[command(flatten)]
     format_args: output::FormatArgs,
@@ -85,7 +97,7 @@ struct StoreMigrateArgs {
     include_ephemeral: bool,
 
     /// After the fold is independently verified (every source event and artifact
-    /// file present in the shared store), delete the worktree-local .shore/data
+    /// file present in the shared store), delete the worktree-local .pointbreak/data
     /// so reads resolve in one command. Off by default: the source is never
     /// discarded before the migration is confirmed.
     #[arg(long)]
@@ -110,7 +122,7 @@ struct StoreLinkArgs {
     #[arg(long)]
     include_sensitive: bool,
 
-    /// After the fold is independently verified, delete the clone-local `.git/shore` history.
+    /// After the fold is independently verified, delete the clone-local `.git/pointbreak` history.
     #[arg(long)]
     retire_source: bool,
 
@@ -342,6 +354,17 @@ struct StoreStatusBody {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct StorePathsBody {
+    tier: &'static str,
+    worktree_store: PathBuf,
+    common_store: PathBuf,
+    binding: PathBuf,
+    home: PathBuf,
+    keys: PathBuf,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StoreModeBody {
     /// Serializes camelCase: "shared" | "ephemeral".
     mode: StoreMode,
@@ -399,6 +422,10 @@ pub(super) fn run(
             tracing::debug!(command = "store.status", "command_start");
             status(args, stdout)
         }
+        StoreCommand::Paths(args) => {
+            tracing::debug!(command = "store.paths", "command_start");
+            paths(args, stdout)
+        }
         StoreCommand::Mode(args) => {
             tracing::debug!(command = "store.mode", "command_start");
             mode(args, stdout)
@@ -434,6 +461,34 @@ pub(super) fn run(
     }
 }
 
+fn paths(args: StorePathsArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = store_paths_for_repo(&args.repo)?;
+    let body = StorePathsBody {
+        tier: resolved.tier(),
+        worktree_store: resolved.worktree_store().to_path_buf(),
+        common_store: resolved.common_store().to_path_buf(),
+        binding: resolved.binding().to_path_buf(),
+        home: resolved.home().to_path_buf(),
+        keys: resolved.keys().to_path_buf(),
+    };
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
+    let digest = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "tier: {}\nworktree store: {}\ncommon store: {}\nbinding: {}\nhome: {}\nkeys: {}",
+            body.tier,
+            body.worktree_store.display(),
+            body.common_store.display(),
+            body.binding.display(),
+            body.home.display(),
+            body.keys.display(),
+        )
+    });
+    let document = json::DiagnosticDocument::new("pointbreak.store-paths", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        digest.expect("text lane resolves the digest")
+    })
+}
+
 fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
     let span = tracing::info_span!("shore.store.status");
     let _entered = span.enter();
@@ -447,7 +502,7 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
         // `pointbreak.store-status` JSON document a single, uniformly path-free shape,
         // so a tool that pipes that document into a log or relay never depends on
         // a flag to stay path-free. The redaction that genuinely matters is on the
-        // STORED/forwarded data (events in `.git/shore`, the default document);
+        // STORED/forwarded data (events in `.git/pointbreak`, the default document);
         // this local listing never writes to the store, so it sits outside that
         // contract. So refuse an explicit JSON selection rather than silently
         // dropping the paths, and otherwise force the text lane (overriding the

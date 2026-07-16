@@ -119,13 +119,16 @@ fn cli_log_filter_precedence_is_flag_then_shore_log_then_rust_log() {
             "--repo",
             repo.path().to_str().unwrap(),
         ],
-        [("SHORE_LOG", "shore=debug"), ("RUST_LOG", "shore=debug")],
+        [
+            ("POINTBREAK_LOG", "shore=debug"),
+            ("RUST_LOG", "shore=debug"),
+        ],
     );
     assert!(String::from_utf8_lossy(&flag_beats_env.stderr).is_empty());
 
     let shore_log_beats_rust_log = shore_with_env(
         ["history", "--repo", repo.path().to_str().unwrap()],
-        [("SHORE_LOG", "off"), ("RUST_LOG", "shore=debug")],
+        [("POINTBREAK_LOG", "off"), ("RUST_LOG", "shore=debug")],
     );
     assert!(String::from_utf8_lossy(&shore_log_beats_rust_log.stderr).is_empty());
 }
@@ -152,7 +155,7 @@ where
     S: AsRef<std::ffi::OsStr>,
 {
     command(args)
-        .env_remove("SHORE_LOG")
+        .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         .output()
         .expect("run shore binary")
@@ -178,8 +181,8 @@ where
     command
         .args(args)
         // Isolate byte-asserting tracing tests from an ambient output-lane selector;
-        // these tests deliberately keep SHORE_LOG/RUST_LOG to exercise logging.
-        .env_remove("SHORE_FORMAT")
+        // these tests deliberately keep POINTBREAK_LOG/RUST_LOG to exercise logging.
+        .env_remove("POINTBREAK_FORMAT")
         .current_dir(std::env::current_dir().expect("current dir"));
     command
 }

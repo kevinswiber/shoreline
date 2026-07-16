@@ -193,7 +193,7 @@ fn shore_diff_ignores_ambient_shore_format_json() {
 
     let output = shore_env(
         ["diff", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_FORMAT", "json")],
+        &[("POINTBREAK_FORMAT", "json")],
     );
     assert!(output.status.success(), "stderr:\n{}", err_text(&output));
     let text = out_text(&output);
@@ -319,7 +319,7 @@ fn diff_revision_flag_resolves_short_ids() {
     assert_eq!(out_text(&bare_out), out_text(&full_out));
 }
 
-// --- Theme surface: --theme flag, SHORE_THEME / BAT_THEME env, detection gating ---
+// --- Theme surface: --theme flag, POINTBREAK_THEME / BAT_THEME env, detection gating ---
 
 /// Byte pins for the two built-in palettes and the intraline emphasis tints.
 const DARK_KEYWORD: &str = "\x1b[38;2;179;136;255m";
@@ -377,7 +377,7 @@ fn shore_diff_shore_theme_env_selects_light() {
     let out = diff_env(
         repo.path(),
         &[],
-        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "light")],
+        &[("COLORTERM", "truecolor"), ("POINTBREAK_THEME", "light")],
     );
     assert!(out.status.success(), "{}", err_text(&out));
     assert!(out_text(&out).contains(LIGHT_KEYWORD));
@@ -390,7 +390,7 @@ fn shore_diff_theme_flag_beats_shore_theme_env() {
     let out = diff_env(
         repo.path(),
         &["--theme", "dark"],
-        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "light")],
+        &[("COLORTERM", "truecolor"), ("POINTBREAK_THEME", "light")],
     );
     assert!(out.status.success(), "{}", err_text(&out));
     assert!(out_text(&out).contains(DARK_KEYWORD));
@@ -405,7 +405,7 @@ fn shore_diff_shore_theme_beats_bat_theme() {
         &[],
         &[
             ("COLORTERM", "truecolor"),
-            ("SHORE_THEME", "dark"),
+            ("POINTBREAK_THEME", "dark"),
             ("BAT_THEME", "light"),
         ],
     );
@@ -464,7 +464,7 @@ fn shore_diff_theme_names_are_case_insensitive() {
     let env = diff_env(
         repo.path(),
         &[],
-        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "nord")],
+        &[("COLORTERM", "truecolor"), ("POINTBREAK_THEME", "nord")],
     );
     assert!(env.status.success(), "{}", err_text(&env));
 }
@@ -485,11 +485,14 @@ fn shore_diff_unknown_explicit_theme_fails_with_the_valid_list() {
     assert!(stderr.contains("no-such-theme"));
     assert!(stderr.contains("Monokai Extended"));
 
-    // SHORE_THEME is the same explicit posture.
+    // POINTBREAK_THEME is the same explicit posture.
     let env = diff_env(
         repo.path(),
         &[],
-        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "no-such-theme")],
+        &[
+            ("COLORTERM", "truecolor"),
+            ("POINTBREAK_THEME", "no-such-theme"),
+        ],
     );
     assert!(!env.status.success());
     assert!(err_text(&env).contains("no-such-theme"));
@@ -544,7 +547,10 @@ fn shore_diff_stat_never_resolves_themes() {
     let out = diff_env(
         repo.path(),
         &["--stat"],
-        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "no-such-theme")],
+        &[
+            ("COLORTERM", "truecolor"),
+            ("POINTBREAK_THEME", "no-such-theme"),
+        ],
     );
     assert!(out.status.success(), "{}", err_text(&out));
 }

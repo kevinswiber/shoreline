@@ -1,6 +1,6 @@
 //! User-level family-store placement primitives.
 //!
-//! Every family store lives at `<shore-home-root>/stores/<slug>/`. This module is
+//! Every family store lives at `<pointbreak-home-root>/stores/<slug>/`. This module is
 //! the single family-path derivation site: nothing else composes a family path.
 //! The `stores/` segment keeps `<root>/{keys,stores}` disjoint by construction, so
 //! a family named `keys` can never collide with the keystore. The slug is a
@@ -24,24 +24,29 @@ use crate::storage::{Durability, LocalStorage};
 const MAX_SLUG_LEN: usize = 64;
 
 /// The machine-wide root under which every family store lives:
-/// `<shore-home-root>/stores/`. The `stores/` segment keeps `<root>/{keys,stores}`
+/// `<pointbreak-home-root>/stores/`. The `stores/` segment keeps `<root>/{keys,stores}`
 /// disjoint from the keystore by construction.
 pub(crate) fn stores_root() -> Result<PathBuf> {
-    Ok(crate::shore_home::shore_home_root()?.join("stores"))
+    Ok(crate::paths::UserHomePaths::resolve()?.stores_dir())
 }
 
-/// The family store directory for `slug`: `<shore-home-root>/stores/<slug>`. The
+/// The family store directory for `slug`: `<pointbreak-home-root>/stores/<slug>`. The
 /// single family-path derivation site. Validates the slug before joining.
 pub(crate) fn user_level_store_dir(slug: &str) -> Result<PathBuf> {
-    user_level_store_dir_under(&crate::shore_home::shore_home_root()?, slug)
+    validate_family_slug(slug)?;
+    Ok(crate::paths::UserHomePaths::resolve()?.family_dir(slug))
 }
 
 /// Pure derivation seam: `<root>/stores/<slug>` after slug validation. Kept
 /// env-free so resolution and lifecycle tests can inject a tempdir root without
 /// mutating process env.
+#[cfg(test)]
 fn user_level_store_dir_under(root: &Path, slug: &str) -> Result<PathBuf> {
     validate_family_slug(slug)?;
-    Ok(root.join("stores").join(slug))
+    Ok(
+        crate::paths::UserHomePaths::resolve_from(Some(root.to_path_buf()), None, None, None)?
+            .family_dir(slug),
+    )
 }
 
 /// Validate a family slug: non-empty, at most 64 bytes, charset `[a-z0-9-]`. Every
@@ -407,7 +412,7 @@ fn file_mtime_millis(path: &Path) -> Result<i64> {
 /// Best-effort, warn-only heuristic: does `root`'s path look like it lives on a
 /// sync-managed filesystem? Case-insensitive path-substring match only — it cannot
 /// see the real mount, so it never blocks; it exists to catch the
-/// `~/.shore`-looks-syncable footgun.
+/// Pointbreak-home-looks-syncable footgun.
 pub(crate) fn flag_unsupported_filesystem(root: &Path) -> Option<String> {
     let haystack = root.to_string_lossy().to_ascii_lowercase();
     const MARKERS: &[(&str, &str)] = &[
@@ -431,8 +436,6 @@ pub(crate) fn flag_unsupported_filesystem(root: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use crate::session::store::store_config::set_family_binding_for_repo;
 
@@ -465,9 +468,9 @@ mod tests {
 
     #[test]
     fn store_dir_under_root_is_stores_slash_slug() {
-        let root = PathBuf::from("/home/dev/.shore");
+        let root = std::env::temp_dir().join("pointbreak-home");
         let dir = user_level_store_dir_under(&root, "acme-web").unwrap();
-        assert_eq!(dir, PathBuf::from("/home/dev/.shore/stores/acme-web"));
+        assert_eq!(dir, root.join("stores/acme-web"));
     }
 
     #[test]
@@ -475,7 +478,7 @@ mod tests {
         // The `stores/` segment keeps `<root>/{keys,stores}` disjoint by
         // construction: a family literally named "keys" is `<root>/stores/keys`,
         // never `<root>/keys`.
-        let root = PathBuf::from("/home/dev/.shore");
+        let root = std::env::temp_dir().join("pointbreak-home");
         let dir = user_level_store_dir_under(&root, "keys").unwrap();
         assert_eq!(dir, root.join("stores").join("keys"));
         assert_ne!(dir, root.join("keys"));
@@ -505,7 +508,7 @@ mod tests {
 
     #[test]
     fn store_dir_under_root_rejects_an_invalid_slug() {
-        let root = PathBuf::from("/home/dev/.shore");
+        let root = std::env::temp_dir().join("pointbreak-home");
         assert!(user_level_store_dir_under(&root, "a/b").is_err());
     }
 

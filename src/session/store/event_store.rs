@@ -544,14 +544,14 @@ mod tests {
     #[test]
     fn event_path_is_sha256_of_idempotency_key() {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore/data"));
+        let store = EventStore::open(root.path().join(".pointbreak/data"));
 
         let path =
             store.event_path_for_idempotency_key("review_initialized:review:default:work:default");
 
         assert_eq!(
             path.parent().unwrap(),
-            root.path().join(".shore/data/events")
+            root.path().join(".pointbreak/data/events")
         );
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
@@ -1151,7 +1151,7 @@ mod tests {
 
     fn temp_event_store() -> (tempfile::TempDir, EventStore) {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore/data"));
+        let store = EventStore::open(root.path().join(".pointbreak/data"));
         (root, store)
     }
 
@@ -1168,7 +1168,7 @@ mod tests {
     /// wrapper's read-side validation rejects them — identically for both backends.
     fn for_each_event_backend(mut assertion: impl FnMut(&EventStore, &dyn Journal)) {
         let root = tempfile::tempdir().unwrap();
-        let local = StoreBackend::Local(root.path().join(".shore/data"));
+        let local = StoreBackend::Local(root.path().join(".pointbreak/data"));
         let local_journal = local.journal();
         assertion(&EventStore::from_backend(&local), local_journal.as_ref());
 

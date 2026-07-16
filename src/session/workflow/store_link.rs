@@ -21,7 +21,7 @@ use crate::session::store::store_config::{
     StoreMode, clear_family_binding_for_repo, resolve_family_binding, resolve_store_mode,
     set_family_binding_for_repo,
 };
-use crate::session::store::store_init::ShoreStorePaths;
+use crate::session::store::store_init::RepositoryPaths;
 use crate::session::store::user_level::{
     deregister_clone, ensure_family_store_scaffold, flag_unsupported_filesystem,
     read_family_manifest, register_clone, user_level_store_dir, validate_family_slug,
@@ -159,7 +159,7 @@ struct LinkPlan {
 /// their warnings forward. Both `link_store_to_family` and `preview_link_to_family`
 /// enter through here.
 fn plan_link(options: &StoreLinkOptions) -> Result<LinkPlan> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
+    let paths = RepositoryPaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root().to_path_buf();
 
     let slug = match &options.slug {
@@ -186,7 +186,7 @@ fn plan_link(options: &StoreLinkOptions) -> Result<LinkPlan> {
             return Err(ShoreError::Message(
                 "refusing to link a worktree flagged sensitive into a family store; run \
                  `shore store status --show-paths` to see which files matched, then add \
-                 known-safe paths to .shore/sensitivity.json excludeGlobs for a targeted \
+                 known-safe paths to .pointbreak/sensitivity.json excludeGlobs for a targeted \
                  exclude, or re-run with the include-sensitive override to link it anyway"
                     .to_owned(),
             ));
@@ -324,7 +324,7 @@ pub struct StoreUnlinkResult {
 /// `forget`/`rm -rf`, so deregistration is best-effort and the binding is cleared
 /// regardless.
 pub fn unlink_store_from_family(options: StoreUnlinkOptions) -> Result<StoreUnlinkResult> {
-    let worktree_root = ShoreStorePaths::resolve(&options.repo)?
+    let worktree_root = RepositoryPaths::resolve(&options.repo)?
         .worktree_root()
         .to_path_buf();
 
@@ -596,7 +596,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let (result, family_dir) = with_shore_home(&home, || {
+        let (result, family_dir) = with_pointbreak_home(&home, || {
             let result =
                 link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())));
             let family_dir = user_level_store_dir("fam").unwrap();
@@ -656,7 +656,7 @@ mod tests {
         let home = main.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let (main_ref, sib_ref, entries) = with_shore_home(&home, || {
+        let (main_ref, sib_ref, entries) = with_pointbreak_home(&home, || {
             let main_ref =
                 link_store_to_family(StoreLinkOptions::new(main.path(), Some("fam".to_owned())))
                     .unwrap()
@@ -683,13 +683,13 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let refused = with_shore_home(&home, || {
+        let refused = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .expect_err("an ephemeral worktree refuses without the override");
         assert!(refused.to_string().contains("ephemeral"));
 
-        let (linked, resolved, family_dir) = with_shore_home(&home, || {
+        let (linked, resolved, family_dir) = with_pointbreak_home(&home, || {
             let linked = link_store_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
                     .with_include_ephemeral(true),
@@ -703,7 +703,7 @@ mod tests {
         });
         assert!(linked.created_family);
         // The override promotes: the clone now resolves the family store, not the
-        // discardable `.shore/data` (committed ephemeral is overridden by the local
+        // discardable `.pointbreak/data` (committed ephemeral is overridden by the local
         // binding write).
         assert_eq!(resolved, family_dir);
     }
@@ -711,20 +711,20 @@ mod tests {
     #[test]
     fn linking_a_local_ephemeral_override_promotes_to_the_family_store() {
         // Regression: a LOCAL ephemeral pin (the documented private override in
-        // `.shore/store.local.json`, not the committed one). `link --include-ephemeral`
+        // `.pointbreak/store.local.json`, not the committed one). `link --include-ephemeral`
         // must clear the pin so the binding takes effect — otherwise the link reports
-        // success while the clone keeps resolving `.shore/data`.
+        // success while the clone keeps resolving `.pointbreak/data`.
         let repo = git_repo();
-        std::fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        std::fs::create_dir_all(repo.path().join(".pointbreak")).unwrap();
         std::fs::write(
-            repo.path().join(".shore/store.local.json"),
+            repo.path().join(".pointbreak/store.local.json"),
             r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral"}"#,
         )
         .unwrap();
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let (resolved, family_dir) = with_shore_home(&home, || {
+        let (resolved, family_dir) = with_pointbreak_home(&home, || {
             link_store_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
                     .with_include_ephemeral(true),
@@ -738,7 +738,7 @@ mod tests {
         });
         assert_eq!(
             resolved, family_dir,
-            "the clone resolves the family store, not .shore/data"
+            "the clone resolves the family store, not .pointbreak/data"
         );
     }
 
@@ -756,7 +756,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let refused = with_shore_home(&home, || {
+        let refused = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .expect_err("a sensitive worktree refuses without the override");
@@ -770,7 +770,7 @@ mod tests {
             "points at the local-only command that lists the matched files: {message}"
         );
 
-        let linked = with_shore_home(&home, || {
+        let linked = with_pointbreak_home(&home, || {
             link_store_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
                     .with_include_sensitive(true),
@@ -786,7 +786,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let error = with_shore_home(&home, || {
+        let error = with_pointbreak_home(&home, || {
             // Pre-stamp the `fam` directory for a DIFFERENT family (tamper/corruption).
             let family_dir = user_level_store_dir("fam").unwrap();
             std::fs::create_dir_all(&family_dir).unwrap();
@@ -806,7 +806,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let error = with_shore_home(&home, || {
+        let error = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), None))
         })
         .expect_err("no slug is an actionable error");
@@ -832,7 +832,7 @@ mod tests {
         let home = founder.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let founded = with_shore_home(&home, || {
+        let founded = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(
                 founder.path(),
                 Some("fam".to_owned()),
@@ -844,7 +844,7 @@ mod tests {
             "the founder never warns"
         );
 
-        let joined = with_shore_home(&home, || {
+        let joined = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(joiner.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -874,14 +874,14 @@ mod tests {
         let home = founder.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        with_shore_home(&home, || {
+        with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(
                 founder.path(),
                 Some("fam".to_owned()),
             ))
         })
         .unwrap();
-        let joined = with_shore_home(&home, || {
+        let joined = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(&clone_dir, Some("fam".to_owned())))
         })
         .unwrap();
@@ -894,12 +894,12 @@ mod tests {
     #[test]
     fn a_sync_managed_store_root_yields_a_filesystem_warning() {
         let repo = git_repo();
-        // SHORE_HOME under a Dropbox-shaped path: the fs heuristic warns but never
+        // POINTBREAK_HOME under a Dropbox-shaped path: the fs heuristic warns but never
         // blocks.
         let home = repo.path().join("Dropbox");
         std::fs::create_dir_all(&home).unwrap();
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -918,7 +918,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let (result, family_dir) = with_shore_home(&home, || {
+        let (result, family_dir) = with_pointbreak_home(&home, || {
             let result =
                 link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())));
             let family_dir = user_level_store_dir("fam").unwrap();
@@ -950,7 +950,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -974,7 +974,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             link_store_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned())).with_retire_source(true),
             )
@@ -994,7 +994,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1013,13 +1013,13 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let family_dir = with_shore_home(&home, || {
+        let family_dir = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
                 .unwrap();
             user_level_store_dir("fam").unwrap()
         });
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             unlink_store_from_family(StoreUnlinkOptions::new(repo.path()))
         })
         .unwrap();
@@ -1044,7 +1044,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             unlink_store_from_family(StoreUnlinkOptions::new(repo.path()))
         })
         .unwrap();
@@ -1059,7 +1059,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let family_dir = with_shore_home(&home, || {
+        let family_dir = with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
                 .unwrap();
             user_level_store_dir("fam").unwrap()
@@ -1067,7 +1067,7 @@ mod tests {
         // Simulate a `forget` / rm -rf of the whole family store.
         std::fs::remove_dir_all(&family_dir).unwrap();
 
-        let result = with_shore_home(&home, || {
+        let result = with_pointbreak_home(&home, || {
             unlink_store_from_family(StoreUnlinkOptions::new(repo.path()))
         })
         .unwrap();
@@ -1092,7 +1092,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let before = tree_fingerprint(&home);
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1105,8 +1105,8 @@ mod tests {
         assert_eq!(preview.folded_removal_event_count, 0);
         // Writes nothing: the home tree is byte-identical and no binding was written.
         assert_eq!(tree_fingerprint(&home), before);
-        assert!(!repo.path().join(".shore/store.local.json").exists());
-        let binding = with_shore_home(&home, || resolve_family_binding(repo.path())).unwrap();
+        assert!(!repo.path().join(".pointbreak/store.local.json").exists());
+        let binding = with_pointbreak_home(&home, || resolve_family_binding(repo.path())).unwrap();
         assert!(binding.is_none());
     }
 
@@ -1117,13 +1117,13 @@ mod tests {
             .unwrap();
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
-        with_shore_home(&home, || {
+        with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
                 .unwrap()
         });
         let after_link = tree_fingerprint(&home);
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1143,14 +1143,14 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let before = tree_fingerprint(&home);
 
-        let error = with_shore_home(&home, || {
+        let error = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .expect_err("an ephemeral worktree refuses without the override");
 
         assert!(error.to_string().contains("ephemeral"));
         assert_eq!(tree_fingerprint(&home), before);
-        assert!(!repo.path().join(".shore/store.local.json").exists());
+        assert!(!repo.path().join(".pointbreak/store.local.json").exists());
     }
 
     #[test]
@@ -1161,7 +1161,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let before = tree_fingerprint(&home);
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
                     .with_include_ephemeral(true),
@@ -1186,7 +1186,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let before = tree_fingerprint(&home);
 
-        let error = with_shore_home(&home, || {
+        let error = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .expect_err("a sensitive worktree refuses without the override");
@@ -1208,7 +1208,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let before = tree_fingerprint(&home);
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
                     .with_include_sensitive(true),
@@ -1226,7 +1226,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let error = with_shore_home(&home, || {
+        let error = with_pointbreak_home(&home, || {
             let family_dir = user_level_store_dir("fam").unwrap();
             std::fs::create_dir_all(&family_dir).unwrap();
             write_family_manifest(&family_dir, "other", &[]).unwrap();
@@ -1258,7 +1258,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         let before = tree_fingerprint(&home);
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1287,7 +1287,7 @@ mod tests {
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1305,7 +1305,7 @@ mod tests {
         let home = repo.path().join("Dropbox");
         std::fs::create_dir_all(&home).unwrap();
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1320,7 +1320,7 @@ mod tests {
         let joiner = git_repo(); // distinct root OID (git_repo seeds unique content)
         let home = founder.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
-        with_shore_home(&home, || {
+        with_pointbreak_home(&home, || {
             link_store_to_family(StoreLinkOptions::new(
                 founder.path(),
                 Some("fam".to_owned()),
@@ -1328,7 +1328,7 @@ mod tests {
             .unwrap()
         });
 
-        let preview = with_shore_home(&home, || {
+        let preview = with_pointbreak_home(&home, || {
             preview_link_to_family(StoreLinkOptions::new(joiner.path(), Some("fam".to_owned())))
         })
         .unwrap();
@@ -1338,7 +1338,7 @@ mod tests {
     }
 
     /// Recursive path→bytes fingerprint of a directory tree, for asserting a
-    /// preview left `SHORE_HOME` byte-for-byte untouched.
+    /// preview left `POINTBREAK_HOME` byte-for-byte untouched.
     fn tree_fingerprint(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         fn walk(dir: &Path, base: &Path, acc: &mut BTreeMap<PathBuf, Vec<u8>>) {
             let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1384,16 +1384,16 @@ mod tests {
         .expect("removal event builds")
     }
 
-    /// Set `SHORE_HOME` for the duration of `f`. nextest's process-per-test keeps the
+    /// Set `POINTBREAK_HOME` for the duration of `f`. nextest's process-per-test keeps the
     /// mutation contained (the `keys/home.rs` seam). SAFETY: single-threaded test
     /// process.
-    fn with_shore_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    fn with_pointbreak_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
         unsafe {
-            std::env::set_var("SHORE_HOME", home);
+            std::env::set_var("POINTBREAK_HOME", home);
         }
         let out = f();
         unsafe {
-            std::env::remove_var("SHORE_HOME");
+            std::env::remove_var("POINTBREAK_HOME");
         }
         out
     }

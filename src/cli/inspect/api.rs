@@ -2,7 +2,7 @@
 //!
 //! Each builder reuses a public `pointbreak::session` projection so the
 //! inspector reads the store through the same validated path as the
-//! corresponding `shore` review read command, rather than parsing raw `.shore/data/`
+//! corresponding `shore` review read command, rather than parsing raw `.pointbreak/data/`
 //! files. Errors are stringified so the server can surface them to the UI as
 //! a JSON `error` body instead of crashing a connection thread.
 
@@ -2089,7 +2089,7 @@ mod tests {
     /// The shared common-dir store a clone resolves by default
     /// (`<git-common-dir>/shore`). A non-ephemeral worktree reads and writes here,
     /// so a post-capture store path resolves here, not the worktree-local
-    /// `.shore/data`.
+    /// `.pointbreak/data`.
     fn common_dir_store(repo: &Path) -> std::path::PathBuf {
         let output = std::process::Command::new("git")
             .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
@@ -2101,7 +2101,7 @@ mod tests {
             .expect("git-common-dir is utf-8")
             .trim()
             .to_owned();
-        Path::new(&common_dir).join("shore")
+        Path::new(&common_dir).join("pointbreak")
     }
 
     fn stored_object_artifact_path(repo: &Path) -> std::path::PathBuf {
@@ -3200,9 +3200,9 @@ mod tests {
         // Enrollment changes trust-dependent rendering without appending an
         // event — the head marker is untouched — so the cached base must be
         // rebuilt, not served stale (#460).
-        std::fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        std::fs::create_dir_all(repo.path().join(".pointbreak")).unwrap();
         std::fs::write(
-            repo.path().join(".shore/allowed-signers.json"),
+            repo.path().join(".pointbreak/allowed-signers.json"),
             r#"{"allowedSigners":{"actor:git-email:alice@example.com":["did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd"]}}"#,
         )
         .unwrap();
@@ -3215,7 +3215,7 @@ mod tests {
         // Every discovered document keys the cache, not just the trust set:
         // a delegation edit must rebuild the same way.
         std::fs::write(
-            repo.path().join(".shore/delegates.json"),
+            repo.path().join(".pointbreak/delegates.json"),
             r#"{"delegates":{"actor:agent:claude-code":[{"principal":"actor:git-email:alice@example.com","validFrom":"2026-06-10T00:00:00Z","validUntil":null}]}}"#,
         )
         .unwrap();

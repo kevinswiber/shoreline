@@ -19,7 +19,7 @@ use crate::session::{
 };
 use crate::storage::{Durability, LocalStorage};
 
-/// Options for ingesting one or more pre-formed events into a repo's `.shore/data`
+/// Options for ingesting one or more pre-formed events into a repo's `.pointbreak/data`
 /// store — for example events produced on another machine and forwarded over a
 /// network, or merged from another clone.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -602,15 +602,15 @@ mod tests {
 
     /// The store a workflow (capture, ingest, signature) actually lands in for a
     /// repo — the shared common-dir store by default. Reads that follow such a
-    /// workflow resolve here, never the raw worktree-local `.shore/data`.
+    /// workflow resolve here, never the raw worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &Path) -> PathBuf {
-        crate::git::git_common_dir(repo).unwrap().join("shore")
+        crate::git::git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     #[test]
     fn linked_ingest_lands_events_in_clone_local_store() {
         use crate::git::git_common_dir;
-        use crate::session::ShoreStorePaths;
+        use crate::session::RepositoryPaths;
 
         let (_origin, events) = origin_events();
         let dest = dest_repo();
@@ -618,7 +618,7 @@ mod tests {
         ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
 
         // Write-through (INV-1): ingested events land in the clone-local store.
-        let clone_local = git_common_dir(dest.path()).unwrap().join("shore");
+        let clone_local = git_common_dir(dest.path()).unwrap().join("pointbreak");
         assert!(
             !EventStore::open(&clone_local)
                 .list_events()
@@ -626,10 +626,10 @@ mod tests {
                 .is_empty(),
             "ingest lands events in the clone-local store"
         );
-        // The worktree-local `.shore/data` received no ingested events.
-        let local = ShoreStorePaths::resolve(dest.path()).unwrap();
+        // The worktree-local `.pointbreak/data` received no ingested events.
+        let local = RepositoryPaths::resolve(dest.path()).unwrap();
         assert!(
-            EventStore::open(local.store_dir())
+            EventStore::open(local.worktree_store())
                 .list_events()
                 .unwrap_or_default()
                 .is_empty(),
@@ -1738,7 +1738,7 @@ mod tests {
     /// the domain workflows and the adapter write path use; no seam, no stamp.
     fn local_authored_store(events: &[ShoreEvent]) -> (tempfile::TempDir, EventStore) {
         let root = tempfile::tempdir().unwrap();
-        let store = EventStore::open(root.path().join(".shore/data"));
+        let store = EventStore::open(root.path().join(".pointbreak/data"));
         for event in events {
             store.record_event_once(event).unwrap();
         }
@@ -1898,11 +1898,11 @@ mod tests {
         let (_source_root, _source_store) = local_authored_store(&events);
         let target = tempfile::tempdir().unwrap();
         import_store_bundle(
-            _source_root.path().join(".shore/data"),
-            target.path().join(".shore/data"),
+            _source_root.path().join(".pointbreak/data"),
+            target.path().join(".pointbreak/data"),
         )
         .unwrap();
-        let stored = EventStore::open(target.path().join(".shore/data"))
+        let stored = EventStore::open(target.path().join(".pointbreak/data"))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -1929,11 +1929,11 @@ mod tests {
         let (signed_source_root, _signed_source_store) = local_authored_store(&signed_events);
         let signed_target = tempfile::tempdir().unwrap();
         import_store_bundle(
-            signed_source_root.path().join(".shore/data"),
-            signed_target.path().join(".shore/data"),
+            signed_source_root.path().join(".pointbreak/data"),
+            signed_target.path().join(".pointbreak/data"),
         )
         .unwrap();
-        let stored = EventStore::open(signed_target.path().join(".shore/data"))
+        let stored = EventStore::open(signed_target.path().join(".pointbreak/data"))
             .list_events()
             .unwrap();
         let projection = resumption_projection(

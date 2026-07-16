@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use clap::{Args, ValueEnum};
+use pointbreak::environment;
 use pointbreak::perf::{self, PERF_TARGET, PerfLayer};
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -99,7 +100,7 @@ fn resolve_log_filter(args: &TracingArgs) -> Option<String> {
         return active_filter(filter);
     }
 
-    if let Ok(filter) = std::env::var("SHORE_LOG") {
+    if let Ok(filter) = std::env::var(environment::LOG) {
         if is_off(&filter) {
             return None;
         }

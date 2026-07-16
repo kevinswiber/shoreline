@@ -1,15 +1,18 @@
 pub mod crypto;
 pub mod documents;
+#[doc(hidden)]
+pub mod environment;
 pub mod error;
 pub mod git;
 pub mod highlight;
 pub mod keys;
 pub mod model;
+#[doc(hidden)]
+pub mod paths;
 pub mod perf;
 pub mod session;
 
 mod canonical_hash;
-mod shore_home;
 mod storage;
 
 // Developer-run measurement support for the durable store's file backend. Behind

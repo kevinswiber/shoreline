@@ -101,7 +101,7 @@ fn store_status_emits_local_json_without_storage_paths() {
     assert_eq!(json["storeRef"], "local");
     assert!(json.get("cloneRef").is_none());
     assert!(json.get("repositoryFamilyRef").is_none());
-    assert!(!stdout.contains(".shore"));
+    assert!(!stdout.contains(".pointbreak"));
     assert!(!stdout.contains("state.json"));
     assert!(!stdout.contains("artifacts/"));
 }
@@ -140,7 +140,7 @@ fn linked_worktree_store_status_reports_the_shared_single_store_view() {
     assert!(!stdout.contains(fixture.main.path().to_str().unwrap()));
     assert!(!stdout.contains(fixture.linked_path.to_str().unwrap()));
     assert!(!stdout.contains(".git"));
-    assert!(!stdout.contains(".shore"));
+    assert!(!stdout.contains(".pointbreak"));
     assert!(!stdout.contains("state.json"));
     assert!(!stdout.contains("artifacts/"));
 }
@@ -195,7 +195,7 @@ fn store_status_includes_inventory_without_artifact_paths() {
     );
     assert!(inventory["largestArtifacts"].as_array().unwrap().len() >= 2);
     assert_eq!(inventory["untrackedBytes"], 0);
-    assert!(!stdout.contains(".shore"));
+    assert!(!stdout.contains(".pointbreak"));
     assert!(!stdout.contains("artifacts/"));
     assert!(!stdout.contains("state.json"));
 }
@@ -282,7 +282,7 @@ fn store_status_reports_exclude_glob_audit_counts() {
         "-----BEGIN PRIVATE KEY-----\nredacted\n",
     );
     repo.write(
-        ".shore/sensitivity.json",
+        ".pointbreak/sensitivity.json",
         r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
     );
     repo.commit_all("base");
@@ -357,7 +357,7 @@ fn text_store_digest_reports_counts_size_and_sensitivity() {
     );
     assert!(stdout.lines().count() <= 6, "digest is bounded: {stdout}");
     // Privacy: the text lane must not leak store paths any more than the JSON lane.
-    assert!(!stdout.contains(".shore"), "no store path: {stdout}");
+    assert!(!stdout.contains(".pointbreak"), "no store path: {stdout}");
     assert!(!stdout.contains("artifacts/"), "no artifact path: {stdout}");
     assert!(!stdout.contains("state.json"), "no state path: {stdout}");
 }

@@ -109,7 +109,7 @@ fn revision_list_does_not_expose_storage_paths() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json = parse_json(&output.stdout);
 
-    assert!(!stdout.contains(".shore/data/events"));
+    assert!(!stdout.contains(".pointbreak/data/events"));
     assert!(!stdout.contains("artifacts/"));
     assert!(json.get("statePath").is_none());
     assert!(json["entries"][0].get("payloadHash").is_none());
@@ -189,7 +189,7 @@ fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed
         ],
     );
     let reader = fixture.add_worktree("reader");
-    assert!(!reader.join(".shore/data/events").exists());
+    assert!(!reader.join(".pointbreak/data/events").exists());
 
     let output = shore(["revision", "list", "--repo", reader.to_str().unwrap()]);
     assert!(
@@ -205,7 +205,7 @@ fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed
     assert_eq!(json["entries"][0]["revisionId"], capture["revision"]["id"]);
     assert!(json["diagnostics"].as_array().unwrap().is_empty());
     assert!(!stdout.contains(".git"));
-    assert!(!stdout.contains(".shore/data"));
+    assert!(!stdout.contains(".pointbreak/data"));
 }
 
 #[test]

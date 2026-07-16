@@ -7,7 +7,7 @@ use pointbreak::error::{Result as ShoreResult, ShoreError};
 use pointbreak::keys::load_signer_id;
 use pointbreak::model::ActorId;
 use pointbreak::session::{
-    ALLOWED_SIGNERS_REL_PATH, EnrollmentDiff, is_valid_actor_id, resolve_writer_actor_id,
+    EnrollmentDiff, allowed_signers_path_for_repo, is_valid_actor_id, resolve_writer_actor_id,
     stage_enrollment,
 };
 use serde::Serialize;
@@ -18,7 +18,7 @@ use crate::cli::output;
 #[derive(Debug, Args)]
 pub(super) struct EnrollArgs {
     /// Repository root or a path inside the repository whose working-tree
-    /// `.shore/allowed-signers.json` receives the entry.
+    /// `.pointbreak/allowed-signers.json` receives the entry.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
@@ -30,7 +30,7 @@ pub(super) struct EnrollArgs {
     signer: Option<String>,
 
     /// Actor id to bind the key to. Defaults to the resolved writing actor
-    /// (`SHORE_ACTOR_ID` or the local Git identity).
+    /// (`POINTBREAK_ACTOR_ID` or the local Git identity).
     #[arg(long)]
     actor: Option<String>,
 
@@ -54,17 +54,15 @@ pub(super) fn run(
     let signer_id = resolve_enrollment_signer(&args)?;
 
     // Resolve the actor: explicit `--actor` must be valid, else the standard
-    // writer resolution (`SHORE_ACTOR_ID` then Git identity).
+    // writer resolution (`POINTBREAK_ACTOR_ID` then Git identity).
     let actor = resolve_actor(&args)?;
 
     // Possession-style: stage the working-tree edit only. The human's commit is
     // the authorization; this never invokes git. Resolve the worktree root first
     // (the same way trust discovery does) so enrollment from a subdirectory lands
-    // at the root `.shore/allowed-signers.json` the reader looks for — not an
-    // invisible `<subdir>/.shore/allowed-signers.json`.
-    let worktree_root =
-        pointbreak::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
-    let path = worktree_root.join(ALLOWED_SIGNERS_REL_PATH);
+    // at the root `.pointbreak/allowed-signers.json` the reader looks for — not an
+    // invisible `<subdir>/.pointbreak/allowed-signers.json`.
+    let path = allowed_signers_path_for_repo(&args.repo)?;
     let EnrollmentDiff { added } = stage_enrollment(&path, &actor, &signer_id)?;
 
     let body = EnrollBody {

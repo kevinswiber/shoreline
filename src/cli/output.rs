@@ -7,6 +7,8 @@
 
 use std::io::Write;
 
+use pointbreak::environment;
+
 use crate::cli::json;
 
 /// The resolved output lane. The machine lanes (`Json`, `JsonPretty`) route
@@ -66,15 +68,15 @@ impl FormatArgs {
 }
 
 /// A resolved lane plus how it was chosen. `defaulted` is true when neither the
-/// flag nor `SHORE_FORMAT` selected the lane.
+/// flag nor `POINTBREAK_FORMAT` selected the lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ResolvedFormat {
     pub(super) format: OutputFormat,
     pub(super) defaulted: bool,
 }
 
-/// Precedence: explicit `--format` flag > `SHORE_FORMAT` env > `default`.
-/// The only reader of `SHORE_FORMAT`.
+/// Precedence: explicit `--format` flag > `POINTBREAK_FORMAT` env > `default`.
+/// The only reader of `POINTBREAK_FORMAT`.
 pub(super) fn resolve_format(
     explicit: Option<OutputFormat>,
     default: OutputFormat,
@@ -102,10 +104,10 @@ fn resolve_format_from(
     }
 }
 
-/// Read `SHORE_FORMAT` from the environment. Unset or empty yields no selection;
-/// an invalid value is a hard error. This is the single `SHORE_FORMAT` read site.
+/// Read `POINTBREAK_FORMAT` from the environment. Unset or empty yields no selection;
+/// an invalid value is a hard error. This is the single `POINTBREAK_FORMAT` read site.
 fn env_format() -> Result<Option<OutputFormat>, Box<dyn std::error::Error>> {
-    match std::env::var("SHORE_FORMAT") {
+    match std::env::var(environment::FORMAT) {
         Ok(value) if !value.is_empty() => Ok(Some(parse_format_value(&value)?)),
         _ => Ok(None),
     }
@@ -221,14 +223,15 @@ pub(super) fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Parse a `SHORE_FORMAT` value; an unknown value is a hard error naming the variable.
+/// Parse a `POINTBREAK_FORMAT` value; an unknown value is a hard error naming the variable.
 fn parse_format_value(value: &str) -> Result<OutputFormat, Box<dyn std::error::Error>> {
     match value {
         "json" => Ok(OutputFormat::Json),
         "json-pretty" => Ok(OutputFormat::JsonPretty),
         "text" => Ok(OutputFormat::Text),
         other => Err(format!(
-            "invalid SHORE_FORMAT value {other:?}: expected one of json, json-pretty, text"
+            "invalid {} value {other:?}: expected one of json, json-pretty, text",
+            environment::FORMAT
         )
         .into()),
     }
@@ -241,7 +244,7 @@ mod tests {
     #[test]
     fn resolve_format_prefers_flag_over_env_over_default() {
         // Tests the pure precedence rule with the env selection passed in, so the
-        // assertion never depends on the test process's ambient SHORE_FORMAT.
+        // assertion never depends on the test process's ambient POINTBREAK_FORMAT.
         // Explicit flag wins over both env and default, and is not `defaulted`.
         let flag = resolve_format_from(
             Some(OutputFormat::Text),

@@ -36,7 +36,7 @@ fn repo_with_agent_observation() -> GitRepo {
             "--title",
             "Agent observation",
         ],
-        &[("SHORE_ACTOR_ID", "actor:agent:claude-code")],
+        &[("POINTBREAK_ACTOR_ID", "actor:agent:claude-code")],
     );
     assert!(
         out.status.success(),
@@ -47,11 +47,11 @@ fn repo_with_agent_observation() -> GitRepo {
 }
 
 fn write_delegates(repo: &GitRepo, contents: &str) {
-    repo.write(".shore/delegates.json", contents);
+    repo.write(".pointbreak/delegates.json", contents);
 }
 
 fn write_local_delegates(repo: &GitRepo, contents: &str) {
-    repo.write(".shore/delegates.local.json", contents);
+    repo.write(".pointbreak/delegates.local.json", contents);
 }
 
 const LOCAL_OVERRIDE_DELEGATES: &str = r#"{
@@ -130,7 +130,7 @@ fn cli_local_override_replaces_committed_principal_for_the_agent() {
 
 #[test]
 fn cli_resolves_principal_when_repo_points_at_a_subdirectory() {
-    // Read commands accept a path inside the repository; `.shore/delegates.json`
+    // Read commands accept a path inside the repository; `.pointbreak/delegates.json`
     // lives at the worktree root, so discovery must resolve the root rather than
     // join the raw `--repo` argument.
     let repo = repo_with_agent_observation();
@@ -173,8 +173,11 @@ fn cli_warns_and_proceeds_on_malformed_delegates_file() {
     assert!(entry["principal"].get("actorId").is_none());
 
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let delegates = pointbreak::paths::RepositoryPaths::resolve(repo.path())
+        .unwrap()
+        .delegates();
     assert!(
-        stderr.contains(".shore/delegates.json"),
+        stderr.contains(&delegates.display().to_string()),
         "stderr names the offending file; got: {stderr}"
     );
 }

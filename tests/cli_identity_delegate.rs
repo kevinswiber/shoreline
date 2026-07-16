@@ -51,7 +51,7 @@ fn delegate_stages_delegates_file_and_reader_resolves_principal() {
     assert_eq!(doc["added"], true);
 
     // Read back through the PUBLIC reader (INV-F).
-    let path = repo.path().join(".shore/delegates.json");
+    let path = repo.path().join(".pointbreak/delegates.json");
     let map = pointbreak::session::DelegationMap::from_delegates_file(&path).unwrap();
     assert_eq!(
         map.resolve(
@@ -89,7 +89,7 @@ fn delegate_defaults_from_to_now_rfc3339() {
     // The staged record re-reads (never a unix-ms: form, INV-C).
     assert!(
         pointbreak::session::DelegationMap::from_delegates_file(
-            repo.path().join(".shore/delegates.json")
+            repo.path().join(".pointbreak/delegates.json")
         )
         .is_ok()
     );
@@ -115,7 +115,7 @@ fn delegate_rejects_agent_principal_depth0() {
         "agent-scheme principal must be rejected (depth-0)"
     );
     assert!(!String::from_utf8_lossy(&out.stderr).contains("panicked"));
-    assert!(!repo.path().join(".shore/delegates.json").exists());
+    assert!(!repo.path().join(".pointbreak/delegates.json").exists());
 }
 
 #[test]
@@ -153,12 +153,16 @@ fn delegate_local_writes_override_excludes_it_and_surfaces_full_replace_caveat()
         "stderr:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    // The local file exists and is git-excluded via the generated .shore/.gitignore.
-    assert!(repo.path().join(".shore/delegates.local.json").exists());
-    let ignore = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+    // The local file exists and is git-excluded via the generated .pointbreak/.gitignore.
+    assert!(
+        repo.path()
+            .join(".pointbreak/delegates.local.json")
+            .exists()
+    );
+    let ignore = std::fs::read_to_string(repo.path().join(".pointbreak/.gitignore")).unwrap();
     assert!(ignore.lines().any(|l| l.trim() == "*.local.json"));
     let check = std::process::Command::new("git")
-        .args(["check-ignore", ".shore/delegates.local.json"])
+        .args(["check-ignore", ".pointbreak/delegates.local.json"])
         .current_dir(repo.path())
         .status()
         .unwrap();

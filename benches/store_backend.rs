@@ -5,18 +5,19 @@
 //! latency, single-append latency, and on-disk amplification. The synthetic
 //! groups are generated in-process and need nothing external — anyone can run
 //! them. An optional real-world read-all sample runs only when
-//! `SHORE_BENCH_FIXTURE` points at an existing store directory; it is skipped
+//! `POINTBREAK_BENCH_FIXTURE` points at an existing store directory; it is skipped
 //! otherwise, so the harness has no baked-in paths. No alternative backend is
 //! built here; this only establishes the file backend's numbers.
 //!
-//! See `docs/benchmarking.md` for `SHORE_BENCH_FIXTURE`, the expected store-dir
+//! See `docs/benchmarking.md` for `POINTBREAK_BENCH_FIXTURE`, the expected store-dir
 //! layout, and the schema-currency requirement.
 
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
 
 use criterion::{BenchmarkId, Criterion, Throughput};
-use pointbreak::bench_support::StoreBenchHarness;
+use pointbreak::bench_support::{StoreBenchHarness, repository_for_common_store};
+use pointbreak::environment;
 use pointbreak::model::RevisionId;
 use pointbreak::session::{
     EventVerificationPolicy, ReviewHistoryOptions, RevisionListOptions, RevisionOverviewsOptions,
@@ -35,7 +36,7 @@ fn read_all(c: &mut Criterion) {
     let mut group = c.benchmark_group("read_all");
     for &n in SIZES {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let harness = StoreBenchHarness::open(dir.path().join(".shore/data"));
+        let harness = StoreBenchHarness::open(dir.path().join(".pointbreak/data"));
         harness.populate(n);
         group.throughput(Throughput::Elements(n as u64));
         group.bench_with_input(BenchmarkId::new("synthetic", n), &harness, |b, h| {
@@ -54,13 +55,13 @@ fn read_all(c: &mut Criterion) {
                     });
                 }
                 Err(error) => eprintln!(
-                    "skipping SHORE_BENCH_FIXTURE read-all ({}): {error}",
+                    "skipping POINTBREAK_BENCH_FIXTURE read-all ({}): {error}",
                     store_dir.display()
                 ),
             }
         }
         None => eprintln!(
-            "skipping fixture read-all: set SHORE_BENCH_FIXTURE to a store directory \
+            "skipping fixture read-all: set POINTBREAK_BENCH_FIXTURE to a store directory \
              for a real-world sample"
         ),
     }
@@ -76,7 +77,7 @@ fn append(c: &mut Criterion) {
     let mut group = c.benchmark_group("append");
     for &n in SIZES {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let harness = StoreBenchHarness::open(dir.path().join(".shore/data"));
+        let harness = StoreBenchHarness::open(dir.path().join(".pointbreak/data"));
         harness.populate(n);
         group.bench_with_input(BenchmarkId::new("warm", n), &harness, |b, h| {
             b.iter(|| h.append_one());
@@ -91,7 +92,7 @@ fn report_disk_amplification() {
     eprintln!("disk amplification — file backend, synthetic events (on-disk / logical bytes):");
     for &n in SIZES {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let harness = StoreBenchHarness::open(dir.path().join(".shore/data"));
+        let harness = StoreBenchHarness::open(dir.path().join(".pointbreak/data"));
         harness.populate(n);
         let usage = harness.byte_usage();
         let ratio = if usage.logical == 0 {
@@ -120,8 +121,8 @@ fn report_disk_amplification() {
 fn revision_overviews(c: &mut Criterion) {
     let Some(repo) = fixture_repo_dir() else {
         eprintln!(
-            "skipping revision_overviews A/B: set SHORE_BENCH_REPO to a repo root (or \
-             SHORE_BENCH_FIXTURE to its <repo>/.git/shore store) for the live sample"
+            "skipping revision_overviews A/B: set POINTBREAK_BENCH_REPO to a repo root (or \
+             POINTBREAK_BENCH_FIXTURE to its <repo>/.git/pointbreak store) for the live sample"
         );
         return;
     };
@@ -216,33 +217,26 @@ fn freshness(c: &mut Criterion) {
 }
 
 /// An optional real-world store to sample read-all over, supplied entirely by the
-/// caller through `SHORE_BENCH_FIXTURE` — no path is baked into the source, so the
+/// caller through `POINTBREAK_BENCH_FIXTURE` — no path is baked into the source, so the
 /// harness stays runnable by anyone. Returns the store directory only when the env
 /// var is set and its event log is present; an unset or absent fixture is skipped
 /// rather than failing the run.
 fn fixture_store_dir() -> Option<PathBuf> {
-    let store_dir = PathBuf::from(std::env::var_os("SHORE_BENCH_FIXTURE")?);
+    let store_dir = PathBuf::from(std::env::var_os(environment::BENCH_FIXTURE)?);
     store_dir.join("events").is_dir().then_some(store_dir)
 }
 
 /// The repo root for the API-level benches (`show_revision*`, freshness), which
 /// resolve their store from a repo path rather than a store dir. Prefers an
-/// explicit `SHORE_BENCH_REPO`; otherwise derives it from a `<repo>/.git/shore`
-/// `SHORE_BENCH_FIXTURE`. Returns `None` (skip) when neither yields a git repo.
+/// explicit `POINTBREAK_BENCH_REPO`; otherwise derives it from a `<repo>/.git/pointbreak`
+/// `POINTBREAK_BENCH_FIXTURE`. Returns `None` (skip) when neither yields a git repo.
 fn fixture_repo_dir() -> Option<PathBuf> {
-    if let Some(repo) = std::env::var_os("SHORE_BENCH_REPO") {
+    if let Some(repo) = std::env::var_os(environment::BENCH_REPO) {
         let repo = PathBuf::from(repo);
         return repo.join(".git").exists().then_some(repo);
     }
-    let store = PathBuf::from(std::env::var_os("SHORE_BENCH_FIXTURE")?);
-    // <repo>/.git/shore -> <repo>
-    if store.file_name()?.to_str()? == "shore" {
-        let git = store.parent()?;
-        if git.file_name()?.to_str()? == ".git" {
-            return git.parent().map(Path::to_path_buf);
-        }
-    }
-    None
+    let store = PathBuf::from(std::env::var_os(environment::BENCH_FIXTURE)?);
+    repository_for_common_store(store)
 }
 
 fn main() {

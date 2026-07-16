@@ -15,7 +15,7 @@ use support::git_repo::GitRepo;
 use support::shore;
 
 /// Shared-store review fixture: the seed worktree captures one review unit,
-/// which writes through to the shared common-dir store (`.git/shore`) by default.
+/// which writes through to the shared common-dir store (`.git/pointbreak`) by default.
 /// The reader is a sibling worktree of the same clone, so its reads resolve the
 /// same shared store with no `store link` step.
 struct LinkedFixture {
@@ -89,7 +89,7 @@ impl LinkedFixture {
     }
 
     fn linked_store_dir(&self) -> PathBuf {
-        self.main.path().join(".git/shore")
+        self.main.path().join(".git/pointbreak")
     }
 
     fn history_json(&self, worktree: &Path, include_body: bool) -> Value {
@@ -756,7 +756,7 @@ fn linked_fact_writes_land_in_linked_store_not_worktree_local() {
         linked_after.len()
     );
     assert!(
-        event_file_names(&fixture.reader.join(".shore/data")).is_empty(),
+        event_file_names(&fixture.reader.join(".pointbreak/data")).is_empty(),
         "reader worktree-local store received no fact events in linked mode"
     );
 }
@@ -789,7 +789,7 @@ fn linked_fact_write_state_json_is_orphan_free() {
 #[test]
 fn linked_fact_write_does_not_copy_object_artifacts_to_linked_store() {
     let fixture = LinkedFixture::new();
-    // Reader captures locally: its object artifact lands in the reader's .shore/data.
+    // Reader captures locally: its object artifact lands in the reader's .pointbreak/data.
     fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
     let capture = fixture.capture(&fixture.reader);
     let local_unit = capture["revision"]["id"].as_str().unwrap().to_owned();
@@ -825,7 +825,7 @@ fn event_file_names(store_dir: &Path) -> Vec<String> {
 }
 
 /// Deserialize every event file directly out of an explicit store directory.
-/// `read_events(worktree)` resolves the worktree-local `.shore/data` store; in
+/// `read_events(worktree)` resolves the worktree-local `.pointbreak/data` store; in
 /// linked mode write-through lands events in the clone-local store, so reading
 /// those events back means reading the clone-local store directory itself.
 fn read_store_events(store_dir: &Path) -> Vec<pointbreak::session::event::ShoreEvent> {
@@ -1237,7 +1237,7 @@ fn import_artifact_writes_through_to_linked_store() {
 
     // Write-through (INV-1): import lands the artifact bytes in the clone-local
     // store (the same store reads resolve), never the reader's worktree-local
-    // `.shore/data`.
+    // `.pointbreak/data`.
     assert!(
         fixture
             .linked_store_dir()
@@ -1247,7 +1247,7 @@ fn import_artifact_writes_through_to_linked_store() {
     assert!(
         !fixture
             .reader
-            .join(".shore/data")
+            .join(".pointbreak/data")
             .join(&artifact_relative_path)
             .exists()
     );
@@ -1297,7 +1297,7 @@ fn main_worktree_of_a_clone_round_trips_a_capture_in_place() {
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // With NO --revision, the same worktree's reads resolve the capture in
-    // place (write-through landed it in the same `.git/shore` store reads use).
+    // place (write-through landed it in the same `.git/pointbreak` store reads use).
     let list = run_shore_json(&["revision", "list", "--repo", main.path().to_str().unwrap()]);
     assert_eq!(list["revisionCount"], 1);
     assert_eq!(

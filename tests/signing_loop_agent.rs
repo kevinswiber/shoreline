@@ -81,7 +81,7 @@ fn agent_backed_enrolled_renders_valid_unenrolled_renders_untrusted_key() {
     .unwrap();
 
     // Enroll the agent-backed key's offline-derived did:key into the allow-list.
-    let path = origin.path().join(".shore/allowed-signers.json");
+    let path = origin.path().join(".pointbreak/allowed-signers.json");
     stage_enrollment(&path, &actor, &enrolled_did).unwrap();
 
     // Loop closes: the enrolled agent-backed key's signed event renders valid.

@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::Args;
 use pointbreak::model::ActorId;
 use pointbreak::session::{
-    DELEGATES_LOCAL_REL_PATH, DELEGATES_REL_PATH, DelegationMap, DelegationStageOutcome,
-    DelegationWriteRecord, ensure_shore_gitignore, now_rfc3339_utc, stage_delegation,
+    DelegationMap, DelegationStageOutcome, DelegationWriteRecord, ensure_pointbreak_gitignore,
+    now_rfc3339_utc, stage_delegation,
 };
 use serde::Serialize;
 
@@ -28,12 +28,12 @@ pub(super) struct DelegateArgs {
     /// Free-text comment for diff readers (never authority).
     #[arg(long)]
     comment: Option<String>,
-    /// Stage the private `.shore/delegates.local.json` override instead of the
+    /// Stage the private `.pointbreak/delegates.local.json` override instead of the
     /// committed file. The local entry FULLY REPLACES the committed records for this
     /// agent on this machine (git-config style), and is git-excluded.
     #[arg(long)]
     local: bool,
-    /// Repository root or a path inside it whose worktree-root `.shore/` receives the entry.
+    /// Repository root or a path inside it whose worktree-root `.pointbreak/` receives the entry.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
     #[command(flatten)]
@@ -73,20 +73,19 @@ pub(super) fn run(
     // looks for (the same call keys/enroll.rs makes).
     let worktree_root =
         pointbreak::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
-
-    let rel = if args.local {
-        DELEGATES_LOCAL_REL_PATH
+    let paths = pointbreak::paths::RepositoryPaths::from_worktree_root(&worktree_root);
+    let path = if args.local {
+        paths.delegates_local()
     } else {
-        DELEGATES_REL_PATH
+        paths.delegates()
     };
-    let path = worktree_root.join(rel);
 
     // INV-E: a local override is git-excluded before it is written.
     let mut local_shadows_committed = None;
     if args.local {
-        ensure_shore_gitignore(&worktree_root)?;
+        ensure_pointbreak_gitignore(&worktree_root)?;
         // Count committed records that this local entry will shadow (full-replace).
-        let committed_path = worktree_root.join(DELEGATES_REL_PATH);
+        let committed_path = paths.delegates();
         if committed_path.exists()
             && let Ok(map) = DelegationMap::from_delegates_file(&committed_path)
         {

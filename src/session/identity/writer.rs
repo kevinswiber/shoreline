@@ -1,21 +1,14 @@
 use std::path::Path;
 
 use crate::crypto::SignerId;
+use crate::environment;
 use crate::git::git_config_get;
 use crate::model::{ActorId, id_prefix};
 use crate::session::event::{Writer, WriterProducer};
 
-/// Environment variable that pins the writing actor to an explicit, fully
-/// qualified `actor:<scheme>:<id>` identity, taking precedence over the local
-/// Git identity. Intended for callers that drive `shore` on behalf of a known
-/// actor — for example a federation bridge forwarding a remote reviewer's
-/// decision, where the local Git identity would otherwise mis-attribute the
-/// durable write to the host running the command.
-pub(crate) const SHORE_ACTOR_ID_ENV: &str = "SHORE_ACTOR_ID";
-
 /// Build the local `Writer`, honoring an optional per-call actor override.
 ///
-/// Precedence: an explicit override wins, then the `SHORE_ACTOR_ID` env var,
+/// Precedence: an explicit override wins, then the `POINTBREAK_ACTOR_ID` env var,
 /// then the local Git identity. A malformed override (or env value) is ignored
 /// and falls through to the next source, so a bad value can never silently
 /// corrupt provenance. `None` reproduces the prior env-then-Git behavior
@@ -28,7 +21,7 @@ pub(crate) fn writer_from_options(repo: &Path, explicit: Option<&ActorId>) -> Wr
 }
 
 /// Resolve the writing actor for `repo`, honoring an optional explicit override,
-/// then `SHORE_ACTOR_ID`, then the local Git identity.
+/// then `POINTBREAK_ACTOR_ID`, then the local Git identity.
 ///
 /// This is the **public** actor-resolution helper the binary CLI calls (the
 /// `pub(crate)` `writer_from_options` is unreachable from the binary crate). The
@@ -39,12 +32,12 @@ pub fn resolve_writer_actor_id(repo: &Path, explicit: Option<&ActorId>) -> Actor
     actor_id_for_repo(explicit.map(ActorId::as_str), repo)
 }
 
-/// Resolve the writing actor for `repo`, reading `SHORE_ACTOR_ID` as the
+/// Resolve the writing actor for `repo`, reading `POINTBREAK_ACTOR_ID` as the
 /// process-level default beneath an optional explicit override.
 fn actor_id_for_repo(explicit: Option<&str>, repo: &Path) -> ActorId {
     resolve_actor_id(
         explicit,
-        std::env::var(SHORE_ACTOR_ID_ENV).ok().as_deref(),
+        std::env::var(environment::ACTOR_ID).ok().as_deref(),
         repo,
     )
 }

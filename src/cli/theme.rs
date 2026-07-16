@@ -337,18 +337,18 @@ pub(super) struct ThemeSelection {
     pub(super) source: ThemeSource,
 }
 
-/// Pure precedence core: `--theme` flag > `SHORE_THEME` > `BAT_THEME` > Auto.
+/// Pure precedence core: `--theme` flag > `POINTBREAK_THEME` > `BAT_THEME` > Auto.
 /// Blank (empty/whitespace) values are no selection. Injected values keep it
 /// unit-testable without touching (or racing on) the process environment.
 pub(super) fn resolve_theme_selection(
     flag: Option<&str>,
-    shore_env: Option<&str>,
+    product_env: Option<&str>,
     bat_env: Option<&str>,
 ) -> ThemeSelection {
     fn pick(value: Option<&str>) -> Option<&str> {
         value.map(str::trim).filter(|value| !value.is_empty())
     }
-    if let Some(value) = pick(flag).or(pick(shore_env)) {
+    if let Some(value) = pick(flag).or(pick(product_env)) {
         return ThemeSelection {
             preference: parse_theme_value(value),
             source: ThemeSource::Explicit,
@@ -366,12 +366,12 @@ pub(super) fn resolve_theme_selection(
     }
 }
 
-/// Read `SHORE_THEME` / `BAT_THEME` and delegate to the pure core. The single
-/// theme-env read site (the `SHORE_FORMAT` convention, `src/cli/output.rs`).
+/// Read `POINTBREAK_THEME` / `BAT_THEME` and delegate to the pure core. The single
+/// theme-env read site (the `POINTBREAK_FORMAT` convention, `src/cli/output.rs`).
 pub(super) fn theme_selection_from_env(flag: Option<&str>) -> ThemeSelection {
-    let shore = std::env::var("SHORE_THEME").ok();
+    let pointbreak = std::env::var(pointbreak::environment::THEME).ok();
     let bat = std::env::var("BAT_THEME").ok();
-    resolve_theme_selection(flag, shore.as_deref(), bat.as_deref())
+    resolve_theme_selection(flag, pointbreak.as_deref(), bat.as_deref())
 }
 
 #[cfg(test)]
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn explicit_auto_detects_like_the_default() {
-        // Provenance does not gate Auto: `--theme auto` / `SHORE_THEME=auto`
+        // Provenance does not gate Auto: `--theme auto` / `POINTBREAK_THEME=auto`
         // is an explicit request to detect, bat semantics.
         let sel = selection(ThemePreference::Auto, ThemeSource::Explicit);
         let light = resolve_truecolor_palette(&sel, || Some(DiffMode::Light)).unwrap();
@@ -706,11 +706,11 @@ mod tests {
 
     #[test]
     fn empty_or_blank_values_are_no_selection() {
-        // Unset and empty env are the same thing (SHORE_FORMAT precedent).
+        // Unset and empty env are the same thing (POINTBREAK_FORMAT precedent).
         let sel = resolve_theme_selection(None, Some(""), Some("  "));
         assert_eq!(sel.preference, ThemePreference::Auto);
         assert_eq!(sel.source, ThemeSource::Default);
-        // An empty SHORE_THEME does not mask BAT_THEME.
+        // An empty POINTBREAK_THEME does not mask BAT_THEME.
         let sel = resolve_theme_selection(None, Some(""), Some("Nord"));
         assert_eq!(sel.source, ThemeSource::Inherited);
     }

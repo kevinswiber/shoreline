@@ -1,5 +1,5 @@
-//! Sensitivity-scan exclude configuration: a committed `.shore/sensitivity.json`
-//! plus a git-excluded `.shore/sensitivity.local.json` supply gitignore-style
+//! Sensitivity-scan exclude configuration: a committed `.pointbreak/sensitivity.json`
+//! plus a git-excluded `.pointbreak/sensitivity.local.json` supply gitignore-style
 //! path globs the worktree sensitivity scan skips — the targeted alternative to
 //! the blanket `--include-ephemeral` override when a repo's own test fixtures
 //! carry scanner-triggering strings. Kept in its own module so the scan's
@@ -32,12 +32,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
 
-/// Repo-relative paths to the sensitivity-config files: the committed default
-/// and the git-excluded private override (covered by `.shore/.gitignore`'s
-/// `*.local.json` line).
-pub(crate) const SENSITIVITY_CONFIG_REL_PATH: &str = ".shore/sensitivity.json";
-pub(crate) const SENSITIVITY_CONFIG_LOCAL_REL_PATH: &str = ".shore/sensitivity.local.json";
-
 const SENSITIVITY_CONFIG_SCHEMA: &str = "shore.sensitivity-config";
 const SENSITIVITY_CONFIG_VERSION: u32 = 1;
 
@@ -53,8 +47,8 @@ struct SensitivityConfig {
 }
 
 /// The effective exclude-glob list for `worktree_root`: the committed
-/// `.shore/sensitivity.json` unioned with the git-excluded
-/// `.shore/sensitivity.local.json` (committed order first, then novel local
+/// `.pointbreak/sensitivity.json` unioned with the git-excluded
+/// `.pointbreak/sensitivity.local.json` (committed order first, then novel local
 /// entries). Union — not the local-replaces-committed rule `store.json` /
 /// `delegates.json` use — because this is a LIST: replace would force copying
 /// the whole committed list to add one local entry, union grants nothing
@@ -65,8 +59,9 @@ struct SensitivityConfig {
 /// error naming the offending file — the config gates a protection, so a
 /// misread must never silently change coverage.
 pub(crate) fn resolve_sensitivity_excludes(worktree_root: &Path) -> Result<Vec<String>> {
-    let committed = load_sensitivity_config(&worktree_root.join(SENSITIVITY_CONFIG_REL_PATH))?;
-    let local = load_sensitivity_config(&worktree_root.join(SENSITIVITY_CONFIG_LOCAL_REL_PATH))?;
+    let paths = crate::paths::RepositoryPaths::from_worktree_root(worktree_root);
+    let committed = load_sensitivity_config(&paths.sensitivity())?;
+    let local = load_sensitivity_config(&paths.sensitivity_local())?;
     let mut globs: Vec<String> = Vec::new();
     for config in [committed, local].into_iter().flatten() {
         for glob in config.exclude_globs {
@@ -281,8 +276,8 @@ mod tests {
         // Union, not local-replaces-committed: an exclude config is a list, and
         // a local file should ADD entries without copying the committed list.
         let root = tempfile::tempdir().unwrap();
-        write(root.path(), ".shore/sensitivity.json", COMMITTED_DOC);
-        write(root.path(), ".shore/sensitivity.local.json", LOCAL_DOC);
+        write(root.path(), ".pointbreak/sensitivity.json", COMMITTED_DOC);
+        write(root.path(), ".pointbreak/sensitivity.local.json", LOCAL_DOC);
         assert_eq!(
             resolve_sensitivity_excludes(root.path()).unwrap(),
             vec![
@@ -297,7 +292,7 @@ mod tests {
     #[test]
     fn either_config_file_alone_is_used() {
         let root = tempfile::tempdir().unwrap();
-        write(root.path(), ".shore/sensitivity.local.json", LOCAL_DOC);
+        write(root.path(), ".pointbreak/sensitivity.local.json", LOCAL_DOC);
         assert_eq!(
             resolve_sensitivity_excludes(root.path()).unwrap(),
             vec!["*.pem".to_owned(), "scratch/**".to_owned()]
@@ -307,7 +302,7 @@ mod tests {
     #[test]
     fn malformed_sensitivity_config_is_a_hard_error_naming_the_file() {
         let root = tempfile::tempdir().unwrap();
-        write(root.path(), ".shore/sensitivity.json", "{ not json");
+        write(root.path(), ".pointbreak/sensitivity.json", "{ not json");
         let err = resolve_sensitivity_excludes(root.path())
             .unwrap_err()
             .to_string();
@@ -323,7 +318,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         write(
             root.path(),
-            ".shore/sensitivity.local.json",
+            ".pointbreak/sensitivity.local.json",
             r#"{"schema":"shore.sensitivity-config","version":999,"excludeGlobs":[]}"#,
         );
         let err = resolve_sensitivity_excludes(root.path())
@@ -340,7 +335,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         write(
             root.path(),
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["!tests/**"]}"#,
         );
         let err = resolve_sensitivity_excludes(root.path())
@@ -352,7 +347,7 @@ mod tests {
         );
         write(
             root.path(),
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":[""]}"#,
         );
         let err = resolve_sensitivity_excludes(root.path())

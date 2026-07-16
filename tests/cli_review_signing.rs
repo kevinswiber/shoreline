@@ -51,7 +51,7 @@ fn write_with_no_key_is_unsigned_and_exit_zero() {
     let repo = modified_repo();
     let out = shore_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", home.path().to_str().unwrap())],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
     );
     assert_eq!(
         out.status.code(),
@@ -70,37 +70,37 @@ fn write_with_no_key_is_unsigned_and_exit_zero() {
 fn write_with_signing_off_is_unsigned_and_exit_zero_even_with_a_default_key() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    // A "default" key exists, but SHORE_SIGNING=off forces no signing.
+    // A "default" key exists, but POINTBREAK_SIGNING=off forces no signing.
     let init = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
     let repo = modified_repo();
     let out = shore_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
+        &[("POINTBREAK_HOME", env_home), ("POINTBREAK_SIGNING", "off")],
     );
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(
         capture_status(repo.path(), TrustSet::default()),
         Some(EventVerificationStatus::Unsigned),
-        "SHORE_SIGNING=off -> unsigned even with a default key"
+        "POINTBREAK_SIGNING=off -> unsigned even with a default key"
     );
 }
 
 #[test]
 fn write_is_unsigned_and_exit_zero_when_keygen_is_forced_to_fail() {
-    // An agent actor would auto-keygen, but SHORE_HOME points at a regular file so
+    // An agent actor would auto-keygen, but POINTBREAK_HOME points at a regular file so
     // the keystore directory cannot be created and keygen fails.
     let file_home = tempfile::NamedTempFile::new().unwrap();
     let repo = modified_repo();
     let out = shore_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[
-            ("SHORE_HOME", file_home.path().to_str().unwrap()),
-            ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
+            ("POINTBREAK_HOME", file_home.path().to_str().unwrap()),
+            ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
         ],
     );
     assert_eq!(
@@ -120,14 +120,14 @@ fn present_but_unenrolled_key_signs_and_verifies_untrusted_key() {
     let env_home = home.path().to_str().unwrap();
     let init = shore_env(
         ["key", "init", "--name", "default"],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
     let repo = modified_repo();
     let out = shore_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert_eq!(out.status.code(), Some(0));
     // Signed by a key not in any allow-list: tamper-evident, strictly better than unsigned.
@@ -141,7 +141,10 @@ fn present_but_unenrolled_key_signs_and_verifies_untrusted_key() {
 fn ci_ephemeral_did_key_self_certifies_valid_under_empty_trust_set() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let init = shore_env(["key", "init", "--name", "ci"], &[("SHORE_HOME", env_home)]);
+    let init = shore_env(
+        ["key", "init", "--name", "ci"],
+        &[("POINTBREAK_HOME", env_home)],
+    );
     assert!(init.status.success());
     let did_key = parse(&init)["didKey"].as_str().unwrap().to_owned();
 
@@ -156,8 +159,8 @@ fn ci_ephemeral_did_key_self_certifies_valid_under_empty_trust_set() {
             "ci",
         ],
         &[
-            ("SHORE_HOME", env_home),
-            ("SHORE_ACTOR_ID", did_key.as_str()),
+            ("POINTBREAK_HOME", env_home),
+            ("POINTBREAK_ACTOR_ID", did_key.as_str()),
         ],
     );
     assert_eq!(
@@ -179,7 +182,7 @@ fn sign_key_flag_signs_the_write() {
     let env_home = home.path().to_str().unwrap();
     let init = shore_env(
         ["key", "init", "--name", "mykey"],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert!(init.status.success());
 
@@ -192,7 +195,7 @@ fn sign_key_flag_signs_the_write() {
             "--sign-key",
             "mykey",
         ],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert_eq!(out.status.code(), Some(0));
     // Signed (un-enrolled) -> untrusted_key, not unsigned.
@@ -205,7 +208,7 @@ fn sign_key_flag_signs_the_write() {
 #[test]
 fn all_six_write_paths_stay_exit_zero_without_a_key() {
     let home = tempfile::tempdir().unwrap();
-    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
 
@@ -319,7 +322,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
 fn all_six_write_paths_accept_sign_key_flag() {
     let home = tempfile::tempdir().unwrap();
     let env_home = home.path().to_str().unwrap();
-    let env = [("SHORE_HOME", env_home)];
+    let env = [("POINTBREAK_HOME", env_home)];
     assert!(
         shore_env(["key", "init", "--name", "default"], &env)
             .status
@@ -454,7 +457,7 @@ fn agent_unavailable_write_is_unsigned_and_exit_zero() {
     // Adopt an agent-backed `default` reference (no live agent needed to write it).
     let adopt = shore_env(
         ["key", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
-        &[("SHORE_HOME", env_home)],
+        &[("POINTBREAK_HOME", env_home)],
     );
     assert!(
         adopt.status.success(),
@@ -469,7 +472,7 @@ fn agent_unavailable_write_is_unsigned_and_exit_zero() {
     let out = shore_env(
         ["capture", "--repo", repo.path().to_str().unwrap()],
         &[
-            ("SHORE_HOME", env_home),
+            ("POINTBREAK_HOME", env_home),
             ("SSH_AUTH_SOCK", "/nonexistent/shore-no-agent.sock"),
         ],
     );

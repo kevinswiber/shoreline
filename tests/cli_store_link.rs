@@ -26,7 +26,7 @@ fn store_link_emits_camelcase_json_with_family_and_clone_refs() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -34,7 +34,7 @@ fn store_link_emits_camelcase_json_with_family_and_clone_refs() {
 
     let link = shore_env(
         ["store", "link", "acme", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         link.status.success(),
@@ -56,7 +56,7 @@ fn store_link_text_digest_mentions_the_family() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -66,7 +66,7 @@ fn store_link_text_digest_mentions_the_family() {
         [
             "store", "link", "acme", "--repo", &repo_arg, "--format", "text",
         ],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(link.status.success());
     let stdout = String::from_utf8(link.stdout).unwrap();
@@ -87,14 +87,14 @@ fn store_link_default_fold_discloses_removed_unsigned_events() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
     );
     let status = shore_env(
         ["store", "status", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let object_ref = parse_json(&status.stdout)["inventory"]["revisionObjects"][0]["objectId"]
         .as_str()
@@ -110,7 +110,7 @@ fn store_link_default_fold_discloses_removed_unsigned_events() {
                 "--repo",
                 &repo_arg
             ],
-            &[("SHORE_HOME", home_str), ("SHORE_SIGNING", "off")],
+            &[("POINTBREAK_HOME", home_str), ("POINTBREAK_SIGNING", "off")],
         )
         .status
         .success()
@@ -118,7 +118,7 @@ fn store_link_default_fold_discloses_removed_unsigned_events() {
 
     let link = shore_env(
         ["store", "link", "acme", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(link.status.success());
     let json = parse_json(&link.stdout);
@@ -141,7 +141,7 @@ fn store_link_dry_run_previews_without_writing() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -149,7 +149,7 @@ fn store_link_dry_run_previews_without_writing() {
 
     let dry = shore_env(
         ["store", "link", "acme", "--dry-run", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         dry.status.success(),
@@ -163,10 +163,10 @@ fn store_link_dry_run_previews_without_writing() {
     assert_eq!(json["exportFidelity"], "full");
     assert!(json["foldedEventsToCreate"].as_u64().unwrap() >= 1);
     // No binding was flipped, and a subsequent status still reports the local store.
-    assert!(!repo.path().join(".shore/store.local.json").exists());
+    assert!(!repo.path().join(".pointbreak/store.local.json").exists());
     let status = shore_env(
         ["store", "status", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert_eq!(parse_json(&status.stdout)["mode"], "local");
 }
@@ -180,7 +180,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -188,7 +188,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
     assert!(
         shore_env(
             ["store", "mode", "ephemeral", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -196,7 +196,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
 
     let dry = shore_env(
         ["store", "link", "acme", "--dry-run", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         !dry.status.success(),
@@ -204,7 +204,7 @@ fn store_link_dry_run_blocks_on_ephemeral_without_override() {
     );
     let stderr = String::from_utf8_lossy(&dry.stderr);
     assert!(stderr.contains("ephemeral"), "names the gate: {stderr}");
-    assert!(!repo.path().join(".shore/store.local.json").exists());
+    assert!(!repo.path().join(".pointbreak/store.local.json").exists());
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn store_unlink_round_trips() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -224,7 +224,7 @@ fn store_unlink_round_trips() {
     assert!(
         shore_env(
             ["store", "link", "acme", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -232,7 +232,7 @@ fn store_unlink_round_trips() {
 
     let unlink = shore_env(
         ["store", "unlink", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         unlink.status.success(),
@@ -242,7 +242,7 @@ fn store_unlink_round_trips() {
 
     let status = shore_env(
         ["store", "status", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     let json = parse_json(&status.stdout);
     assert_eq!(json["mode"], "local");
@@ -258,7 +258,7 @@ fn store_link_without_a_slug_surfaces_the_workflow_suggestion_error() {
     assert!(
         shore_env(
             ["capture", "--repo", &repo_arg],
-            &[("SHORE_HOME", home_str)]
+            &[("POINTBREAK_HOME", home_str)]
         )
         .status
         .success()
@@ -266,7 +266,7 @@ fn store_link_without_a_slug_surfaces_the_workflow_suggestion_error() {
 
     let link = shore_env(
         ["store", "link", "--repo", &repo_arg],
-        &[("SHORE_HOME", home_str)],
+        &[("POINTBREAK_HOME", home_str)],
     );
     assert!(
         !link.status.success(),

@@ -12,15 +12,13 @@ pub use event::{
     event_to_be_signed,
 };
 pub use identity::{
-    ACTOR_ATTRIBUTES_LOCAL_REL_PATH, ACTOR_ATTRIBUTES_REL_PATH, ActorAttributes,
-    ActorAttributesMap, ActorAttributesStageOutcome, ActorAttributesWriteRecord,
-    DELEGATES_LOCAL_REL_PATH, DELEGATES_REL_PATH, DelegationMap, DelegationRecord,
-    DelegationStageOutcome, DelegationWriteRecord, PrincipalResolution, PrincipalSource,
-    PrincipalStatus, PrincipalView, UnresolvedReason, actor_attributes_from_value,
-    compare_event_instants, delegation_map_from_value, format_rfc3339_utc_millis,
-    is_agent_actor_id, is_valid_actor_id, now_rfc3339_utc, parse_event_instant,
-    principal_display_label, principal_resolution_for_writer, principal_view_for,
-    resolve_writer_actor_id, stage_actor_attributes, stage_delegation,
+    ActorAttributes, ActorAttributesMap, ActorAttributesStageOutcome, ActorAttributesWriteRecord,
+    DelegationMap, DelegationRecord, DelegationStageOutcome, DelegationWriteRecord,
+    PrincipalResolution, PrincipalSource, PrincipalStatus, PrincipalView, UnresolvedReason,
+    actor_attributes_from_value, compare_event_instants, delegation_map_from_value,
+    format_rfc3339_utc_millis, is_agent_actor_id, is_valid_actor_id, now_rfc3339_utc,
+    parse_event_instant, principal_display_label, principal_resolution_for_writer,
+    principal_view_for, resolve_writer_actor_id, stage_actor_attributes, stage_delegation,
 };
 pub(crate) use identity::{current_timestamp, writer_from_options};
 pub use projection::cosignature::{
@@ -38,11 +36,11 @@ pub use projection::{
 };
 pub use sensitivity_vocabulary::{SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity};
 pub use signing::{
-    ALLOWED_SIGNERS_REL_PATH, ArtifactAvailability, BestEffortSkipSink,
-    COSIGNATURE_BINDING_MISMATCH_CODE, COSIGNATURE_INVALID_CODE, COSIGNATURE_TARGET_PENDING_CODE,
-    COSIGNATURE_UNTRUSTED_SIGNER_CODE, CosignatureGateDecision, CosignatureVerification,
-    EnrollmentDiff, EventSigningOptions, EventVerificationPolicy, EventVerificationView,
-    IngestEventVerification, PrincipalPolicy, RemovalPolicy, TrustSet, enroll_signer,
+    ArtifactAvailability, BestEffortSkipSink, COSIGNATURE_BINDING_MISMATCH_CODE,
+    COSIGNATURE_INVALID_CODE, COSIGNATURE_TARGET_PENDING_CODE, COSIGNATURE_UNTRUSTED_SIGNER_CODE,
+    CosignatureGateDecision, CosignatureVerification, EnrollmentDiff, EventSigningOptions,
+    EventVerificationPolicy, EventVerificationView, IngestEventVerification, PrincipalPolicy,
+    RemovalPolicy, TrustSet, allowed_signers_path_for_repo, enroll_signer,
     event_signature_trust_set, gate_cosignature_for_store, principal_sufficient, stage_enrollment,
     trust_set_to_value, verification_view, verify_cosignature, verify_event_signature,
 };
@@ -50,14 +48,14 @@ pub(crate) use signing::{sign_event_if_requested, verify_events_for_ingest};
 #[cfg(test)]
 pub(crate) use store::compute_revision_fingerprint;
 pub(crate) use store::{
-    EventStore, RevisionFingerprint, ShoreStorePaths, SkippedEvent, sweep_stale_temp_files,
+    EventStore, RepositoryPaths, RevisionFingerprint, SkippedEvent, sweep_stale_temp_files,
     worktree_fingerprint_for_files,
 };
 pub use store::{
-    EventWriteOutcome, ObjectArtifact, StoreMode, StoreModeOutcome, StoreModeSource,
-    capture_worktree_fingerprint, ensure_shore_gitignore, event_log_head_marker,
+    EventWriteOutcome, ObjectArtifact, StoreMode, StoreModeOutcome, StoreModeSource, StorePaths,
+    capture_worktree_fingerprint, ensure_pointbreak_gitignore, event_log_head_marker,
     family_link_advisory, read_bound_object_artifact, read_object_artifact,
-    resolve_store_mode_for_repo, set_store_mode_for_repo, store_dir_for_repo,
+    resolve_store_mode_for_repo, set_store_mode_for_repo, store_dir_for_repo, store_paths_for_repo,
 };
 pub(in crate::session) use store::{body_artifact, fingerprint, object_artifact, store_init};
 pub use workflow::{

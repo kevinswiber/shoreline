@@ -519,7 +519,7 @@ fn shore_review_assessment_add_diagnoses_cross_actor_replacement() {
                 "--summary",
                 "Fix this",
             ],
-            &[("SHORE_ACTOR_ID", "actor:agent:codex")],
+            &[("POINTBREAK_ACTOR_ID", "actor:agent:codex")],
         )
         .stdout,
     );
@@ -538,7 +538,7 @@ fn shore_review_assessment_add_diagnoses_cross_actor_replacement() {
             "--replaces",
             first["assessmentId"].as_str().unwrap(),
         ],
-        &[("SHORE_ACTOR_ID", "actor:git-email:human@example.com")],
+        &[("POINTBREAK_ACTOR_ID", "actor:git-email:human@example.com")],
     );
     assert!(
         second.status.success(),
@@ -1098,7 +1098,7 @@ where
 {
     let mut child = Command::new(env!("CARGO_BIN_EXE_shore"))
         .args(args)
-        .env_remove("SHORE_LOG")
+        .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

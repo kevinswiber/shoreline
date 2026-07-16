@@ -3,7 +3,7 @@
 //! …]}}` — **not** the OpenSSH `allowed_signers` line format despite the filename.
 //! Reader side lives in `trust.rs`; this module adds the symmetric writer.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
@@ -12,9 +12,10 @@ use crate::crypto::SignerId;
 use crate::error::{Result, ShoreError};
 use crate::model::ActorId;
 
-/// Repo-relative path to the committed allow-list. Custom Pointbreak JSON, not the
-/// OpenSSH `allowed_signers` format despite the filename.
-pub const ALLOWED_SIGNERS_REL_PATH: &str = ".shore/allowed-signers.json";
+/// Resolve the committed allow-list through the canonical repository path authority.
+pub fn allowed_signers_path_for_repo(repo: &Path) -> Result<PathBuf> {
+    Ok(crate::paths::RepositoryPaths::resolve(repo)?.allowed_signers())
+}
 
 /// Outcome of a single enrollment: whether the `(actor, did:key)` pair was newly
 /// added (`true`) or already present (`false`, a no-op).
@@ -157,7 +158,7 @@ mod tests {
     #[test]
     fn stage_enrollment_into_fresh_dir_creates_readable_file() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/allowed-signers.json");
+        let path = dir.path().join(".pointbreak/allowed-signers.json");
         let actor = ActorId::new(ACTOR);
         let signer = SignerId::parse(DID_A).unwrap();
 
@@ -172,7 +173,7 @@ mod tests {
     #[test]
     fn stage_enrollment_is_byte_stable_on_re_enroll() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/allowed-signers.json");
+        let path = dir.path().join(".pointbreak/allowed-signers.json");
         let actor = ActorId::new(ACTOR);
         let signer = SignerId::parse(DID_A).unwrap();
 
@@ -192,7 +193,7 @@ mod tests {
         // with an empty map. `added` must instead reflect explicit map membership,
         // so the first enroll of such an actor reports added: true.
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".shore/allowed-signers.json");
+        let path = dir.path().join(".pointbreak/allowed-signers.json");
         let did_actor = ActorId::new(DID_A); // actor id IS the did:key
         let signer = SignerId::parse(DID_A).unwrap();
 

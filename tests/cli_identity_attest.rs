@@ -34,7 +34,7 @@ fn attest_stages_attributes_and_reader_resolves_kind_and_roles() {
     assert_eq!(doc["changed"], true);
 
     // Read back through the PUBLIC reader (INV-F).
-    let path = repo.path().join(".shore/actor-attributes.json");
+    let path = repo.path().join(".pointbreak/actor-attributes.json");
     let map = pointbreak::session::ActorAttributesMap::from_attributes_file(&path).unwrap();
     let resolved = map.resolve(&pointbreak::model::ActorId::new(
         "actor:git-email:kevin@swiber.dev",
@@ -64,7 +64,7 @@ fn attest_normalizes_tokens() {
     );
     assert!(out.status.success());
     let map = pointbreak::session::ActorAttributesMap::from_attributes_file(
-        repo.path().join(".shore/actor-attributes.json"),
+        repo.path().join(".pointbreak/actor-attributes.json"),
     )
     .unwrap();
     let r = map.resolve(&pointbreak::model::ActorId::new("actor:agent:review-bot"));
@@ -113,7 +113,12 @@ fn attest_rejects_bad_role_token_and_writes_nothing() {
     );
     assert!(!out.status.success());
     assert!(!String::from_utf8_lossy(&out.stderr).contains("panicked"));
-    assert!(!repo.path().join(".shore/actor-attributes.json").exists());
+    assert!(
+        !repo
+            .path()
+            .join(".pointbreak/actor-attributes.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -139,14 +144,14 @@ fn attest_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
     );
     assert!(
         repo.path()
-            .join(".shore/actor-attributes.local.json")
+            .join(".pointbreak/actor-attributes.local.json")
             .exists()
     );
-    // The override is git-excluded via the generated .shore/.gitignore.
-    let ignore = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+    // The override is git-excluded via the generated .pointbreak/.gitignore.
+    let ignore = std::fs::read_to_string(repo.path().join(".pointbreak/.gitignore")).unwrap();
     assert!(ignore.lines().any(|l| l.trim() == "*.local.json"));
     let check = std::process::Command::new("git")
-        .args(["check-ignore", ".shore/actor-attributes.local.json"])
+        .args(["check-ignore", ".pointbreak/actor-attributes.local.json"])
         .current_dir(repo.path())
         .status()
         .unwrap();

@@ -146,7 +146,7 @@ mod tests {
             .output()
             .unwrap();
         // Write to the resolved store (the shared common-dir store), where the
-        // read surfaces look — not the raw worktree-local `.shore/data`.
+        // read surfaces look — not the raw worktree-local `.pointbreak/data`.
         let store_dir = resolve_read_store(repo.path())
             .unwrap()
             .store_dir()

@@ -8,7 +8,7 @@ use crate::model::{DiffSnapshot, ObjectId};
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::resolve_read_store;
-use crate::session::{RevisionFingerprint, ShoreStorePaths};
+use crate::session::{RepositoryPaths, RevisionFingerprint};
 
 const OBJECT_ARTIFACT_SCHEMA: &str = "shore.object";
 const OBJECT_ARTIFACT_VERSION: u32 = 2;
@@ -99,7 +99,7 @@ pub(crate) fn build_object_artifact_v2(snapshot: DiffSnapshot) -> Result<ObjectA
 /// Read and hash-validate a stored object artifact.
 ///
 /// Reads resolve through the worktree's resolved store — the shared common-dir
-/// store by default, or the worktree-local `.shore/data` store when the worktree
+/// store by default, or the worktree-local `.pointbreak/data` store when the worktree
 /// is ephemeral.
 pub fn read_object_artifact(
     repo: impl AsRef<Path>,
@@ -195,7 +195,7 @@ pub(crate) fn read_bound_object_artifact_bytes(
 
 /// Read a object artifact for WRITE-PATH target validation. Resolves the
 /// worktree's store first (matching read surfaces), then falls back to the
-/// worktree-local `.shore/data/` when the artifact lives only there — an
+/// worktree-local `.pointbreak/data/` when the artifact lives only there — an
 /// ephemeral or pre-migration capture the resolved common-dir store does not
 /// hold. Both sources are content-addressed and the hash is validated, so the
 /// choice is invisible to the caller. This closes a split-brain where a unit's
@@ -225,8 +225,8 @@ fn read_bound_object_artifact_bytes_with_local_fallback(
         return Ok(bytes);
     }
 
-    let local = ShoreStorePaths::resolve(repo.as_ref())?;
-    let local = ContentArtifacts::local(local.store_dir());
+    let local = RepositoryPaths::resolve(repo.as_ref())?;
+    let local = ContentArtifacts::local(local.worktree_store());
     if let Some(bytes) = local.read_object_bytes_if_exists(&content_ref)? {
         return Ok(bytes);
     }
@@ -396,7 +396,7 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let backends = [
-            StoreBackend::Local(root.path().join(".shore/data")),
+            StoreBackend::Local(root.path().join(".pointbreak/data")),
             StoreBackend::memory(),
         ];
         for backend in backends {
@@ -577,9 +577,9 @@ mod tests {
             fingerprint.object_id.clone(),
             files,
         );
-        let store_dir = ShoreStorePaths::resolve(repo.path())
+        let store_dir = RepositoryPaths::resolve(repo.path())
             .unwrap()
-            .store_dir()
+            .worktree_store()
             .to_path_buf();
         let backend = StoreBackend::Local(store_dir.clone());
 
@@ -835,7 +835,7 @@ mod tests {
     // The worktree-local read fallback's old premise — a non-ephemeral worktree
     // that captured locally and had not yet copied its artifact into a separate
     // linked store — no longer exists: with one shared store by default, a
-    // populated worktree-local `.shore/data` is a pre-default store that the
+    // populated worktree-local `.pointbreak/data` is a pre-default store that the
     // legacy guard routes to `shore store migrate` rather than reading through.
     // The dedicated fallback test is retired; `..._prefers_resolved_store...` and
     // `..._missing_everywhere...` cover the surviving write-validation reads.

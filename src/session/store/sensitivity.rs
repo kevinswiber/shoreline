@@ -432,7 +432,7 @@ mod tests {
             "-----BEGIN PRIVATE KEY-----\nredacted\n",
         );
         repo.write(
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
         );
         repo.commit_all("base");
@@ -464,7 +464,7 @@ mod tests {
         );
         repo.write("keys/real.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
         repo.write(
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
         );
         repo.commit_all("base");
@@ -481,7 +481,7 @@ mod tests {
         let repo = TestRepo::new();
         repo.write("src/safe.txt", "safe\n");
         repo.write(
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["stale/**"]}"#,
         );
         repo.commit_all("base");
@@ -516,7 +516,7 @@ mod tests {
             "-----BEGIN PRIVATE KEY-----\nredacted\n",
         );
         repo.write(
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
         );
         repo.commit_all("base");
@@ -603,7 +603,7 @@ mod tests {
             "-----BEGIN PRIVATE KEY-----\nredacted\n",
         );
         repo.write(
-            ".shore/sensitivity.json",
+            ".pointbreak/sensitivity.json",
             r#"{"schema":"shore.sensitivity-config","version":1,"excludeGlobs":["fixtures/**"]}"#,
         );
         repo.commit_all("base");

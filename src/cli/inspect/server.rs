@@ -1,4 +1,4 @@
-//! Minimal synchronous HTTP/1.1 server for the `.shore` inspector.
+//! Minimal synchronous HTTP/1.1 server for the Pointbreak Review inspector.
 //!
 //! This is deliberately small and blocking: one OS thread per connection,
 //! `Connection: close` responses, GET-only routing. It introduces no async

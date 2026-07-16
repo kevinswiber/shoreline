@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn binds_by_snapshot_id_and_content_hash_ignoring_endpoint_identity() {
-        // Capture a range so a real artifact + capture event exist in .shore/data.
+        // Capture a range so a real artifact + capture event exist in .pointbreak/data.
         let repo = committed_repo();
         let captured = capture_range(&repo);
 
@@ -310,9 +310,9 @@ mod tests {
 
     /// The store a workflow actually lands in for `repo` — the shared common-dir
     /// store by default. Reads that follow a workflow resolve here, not the raw
-    /// worktree-local `.shore/data`.
+    /// worktree-local `.pointbreak/data`.
     fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
-        crate::git::git_common_dir(repo).unwrap().join("shore")
+        crate::git::git_common_dir(repo).unwrap().join("pointbreak")
     }
 
     fn committed_repo() -> TestRepo {

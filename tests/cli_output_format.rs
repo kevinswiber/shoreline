@@ -1,4 +1,4 @@
-//! The `--format`/`SHORE_FORMAT` output-lane selector across document-emitting
+//! The `--format`/`POINTBREAK_FORMAT` output-lane selector across document-emitting
 //! commands: precedence, the machine-lane byte contract, the interim text
 //! fallback, and the hard error on an invalid env value.
 
@@ -68,9 +68,12 @@ fn format_text_falls_back_to_indented_json_pre_digest() {
 fn invalid_shore_format_is_a_hard_error() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
-    let output = support::shore_env(["history", "--repo", path], &[("SHORE_FORMAT", "bogus")]);
+    let output = support::shore_env(
+        ["history", "--repo", path],
+        &[("POINTBREAK_FORMAT", "bogus")],
+    );
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("SHORE_FORMAT"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("POINTBREAK_FORMAT"));
 }
 
 #[test]
