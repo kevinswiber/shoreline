@@ -4,7 +4,7 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh \
-#     | sh -s -- --version=v0.6.0 --prefix="$HOME/.local/bin"
+#     | sh -s -- --version=v0.7.0 --prefix="$HOME/.local/bin"
 
 set -eu
 
@@ -14,7 +14,6 @@ DOWNLOAD_ROOT="https://github.com/${REPOSITORY}/releases/download"
 RELEASES_URL="https://github.com/${REPOSITORY}/releases"
 VERSION="latest"
 INSTALL_DIR="${HOME:?HOME must be set}/.local/bin"
-VERIFY_CHECKSUM=1
 
 usage() {
     cat <<'EOF'
@@ -23,9 +22,8 @@ Pointbreak Review installer
 Usage: install.sh [options]
 
 Options:
-  --version VERSION   Install a release tag or version (for example v0.6.0)
+  --version VERSION   Install a release tag or version (for example v0.7.0)
   --prefix PATH       Install directory (default: ~/.local/bin)
-  --no-verify         Skip SHA-256 verification (not recommended)
   -h, --help          Show this help
 EOF
 }
@@ -54,10 +52,6 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || die "--prefix requires a value"
             INSTALL_DIR=$2
             shift 2
-            ;;
-        --no-verify)
-            VERIFY_CHECKSUM=0
-            shift
             ;;
         -h|--help)
             usage
@@ -158,7 +152,7 @@ sha256_file() {
     elif command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$file" | awk '{print $1}'
     else
-        die "sha256sum or shasum is required for verification; use --no-verify to bypass it"
+        die "sha256sum or shasum is required"
     fi
 }
 
@@ -173,6 +167,59 @@ download_asset() {
     else
         download_file "${DOWNLOAD_ROOT}/${tag}/${name}" "$output"
     fi
+}
+
+verify_checksum() {
+    archive_name=$1
+    archive_file=$2
+    checksums_file=$3
+    matches_file=$4
+
+    awk -v name="$archive_name" \
+        '$2 == name || $2 == "*" name { print $1 }' "$checksums_file" > "$matches_file"
+    [ "$(wc -l < "$matches_file" | tr -d ' ')" -eq 1 ] \
+        || die "checksums.txt must contain exactly one SHA-256 entry for $archive_name"
+
+    expected_checksum=$(sed -n '1p' "$matches_file")
+    printf '%s\n' "$expected_checksum" | grep -Eq '^[0-9A-Fa-f]{64}$' \
+        || die "checksums.txt contains an invalid SHA-256 value for $archive_name"
+    actual_checksum=$(sha256_file "$archive_file")
+    expected_checksum=$(printf '%s' "$expected_checksum" | tr '[:upper:]' '[:lower:]')
+    actual_checksum=$(printf '%s' "$actual_checksum" | tr '[:upper:]' '[:lower:]')
+    [ "$actual_checksum" = "$expected_checksum" ] \
+        || die "checksum mismatch for $archive_name"
+    printf 'Verified SHA-256 checksum.\n'
+}
+
+verify_archive_layout() {
+    archive_file=$1
+    actual_entries=$2
+    expected_entries=$3
+
+    tar -tzf "$archive_file" > "$actual_entries" \
+        || die "could not read release archive"
+    printf '%s\n' pointbreak LICENSE NOTICE | LC_ALL=C sort > "$expected_entries"
+    LC_ALL=C sort "$actual_entries" -o "$actual_entries"
+    diff -u "$expected_entries" "$actual_entries" >/dev/null \
+        || die "release archive has an invalid archive layout"
+}
+
+read_version_document() {
+    binary=$1
+    expected_version=$2
+
+    document=$("$binary" version --format json) || return 1
+    case "$document" in
+        *'
+'*) return 1 ;;
+    esac
+
+    prefix="{\"schema\":\"pointbreak.version\",\"version\":1,\"cliVersion\":\"${expected_version}\",\"documents\":{"
+    suffix='"pointbreak.version":1},"diagnostics":[]}'
+    case "$document" in
+        "$prefix"*"$suffix") printf '%s\n' "$document" ;;
+        *) return 1 ;;
+    esac
 }
 
 print_posix_path_command() {
@@ -195,8 +242,40 @@ print_path_guidance() {
             print_posix_path_command
             ;;
     esac
-    printf 'Then run: shore --help\n'
+    printf 'Then run: pointbreak --help\n'
 }
+
+temp_dir=""
+transaction_dir=""
+staged_binary=""
+backup_binary=""
+destination=""
+replacement_done=0
+had_previous=0
+transaction_complete=0
+
+cleanup() {
+    status=$?
+    trap - 0
+
+    if [ "$replacement_done" -eq 1 ] && [ "$transaction_complete" -eq 0 ]; then
+        if [ "$had_previous" -eq 1 ]; then
+            if ! mv -f "$backup_binary" "$destination"; then
+                printf 'error: installation failed and the previous Pointbreak could not be restored\n' >&2
+                status=1
+            fi
+        elif ! rm -f "$destination"; then
+            printf 'error: installation failed and the unverified Pointbreak could not be removed\n' >&2
+            status=1
+        fi
+    fi
+
+    [ -z "$transaction_dir" ] || rm -rf "$transaction_dir"
+    [ -z "$temp_dir" ] || rm -rf "$temp_dir"
+    exit "$status"
+}
+trap cleanup 0
+trap 'exit 1' 1 2 3 15
 
 release_tag=$(resolve_release_tag)
 release_version=${release_tag#v}
@@ -204,60 +283,68 @@ target=$(detect_target)
 archive="pointbreak-${release_version}-${target}.tar.gz"
 
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/pointbreak-install.XXXXXX")
-staged_binary=""
-cleanup() {
-    rm -rf "$temp_dir"
-    [ -z "$staged_binary" ] || rm -f "$staged_binary"
-}
-trap cleanup 0
-trap 'exit 1' 1 2 3 15
-
 archive_path="${temp_dir}/${archive}"
 printf 'Downloading Pointbreak Review %s for %s...\n' "$release_tag" "$target"
 download_asset "$release_tag" "$archive" "$archive_path" \
     || die "could not download $archive for $release_tag; check $RELEASES_URL"
 
-if [ "$VERIFY_CHECKSUM" -eq 1 ]; then
-    checksums_path="${temp_dir}/checksums.txt"
-    download_asset "$release_tag" checksums.txt "$checksums_path" \
-        || die "could not download checksums.txt; use --no-verify only if you accept the risk"
+checksums_path="${temp_dir}/checksums.txt"
+download_asset "$release_tag" checksums.txt "$checksums_path" \
+    || die "could not download checksums.txt"
+verify_checksum "$archive" "$archive_path" "$checksums_path" "${temp_dir}/checksum-match"
 
-    expected_checksum=$(awk -v name="$archive" \
-        '$2 == name || $2 == "*" name { print $1 }' "$checksums_path" | head -n 1)
-    [ -n "$expected_checksum" ] \
-        || die "checksums.txt has no entry for $archive"
-    if ! printf '%s\n' "$expected_checksum" | grep -Eq '^[0-9A-Fa-f]{64}$'; then
-        die "checksums.txt contains an invalid SHA-256 value for $archive"
-    fi
-
-    actual_checksum=$(sha256_file "$archive_path")
-    expected_checksum=$(printf '%s' "$expected_checksum" | tr '[:upper:]' '[:lower:]')
-    actual_checksum=$(printf '%s' "$actual_checksum" | tr '[:upper:]' '[:lower:]')
-    [ "$actual_checksum" = "$expected_checksum" ] \
-        || die "checksum mismatch for $archive"
-    printf 'Verified SHA-256 checksum.\n'
-else
-    printf 'Skipping checksum verification because --no-verify was supplied.\n' >&2
-fi
+verify_archive_layout "$archive_path" "${temp_dir}/archive-entries" "${temp_dir}/expected-entries"
+printf 'Verified release archive layout.\n'
 
 extract_dir="${temp_dir}/extract"
 mkdir -p "$extract_dir"
-tar -xzf "$archive_path" -C "$extract_dir"
-binary_path="${extract_dir}/shore"
-[ -f "$binary_path" ] || die "$archive does not contain shore"
-chmod +x "$binary_path"
-
-version_output=$("$binary_path" --version 2>&1) \
-    || die "downloaded shore binary failed its version check"
+tar -xzf "$archive_path" -C "$extract_dir" \
+    || die "could not extract release archive"
+for entry in pointbreak LICENSE NOTICE; do
+    if [ ! -f "${extract_dir}/${entry}" ] || [ -L "${extract_dir}/${entry}" ]; then
+        die "release archive contains a non-regular $entry"
+    fi
+done
 
 mkdir -p "$INSTALL_DIR"
-staged_binary="${INSTALL_DIR}/.shore-install.$$"
-cp "$binary_path" "$staged_binary"
+destination="${INSTALL_DIR}/pointbreak"
+transaction_dir=$(mktemp -d "${INSTALL_DIR}/.pointbreak-transaction.XXXXXX") \
+    || die "could not create an adjacent installation transaction"
+staged_binary="${transaction_dir}/candidate"
+backup_binary="${transaction_dir}/previous"
+cp "${extract_dir}/pointbreak" "$staged_binary" \
+    || die "could not stage Pointbreak beside $destination"
 chmod +x "$staged_binary"
-mv -f "$staged_binary" "${INSTALL_DIR}/shore"
-staged_binary=""
+read_version_document "$staged_binary" "$release_version" >/dev/null \
+    || die "staged Pointbreak version document did not match $release_version"
 
-printf 'Installed %s to %s/shore\n' "$version_output" "$INSTALL_DIR"
+if [ -e "$destination" ]; then
+    if [ ! -f "$destination" ] || [ -L "$destination" ]; then
+        die "Pointbreak destination is not a regular file: $destination"
+    fi
+    cp -p "$destination" "$backup_binary" \
+        || die "could not preserve the previous Pointbreak"
+    had_previous=1
+fi
+
+if [ -n "${POINTBREAK_INSTALLER_FIXTURE_ROOT:-}" ] \
+    && [ "${POINTBREAK_INSTALLER_TEST_FAIL_REPLACE:-}" = 1 ]; then
+    die "could not replace $destination"
+fi
+mv -f "$staged_binary" "$destination" \
+    || die "could not replace $destination"
+staged_binary=""
+replacement_done=1
+
+read_version_document "$destination" "$release_version" >/dev/null \
+    || die "installed Pointbreak version document did not match $release_version"
+transaction_complete=1
+replacement_done=0
+backup_binary=""
+rm -rf "$transaction_dir" || true
+transaction_dir=""
+
+printf 'Installed Pointbreak Review %s to %s\n' "$release_version" "$destination"
 case ":${PATH:-}:" in
     *":${INSTALL_DIR}:"*) ;;
     *)
@@ -265,4 +352,4 @@ case ":${PATH:-}:" in
         exit 0
         ;;
 esac
-printf 'Run: shore --help\n'
+printf 'Run: pointbreak --help\n'

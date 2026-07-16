@@ -1,13 +1,23 @@
-# Install the latest (or a requested) Pointbreak Review release on Windows.
-#
-# Usage:
-#   irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1 | iex
+<#
+.SYNOPSIS
+Installs Pointbreak Review on Windows.
 
+.DESCRIPTION
+Downloads, verifies, and atomically installs a Pointbreak Review release.
+
+.PARAMETER Version
+The release tag or version to install. The default is the latest release.
+
+.PARAMETER InstallDir
+The directory where pointbreak.exe is installed.
+
+.PARAMETER NoModifyPath
+Do not add the installation directory to the user PATH.
+#>
 [CmdletBinding()]
 param(
     [string]$Version = "latest",
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Pointbreak\bin"),
-    [switch]$NoVerify,
     [switch]$NoModifyPath
 )
 
@@ -39,11 +49,19 @@ function Resolve-ReleaseTag {
 }
 
 function Get-PointbreakTarget {
+    $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    if ($env:POINTBREAK_INSTALLER_FIXTURE_ROOT) {
+        switch ($architecture) {
+            "X64" { return "win32-x64" }
+            "Arm64" { return "win32-arm64" }
+            default { throw "Unsupported Windows architecture: $architecture" }
+        }
+    }
+
     if ($env:OS -ne "Windows_NT") {
         throw "This installer supports Windows; use install.sh on macOS or Linux."
     }
 
-    $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
     switch ($architecture) {
         "X64" { return "win32-x64" }
         "Arm64" { return "win32-arm64" }
@@ -87,6 +105,87 @@ function Get-ExpectedChecksum {
         throw "checksums.txt must contain exactly one valid SHA-256 entry for $ArchiveName"
     }
     return $checksumMatches[0]
+}
+
+function Assert-ArchiveLayout {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [Parameter(Mandatory = $true)][string]$ArchiveName
+    )
+
+    $expectedEntries = @("LICENSE", "NOTICE", "pointbreak.exe")
+    $zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $actualEntries = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+        $difference = @(Compare-Object -ReferenceObject $expectedEntries -DifferenceObject $actualEntries)
+        if ($difference.Count -ne 0) {
+            throw "$ArchiveName has an invalid archive layout"
+        }
+        foreach ($entry in $zip.Entries) {
+            $unixFileType = ($entry.ExternalAttributes -shr 16) -band 0xF000
+            if ([string]::IsNullOrEmpty($entry.Name) -or $unixFileType -eq 0xA000) {
+                throw "$ArchiveName has an invalid archive layout"
+            }
+        }
+    }
+    finally {
+        $zip.Dispose()
+    }
+}
+
+function Test-RegularFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $false
+    }
+    $attributes = (Get-Item -LiteralPath $Path -Force).Attributes
+    return ($attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0
+}
+
+function Read-PointbreakVersionDocument {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion
+    )
+
+    if ($env:POINTBREAK_INSTALLER_FIXTURE_ROOT -and $env:POINTBREAK_INSTALLER_FIXTURE_RUNNER) {
+        $output = @(& $env:POINTBREAK_INSTALLER_FIXTURE_RUNNER $Path version --format json 2>&1)
+    }
+    else {
+        $output = @(& $Path version --format json 2>&1)
+    }
+    if (-not $?) {
+        throw "Pointbreak version command failed"
+    }
+    if ($output.Count -ne 1) {
+        throw "Pointbreak version command did not emit exactly one document"
+    }
+
+    try {
+        $document = $output[0].ToString() | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Pointbreak version command did not emit JSON"
+    }
+
+    $expectedProperties = @("cliVersion", "diagnostics", "documents", "schema", "version")
+    $actualProperties = @($document.PSObject.Properties.Name | Sort-Object)
+    if (@(Compare-Object -ReferenceObject $expectedProperties -DifferenceObject $actualProperties).Count -ne 0) {
+        throw "Pointbreak version document has unexpected fields"
+    }
+    if ($document.schema -cne "pointbreak.version" -or
+        $document.version -ne 1 -or
+        $document.cliVersion -cne $ExpectedVersion -or
+        @($document.diagnostics).Count -ne 0) {
+        throw "Pointbreak version document has an unexpected identity"
+    }
+
+    $versionMember = $document.documents.PSObject.Properties["pointbreak.version"]
+    if ($null -eq $versionMember -or $versionMember.Value -ne 1) {
+        throw "Pointbreak version document has an unexpected registry"
+    }
+    return $document
 }
 
 function Get-NormalizedPathEntry {
@@ -136,6 +235,11 @@ function Install-Pointbreak {
     $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("pointbreak-install-" + [Guid]::NewGuid())
     $archivePath = Join-Path $tempDir $archiveName
     $extractDir = Join-Path $tempDir "extract"
+    $destination = Join-Path $InstallDir "pointbreak.exe"
+    $stagedBinary = Join-Path $InstallDir (".pointbreak-install-" + [Guid]::NewGuid() + ".exe")
+    $backupBinary = Join-Path $InstallDir (".pointbreak-backup-" + [Guid]::NewGuid() + ".exe")
+    $replacementDone = $false
+    $hadPrevious = $false
 
     New-Item -ItemType Directory -Path $tempDir | Out-Null
     try {
@@ -147,42 +251,78 @@ function Install-Pointbreak {
             throw "Could not download $archiveName for $releaseTag. Check $ReleasesUrl. $($_.Exception.Message)"
         }
 
-        if (-not $NoVerify) {
-            $checksumsPath = Join-Path $tempDir "checksums.txt"
-            try {
-                Copy-ReleaseAsset -Tag $releaseTag -Name "checksums.txt" -Destination $checksumsPath
-            }
-            catch {
-                throw "Could not download checksums.txt. Use -NoVerify only if you accept the risk. $($_.Exception.Message)"
-            }
-
-            $expectedChecksum = Get-ExpectedChecksum `
-                -ChecksumsPath $checksumsPath `
-                -ArchiveName $archiveName
-            $actualChecksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualChecksum -ne $expectedChecksum) {
-                throw "Checksum mismatch for $archiveName"
-            }
-            Write-Host "Verified SHA-256 checksum."
+        $checksumsPath = Join-Path $tempDir "checksums.txt"
+        try {
+            Copy-ReleaseAsset -Tag $releaseTag -Name "checksums.txt" -Destination $checksumsPath
         }
-        else {
-            Write-Warning "Skipping checksum verification because -NoVerify was supplied."
+        catch {
+            throw "Could not download checksums.txt. $($_.Exception.Message)"
         }
 
+        $expectedChecksum = Get-ExpectedChecksum `
+            -ChecksumsPath $checksumsPath `
+            -ArchiveName $archiveName
+        $actualChecksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualChecksum -ne $expectedChecksum) {
+            throw "Checksum mismatch for $archiveName"
+        }
+        Write-Host "Verified SHA-256 checksum."
+
+        Assert-ArchiveLayout -ArchivePath $archivePath -ArchiveName $archiveName
+        Write-Host "Verified release archive layout."
         Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir
-        $binaryPath = Join-Path $extractDir "shore.exe"
-        if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) {
-            throw "$archiveName does not contain shore.exe"
+        foreach ($entry in @("pointbreak.exe", "LICENSE", "NOTICE")) {
+            $entryPath = Join-Path $extractDir $entry
+            if (-not (Test-RegularFile -Path $entryPath)) {
+                throw "$archiveName contains a non-regular $entry"
+            }
         }
-
-        $versionOutput = & $binaryPath --version 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            throw "Downloaded shore.exe failed its version check"
-        }
+        $binaryPath = Join-Path $extractDir "pointbreak.exe"
 
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-        $destination = Join-Path $InstallDir "shore.exe"
-        Copy-Item -LiteralPath $binaryPath -Destination $destination -Force
+        [IO.File]::Copy($binaryPath, $stagedBinary)
+        try {
+            Read-PointbreakVersionDocument -Path $stagedBinary -ExpectedVersion $releaseVersion | Out-Null
+        }
+        catch {
+            throw "Staged Pointbreak version document did not match $releaseVersion. $($_.Exception.Message)"
+        }
+
+        if (Test-Path -LiteralPath $destination) {
+            if (-not (Test-RegularFile -Path $destination)) {
+                throw "Pointbreak destination is not a regular file: $destination"
+            }
+            $hadPrevious = $true
+        }
+
+        if ($env:POINTBREAK_INSTALLER_FIXTURE_ROOT -and
+            $env:POINTBREAK_INSTALLER_TEST_FAIL_REPLACE -eq "1") {
+            throw "Could not replace $destination"
+        }
+        try {
+            if ($hadPrevious) {
+                [IO.File]::Replace($stagedBinary, $destination, $backupBinary, $true)
+            }
+            else {
+                [IO.File]::Move($stagedBinary, $destination)
+            }
+        }
+        catch {
+            throw "Could not replace $destination. $($_.Exception.Message)"
+        }
+        $replacementDone = $true
+
+        try {
+            Read-PointbreakVersionDocument -Path $destination -ExpectedVersion $releaseVersion | Out-Null
+        }
+        catch {
+            throw "Installed Pointbreak version document did not match $releaseVersion. $($_.Exception.Message)"
+        }
+
+        if ($hadPrevious) {
+            Remove-Item -LiteralPath $backupBinary -Force
+        }
+        $replacementDone = $false
 
         $pathConfigured = $false
         if (-not $NoModifyPath) {
@@ -195,17 +335,35 @@ function Install-Pointbreak {
             }
         }
 
-        $versionLine = ($versionOutput | Select-Object -First 1).ToString()
-        Write-Host "Installed $versionLine to $destination"
+        Write-Host "Installed Pointbreak Review $releaseVersion to $destination"
         if (-not $pathConfigured) {
-            Write-Host "Add $InstallDir to PATH, then run: shore --help"
+            Write-Host "Add $InstallDir to PATH, then run: pointbreak --help"
         }
         else {
-            Write-Host "Run: shore --help"
+            Write-Host "Run: pointbreak --help"
         }
+    }
+    catch {
+        $installError = $_
+        if ($replacementDone) {
+            try {
+                if ($hadPrevious) {
+                    [IO.File]::Move($backupBinary, $destination, $true)
+                }
+                else {
+                    Remove-Item -LiteralPath $destination -Force
+                }
+            }
+            catch {
+                throw "Installation failed and the previous Pointbreak could not be restored. $($_.Exception.Message)"
+            }
+        }
+        throw $installError
     }
     finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stagedBinary -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $backupBinary -Force -ErrorAction SilentlyContinue
     }
 }
 

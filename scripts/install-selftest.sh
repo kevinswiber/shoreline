@@ -1,9 +1,10 @@
 #!/bin/sh
-# Hermetic smoke tests for scripts/install.sh.
+# Hermetic contract tests for the withpointbreak/pointbreak Unix installer.
 
 set -eu
 
 repo_root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
+installer="${repo_root}/scripts/install.sh"
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/pointbreak-installer-test.XXXXXX")
 cleanup() {
     rm -rf "$temp_dir"
@@ -43,58 +44,219 @@ archive="pointbreak-${version}-${target}.tar.gz"
 release_dir="${temp_dir}/releases/${tag}"
 payload_dir="${temp_dir}/payload"
 install_dir="${temp_dir}/bin"
-mkdir -p "$release_dir" "$payload_dir"
+destination="${install_dir}/pointbreak"
+neighbor="${install_dir}/shore"
+mkdir -p "$release_dir" "$install_dir"
 
-cat > "${payload_dir}/shore" <<'EOF'
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+write_candidate() {
+    candidate_version=$1
+    installed_version=$2
+    output=$3
+    cat > "$output" <<EOF
 #!/bin/sh
-printf 'shore 9.8.7-test\n'
+if [ "\$#" -ne 3 ] || [ "\$1" != version ] || [ "\$2" != --format ] || [ "\$3" != json ]; then
+    exit 64
+fi
+candidate_version='$candidate_version'
+case "\$0" in
+    */pointbreak) candidate_version='$installed_version' ;;
+esac
+printf '{"schema":"pointbreak.version","version":1,"cliVersion":"%s","documents":{"pointbreak.version":1},"diagnostics":[]}\\n' "\$candidate_version"
 EOF
-chmod +x "${payload_dir}/shore"
-cp "${repo_root}/LICENSE" "${repo_root}/NOTICE" "$payload_dir/"
-tar -czf "${release_dir}/${archive}" -C "$payload_dir" shore LICENSE NOTICE
+    chmod +x "$output"
+}
 
-if command -v sha256sum >/dev/null 2>&1; then
-    checksum=$(sha256sum "${release_dir}/${archive}" | awk '{print $1}')
-else
-    checksum=$(shasum -a 256 "${release_dir}/${archive}" | awk '{print $1}')
-fi
-printf '%s  %s\n' "$checksum" "$archive" > "${release_dir}/checksums.txt"
+make_archive() {
+    candidate_version=$1
+    installed_version=$2
+    layout=$3
+    rm -rf "$payload_dir"
+    mkdir -p "$payload_dir"
+    write_candidate "$candidate_version" "$installed_version" "${payload_dir}/pointbreak"
+    cp "${repo_root}/LICENSE" "${repo_root}/NOTICE" "$payload_dir/"
+    case "$layout" in
+        exact)
+            tar -czf "${release_dir}/${archive}" -C "$payload_dir" \
+                pointbreak LICENSE NOTICE
+            ;;
+        extra)
+            printf 'unexpected payload\n' > "${payload_dir}/unexpected.txt"
+            tar -czf "${release_dir}/${archive}" -C "$payload_dir" \
+                pointbreak LICENSE NOTICE unexpected.txt
+            ;;
+        *)
+            printf 'unknown fixture layout: %s\n' "$layout" >&2
+            exit 1
+            ;;
+    esac
+}
 
-install_output=$(SHELL=/bin/zsh POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
-    "${repo_root}/scripts/install.sh" --version="$tag" --prefix="$install_dir")
-printf '%s\n' "$install_output"
-test -x "${install_dir}/shore"
-test "$("${install_dir}/shore" --version)" = "shore 9.8.7-test"
-printf '%s\n' "$install_output" \
-    | grep -F "export PATH=\"${install_dir}:\$PATH\"" >/dev/null
-printf '%s\n' "$install_output" | grep -F "add the same line to ~/.zshrc" >/dev/null
+write_checksum() {
+    checksum=$(sha256_file "${release_dir}/${archive}")
+    printf '%s  %s\n' "$checksum" "$archive" > "${release_dir}/checksums.txt"
+}
 
-missing_tag=v9.8.6-missing
-if POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
-    "${repo_root}/scripts/install.sh" --version="$missing_tag" --prefix="$install_dir" \
-    > "${temp_dir}/missing-release.log" 2>&1; then
-    printf 'installer accepted a missing release\n' >&2
+write_invalid_checksum() {
+    printf '%064d  %s\n' 0 "$archive" > "${release_dir}/checksums.txt"
+}
+
+write_previous_install() {
+    cat > "$destination" <<'EOF'
+#!/bin/sh
+printf 'previous pointbreak\n'
+EOF
+    chmod +x "$destination"
+}
+
+write_neighbor() {
+    printf 'arbitrary neighboring bytes\nnot an executable\n' > "$neighbor"
+}
+
+prepare_upgrade() {
+    mkdir -p "$install_dir"
+    write_previous_install
+    write_neighbor
+    previous_hash=$(sha256_file "$destination")
+    neighbor_hash=$(sha256_file "$neighbor")
+}
+
+assert_neighbor_unchanged() {
+    test -f "$neighbor"
+    test "$(sha256_file "$neighbor")" = "$neighbor_hash"
+}
+
+assert_previous_restored() {
+    test -x "$destination"
+    test "$(sha256_file "$destination")" = "$previous_hash"
+    assert_neighbor_unchanged
+    if find "$install_dir" -maxdepth 1 \
+        \( -name '.pointbreak-install.*' -o -name '.pointbreak-backup.*' \
+        -o -name '.pointbreak-transaction.*' \) \
+        | grep -q .; then
+        printf 'installer left transaction files behind\n' >&2
+        exit 1
+    fi
+}
+
+run_installer() {
+    POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
+        "$installer" --version="$tag" --prefix="$install_dir"
+}
+
+expect_failure() {
+    scenario=$1
+    shift
+    if "$@" > "${temp_dir}/${scenario}.log" 2>&1; then
+        printf 'installer accepted %s\n' "$scenario" >&2
+        exit 1
+    fi
+    assert_previous_restored
+}
+
+help_output=$($installer --help)
+printf '%s\n' "$help_output" | grep -F 'Pointbreak Review installer' >/dev/null
+if printf '%s\n' "$help_output" | grep -i 'shore' >/dev/null; then
+    printf 'installer help teaches a second executable\n' >&2
     exit 1
 fi
-grep -F "check https://github.com/withpointbreak/pointbreak/releases" \
-    "${temp_dir}/missing-release.log" >/dev/null
 
-rm -f "${install_dir}/shore"
-printf '%064d  %s\n' 0 "$archive" > "${release_dir}/checksums.txt"
-if POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
-    "${repo_root}/scripts/install.sh" --version="$tag" --prefix="$install_dir" \
-    > "${temp_dir}/checksum-failure.log" 2>&1; then
-    printf 'installer accepted an invalid checksum\n' >&2
+# Fresh install: create only a regular Pointbreak executable.
+make_archive "$version" "$version" exact
+write_checksum
+fresh_output=$(SHELL=/bin/zsh run_installer)
+printf '%s\n' "$fresh_output"
+test -x "$destination"
+test ! -L "$destination"
+test ! -e "$neighbor"
+test "$($destination version --format json)" = \
+    "{\"schema\":\"pointbreak.version\",\"version\":1,\"cliVersion\":\"$version\",\"documents\":{\"pointbreak.version\":1},\"diagnostics\":[]}"
+printf '%s\n' "$fresh_output" | grep -F "Installed Pointbreak Review $version to $destination" >/dev/null
+printf '%s\n' "$fresh_output" | grep -F "export PATH=\"${install_dir}:\$PATH\"" >/dev/null
+printf '%s\n' "$fresh_output" | grep -F 'Then run: pointbreak --help' >/dev/null
+if printf '%s\n' "$fresh_output" | grep -i 'shore' >/dev/null; then
+    printf 'installer success output teaches a second executable\n' >&2
     exit 1
 fi
-grep -q "checksum mismatch" "${temp_dir}/checksum-failure.log"
-test ! -e "${install_dir}/shore"
 
-no_verify_output=$(SHELL=/usr/bin/fish POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
-    "${repo_root}/scripts/install.sh" --version="$tag" --prefix="$install_dir" --no-verify 2>&1)
-printf '%s\n' "$no_verify_output"
-test -x "${install_dir}/shore"
-printf '%s\n' "$no_verify_output" \
-    | grep -F "fish_add_path \"${install_dir}\"" >/dev/null
+# Upgrade: replace only Pointbreak and preserve an arbitrary neighbor byte-for-byte.
+prepare_upgrade
+make_archive "$version" "$version" exact
+write_checksum
+upgrade_output=$(run_installer)
+printf '%s\n' "$upgrade_output"
+test "$(sha256_file "$destination")" = "$(sha256_file "${payload_dir}/pointbreak")"
+test ! -L "$destination"
+assert_neighbor_unchanged
+
+# A hostile collision at the old predictable stage name must not be followed or removed.
+prepare_upgrade
+make_archive "$version" "$version" exact
+write_checksum
+collision_path_file="${temp_dir}/collision-path"
+collision_output=$(INSTALLER="$installer" INSTALL_DIR="$install_dir" NEIGHBOR="$neighbor" \
+    TAG="$tag" COLLISION_PATH_FILE="$collision_path_file" \
+    POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" /bin/sh -c '
+        collision="${INSTALL_DIR}/.pointbreak-install.$$"
+        ln -s "$NEIGHBOR" "$collision"
+        printf "%s\n" "$collision" > "$COLLISION_PATH_FILE"
+        set -- --version="$TAG" --prefix="$INSTALL_DIR"
+        . "$INSTALLER"
+    ')
+printf '%s\n' "$collision_output"
+collision_path=$(sed -n '1p' "$collision_path_file")
+test -L "$collision_path"
+test "$(readlink "$collision_path")" = "$neighbor"
+test "$(sha256_file "$neighbor")" = "$neighbor_hash"
+test -f "$destination"
+test ! -L "$destination"
+test "$(sha256_file "$destination")" = "$(sha256_file "${payload_dir}/pointbreak")"
+rm -f "$collision_path"
+
+# Every failure must preserve the prior destination and the arbitrary neighbor.
+prepare_upgrade
+make_archive "$version" "$version" exact
+write_invalid_checksum
+expect_failure checksum-failure run_installer
+grep -F 'checksum mismatch' "${temp_dir}/checksum-failure.log" >/dev/null
+
+prepare_upgrade
+make_archive "$version" "$version" extra
+write_checksum
+expect_failure archive-layout-failure run_installer
+grep -F 'invalid archive layout' "${temp_dir}/archive-layout-failure.log" >/dev/null
+
+prepare_upgrade
+make_archive 9.8.6-test 9.8.6-test exact
+write_checksum
+expect_failure version-mismatch run_installer
+grep -F 'version document did not match' "${temp_dir}/version-mismatch.log" >/dev/null
+
+prepare_upgrade
+make_archive "$version" "$version" exact
+write_checksum
+expect_failure replacement-failure env POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
+    POINTBREAK_INSTALLER_TEST_FAIL_REPLACE=1 "$installer" --version="$tag" --prefix="$install_dir"
+grep -F 'could not replace' "${temp_dir}/replacement-failure.log" >/dev/null
+
+prepare_upgrade
+make_archive "$version" 9.8.6-test exact
+write_checksum
+expect_failure post-replacement-verification-failure run_installer
+grep -F 'installed Pointbreak version document did not match' \
+    "${temp_dir}/post-replacement-verification-failure.log" >/dev/null
+
+# The implementation itself must have no second executable path or cleanup branch.
+if grep -i 'shore' "$installer" >/dev/null; then
+    printf 'installer implementation references a neighboring executable\n' >&2
+    exit 1
+fi
 
 printf 'install.sh self-test ok\n'
