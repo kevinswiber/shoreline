@@ -92,3 +92,42 @@ fn write_acks_accept_format_json() {
     let without = support::pointbreak(["capture", "--repo", repo2.path().to_str().unwrap()]);
     assert_eq!(with_flag.status.success(), without.status.success());
 }
+
+#[test]
+fn json_fallback_on_the_text_lane_notices_on_stderr() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+    let output = support::pointbreak(["history", "--repo", path, "--format", "text"]);
+    assert!(output.status.success());
+    // The stdout contract is unchanged (indented JSON), but the caller who asked
+    // for text is told the fallback happened instead of silently reading JSON.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no text digest"),
+        "fallback notice on stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pointbreak.review-history"));
+}
+
+#[test]
+fn machine_lanes_and_real_digests_emit_no_fallback_notice() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+
+    // Machine lane on a fallback command: no notice.
+    let json_lane = support::pointbreak(["history", "--repo", path, "--format", "json"]);
+    assert!(json_lane.status.success());
+    assert!(
+        !String::from_utf8_lossy(&json_lane.stderr).contains("no text digest"),
+        "machine lane must stay notice-free"
+    );
+
+    // Text lane on a command with a bespoke digest: no notice.
+    let digest = support::pointbreak(["version", "--format", "text"]);
+    assert!(digest.status.success());
+    assert!(
+        !String::from_utf8_lossy(&digest.stderr).contains("no text digest"),
+        "a real digest must stay notice-free"
+    );
+}
