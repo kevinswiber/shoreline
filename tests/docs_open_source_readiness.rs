@@ -167,40 +167,73 @@ fn public_docs_cover_the_shared_common_dir_store() {
 }
 
 #[test]
-fn getting_started_walks_through_first_review() {
+fn getting_started_starts_after_supported_install_and_reaches_a_real_first_review() {
     let guide = std::fs::read_to_string("docs/getting-started.md").expect("read getting started");
-    let normalized_guide = guide.replace("\r\n", "\n");
 
+    // The supported continuation: the guide routes from the installation page
+    // and never repeats acquisition or substitutes a source build for it.
+    assert!(
+        guide.contains("installation.md"),
+        "getting-started continues from the supported installation route"
+    );
+    for acquisition in ["cargo install pointbreak", "curl -fsSL", "irm https"] {
+        assert!(
+            !guide.contains(acquisition),
+            "getting-started repeats acquisition: {acquisition}"
+        );
+    }
+
+    // First value comes from a real tracked change, not the sample pack, and
+    // comprehension comes from Review, not storage internals or raw JSON.
     for required in [
-        "cargo install pointbreak",
-        "pointbreak capture",
-        "pointbreak revision show",
-        "pointbreak observation add",
-        "pointbreak input-request open",
-        "pointbreak assessment add",
-        "<git-common-dir>/pointbreak",
+        "pointbreak capture --summary",
+        "pointbreak inspect --open",
+        "tracked",
     ] {
         assert!(
             guide.contains(required),
             "missing getting-started step: {required}"
         );
     }
+    for schema_first in ["state.json", "events/", "artifacts/"] {
+        assert!(
+            !guide.contains(schema_first),
+            "getting-started leads with storage internals: {schema_first}"
+        );
+    }
+    assert!(
+        !guide.contains("review-example"),
+        "getting-started must not route activation through the canonical sample"
+    );
 
+    // Staged concepts: no actor, track, or trust setup before Review opens.
+    let review_opens = guide
+        .find("pointbreak inspect --open")
+        .expect("the guide opens Review");
+    for deferred in ["POINTBREAK_ACTOR_ID", "--track", "pointbreak key enroll"] {
+        let taught_at = guide
+            .find(deferred)
+            .unwrap_or_else(|| panic!("the guide eventually teaches {deferred}"));
+        assert!(
+            taught_at > review_opens,
+            "{deferred} must arrive after the first useful Review, not before"
+        );
+    }
+
+    // Portability: no heredocs, no shell-specific file tricks, portable printf,
+    // and a labelled shell expectation for Windows readers.
     assert!(
         !guide.contains("<<"),
         "getting-started shell snippets should avoid heredocs"
     );
     assert!(
-        !guide.contains("TMP=$(mktemp -d)"),
-        "getting-started shell snippets should avoid POSIX-only assignment syntax"
-    );
-    assert!(
         guide.contains("printf '%s\\n'"),
         "getting-started should create sample files with shell-portable printf"
     );
-    assert!(normalized_guide.contains(
-        "--start-line 6 \\\n  --body \"The fallback value is visible user-facing behavior"
-    ));
+    assert!(
+        guide.contains("Git Bash"),
+        "getting-started labels the shell expectation for Windows readers"
+    );
 }
 
 #[test]

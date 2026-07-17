@@ -520,6 +520,337 @@ publicly reproducible record from a hosted inspector: `reproducibleFromPublicPac
 `publiclyInspectable` remains false. Running `just capture-inspector-screenshots` without the pack
 options preserves the generic README screenshot defaults.
 
+## First useful Review walkthrough — fixed protocol
+
+This section freezes the end-to-end journey behind [getting-started.md](./getting-started.md) as a
+repeatable evidence protocol: one operator, a disposable repository with a real tracked change, a
+source-built binary, and the complete paired author/reviewer loop, with every visible state and
+intervention recorded. Run it after changes to the onboarding surfaces to prove the journey still
+holds — and to record exactly what the run can and cannot claim.
+
+Requirements: `jq`, Git, a SHA-256 tool (`shasum -a 256` or the platform equivalent — record which),
+a headed local browser, and screen capture. VS Code is neither required nor credited.
+
+### Boundaries and clocks
+
+The protocol keeps two boundaries deliberately separate and never adds their timings together:
+
+- **Clock A — supported acquisition context.** Optionally record the current public release and the
+  supported installer route from [installation.md](./installation.md). If rerun, it installs the
+  latest published release and proves only that release's installer and checksum behavior. It does
+  not exercise the source-built walkthrough below; its timing is version-labelled and kept apart.
+- **Source boundary.** Pin the exact source commit under test, verify the checkout is clean and in
+  sync with its remote, build with `cargo +stable build --locked --bin pointbreak`, and record the
+  commit, `git describe`, the binary SHA-256, and `version --format json`. Every walkthrough
+  command uses that absolute binary. Build time and dependency setup stay outside the walkthrough
+  clocks. Never describe the source-built binary as the supported installer route.
+- **Clock B-short** starts immediately before the capture command and stops at the first Review
+  from which the operator can answer all five stage questions (listed below).
+- **Clock B-paired** starts immediately before the first author fact and stops when the
+  replacement call, the open follow-up, and the same-revision landing are all visible in Review.
+
+Acquisition, PATH repair, browser launch rehearsal, empty-state inspection, operator explanation,
+and artifact post-processing stay outside the clocks only when they are explicitly timestamped in
+the journal. Assistance is never subtracted from a claimed time.
+
+### Disposable setup (outside the clocks)
+
+From the pinned, clean source checkout:
+
+```bash
+cargo +stable build --locked --bin pointbreak
+POINTBREAK_BINARY="$PWD/target/debug/pointbreak"
+
+WALK_ROOT=$(mktemp -d)
+WALK_REPO="$WALK_ROOT/repo"
+WALK_HOME="$WALK_ROOT/home"
+WALK_EVIDENCE="$WALK_ROOT/evidence"
+mkdir -p "$WALK_REPO" "$WALK_HOME" "$WALK_EVIDENCE"
+export POINTBREAK_HOME="$WALK_HOME"
+
+git -C "$WALK_REPO" init
+git -C "$WALK_REPO" config user.name "Pointbreak Walkthrough"
+git -C "$WALK_REPO" config user.email "pointbreak-walkthrough@example.invalid"
+git -C "$WALK_REPO" config commit.gpgsign false
+printf '%s\n' 'First useful Review' > "$WALK_REPO/onboarding.txt"
+git -C "$WALK_REPO" add onboarding.txt
+git -C "$WALK_REPO" commit -m "chore: add onboarding baseline"
+printf '%s\n' 'First useful Review' 'Checks are evidence, not a verdict.' > "$WALK_REPO/onboarding.txt"
+
+"$POINTBREAK_BINARY" version --format json > "$WALK_EVIDENCE/00-version.json"
+shasum -a 256 "$POINTBREAK_BINARY" > "$WALK_EVIDENCE/00-binary-sha256.txt"
+git -C "$WALK_REPO" status --short > "$WALK_EVIDENCE/00-repo-status.txt"
+"$POINTBREAK_BINARY" store paths --repo "$WALK_REPO" --format json \
+  > "$WALK_EVIDENCE/00-store-paths.json"
+```
+
+Do not disable signing, enroll a key, or add `.pointbreak` configuration before the first useful
+Review: trust is introduced after value, exactly as the guide teaches.
+
+### Empty first-open check (outside Clock B)
+
+Launch Review once against the empty store before capturing:
+
+```bash
+"$POINTBREAK_BINARY" inspect --repo "$WALK_REPO" --open
+```
+
+Record screenshot `01-empty-first-open.png`. The empty state must identify the repository, say
+there are no captured revisions, and point at capture with a summary — without demanding schema or
+trust setup first. Copy any offered command and verify the copied text equals the visible text with
+placeholders intact; do not run commands from Review, which stays read-only. A filtered-empty state
+must explain filter recovery rather than suggesting a new capture. Any mismatch is a product
+defect: stop the run, fix it at the surface that owns it, and restart the protocol from a fresh
+disposable setup — do not patch mid-run.
+
+### Short path (Clock B-short)
+
+Keep Review open in the browser and run commands in a second terminal. Start a screen recording or
+timestamped journal, then start Clock B-short immediately before this capture:
+
+```bash
+"$POINTBREAK_BINARY" capture \
+  --repo "$WALK_REPO" \
+  --summary "Explain evidence in first-use guidance" \
+  --format json \
+  > "$WALK_EVIDENCE/02-capture.json" \
+  2> "$WALK_EVIDENCE/02-capture.stderr.txt"
+REVISION_ID=$(jq -r '.revision.id' "$WALK_EVIDENCE/02-capture.json")
+"$POINTBREAK_BINARY" inspect --repo "$WALK_REPO" --open
+```
+
+Stop Clock B-short only when the operator can answer, from rendered Review without opening raw
+JSON or event files:
+
+- **Work:** which tracked file and lines changed, and the immutable summary labelling the revision;
+- **Claims:** none recorded yet, plus the observation command that would add one;
+- **Evidence:** none recorded yet, plus the validation command that would add one;
+- **Questions:** none open yet, plus the request command that would open one;
+- **Call:** unassessed, plus the assessment command that would record one.
+
+Record the duration, UTC start/end, screenshot `03-first-useful-review.png`, the copied commands,
+viewport, browser console state, and any intervention.
+
+### Paired loop (Clock B-paired) — author handoff
+
+Start Clock B-paired immediately before the first author fact. The first authored fact introduces
+the explicit actor ("who wrote this?") and track ("which review lane owns it?"):
+
+```bash
+export POINTBREAK_ACTOR_ID="actor:agent:first-review-author"
+AUTHOR_TRACK="agent:first-review-author"
+
+"$POINTBREAK_BINARY" observation add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$AUTHOR_TRACK" \
+  --title "First-use guidance distinguishes evidence" \
+  --body "The tracked change explains that checks are evidence rather than a verdict." \
+  --format json > "$WALK_EVIDENCE/04-author-observation.json"
+
+git -C "$WALK_REPO" diff --check
+"$POINTBREAK_BINARY" validation add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$AUTHOR_TRACK" \
+  --check-name "git diff --check" \
+  --status passed \
+  --command "git diff --check" \
+  --exit-code 0 \
+  --summary "The captured tracked change has no whitespace errors." \
+  --format json > "$WALK_EVIDENCE/05-author-validation.json"
+```
+
+Journal the first automatic-signing diagnostic (from capture or the first authored write) and the
+trust state Review shows for each writer. Signing is automatic and was never a setup prerequisite.
+If signed-but-untrusted appears, continue: it is advisory. Show — but do not run — the optional
+`pointbreak key enroll <name>` recovery and note that it stages `.pointbreak/allowed-signers.json`
+for human review. Enrollment happens after value, never inside the captured change.
+
+### Paired loop — reviewer pass
+
+```bash
+export POINTBREAK_ACTOR_ID="actor:agent:first-review-reviewer"
+REVIEWER_TRACK="agent:first-review-reviewer"
+
+"$POINTBREAK_BINARY" observation add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$REVIEWER_TRACK" \
+  --title "Release proof remains separate" \
+  --body "The walkthrough is reviewable locally, but the released artifact has not repeated it." \
+  --format json > "$WALK_EVIDENCE/06-reviewer-observation.json"
+REVIEWER_OBSERVATION_ID=$(jq -r '.observationId' "$WALK_EVIDENCE/06-reviewer-observation.json")
+
+git -C "$WALK_REPO" diff --check
+"$POINTBREAK_BINARY" validation add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$REVIEWER_TRACK" \
+  --check-name "reviewer git diff --check" \
+  --status passed \
+  --command "git diff --check" \
+  --exit-code 0 \
+  --summary "The reviewer independently reran the whitespace check." \
+  --format json > "$WALK_EVIDENCE/07-reviewer-validation.json"
+
+"$POINTBREAK_BINARY" input-request open \
+  --repo "$WALK_REPO" \
+  --revision "$REVISION_ID" \
+  --track "$REVIEWER_TRACK" \
+  --title "Confirm the recovery boundary" \
+  --reason manual-decision-required \
+  --mode advisory \
+  --body "Should PATH recovery stay separate from the first useful Review clock?" \
+  --format json > "$WALK_EVIDENCE/08-reviewer-question.json"
+INPUT_REQUEST_ID=$(jq -r '.inputRequestId' "$WALK_EVIDENCE/08-reviewer-question.json")
+
+"$POINTBREAK_BINARY" assessment add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$REVIEWER_TRACK" \
+  --assessment needs-clarification \
+  --summary "The Review is useful, but the clock boundary needs an explicit answer." \
+  --related-observation "$REVIEWER_OBSERVATION_ID" \
+  --related-input-request "$INPUT_REQUEST_ID" \
+  --format json > "$WALK_EVIDENCE/09-provisional-assessment.json"
+PROVISIONAL_ASSESSMENT_ID=$(jq -r '.assessmentId' "$WALK_EVIDENCE/09-provisional-assessment.json")
+```
+
+### Paired loop — author response
+
+The durable answer lives on the request; the follow-up observation adds context on the author
+track. (`observation add --responds-to` links observation to observation only — it does not accept
+an input-request id.)
+
+```bash
+export POINTBREAK_ACTOR_ID="actor:agent:first-review-author"
+
+"$POINTBREAK_BINARY" input-request respond "$INPUT_REQUEST_ID" \
+  --repo "$WALK_REPO" \
+  --outcome approved \
+  --reason "PATH recovery is setup assistance outside the first useful Review clock." \
+  --format json > "$WALK_EVIDENCE/10-author-response.json"
+
+"$POINTBREAK_BINARY" observation add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$AUTHOR_TRACK" \
+  --title "Clock boundary is explicit" \
+  --body "The journal separates acquisition and PATH recovery from the walkthrough clocks." \
+  --format json > "$WALK_EVIDENCE/11-author-follow-up.json"
+```
+
+Both writes change the durable review record, not the captured content; nothing is recaptured and
+the revision id does not change.
+
+### Paired loop — reviewer replacement and open follow-up
+
+```bash
+export POINTBREAK_ACTOR_ID="actor:agent:first-review-reviewer"
+
+"$POINTBREAK_BINARY" input-request open \
+  --repo "$WALK_REPO" \
+  --revision "$REVISION_ID" \
+  --track "$REVIEWER_TRACK" \
+  --title "Verify the release-candidate rerun" \
+  --reason insufficient-evidence \
+  --mode advisory \
+  --body "The released artifact must repeat this path before a release claim." \
+  --format json > "$WALK_EVIDENCE/12-release-follow-up.json"
+FOLLOW_UP_REQUEST_ID=$(jq -r '.inputRequestId' "$WALK_EVIDENCE/12-release-follow-up.json")
+
+"$POINTBREAK_BINARY" assessment add \
+  --repo "$WALK_REPO" \
+  --exact-revision "$REVISION_ID" \
+  --track "$REVIEWER_TRACK" \
+  --assessment accepted-with-follow-up \
+  --summary "The walkthrough is accepted; released-artifact proof remains open." \
+  --replaces "$PROVISIONAL_ASSESSMENT_ID" \
+  --related-input-request "$FOLLOW_UP_REQUEST_ID" \
+  --format json > "$WALK_EVIDENCE/13-current-assessment.json"
+```
+
+### Paired loop — land the commit on the same revision
+
+```bash
+git -C "$WALK_REPO" add onboarding.txt
+git -C "$WALK_REPO" commit -m "docs: clarify first Review evidence"
+LANDED_COMMIT=$(git -C "$WALK_REPO" rev-parse HEAD)
+
+export POINTBREAK_ACTOR_ID="actor:agent:first-review-author"
+"$POINTBREAK_BINARY" association record \
+  --repo "$WALK_REPO" \
+  --revision "$REVISION_ID" \
+  --track "$AUTHOR_TRACK" \
+  --commit "$LANDED_COMMIT" \
+  --format json > "$WALK_EVIDENCE/14-commit-association.json"
+
+"$POINTBREAK_BINARY" revision list --repo "$WALK_REPO" --format json \
+  > "$WALK_EVIDENCE/15-revision-list.json"
+"$POINTBREAK_BINARY" attention list --repo "$WALK_REPO" --format json \
+  > "$WALK_EVIDENCE/16-attention.json"
+"$POINTBREAK_BINARY" revision show "$REVISION_ID" --repo "$WALK_REPO" --format json \
+  > "$WALK_EVIDENCE/17-revision.json"
+```
+
+Stop Clock B-paired only when Review visibly shows the final state below.
+
+### Required visible final state
+
+Without reading raw event files or reconstructing the JSON evidence documents, the operator must
+answer from Review:
+
+| Question | Required Review answer |
+| --- | --- |
+| Work | The exact tracked file/diff and the immutable capture summary |
+| Claims | Author claim, reviewer release-boundary observation, and author follow-up, each with attribution/track |
+| Evidence | Author and reviewer `git diff --check` passes with command/exit context, worded as evidence, not a verdict |
+| Questions | The first advisory request answered; the release-verification follow-up still open |
+| Call | `accepted-with-follow-up` current; `needs-clarification` visibly replaced |
+| Follow-up | The release rerun visible in attention and detail |
+| Roles | Author and reviewer facts distinguishable by actor and track |
+| Trust | Each writer's verification state visible; untrusted distinguished from invalid |
+| Landing | The exact commit associated with the original `REVISION_ID` |
+| Identity | Exactly one revision in the list; no successor was created for the commit |
+
+Record wide and narrow screenshots, copied contextual commands, keyboard navigation, the help
+overlay, browser console/network state, and the final URL and repository identity.
+
+### Recovery points
+
+Every recovery is journaled. Setup-only recoveries stay outside the clocks when timestamped:
+
+| Point | Expected recovery |
+| --- | --- |
+| Installed binary not found | Apply the installer-emitted PATH command; on Windows restart the terminal; re-run `pointbreak --version` |
+| Wrong repository/store | Run `pointbreak store paths --repo <repo> --format text`; restart Review with an exact `--repo` |
+| No tracked change | Confirm `git status --short`; modify an already tracked file; do not substitute a sample |
+| Untracked change omitted | Track the file before modifying it, or deliberately pass `--include-untracked`; journal the choice |
+| More than one revision | Keep `.revision.id` from the capture output and pass it explicitly; do not rely on single-revision defaults |
+| Port/browser open failure | Read the startup URL, choose another `--port`, open the printed URL manually; never expose a non-loopback host |
+| Signed but untrusted writer | Continue; explain the advisory state; offer `pointbreak key enroll` only after value is visible |
+| Ambiguous assessment | Use `assessment add --replaces <id>` and verify one current call |
+| Follow-up missing from attention | Open a related advisory request and link it with `--related-input-request` |
+| Commit created after capture | Record the association on the same revision; do not recapture unchanged content |
+| Raw JSON temptation | Use Review detail/diff/attention first; JSON stays a captured evidence artifact, not the comprehension path |
+
+### Evidence, interventions, and nonclaims
+
+- Preserve stdout JSON untouched as evidence; build the journal from command results and Review
+  screenshots, never from edited transcripts.
+- Write an artifact manifest: relative path, SHA-256, producing command, UTC timestamp, and whether
+  the artifact belongs to setup, Clock B-short, or Clock B-paired.
+- Write an intervention ledger: trigger, exact assistance, clock inclusion/exclusion, and recovery
+  result. Zero interventions are written as zero, not omitted.
+- Reconfirm the disposable repository holds exactly one revision with the associated commit. Do not
+  enroll trust, recapture, or copy the disposable store into real state. Remove the disposable
+  directories only after evidence retention is confirmed.
+- State the nonclaims explicitly: one experienced operator, a disposable repository, a source-built
+  binary, and a local loopback Review. The supported installer route was not exercised for this
+  walkthrough, so the run proves nothing about a released artifact. The result is not a novice
+  claim, not a five-minute-activation claim, and not a population or confidence claim.
+
 ## K. Things to glance at after big changes
 
 When refactoring storage, projections, or CLI surfaces, also look at:
