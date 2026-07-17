@@ -199,7 +199,10 @@ pub(crate) fn resolve_revision(
         [] => Err(ShoreError::Message("no captured revision".to_owned())),
         [resolved] => Ok(resolved.clone()),
         _ => Err(ShoreError::Message(
-            "multiple captured revisions; pass --revision".to_owned(),
+            "multiple captured revisions; pass --revision <id> (`revision show` takes it \
+             positionally: `revision show <revision>`); list candidates with \
+             `pointbreak revision list`"
+                .to_owned(),
         )),
     }
 }

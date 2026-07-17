@@ -1297,3 +1297,49 @@ fn respond_to_input_request(repo: &GitRepo, input_request_id: &str, reason: &str
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("valid json")
 }
+
+#[test]
+fn ambiguous_current_revision_error_names_valid_recovery_forms() {
+    let repo = modified_repo();
+    let path = repo.path().to_str().unwrap();
+    pointbreak(["capture", "--repo", path]);
+    // A second, different worktree state captured without --supersedes leaves
+    // two current revisions standing, so an unseeded read is ambiguous. The
+    // change must touch a TRACKED file: default capture excludes untracked.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    pointbreak(["capture", "--repo", path]);
+
+    // `revision show` takes the revision positionally — the recovery hint must
+    // not recommend a --revision flag the command does not have.
+    let show = pointbreak(["revision", "show", "--repo", path]);
+    assert!(!show.status.success(), "ambiguity is an error");
+    let show_err = String::from_utf8_lossy(&show.stderr);
+    assert!(
+        show_err.contains("revision show <revision>"),
+        "positional recovery named: {show_err}"
+    );
+    assert!(
+        show_err.contains("revision list"),
+        "candidate listing named: {show_err}"
+    );
+
+    // Fact commands take --revision; the same error must name that form too.
+    let add = pointbreak([
+        "observation",
+        "add",
+        "--repo",
+        path,
+        "--track",
+        "human:kevin",
+        "--title",
+        "ambiguous",
+        "--body",
+        "x",
+    ]);
+    assert!(!add.status.success(), "ambiguity is an error");
+    let add_err = String::from_utf8_lossy(&add.stderr);
+    assert!(
+        add_err.contains("--revision"),
+        "flag recovery named: {add_err}"
+    );
+}
