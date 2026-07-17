@@ -179,6 +179,7 @@ const LIVING_OPERATIONAL_SOURCES: &[&str] = &[
     "benches/store_backend.rs",
     "scripts/capture-inspector-screenshots.sh",
     "scripts/worktree-to-fixture.sh",
+    "skills/README.md",
     "skills/pointbreak-author/SKILL.md",
     "skills/pointbreak-author-response/SKILL.md",
     "skills/pointbreak-reviewer/SKILL.md",
@@ -341,6 +342,21 @@ fn classify_retained_reference(path: &str, line: &str) -> Option<&'static str> {
         }
         _ => None,
     }
+}
+
+#[test]
+fn skills_distribution_uses_the_canonical_repository_route() {
+    let skills_readme =
+        std::fs::read_to_string("skills/README.md").expect("read skills distribution README");
+
+    assert!(
+        skills_readme.contains("npx skills add withpointbreak/pointbreak"),
+        "skills distribution names the canonical supported install route"
+    );
+    assert!(
+        !skills_readme.contains("pointbreak review"),
+        "skills distribution never teaches the rejected review command prefix"
+    );
 }
 
 #[test]

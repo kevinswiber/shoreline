@@ -4,6 +4,15 @@ Pointbreak works best when the agent that made a change also leaves the first du
 The agent is not reviewing itself. It is capturing the exact diff it just authored and recording the
 context a reviewer would otherwise have to reconstruct from chat, terminal output, and memory.
 
+The record fills the same five stages every Pointbreak review answers, in plain language:
+`Work -> Claims -> Evidence -> Questions -> Call`. Three product workflow skills package the
+loop's roles for agents: `pointbreak-author` records the Author handoff this page describes,
+`pointbreak-reviewer` makes the Reviewer pass, and `pointbreak-author-response` closes the loop
+with the Author response. Install them from [skills/README.md](../skills/README.md). The canonical
+end-to-end walkthrough of the same paired loop — install to first Review to landing — lives in
+[getting-started.md](./getting-started.md); this page adds the agent-side command discipline
+rather than restating it.
+
 This loop is for the end of a coherent unit of implementation work. It fits the moment just before an
 agent says a task is done, before any commit that would move `HEAD` past part of the task, when a
 human says "done" or "hand off", or when the agent is about to switch to unrelated work. Capture once
@@ -78,9 +87,10 @@ generates a passphrase-less per-machine key in the user-level key home, signs th
 a one-line stderr notice with the agent's `did:key` and `pointbreak key enroll` so a human can add the
 agent to the committed `.pointbreak/allowed-signers.json` allow-list. The agent proposes the working-tree
 edit; the human's commit is the authorization (possession-style, like delegation). Until enrolled, a
-signed event verifies `untrusted_key` — tamper-evident and strictly better than unsigned; once
-enrolled it verifies `valid` and binds. Signing never gates: if no key can be made the write still
-succeeds, unsigned, at exit 0. `POINTBREAK_SIGNING=off` disables signing. (A **human** can instead reuse an
+signed event verifies `untrusted_key` — tamper-evident and strictly better than unsigned, and
+untrusted does not mean invalid; once enrolled it verifies `valid` and binds. Signing never gates:
+if no key can be made the write still succeeds, unsigned, at exit 0. `POINTBREAK_SIGNING=off`
+disables signing. (A **human** can instead reuse an
 existing SSH key via `pointbreak key use-ssh` rather than `pointbreak key init`; agents still auto-keygen,
 unchanged.) See [signing-ux.md](./signing-ux.md).
 
@@ -323,6 +333,9 @@ pointbreak association record \
   --track <author-track> \
   --commit <landed-sha>
 ```
+
+The association accretes on the same revision that was reviewed; landing never recaptures or
+supersedes unchanged content.
 
 This is git-resolved and machine-readable: the revision then reports `anchored` with merged/live
 reachability in `pointbreak revision show`, and `pointbreak revision list --ref <branch>` /

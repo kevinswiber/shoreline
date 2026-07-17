@@ -14,8 +14,9 @@ You are the reviewing agent for a Pointbreak revision another agent captured. Yo
 the change independently, record durable review findings, answer any open operative requests you can
 answer, and make the review call.
 
-Record exactly one assessment with `pointbreak assessment add`. The assessment is the reviewer's
-call, so this role owns it. Never write to the author's track.
+Record exactly one assessment with `pointbreak assessment add`. Reviewer facts fill the same
+Claims, Evidence, and Questions stages the author wrote into — on your own track — and you alone
+make the Call (`assessment`). Never write to the author's track.
 
 Do not run `pointbreak revision show --format json-pretty` as a readback surface. It includes the full captured
 snapshot and can emit megabytes for a real change. Use bounded list commands for the author's
@@ -112,13 +113,16 @@ canonical spelling** for your agent name and always the same one (`claude-code`,
 `claude`): two spellings split one agent's history across two identities. Keep it lowercase and
 hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
-**Signing is automatic.** On your first write under this `actor:agent:*` id, Pointbreak generates a
-passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
-and `pointbreak key enroll` so a human can add you to the committed allow-list. Your signed response is
-the event that closes the binding loop — once enrolled, it verifies and binds. Signing never blocks
-a write — if no key can be made the write still succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to
-disable signing. A human can instead reuse an existing SSH key via `pointbreak key use-ssh` (agents still
-auto-keygen, unchanged).
+**Signing is automatic and advisory.** On your first write under this `actor:agent:*` id,
+Pointbreak generates a passphrase-less per-machine key, signs the event, and prints a one-line
+notice with your `did:key`. Until a human enrolls this writer, signed events verify as untrusted —
+advisory and tamper-evident; untrusted does not mean invalid, and it never devalues the review
+facts you record. When a human chooses to trust the writer, `pointbreak key enroll <name>` stages
+the key in the committed `.pointbreak/allowed-signers.json` for human review; once that edit is
+committed, your signed events verify and bind. Enrollment is optional. Signing never blocks a
+write — if no key can be made the write still succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to
+disable signing. A human can instead reuse an existing SSH key via `pointbreak key use-ssh`
+(agents still auto-keygen, unchanged).
 
 ## Review independently
 

@@ -84,6 +84,11 @@ capturing.
 Use the captured revision ID for every write. If `jq` is unavailable, copy `revision.id` from the
 compact JSON output and use it in place of `$revision_id`.
 
+The captured revision is already visible in Review: a human can run `pointbreak inspect --open` now
+and read the Work stage under your summary, before any actor, track, signing, or trust setup. Your
+writes below fill the Claims (`observation`), Evidence (`validation`), and Questions
+(`input-request`) stages; the Call (`assessment`) belongs to the reviewer.
+
 ## Choose your track
 
 Choose one track for the whole handoff and reuse it for every `--track`. Use the form
@@ -109,11 +114,15 @@ canonical spelling** for your agent name and always the same one (`claude-code`,
 `claude`): two spellings split one agent's history across two identities. Keep it lowercase and
 hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
-**Signing is automatic.** On your first write under this `actor:agent:*` id, Pointbreak generates a
-passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
-and `pointbreak key enroll` so a human can add you to the committed allow-list (once enrolled, your
-signed events verify and bind). Signing never blocks a write — if no key can be made the write still
-succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to disable signing. A human can instead reuse an existing
+**Signing is automatic and advisory.** On your first write under this `actor:agent:*` id,
+Pointbreak generates a passphrase-less per-machine key, signs the event, and prints a one-line
+notice with your `did:key`. Until a human enrolls this writer, signed events verify as untrusted —
+advisory and tamper-evident; untrusted does not mean invalid, and nothing blocks on it. When a
+human chooses to trust the writer, `pointbreak key enroll <name>` stages the key in the committed
+`.pointbreak/allowed-signers.json` for human review; once that edit is committed, your signed
+events verify and bind. Enrollment is optional and follows visible Review value; it is never a
+prerequisite. Signing never blocks a write — if no key can be made the write still succeeds,
+unsigned. Set `POINTBREAK_SIGNING=off` to disable signing. A human can instead reuse an existing
 SSH key via `pointbreak key use-ssh` (agents still auto-keygen, unchanged).
 
 ## Record observations
@@ -255,7 +264,7 @@ I did not add an assessment; that is for the reviewer.
 ## Standing down
 
 After the capture, observations, validation evidence, any input requests, and readback are complete,
-do not keep editing as part of the same handoff. Continue with commit, push, PR, or review-loop
+do not keep editing as part of the same handoff. Continue with commit, push, PR, or further review
 steps only when the user has asked for them. Do not add an assessment from this authoring role.
 
 If the user immediately asks for another implementation task, treat that as a new unit of work and

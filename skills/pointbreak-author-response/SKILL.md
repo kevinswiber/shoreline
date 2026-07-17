@@ -15,7 +15,7 @@ existing revision, and you are picking that review back up. Your job is to triag
 respond through structured input-request channels, make required changes when the review asks for
 them, and record your response on your author track.
 
-Do not run `pointbreak assessment add`. The reviewer owns the assessment. Do not run
+Do not run `pointbreak assessment add` — the Call stays the reviewer's. Do not run
 `pointbreak capture`; this response attaches to the existing revision with `--revision`.
 
 Do not run `pointbreak revision show --format json-pretty` as a readback surface. Use bounded list commands for the
@@ -62,11 +62,14 @@ under the same durable identity that authored the change. It carries no run id; 
 segment is reserved.
 
 Because the author-response pass writes under the same `actor:agent:*` id as the author, it reuses
-the same auto-generated key and enrollment — **signing is automatic** here too: your first write
-under this id generates a passphrase-less per-machine key (or reuses the author run's) and signs the
-event, printing a one-line notice with your `did:key` and `pointbreak key enroll` so a human can add you
-to the committed allow-list. Signing never blocks a write — if no key can be made the write still
-succeeds, unsigned. Set `POINTBREAK_SIGNING=off` to disable signing. A human can instead reuse an existing
+the same auto-generated key and enrollment — **signing stays automatic and advisory** here too:
+your first write under this id signs the event with the author run's key, or mints one, and prints
+a one-line notice with your `did:key`. Until a human enrolls this writer, signed events verify as
+untrusted — advisory and tamper-evident; untrusted does not mean invalid. When a human chooses to
+trust the writer, `pointbreak key enroll <name>` stages the key in the committed
+`.pointbreak/allowed-signers.json` for human review. Enrollment is optional and never blocks this
+response pass. Signing never blocks a write — if no key can be made the write still succeeds,
+unsigned. Set `POINTBREAK_SIGNING=off` to disable signing. A human can instead reuse an existing
 SSH key via `pointbreak key use-ssh` (agents still auto-keygen, unchanged).
 
 Read the reviewer's durable review facts:
