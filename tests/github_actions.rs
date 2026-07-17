@@ -33,6 +33,9 @@ fn release_workflows_target_single_pointbreak_crate() {
     assert!(release.contains("https://crates.io/api/v1/crates/pointbreak/${VERSION}"));
     assert!(release_script.contains("RELEASE_PLAN_REPO"));
     assert!(release_script.contains("remote get-url origin"));
+    assert!(release_script.contains(
+        r#"just --justfile "$REPO_ROOT/Justfile" --working-directory "$REPO_ROOT" package-archive-selftest"#
+    ));
     let stale_repository = ["kevinswiber", "pointbreak"].join("/");
     assert!(!release_script.contains(&stale_repository));
     assert!(!release.contains("boardwalk"));

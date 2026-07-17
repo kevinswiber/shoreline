@@ -35,7 +35,7 @@ function New-ReleaseArchive {
     }
     New-Item -ItemType Directory -Path $payloadDir | Out-Null
 
-    $fixtureExecutable = (Get-Command pwsh -ErrorAction Stop).Source
+    $fixtureExecutable = (Get-Process -Id $PID).Path
     Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $payloadDir "pointbreak.exe")
     Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination $payloadDir
     Copy-Item -LiteralPath (Join-Path $repoRoot "NOTICE") -Destination $payloadDir
@@ -46,7 +46,7 @@ function New-ReleaseArchive {
     )
     if ($ExtraEntry) {
         $extra = Join-Path $payloadDir "unexpected.txt"
-        Set-Content -LiteralPath $extra -Value "unexpected payload" -Encoding utf8NoBOM
+        Set-Content -LiteralPath $extra -Value "unexpected payload" -Encoding utf8
         $paths += $extra
     }
 
@@ -75,7 +75,7 @@ function Set-InvalidChecksum {
 
 function Reset-UpgradeFixture {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    Set-Content -LiteralPath $destination -Value "previous pointbreak bytes" -Encoding utf8NoBOM
+    Set-Content -LiteralPath $destination -Value "previous pointbreak bytes" -Encoding utf8
     [IO.File]::WriteAllBytes($neighbor, [byte[]](0, 255, 17, 83, 0, 104, 111, 114, 101))
     $script:previousHash = Get-FileSha256 -Path $destination
     $script:neighborHash = Get-FileSha256 -Path $neighbor
@@ -167,7 +167,7 @@ if ([IO.Path]::GetFileName($CandidatePath) -ceq "pointbreak.exe") {
     documents = [ordered]@{ "pointbreak.version" = 1 }
     diagnostics = @()
 } | ConvertTo-Json -Compress
-'@ | Set-Content -LiteralPath $runner -Encoding utf8NoBOM
+'@ | Set-Content -LiteralPath $runner -Encoding utf8
 
     $env:POINTBREAK_INSTALLER_FIXTURE_ROOT = Join-Path $tempDir "releases"
     $env:POINTBREAK_INSTALLER_FIXTURE_RUNNER = $runner
@@ -184,6 +184,7 @@ if ([IO.Path]::GetFileName($CandidatePath) -ceq "pointbreak.exe") {
     New-ReleaseArchive -CandidateVersion $version -InstalledVersion $version
     Set-ValidChecksum
     $freshOutput = (Invoke-Installer | Out-String)
+    $freshOutputNormalized = ($freshOutput -replace "\s+", " ").Trim()
     Write-Host $freshOutput
     if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
         throw "installer did not create pointbreak.exe"
@@ -195,13 +196,13 @@ if ([IO.Path]::GetFileName($CandidatePath) -ceq "pointbreak.exe") {
     if (Test-Path -LiteralPath $neighbor) {
         throw "installer created a second executable"
     }
-    if ($freshOutput -notmatch [Regex]::Escape("Installed Pointbreak Review $version to $destination")) {
+    if ($freshOutputNormalized -notmatch [Regex]::Escape("Installed Pointbreak Review $version to $destination")) {
         throw "installer success output omitted the installed Pointbreak version"
     }
-    if ($freshOutput -notmatch "run: pointbreak --help") {
+    if ($freshOutputNormalized -notmatch "run: pointbreak --help") {
         throw "installer success output omitted Pointbreak help guidance"
     }
-    if ($freshOutput -match "(?i)shore") {
+    if ($freshOutputNormalized -match "(?i)shore") {
         throw "installer success output teaches a second executable"
     }
 

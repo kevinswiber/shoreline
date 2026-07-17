@@ -31,7 +31,7 @@ package-archive-selftest:
 
 # Exercise the release installer for the current host platform without network access.
 installer-selftest:
-    {{ if os() == "windows" { "pwsh -NoLogo -NoProfile -File scripts/install-selftest.ps1" } else { "./scripts/install-selftest.sh" } }}
+    {{ if os() == "windows" { "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/install-selftest.ps1" } else { "./scripts/install-selftest.sh" } }}
 
 # Lint GitHub Actions workflows, the packaging script, and the binary target manifest.
 workflow-lint: workflow-actionlint workflow-lint-assertions

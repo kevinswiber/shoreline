@@ -70,7 +70,7 @@ if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
 fi
 WORKFLOW="release-plan.yml"
 
-just --working-directory "$REPO_ROOT" package-archive-selftest
+just --justfile "$REPO_ROOT/Justfile" --working-directory "$REPO_ROOT" package-archive-selftest
 
 if [ -n "${RELEASE_PLAN_DIR:-}" ]; then
   OUTDIR="$RELEASE_PLAN_DIR"

@@ -23,6 +23,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $Repository = "withpointbreak/pointbreak"
 $ApiRoot = "https://api.github.com/repos"
@@ -348,7 +349,7 @@ function Install-Pointbreak {
         if ($replacementDone) {
             try {
                 if ($hadPrevious) {
-                    [IO.File]::Move($backupBinary, $destination, $true)
+                    [IO.File]::Replace($backupBinary, $destination, $stagedBinary, $true)
                 }
                 else {
                     Remove-Item -LiteralPath $destination -Force
