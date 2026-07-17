@@ -39,6 +39,32 @@ fn current_exporter_and_materialize_hint_use_pointbreak() {
 }
 
 #[test]
+fn synthetic_decision_matrix_materializer_uses_only_isolated_pointbreak_surfaces() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let script_path = root.join("scripts/materialize-inspector-decision-matrix.sh");
+    assert!(
+        script_path.is_file(),
+        "synthetic decision matrix materializer is missing: {}",
+        script_path.display()
+    );
+
+    let script = fs::read_to_string(&script_path).expect("read decision matrix materializer");
+    assert!(script.contains("POINTBREAK_BINARY"));
+    assert!(script.contains("POINTBREAK_HOME=\"$destination/.git/pointbreak-home\""));
+    assert!(script.contains("--format json"));
+    assert!(script.contains("cygpath -u \"$native_path\""));
+    assert!(!script.contains("~/.pointbreak"));
+    assert!(!script.contains("shore"));
+    assert!(!script.contains("rev:sha256:"));
+    assert!(!script.contains("evt:sha256:"));
+    assert!(!script.contains("assoc-commit:sha256:"));
+
+    let justfile = fs::read_to_string(root.join("Justfile")).expect("read Justfile");
+    assert!(justfile.contains("review-decision-matrix-materialize output:"));
+    assert!(justfile.contains("scripts/materialize-inspector-decision-matrix.sh"));
+}
+
+#[test]
 fn canonical_review_example_manifest_pins_the_record_and_all_authoritative_files() {
     let manifest_path = pack_root().join("manifest.json");
     let manifest: Value = serde_json::from_slice(
@@ -219,11 +245,29 @@ fn canonical_review_example_has_the_complete_causal_record() {
         assessments[1]["replaces"],
         serde_json::json!([assessments[0]["id"]])
     );
+    assert!(assessments.iter().all(|assessment| {
+        assessment["writer"]["actorId"] == "actor:agent:pointbreak-example-reviewer"
+    }));
 
     let request = &revision["inputRequests"][0];
     assert_eq!(request["reasonCode"], "manual_decision_required");
     assert_eq!(request["status"], "responded");
     assert_eq!(request["responses"][0]["outcome"], "approved");
+    assert_eq!(
+        request["writer"]["actorId"],
+        "actor:agent:pointbreak-example-reviewer"
+    );
+    assert_eq!(
+        request["responses"][0]["writer"]["actorId"],
+        "actor:agent:pointbreak-example-author"
+    );
+    assert!(request["responses"][0]["reason"].is_string());
+
+    let observations = revision["observations"].as_array().expect("observations");
+    assert_eq!(observations.len(), 3);
+    assert!(observations.iter().all(|observation| {
+        observation["writer"]["actorId"] == "actor:agent:pointbreak-example-author"
+    }));
 
     let validations = revision["validationChecks"]
         .as_array()
@@ -232,6 +276,16 @@ fn canonical_review_example_has_the_complete_causal_record() {
     assert_eq!(validations[0]["status"], "failed");
     assert_eq!(validations[1]["status"], "passed");
     assert_eq!(validations[2]["status"], "passed");
+    assert_eq!(
+        validations
+            .iter()
+            .map(|validation| validation["writer"]["actorId"].as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([
+            "actor:agent:pointbreak-example-author",
+            "actor:agent:pointbreak-example-reviewer",
+        ])
+    );
 
     let response_commit = &revision["commitRange"]["currentCommits"][1];
     assert_eq!(response_commit["source"], "association");

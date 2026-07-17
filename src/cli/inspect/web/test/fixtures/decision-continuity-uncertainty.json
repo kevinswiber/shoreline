@@ -1,0 +1,299 @@
+{
+  "schema": "pointbreak.review-revision",
+  "version": 2,
+  "revision": {
+    "id": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "objectId": "obj:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "summary": "Lock decision continuity",
+    "targetDisplay": {
+      "kind": "working_tree",
+      "pathPrivate": true,
+      "workLabel": {
+        "text": "working-tree changes on feat/decision-matrix",
+        "source": "current_ref"
+      }
+    }
+  },
+  "summary": {
+    "fileCount": 1,
+    "rowCount": 12,
+    "observationCount": 1,
+    "inputRequestCount": 3,
+    "assessmentCount": 2,
+    "validationCheckCount": 6
+  },
+  "observations": [
+    {
+      "id": "obs:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "trackId": "agent:matrix-facts",
+      "title": "Matrix fact",
+      "status": "active",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-fact-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    }
+  ],
+  "inputRequests": [
+    {
+      "id": "input-request:sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "trackId": "agent:matrix-requests",
+      "title": "Open decision",
+      "mode": "operative",
+      "reasonCode": "insufficient_evidence",
+      "status": "open",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "responses": [],
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-request-opener",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "input-request:sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "trackId": "agent:matrix-requests",
+      "title": "Responded decision",
+      "mode": "operative",
+      "reasonCode": "manual_decision_required",
+      "status": "responded",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-participant-opener",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      },
+      "responses": [
+        {
+          "id": "input-request-response:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "outcome": "approved",
+          "reason": "the evidence is sufficient",
+          "createdAt": "2026-07-17T10:01:00Z",
+          "writer": {
+            "actorId": "actor:agent:pointbreak-matrix-participant-responder",
+            "producer": { "name": "pointbreak", "version": "0.7.0" }
+          }
+        }
+      ]
+    },
+    {
+      "id": "input-request:sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "trackId": "agent:matrix-requests",
+      "title": "Ambiguous decision",
+      "mode": "operative",
+      "reasonCode": "conflicting_event",
+      "status": "ambiguous",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-request-opener",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      },
+      "responses": [
+        {
+          "id": "input-request-response:sha256:6666666666666666666666666666666666666666666666666666666666666666",
+          "outcome": "approved",
+          "reason": "first response approves",
+          "createdAt": "2026-07-17T10:02:00Z",
+          "writer": {
+            "actorId": "actor:agent:pointbreak-matrix-response-one",
+            "producer": { "name": "pointbreak", "version": "0.7.0" }
+          }
+        },
+        {
+          "id": "input-request-response:sha256:7777777777777777777777777777777777777777777777777777777777777777",
+          "outcome": "rejected",
+          "reason": "second response rejects",
+          "createdAt": "2026-07-17T10:03:00Z",
+          "writer": {
+            "actorId": "actor:agent:pointbreak-matrix-response-two",
+            "producer": { "name": "pointbreak", "version": "0.7.0" }
+          }
+        }
+      ]
+    }
+  ],
+  "assessments": [
+    {
+      "id": "assess:sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "trackId": "agent:matrix-assessment-a",
+      "assessment": "accepted",
+      "status": "current",
+      "replaces": [],
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-assessment-writer-one",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "assess:sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "trackId": "agent:matrix-assessment-b",
+      "assessment": "needs_changes",
+      "status": "current",
+      "replaces": [],
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-assessment-writer-two",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    }
+  ],
+  "currentAssessment": {
+    "status": "ambiguous",
+    "candidates": [
+      "assess:sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "assess:sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    ]
+  },
+  "validationChecks": [
+    {
+      "id": "validation:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "trackId": "agent:matrix-validation",
+      "checkName": "passed current",
+      "status": "passed",
+      "target": { "kind": "revision" },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-validation-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "trackId": "agent:matrix-validation",
+      "checkName": "failed current",
+      "status": "failed",
+      "target": { "kind": "revision" },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-validation-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "trackId": "agent:matrix-validation",
+      "checkName": "errored current",
+      "status": "errored",
+      "target": { "kind": "revision" },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-validation-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "trackId": "agent:matrix-validation",
+      "checkName": "skipped only",
+      "status": "skipped",
+      "target": { "kind": "revision" },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-validation-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "trackId": "agent:matrix-validation",
+      "checkName": "failed then passed",
+      "status": "failed",
+      "target": { "kind": "revision" },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-validation-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "trackId": "agent:matrix-validation",
+      "checkName": "failed then passed",
+      "status": "passed",
+      "target": { "kind": "revision" },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-matrix-validation-writer",
+        "producer": { "name": "pointbreak", "version": "0.7.0" }
+      }
+    }
+  ],
+  "validationContinuity": {
+    "summary": {
+      "outstandingFailedCount": 1,
+      "outstandingErroredCount": 1,
+      "recoveredCount": 1,
+      "passedCount": 1,
+      "skippedOnlyCount": 1
+    },
+    "checks": {
+      "validation:sha256:1111111111111111111111111111111111111111111111111111111111111111": "current",
+      "validation:sha256:2222222222222222222222222222222222222222222222222222222222222222": "outstanding",
+      "validation:sha256:3333333333333333333333333333333333333333333333333333333333333333": "outstanding",
+      "validation:sha256:4444444444444444444444444444444444444444444444444444444444444444": "skipped",
+      "validation:sha256:5555555555555555555555555555555555555555555555555555555555555555": "resolved_by_later_pass",
+      "validation:sha256:6666666666666666666666666666666666666666666666666666666666666666": "current"
+    }
+  },
+  "commitRange": {
+    "anchored": true,
+    "currentCommits": [
+      {
+        "commitOid": "cccccccccccccccccccccccccccccccccccccccc",
+        "commitAssociationId": "assoc-commit:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source": "association"
+      }
+    ],
+    "currentRefs": [
+      {
+        "refName": "refs/heads/feat/decision-matrix",
+        "headOid": "cccccccccccccccccccccccccccccccccccccccc",
+        "refAssociationId": "assoc-ref:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "withdrawnCommits": [
+      {
+        "commitOid": "dddddddddddddddddddddddddddddddddddddddd",
+        "commitAssociationId": "assoc-commit:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "commitWithdrawalId": "withdraw-commit:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "source": "association"
+      }
+    ],
+    "withdrawnRefs": [
+      {
+        "refName": "refs/heads/old-matrix",
+        "headOid": "dddddddddddddddddddddddddddddddddddddddd",
+        "refAssociationId": "assoc-ref:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "refWithdrawalId": "withdraw-ref:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
+  "revisionSupersession": {
+    "competing": true,
+    "revisions": [
+      "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rev:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "heads": [
+      "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rev:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "superseded": [
+      "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  "diagnostics": []
+}

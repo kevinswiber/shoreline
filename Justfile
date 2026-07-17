@@ -206,3 +206,8 @@ review-example-verify pack="examples/review/checkout-refactor":
 # Materialize the canonical Review example into an empty destination repository.
 review-example-materialize output pack="examples/review/checkout-refactor":
     cargo +stable run --example review_example_pack -- materialize --pack {{ pack }} --output {{ output }}
+
+# Materialize the generated Inspector decision-continuity matrix into an empty, isolated repository.
+review-decision-matrix-materialize output:
+    cargo +stable build --bin pointbreak
+    POINTBREAK_BINARY="$PWD/target/debug/pointbreak" ./scripts/materialize-inspector-decision-matrix.sh "{{ output }}"

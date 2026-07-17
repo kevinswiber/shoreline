@@ -1,0 +1,206 @@
+{
+  "schema": "pointbreak.review-revision",
+  "version": 2,
+  "revision": {
+    "id": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f",
+    "objectId": "obj:sha256:296f82b6468cce5be8ec6a60206dd3de03c761409a7adcb13bb76ce9feebcd4b",
+    "objectArtifactContentHash": "sha256:c366c7cb8d826536573781f9136d9ccbcebc17301cc6aaba0b8a4f1c2f641327",
+    "targetDisplay": {
+      "kind": "commit",
+      "pathPrivate": true,
+      "workLabel": {
+        "text": "Fix null-user checkout",
+        "source": "commit_subject"
+      }
+    }
+  },
+  "summary": {
+    "fileCount": 1,
+    "rowCount": 18,
+    "observationCount": 3,
+    "inputRequestCount": 1,
+    "assessmentCount": 2,
+    "validationCheckCount": 3
+  },
+  "observations": [
+    {
+      "id": "obs:sha256:8a9a1c1c013499512111c090e19b922bd38172ad39d3b8143a6b9b1638ec0c49",
+      "trackId": "example:marketing-review-proof",
+      "title": "Refactor preserves checkout behavior",
+      "status": "active",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-author",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    },
+    {
+      "id": "obs:sha256:110b53faaa8ab3116c0e2d865afce7a3e5b2ed5ee7cad2b0fe347e7823311115",
+      "trackId": "example:marketing-review-proof",
+      "title": "Null-user cause isolated",
+      "status": "active",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-author",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    },
+    {
+      "id": "obs:sha256:6642d468316138447fd1603779393df3c013163f28224e672b814ae167460d20",
+      "trackId": "example:marketing-review-proof",
+      "title": "Null-user regression test added",
+      "status": "active",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-author",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    }
+  ],
+  "inputRequests": [
+    {
+      "id": "input-request:sha256:7fbe2f041cc9310e53fddb74d1e875ca7d28ea2b2f32e94615720eb3beb07051",
+      "trackId": "example:marketing-review-proof",
+      "title": "Define the null-user invariant",
+      "mode": "operative",
+      "reasonCode": "manual_decision_required",
+      "status": "responded",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-reviewer",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      },
+      "responses": [
+        {
+          "id": "input-request-response:sha256:b5bee56b2726effed5dee9c44ef31ec92bd15fe69841c4342c0830b37d6dec16",
+          "outcome": "approved",
+          "reason": "Checkout now preserves an absent user as a null identifier.",
+          "createdAt": "unix-ms:1783749070000",
+          "writer": {
+            "actorId": "actor:agent:pointbreak-example-author",
+            "producer": { "name": "shore", "version": "0.5.0" }
+          }
+        }
+      ]
+    }
+  ],
+  "assessments": [
+    {
+      "id": "assess:sha256:12c1b3c464be63580a18370e73dc140e6fbeaad40347e0afc2f9f6788a83ca76",
+      "trackId": "example:marketing-review-proof",
+      "assessment": "needs_changes",
+      "status": "replaced",
+      "replaces": [],
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-reviewer",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    },
+    {
+      "id": "assess:sha256:131e0f06e28c0c1f688e2da745bf1539dfe0f943fdd64a066b7dc550543aca77",
+      "trackId": "example:marketing-review-proof",
+      "assessment": "accepted",
+      "status": "current",
+      "replaces": [
+        "assess:sha256:12c1b3c464be63580a18370e73dc140e6fbeaad40347e0afc2f9f6788a83ca76"
+      ],
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-reviewer",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    }
+  ],
+  "currentAssessment": {
+    "status": "resolved",
+    "assessment": "accepted",
+    "assessmentId": "assess:sha256:131e0f06e28c0c1f688e2da745bf1539dfe0f943fdd64a066b7dc550543aca77"
+  },
+  "validationChecks": [
+    {
+      "id": "validation:sha256:8407251e4032821a454153e993307abe536e0237f3ff7c9d9b8f2096d36eef1a",
+      "trackId": "example:marketing-review-proof",
+      "checkName": "null-user branch",
+      "status": "failed",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-reviewer",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:2f2428744d9deb5f070f499b10595c3a606a4a185e590b1d8928c7d0182078f8",
+      "trackId": "example:marketing-review-proof",
+      "checkName": "null-user regression test",
+      "status": "passed",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-author",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    },
+    {
+      "id": "validation:sha256:10c330a467aea8edc9f1cfa5ffe7359cb287bd70f41ecf50e78b4b0003ef2640",
+      "trackId": "example:marketing-review-proof",
+      "checkName": "null-user fix and invariant",
+      "status": "passed",
+      "target": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f"
+      },
+      "writer": {
+        "actorId": "actor:agent:pointbreak-example-reviewer",
+        "producer": { "name": "shore", "version": "0.5.0" }
+      }
+    }
+  ],
+  "commitRange": {
+    "anchored": true,
+    "currentCommits": [
+      {
+        "commitOid": "3e7b4b3e1e1e7cccfc14a4c724204ff381b315e4",
+        "source": "capture_target"
+      },
+      {
+        "commitOid": "c4f50c2dc010f69f9080d0ad6b0999728568c3c1",
+        "commitAssociationId": "assoc-commit:sha256:64b5dd71c07463b0ddb34b07c69595e3f2df6f64eecff8d21dfc3635ab2015df",
+        "source": "association"
+      }
+    ],
+    "currentRefs": [
+      {
+        "refAssociationId": "assoc-ref:sha256:bdcd32a260bbcdc43953f66c8d331ee6f2b1ce86f044d22fa8ddbc8a2c06dd99",
+        "refName": "refs/heads/main",
+        "headOid": "3e7b4b3e1e1e7cccfc14a4c724204ff381b315e4"
+      }
+    ],
+    "withdrawnCommits": [],
+    "withdrawnRefs": []
+  },
+  "diagnostics": []
+}

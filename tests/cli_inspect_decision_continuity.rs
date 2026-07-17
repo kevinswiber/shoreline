@@ -6,7 +6,7 @@ mod support;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::inspect::{Inspector, urlencode};
+use support::inspect::{Inspector, decision_continuity_matrix, urlencode};
 use support::pointbreak;
 
 fn run_json(args: &[&str]) -> Value {
@@ -330,4 +330,218 @@ fn competing_live_landing_claims_surface_diagnostic_and_withhold_headline() {
             .iter()
             .any(|item| { item["code"] == "divergent_commit_association" })
     );
+}
+
+#[test]
+fn generated_matrix_preserves_decision_continuity_without_selecting_uncertain_winners() {
+    let matrix = decision_continuity_matrix();
+    let inspector = Inspector::spawn(matrix.repo());
+    let primary = inspector.get_json(&format!(
+        "/api/revisions/{}",
+        urlencode(&matrix.ids.primary_revision)
+    ));
+
+    assert_eq!(primary["revision"]["summary"], "Decision continuity matrix");
+    assert_eq!(
+        primary["observations"][0]["writer"]["actorId"],
+        "actor:agent:pointbreak-matrix-fact-writer"
+    );
+
+    let requests = primary["inputRequests"]
+        .as_array()
+        .expect("matrix requests");
+    let status = |title: &str| {
+        requests
+            .iter()
+            .find(|request| request["title"] == title)
+            .unwrap_or_else(|| panic!("missing request {title}"))
+    };
+    assert_eq!(status("Open decision")["status"], "open");
+    assert_eq!(status("Responded decision")["status"], "responded");
+    assert_eq!(
+        status("Responded decision")["writer"]["actorId"],
+        "actor:agent:pointbreak-matrix-participant-opener"
+    );
+    assert_eq!(
+        status("Responded decision")["responses"][0]["writer"]["actorId"],
+        "actor:agent:pointbreak-matrix-participant-responder"
+    );
+    assert_eq!(
+        status("Responded decision")["responses"][0]["outcome"],
+        "approved"
+    );
+    assert_eq!(
+        status("Responded decision")["responses"][0]["reason"],
+        "the evidence is sufficient"
+    );
+    assert_eq!(status("Ambiguous decision")["status"], "ambiguous");
+    assert_eq!(
+        status("Ambiguous decision")["responses"]
+            .as_array()
+            .expect("ambiguous responses")
+            .len(),
+        2
+    );
+
+    let assessments = primary["assessments"]
+        .as_array()
+        .expect("matrix assessments");
+    assert_eq!(assessments.len(), 2);
+    assert_eq!(assessments[0]["status"], "replaced");
+    assert_eq!(assessments[1]["status"], "current");
+    assert_eq!(primary["currentAssessment"]["status"], "resolved");
+
+    let continuity = &primary["validationContinuity"]["summary"];
+    assert_eq!(continuity["recoveredCount"], 2);
+    assert_eq!(continuity["passedCount"], 1);
+    assert_eq!(continuity["skippedOnlyCount"], 1);
+    assert_eq!(continuity["outstandingFailedCount"], 4);
+    assert_eq!(continuity["outstandingErroredCount"], 1);
+
+    assert_eq!(
+        primary["commitRange"]["currentCommits"]
+            .as_array()
+            .expect("current commits")
+            .len(),
+        1
+    );
+    assert_eq!(
+        primary["commitRange"]["withdrawnCommits"]
+            .as_array()
+            .expect("withdrawn commits")
+            .len(),
+        1
+    );
+    assert_eq!(
+        primary["commitRange"]["withdrawnRefs"]
+            .as_array()
+            .expect("withdrawn refs")
+            .len(),
+        1
+    );
+    assert_eq!(
+        primary["commitRange"]["liveness"]["headline"]["condition"],
+        "merged"
+    );
+
+    let target_display = |revision_id: &str| {
+        inspector.get_json(&format!(
+            "/api/revisions/{}",
+            urlencode(revision_id)
+        ))["revision"]["targetDisplay"]
+            .clone()
+    };
+    assert_eq!(
+        target_display(&matrix.ids.range_revision)["workLabel"],
+        serde_json::json!({"text": "range matrix target", "source": "commit_subject"})
+    );
+    assert_eq!(
+        target_display(&matrix.ids.root_revision)["workLabel"],
+        serde_json::json!({"text": "range matrix target", "source": "commit_subject"})
+    );
+    assert_eq!(
+        target_display(&matrix.ids.staged_revision)["workLabel"],
+        serde_json::json!({"text": "staged changes", "source": "source_fallback"})
+    );
+    assert_eq!(
+        target_display(&matrix.ids.unstaged_revision)["workLabel"],
+        serde_json::json!({
+            "text": "unstaged changes on feat/source-matrix",
+            "source": "current_ref"
+        })
+    );
+    assert_eq!(
+        target_display(&matrix.ids.detached_revision)["workLabel"],
+        serde_json::json!({"text": "working-tree changes", "source": "source_fallback"})
+    );
+    assert_eq!(
+        target_display(&matrix.ids.live_revision)["workLabel"],
+        serde_json::json!({
+            "text": "working-tree changes on feat/live-matrix",
+            "source": "current_ref"
+        })
+    );
+    assert_eq!(
+        target_display(&matrix.ids.missing_revision)["workLabel"]["source"],
+        "source_fallback"
+    );
+    assert!(
+        target_display(&matrix.ids.missing_revision)["workLabel"]["text"]
+            .as_str()
+            .expect("missing-object fallback")
+            .starts_with("commit range ")
+    );
+
+    let live = inspector.get_json(&format!(
+        "/api/revisions/{}",
+        urlencode(&matrix.ids.live_revision)
+    ));
+    assert_eq!(
+        live["commitRange"]["liveness"]["headline"]["condition"],
+        "live"
+    );
+
+    let unassessed = inspector.get_json(&format!(
+        "/api/revisions/{}",
+        urlencode(&matrix.ids.unassessed_revision)
+    ));
+    assert_eq!(unassessed["currentAssessment"]["status"], "unassessed");
+    assert_eq!(unassessed["commitRange"]["anchored"], false);
+    assert_eq!(
+        unassessed["commitRange"]["currentCommits"],
+        serde_json::json!([])
+    );
+
+    let missing = inspector.get_json(&format!(
+        "/api/revisions/{}",
+        urlencode(&matrix.ids.missing_revision)
+    ));
+    assert_eq!(
+        missing["commitRange"]["liveness"]["perCommit"][0]["condition"],
+        "missing"
+    );
+
+    let ambiguous = inspector.get_json(&format!(
+        "/api/revisions/{}",
+        urlencode(&matrix.ids.ambiguous_assessment_revision)
+    ));
+    assert_eq!(ambiguous["currentAssessment"]["status"], "ambiguous");
+    assert_eq!(
+        ambiguous["currentAssessment"]["candidates"]
+            .as_array()
+            .expect("ambiguous assessment candidates")
+            .len(),
+        2
+    );
+
+    let threads = inspector.get_json("/api/threads");
+    let competing = threads["threads"]
+        .as_array()
+        .expect("matrix threads")
+        .iter()
+        .find(|thread| {
+            thread["revisions"].as_array().is_some_and(|revisions| {
+                revisions
+                    .iter()
+                    .any(|revision| revision == &matrix.ids.superseded_revision)
+            })
+        })
+        .expect("competing revision thread");
+    assert_eq!(competing["competing"], true);
+    assert_eq!(
+        competing["heads"]
+            .as_array()
+            .expect("competing heads")
+            .len(),
+        2
+    );
+    assert!(competing.get("selectedHead").is_none());
+
+    let stale = inspector.get_json(&format!(
+        "/api/revisions/{}",
+        urlencode(&matrix.ids.superseded_revision)
+    ));
+    assert_eq!(stale["observations"][0]["title"], "Stale predecessor fact");
+
+    assert!(matrix.repo().join(".git/pointbreak/events").is_dir());
 }

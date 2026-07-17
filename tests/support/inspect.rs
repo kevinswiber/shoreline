@@ -435,6 +435,110 @@ pub struct RepresentativeStore {
     pub snapshot_id: String,
 }
 
+/// Generated ids printed by the isolated decision-continuity materializer.
+///
+/// These values are resolved from real command output on every build. Keeping
+/// them together lets socket suites reuse one generated store without pinning
+/// timestamp-derived event or association identities.
+#[derive(Debug, serde::Deserialize)]
+pub struct DecisionContinuityMatrixIds {
+    pub primary_revision: String,
+    pub live_revision: String,
+    pub unassessed_revision: String,
+    pub superseded_revision: String,
+    pub ambiguous_assessment_revision: String,
+    pub competing_revision: String,
+    pub range_revision: String,
+    pub root_revision: String,
+    pub staged_revision: String,
+    pub unstaged_revision: String,
+    pub detached_revision: String,
+    pub missing_revision: String,
+    pub base_commit: String,
+    pub first_landing: String,
+    pub second_landing: String,
+    pub live_landing: String,
+}
+
+/// An isolated repository/store carrying the generated decision matrix.
+pub struct DecisionContinuityMatrix {
+    _root: tempfile::TempDir,
+    repo: PathBuf,
+    pub ids: DecisionContinuityMatrixIds,
+}
+
+impl DecisionContinuityMatrix {
+    pub fn repo(&self) -> &Path {
+        &self.repo
+    }
+}
+
+fn decision_matrix_shell() -> Command {
+    #[cfg(windows)]
+    {
+        let git_exec_path = Command::new("git")
+            .arg("--exec-path")
+            .output()
+            .expect("locate Git for Windows");
+        assert!(
+            git_exec_path.status.success(),
+            "git --exec-path failed: {}",
+            String::from_utf8_lossy(&git_exec_path.stderr)
+        );
+        let git_exec_path =
+            String::from_utf8(git_exec_path.stdout).expect("Git for Windows exec path is UTF-8");
+        let bash = Path::new(git_exec_path.trim())
+            .ancestors()
+            .map(|ancestor| ancestor.join("bin/bash.exe"))
+            .find(|candidate| candidate.is_file())
+            .unwrap_or_else(|| {
+                panic!(
+                    "could not find Git Bash above git exec path {}",
+                    git_exec_path.trim()
+                )
+            });
+        Command::new(bash)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Command::new("bash")
+    }
+}
+
+/// Materialize the reusable synthetic matrix with the exact binary built for
+/// the integration test. The generator owns a fresh temporary repository, and
+/// it rejects any store path that escapes that repository.
+pub fn decision_continuity_matrix() -> DecisionContinuityMatrix {
+    let root = tempfile::tempdir().expect("decision matrix root");
+    let repo = root.path().join("repository");
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts/materialize-inspector-decision-matrix.sh");
+    let output = decision_matrix_shell()
+        .arg(&script)
+        .arg(&repo)
+        .env("POINTBREAK_BINARY", env!("CARGO_BIN_EXE_pointbreak"))
+        .env_remove("POINTBREAK_HOME")
+        .env_remove("POINTBREAK_FORMAT")
+        .env_remove("POINTBREAK_SIGNING_KEY")
+        .output()
+        .unwrap_or_else(|error| panic!("run {}: {error}", script.display()));
+    assert!(
+        output.status.success(),
+        "decision matrix materialization failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ids = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("parse generated matrix ids: {error}"));
+
+    DecisionContinuityMatrix {
+        _root: root,
+        repo,
+        ids,
+    }
+}
+
 /// Build the [`RepresentativeStore`] entirely through the real CLI, so it tracks
 /// the current on-disk store layout without hard-coding any path.
 pub fn representative_store() -> RepresentativeStore {
