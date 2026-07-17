@@ -85,7 +85,7 @@ where
     S: Into<OsString>,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    let removed_command_hint = removed_command_hint(&args);
+    let invalid_subcommand_hint = invalid_subcommand_hint(&args);
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
@@ -98,7 +98,7 @@ where
             } else {
                 let _ = writeln!(stderr, "{error}");
                 if error.kind() == ErrorKind::InvalidSubcommand
-                    && let Some(hint) = removed_command_hint
+                    && let Some(hint) = invalid_subcommand_hint
                 {
                     let _ = writeln!(stderr, "\n{hint}");
                 }
@@ -117,8 +117,11 @@ where
     }
 }
 
-/// A predicate over the raw argv that recognizes a removed/renamed command.
+/// A predicate over the raw argv that recognizes an invalid command path.
 enum HintPredicate {
+    /// The command path immediately after the program name. Unlike an adjacent
+    /// window, this cannot match later argument values.
+    LeadingPath(&'static [&'static str]),
     /// Two or three adjacent argv tokens, e.g. `["review", "revisions"]`.
     AdjacentWindow(&'static [&'static str]),
     /// The first non-flag argv token — the attempted subcommand. Used for the
@@ -129,6 +132,9 @@ enum HintPredicate {
 impl HintPredicate {
     fn matches(&self, tokens: &[&str]) -> bool {
         match self {
+            HintPredicate::LeadingPath(path) => tokens
+                .get(1..)
+                .is_some_and(|command_args| command_args.starts_with(path)),
             HintPredicate::AdjacentWindow(seq) => tokens
                 .windows(seq.len())
                 .any(|window| window.iter().zip(seq.iter()).all(|(a, b)| a == b)),
@@ -141,11 +147,15 @@ impl HintPredicate {
     }
 }
 
-/// Removed/renamed command hints, evaluated in order (first match wins). Keep
-/// specific `AdjacentWindow` rows before general `LeadingToken` rows so a stale
+/// Invalid-subcommand recovery hints, evaluated in order (first match wins).
+/// Keep specific path/window rows before general `LeadingToken` rows so a stale
 /// `pointbreak review <verb>` gets the verb-specific hint rather than the family hint.
 /// Family/rename tasks append rows; they never change this mechanism.
-const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
+const INVALID_SUBCOMMAND_HINTS: &[(HintPredicate, &str)] = &[
+    (
+        HintPredicate::LeadingPath(&["assessment", "replace"]),
+        "Use `pointbreak assessment add --replaces <assessment-id>`.",
+    ),
     (
         HintPredicate::AdjacentWindow(&["identity", "enroll"]),
         "Use `pointbreak identity delegate <AGENT> --principal <P>`.",
@@ -265,11 +275,10 @@ const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
     ),
 ];
 
-/// A hint for a removed or renamed command, surfaced after clap's
-/// invalid-subcommand error so a stale invocation points at its replacement.
-fn removed_command_hint(args: &[OsString]) -> Option<&'static str> {
+/// A recovery hint surfaced after clap's invalid-subcommand error.
+fn invalid_subcommand_hint(args: &[OsString]) -> Option<&'static str> {
     let tokens: Vec<&str> = args.iter().filter_map(|arg| arg.to_str()).collect();
-    REMOVED_COMMAND_HINTS
+    INVALID_SUBCOMMAND_HINTS
         .iter()
         .find(|(predicate, _)| predicate.matches(&tokens))
         .map(|(_, hint)| *hint)

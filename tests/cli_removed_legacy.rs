@@ -161,6 +161,40 @@ fn review_namespace_is_retired_with_a_hint() {
 }
 
 #[test]
+fn assessment_replace_is_unregistered_with_a_recovery_hint() {
+    let output = pointbreak(["assessment", "replace"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success(), "replace must remain unregistered");
+    assert!(
+        stderr.contains("unrecognized subcommand 'replace'"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("pointbreak assessment add --replaces <assessment-id>"),
+        "replacement recovery missing:\n{stderr}"
+    );
+
+    for argv in [
+        vec!["assessment", "retire"],
+        vec!["observation", "assessment", "replace"],
+    ] {
+        let output = pointbreak(argv.clone());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(!output.status.success(), "{argv:?} should be rejected");
+        assert!(
+            stderr.contains("unrecognized subcommand"),
+            "{argv:?} stderr:\n{stderr}"
+        );
+        assert!(
+            !stderr.contains("pointbreak assessment add --replaces"),
+            "{argv:?} must not receive assessment replacement recovery:\n{stderr}"
+        );
+    }
+}
+
+#[test]
 fn removed_review_paths_are_unregistered_and_hint_at_successors() {
     for case in REMOVED_PATHS {
         let output = pointbreak(case.argv.iter().copied());
