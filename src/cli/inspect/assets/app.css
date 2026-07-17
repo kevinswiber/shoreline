@@ -889,7 +889,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 }
 .diff-nav-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   margin: 0 0 8px;
   color: var(--fg-dim);
@@ -931,6 +931,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .diff-nav-file .dfile-notes { margin-left: auto; }
 .diff-nav-fact { font-size: var(--fs-sm); color: var(--fg-dim); }
 .diff-nav-reason { margin-left: auto; font: var(--fs-xs)/var(--line) var(--mono); color: var(--fg-dim); }
+.diff-decision-context-nav h3,
 .diff-unanchored h3 {
   font-size: var(--fs-xs);
   text-transform: uppercase;
@@ -1073,6 +1074,39 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 /* Review-fact annotations on the diff */
 .anno-summary { font-size: var(--fs-sm); color: var(--fg-dim); margin-bottom: 10px; }
 .anno-group { margin-bottom: 14px; }
+.diff-decision-context {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+}
+.diff-unanchored-facts {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.diff-decision-context h2,
+.diff-unanchored-facts h2 {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.diff-decision-context > p,
+.diff-anchor-reason {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+}
+.diff-decision-context .anno { margin-left: 0; }
+.diff-unanchored-facts .anno { margin-left: 0; }
 .dfile-notes { margin-left: auto; font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); }
 .anno {
   border-left: 3px solid var(--border);

@@ -106,6 +106,7 @@ describe("compositeAnnotations", () => {
           body: "**body**",
           bodyContentType: "text/markdown",
           trackId: "agent:author",
+          status: "active",
           tags: ["security", "api"],
           target,
         },
@@ -119,6 +120,7 @@ describe("compositeAnnotations", () => {
           trackId: "agent:reviewer",
           mode: "operative",
           reasonCode: "manual_decision_required",
+          status: "open",
           target: { kind: "revision", revisionId: "rev:one" },
         },
       ],
@@ -129,6 +131,7 @@ describe("compositeAnnotations", () => {
           summary: "Ship with follow-up",
           summaryContentType: "text/markdown",
           trackId: "human:owner",
+          status: "current",
           target: { kind: "revision", revisionId: "rev:one" },
         },
       ],
@@ -144,6 +147,7 @@ describe("compositeAnnotations", () => {
         track: "agent:author",
         tags: ["security", "api"],
         target,
+        status: "active",
       },
       {
         kind: "input-request",
@@ -152,8 +156,11 @@ describe("compositeAnnotations", () => {
         body: "Need input",
         bodyContentType: "text/plain",
         track: "agent:reviewer",
-        tags: ["operative · manual_decision_required"],
+        tags: [],
         target: { kind: "revision", revisionId: "rev:one" },
+        status: "open",
+        mode: "operative",
+        reasonCode: "manual_decision_required",
       },
       {
         kind: "assessment",
@@ -164,6 +171,8 @@ describe("compositeAnnotations", () => {
         track: "human:owner",
         tags: [],
         target: { kind: "revision", revisionId: "rev:one" },
+        status: "current",
+        assessment: "accepted_with_follow_up",
       },
     ]);
   });

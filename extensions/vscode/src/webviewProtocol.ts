@@ -141,6 +141,10 @@ function isSafeAnnotation(value: unknown): boolean {
       "bodyContentType",
       "tags",
       "target",
+      "status",
+      "mode",
+      "reasonCode",
+      "assessment",
     ]) ||
     typeof value.id !== "string" ||
     typeof value.kind !== "string" ||
@@ -150,9 +154,14 @@ function isSafeAnnotation(value: unknown): boolean {
     return false;
   }
   if (
-    (value.body !== undefined && typeof value.body !== "string") ||
-    (value.bodyContentType !== undefined &&
-      typeof value.bodyContentType !== "string")
+    [
+      value.body,
+      value.bodyContentType,
+      value.status,
+      value.mode,
+      value.reasonCode,
+      value.assessment,
+    ].some((field) => field !== undefined && typeof field !== "string")
   ) {
     return false;
   }

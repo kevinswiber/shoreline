@@ -37,6 +37,7 @@ export interface ReviewObservationDoc {
   bodyContentType?: string;
   tags?: string[];
   target?: ReviewFactTarget;
+  status?: string;
   [field: string]: unknown;
 }
 
@@ -49,6 +50,7 @@ export interface ReviewInputRequestDoc {
   mode?: string;
   reasonCode?: string;
   target?: ReviewFactTarget;
+  status?: string;
   [field: string]: unknown;
 }
 
@@ -59,6 +61,7 @@ export interface ReviewAssessmentDoc {
   summary?: string;
   summaryContentType?: string;
   target?: ReviewFactTarget;
+  status?: string;
   [field: string]: unknown;
 }
 

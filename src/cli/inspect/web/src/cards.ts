@@ -176,6 +176,8 @@ export interface RevisionDetail {
 
 /** The shared options a fact card renders from. */
 export interface FactCardOptions {
+  /** Immutable fact id used by routed-diff focus; optional on generic cards. */
+  annotationId?: string;
   track?: string;
   title?: string;
   status?: string;
@@ -303,7 +305,10 @@ export function factCard(kind: string, opts: FactCardOptions): string {
   const body =
     removedBodyCue(opts.bodyContentState) ??
     renderBodyContent(opts.body, opts.bodyContentType);
-  return `<div class="${annoContainerClass(kind)}">
+  const annotationId = opts.annotationId
+    ? ` data-anno="${escapeHtml(opts.annotationId)}"`
+    : "";
+  return `<div class="${annoContainerClass(kind)}"${annotationId}>
     <div class="${CLASS.annoHead}">
       <span class="${annoKindClass(kind)}">${kind}</span>
       <span class="${CLASS.annoTrack}">${escapeHtml(opts.track || "")}</span>
@@ -327,6 +332,7 @@ export function renderObservationCard(o: Observation): string {
     ? `<div class="${CLASS.factRel}">supersedes ${supersedes.map(linkify).join(", ")}</div>`
     : "";
   return factCard("observation", {
+    annotationId: o.id,
     track: o.trackId,
     title: o.title,
     status: o.status,
@@ -367,6 +373,7 @@ export function renderInputRequestCard(ir: InputRequest): string {
     .map(renderInputRequestResponse)
     .join("");
   return factCard("input-request", {
+    annotationId: ir.id,
     track: ir.trackId,
     title: ir.title,
     status: ir.status,
@@ -399,6 +406,7 @@ export function renderAssessmentCard(a: Assessment): string {
     rel.push(`re ${relatedInputRequests.map(linkify).join(", ")}`);
   }
   return factCard("assessment", {
+    annotationId: a.id,
     track: a.trackId,
     title: assessmentDisplayLabel(a.assessment ?? ""),
     status: a.status,
@@ -438,6 +446,7 @@ export function renderValidationCheckCard(
     ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>`
     : "";
   return factCard("validation", {
+    annotationId: v.id,
     track: v.trackId,
     title: v.checkName,
     status: v.status, // passed | failed | errored | skipped → .fact-status.<status>

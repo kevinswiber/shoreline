@@ -280,11 +280,16 @@ async function renderDiffPageFromRevision(revisionId: string): Promise<void> {
       body.innerHTML = `<p class="${CLASS.empty}">this revision names no captured snapshot</p>`;
     return;
   }
+  const summary = revision.summary;
+  const workLabel = revision.targetDisplay?.workLabel?.text;
+  const discoveryLabel = summary || workLabel;
+  const provenance = summary && workLabel ? ` · ${workLabel}` : "";
+  const titlePrefix = discoveryLabel ? `${discoveryLabel}${provenance} · ` : "";
   const painted = await paintDiffPage({
     snapshotId,
     contentHash: revision.objectArtifactContentHash ?? null,
     annotations: compositeAnnotations(doc),
-    title: `${shortId(revisionId)} · snapshot ${shortId(snapshotId)}`,
+    title: `${titlePrefix}${shortId(revisionId)} · snapshot ${shortId(snapshotId)}`,
     stillCurrent,
     factsNote: null,
   });
@@ -480,12 +485,11 @@ export function toggleDiffFile(section: HTMLElement): void {
 
 // The file/fact navigator sidebar: one entry per file (status + path + fact
 // badge), filtered purely through the file-scope query grammar, plus the
-// always-available unanchored-facts panel — never a mutually exclusive display
-// mode — so every fact, including those not anchored to a captured diff line,
-// is reachable on a large changeset.
+// Decision context and unanchored-facts panels — never mutually exclusive display
+// modes — so every fact remains reachable on a large changeset.
 function renderDiffNav(): string {
   if (!diffCtx) return "";
-  const { files, anchored, unanchored, filePaths } = diffCtx;
+  const { files, anchored, decisionContext, unanchored, filePaths } = diffCtx;
   const { files: matchedFiles, diagnostics } = matchDiffFiles(
     diffCtx,
     getState().diffFileQuery,
@@ -507,6 +511,17 @@ function renderDiffNav(): string {
       .map((d) => escapeHtml(d.message))
       .join(" ")}</div>`;
   }
+  if (decisionContext.length) {
+    const entries = decisionContext
+      .map(
+        (annotation) =>
+          `<li><button class="${CLASS.diffNavFact}" data-anno="${escapeHtml(annotation.id)}"><span>${escapeHtml(annotation.title)}</span><span class="${CLASS.diffNavReason}">${escapeHtml(annotation.kind)}</span></button></li>`,
+      )
+      .join("");
+    html += `<section class="${CLASS.diffDecisionContextNav}" aria-label="Decision context">
+      <h3>Decision context (${decisionContext.length})</h3>
+      <ol>${entries}</ol></section>`;
+  }
   html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
   if (unanchored.length) {
     const entries = unanchored
@@ -523,10 +538,20 @@ function renderDiffNav(): string {
 }
 
 function diffNavSummary(): DiffNavSummary {
-  if (!diffCtx) return { fileCount: 0, factCount: 0, unanchoredCount: 0 };
+  if (!diffCtx)
+    return {
+      fileCount: 0,
+      factCount: 0,
+      decisionContextCount: 0,
+      unanchoredCount: 0,
+    };
   return {
     fileCount: diffCtx.files.length,
-    factCount: diffCtx.anchored.length + diffCtx.unanchored.length,
+    factCount:
+      diffCtx.anchored.length +
+      diffCtx.decisionContext.length +
+      diffCtx.unanchored.length,
+    decisionContextCount: diffCtx.decisionContext.length,
     unanchoredCount: diffCtx.unanchored.length,
   };
 }

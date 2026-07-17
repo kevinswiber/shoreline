@@ -36,8 +36,9 @@ describe("webview renderer parity", () => {
     expect(navigatorFacts(webview.ctx)).toEqual(navigatorFacts(inspector.ctx));
     expect(navigatorFacts(webview.ctx)).toEqual({
       anchored: 3,
+      decisionContext: 1,
       files: 2,
-      unanchored: 1,
+      unanchored: 0,
     });
 
     expect(webview.html).toContain("tok tok-keyword");
@@ -47,7 +48,7 @@ describe("webview renderer parity", () => {
     expect(webview.html).toContain("anno-assessment");
     expect(webview.html).toContain("markdown-body");
     expect(webview.html).toContain("<strong>renderer parity</strong>");
-    expect(webview.html).toContain("not anchored to a diff line");
+    expect(webview.html).toContain('aria-label="Decision context"');
     expect(webview.html).toContain('data-fact-vicinity="true"');
 
     for (const query of ["path:lib", "has:facts", "is:unanchored"]) {
@@ -105,13 +106,15 @@ function parityAnnotations(): Annotation[] {
       title: "Confirm the captured file",
       track: "agent:fixture",
       body: "The file-level request stays anchored.",
-      tags: ["advisory"],
+      tags: [],
+      mode: "advisory",
       target: { kind: "file", filePath: "src/lib.rs" },
     },
     {
       kind: "assessment",
       id: "assess:sha256:renderer-parity",
       title: "assessment: accepted",
+      assessment: "accepted",
       track: "agent:fixture",
       body: "",
       tags: [],
@@ -158,11 +161,18 @@ function normalizeHtml(html: string): string {
 function navigatorFacts(ctx: {
   files: readonly DiffFile[];
   anchored: readonly Annotation[];
+  decisionContext: readonly Annotation[];
   unanchored: readonly Annotation[];
-}): { files: number; anchored: number; unanchored: number } {
+}): {
+  files: number;
+  anchored: number;
+  decisionContext: number;
+  unanchored: number;
+} {
   return {
     files: ctx.files.length,
     anchored: ctx.anchored.length,
+    decisionContext: ctx.decisionContext.length,
     unanchored: ctx.unanchored.length,
   };
 }

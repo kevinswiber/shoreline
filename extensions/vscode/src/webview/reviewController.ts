@@ -259,11 +259,26 @@ export class ReviewWebviewController {
       .join("");
     const summary = renderDiffNavSummary({
       fileCount: context.files.length,
-      factCount: context.anchored.length + context.unanchored.length,
+      factCount:
+        context.anchored.length +
+        context.decisionContext.length +
+        context.unanchored.length,
+      decisionContextCount: context.decisionContext.length,
       unanchoredCount: context.unanchored.length,
     });
     const notice = diagnostics.length
       ? `<div class="diff-file-notice" role="status">${diagnostics.map(({ message }) => escapeHtml(message)).join(" ")}</div>`
+      : "";
+    const decisionContext = context.decisionContext.length
+      ? `<section class="diff-decision-context-nav" aria-label="Decision context">
+          <h3>Decision context (${context.decisionContext.length})</h3>
+          <ol>${context.decisionContext
+            .map(
+              (annotation) =>
+                `<li><button class="diff-nav-fact" data-anno="${escapeHtml(annotation.id)}" type="button"><span>${escapeHtml(annotation.title)}</span><span class="diff-nav-reason">${escapeHtml(annotation.kind)}</span></button></li>`,
+            )
+            .join("")}</ol>
+        </section>`
       : "";
     const unanchored = context.unanchored.length
       ? `<section class="diff-unanchored" aria-label="unanchored review facts">
@@ -276,7 +291,7 @@ export class ReviewWebviewController {
             .join("")}</ol>
         </section>`
       : "";
-    host.innerHTML = `${summary}${notice}<ol class="diff-nav-files">${fileItems}</ol>${unanchored}`;
+    host.innerHTML = `${summary}${notice}${decisionContext}<ol class="diff-nav-files">${fileItems}</ol>${unanchored}`;
   }
 
   private setExpanded(section: HTMLElement, expanded: boolean): void {

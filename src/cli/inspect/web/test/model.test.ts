@@ -365,44 +365,9 @@ describe("fact-level supersession (client-side reverse index over the loaded win
   });
 });
 
-describe("annotationsForRevision", () => {
-  beforeEach(seedFixtures);
-
-  it("gathers observations, input requests, and assessments into one list", () => {
-    const annos = model.annotationsForRevision(REV);
-    expect(annos.map((a) => a.kind)).toEqual([
-      "observation",
-      "input-request",
-      "assessment",
-      "assessment",
-    ]);
-  });
-
-  it("carries the fact identity, title, body, and track for each annotation", () => {
-    const annos = model.annotationsForRevision(REV);
-    const observation = annos[0];
-    expect(observation?.id).toBe(
-      "obs:sha256:752a5b0ab30cfa3aa062bcf6f11b4c6ee3dcfd055207b6a995b91bf81ffec8d9",
-    );
-    expect(observation?.title).toBe("Observed change");
-    expect(observation?.body).toBe("the return value changed");
-    expect(observation?.track).toBe("agent:codex");
-
-    const request = annos[1];
-    expect(request?.title).toBe("Need a decision");
-    expect(request?.tags).toEqual(["operative · manual_decision_required"]);
-
-    const needsChanges = annos[2];
-    expect(needsChanges?.title).toBe("assessment: needs-changes");
-    expect(needsChanges?.body).toBe("not yet");
-
-    const accepted = annos[3];
-    expect(accepted?.title).toBe("assessment: accepted");
-    expect(accepted?.track).toBe("human:kevin");
-  });
-
-  it("returns an empty list for a revision with no facts", () => {
-    expect(model.annotationsForRevision("rev:missing")).toEqual([]);
+describe("revision annotation authority", () => {
+  it("does not expose a loaded-history annotation projection", () => {
+    expect("annotationsForRevision" in model).toBe(false);
   });
 });
 

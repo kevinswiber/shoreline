@@ -15,6 +15,7 @@ import {
   dfileClass,
   diffStatusClass,
   drowClass,
+  factStatusClass,
 } from "./classNames";
 import { escapeHtml } from "./escape";
 import { type EmphSpan, highlightRowText, type TokenSpan } from "./highlight";
@@ -96,6 +97,10 @@ export interface Annotation {
   bodyContentType?: string;
   tags?: string[];
   target?: AnnotationTarget;
+  status?: string;
+  mode?: string;
+  reasonCode?: string;
+  assessment?: string;
 }
 
 /**
@@ -108,14 +113,16 @@ export interface DiffCtx {
   snapshotId: string;
   files: DiffFile[];
   anchored: Annotation[];
+  decisionContext: Annotation[];
   unanchored: Annotation[];
   filePaths: Set<string>;
 }
 
-/** The file/fact/unanchored counts the navigator summarizes. */
+/** The file/fact/context/unanchored counts the navigator summarizes. */
 export interface DiffNavSummary {
   fileCount: number;
   factCount: number;
+  decisionContextCount: number;
   unanchoredCount: number;
 }
 
@@ -199,17 +206,45 @@ export function rangeTouchesCapturedRows(
 
 /** One review fact rendered as an annotation card (optionally with its location). */
 export function renderAnnotation(a: Annotation, showLocation: boolean): string {
-  const tags = (a.tags ?? [])
+  const tags = annotationTags(a)
     .map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`)
     .join(" ");
   const body = renderBodyContent(a.body, a.bodyContentType);
-  const t = a.target ?? {};
-  const loc =
-    showLocation && t.filePath
-      ? `<span class="${CLASS.annoLoc}">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>`
-      : "";
+  const loc = showLocation && a.target?.filePath ? targetLabel(a.target) : "";
+  const title =
+    a.kind === "assessment"
+      ? (a.assessment ?? a.title.replace(/^assessment:\s*/, "").trim())
+      : a.title;
   return `<div class="${annoContainerClass(a.kind)}" data-anno="${escapeHtml(a.id)}">
-    <div class="${CLASS.annoHead}"><span class="${annoKindClass(a.kind)}">${a.kind}</span><span class="${CLASS.annoTrack}">${escapeHtml(a.track)}</span><span class="${CLASS.annoTitle}">${linkify(a.title)}</span> ${tags} ${loc}</div>${body}</div>`;
+    <div class="${CLASS.annoHead}">
+      <span class="${annoKindClass(a.kind)}">${a.kind}</span>
+      <span class="${CLASS.annoTrack}">${escapeHtml(a.track)}</span>
+      <span class="${CLASS.annoTitle}">${linkify(title)}</span>
+      ${a.status ? `<span class="${factStatusClass(escapeHtml(a.status))}">${escapeHtml(a.status)}</span>` : ""}
+      ${loc ? `<span class="${CLASS.annoLoc}">${loc}</span>` : ""}
+      ${tags}
+    </div>
+    ${body}
+    </div>`;
+}
+
+function annotationTags(a: Annotation): string[] {
+  if (a.kind === "input-request") {
+    return [a.mode, a.reasonCode].filter((value): value is string => !!value);
+  }
+  return a.kind === "observation" || a.kind === "validation"
+    ? (a.tags ?? [])
+    : [];
+}
+
+function targetLabel(target: AnnotationTarget | undefined): string {
+  const t = target ?? {};
+  if (t.kind === "range") {
+    return `${escapeHtml(t.filePath)}:${t.startLine}-${t.endLine ?? t.startLine} (${escapeHtml(t.side || "new")})`;
+  }
+  if (t.kind === "file") return escapeHtml(t.filePath || "");
+  if (t.kind === "revision") return "whole revision";
+  return escapeHtml(t.kind || "");
 }
 
 // The fact-vicinity summary an annotated large file mounts before full rows: its
@@ -362,6 +397,67 @@ export function renderDiffFileBody(
 // Low-signal files collapse by default — unless they carry a fact, which always
 // wins so the fact is visible. Returns `{ html, ctx }`; the controller assigns
 // the cursor/filter globals from `ctx`.
+/** Split composite facts into inline, Decision context, and true anchor failures. */
+export function partitionAnnotations(
+  files: DiffFile[],
+  annotations: Annotation[],
+): Pick<DiffCtx, "anchored" | "decisionContext" | "unanchored"> {
+  const anchored: Annotation[] = [];
+  const decisionContext: Annotation[] = [];
+  const unanchored: Annotation[] = [];
+  for (const annotation of annotations) {
+    const target = annotation.target ?? {};
+    if (annotation.kind === "validation") {
+      decisionContext.push(annotation);
+      continue;
+    }
+    if (target.kind !== "range" && target.kind !== "file") {
+      decisionContext.push(annotation);
+      continue;
+    }
+    if (!target.filePath) {
+      unanchored.push(annotation);
+      continue;
+    }
+    const file = fileForFact(files, target.filePath);
+    if (
+      !file ||
+      (target.kind === "range" && !rangeTouchesCapturedRows(annotation, file))
+    ) {
+      unanchored.push(annotation);
+      continue;
+    }
+    anchored.push(annotation);
+  }
+  return { anchored, decisionContext, unanchored };
+}
+
+/** Render revision-wide facts and validation before the captured file accordions. */
+export function renderDecisionContext(annotations: Annotation[]): string {
+  if (!annotations.length) return "";
+  return `<section class="${CLASS.diffDecisionContext}" aria-label="Decision context">
+    <h2>Decision context (${annotations.length})</h2>
+    <p>Review evidence and recorded assessments for this revision. Validation remains context only.</p>
+    <div class="${CLASS.annoGroup}">${annotations.map((annotation) => renderAnnotation(annotation, true)).join("")}</div>
+  </section>`;
+}
+
+function renderUnanchoredFacts(
+  annotations: Annotation[],
+  filePaths: Set<string>,
+): string {
+  if (!annotations.length) return "";
+  return `<section class="${CLASS.diffUnanchoredFacts}" aria-label="Unanchored facts">
+    <h2>Unanchored facts (${annotations.length})</h2>
+    <div class="${CLASS.annoGroup}">${annotations
+      .map(
+        (annotation) =>
+          `<div><p class="${CLASS.diffAnchorReason}">${escapeHtml(unanchoredReason(annotation, filePaths))}</p>${renderAnnotation(annotation, true)}</div>`,
+      )
+      .join("")}</div>
+  </section>`;
+}
+
 /** Render the whole diff overlay body, returning the html plus its render context. */
 export function renderDiff(
   snapshotId: string,
@@ -375,27 +471,19 @@ export function renderDiff(
     if (f.new_path) filePaths.add(f.new_path);
     if (f.old_path) filePaths.add(f.old_path);
   }
-  const anchored: Annotation[] = [];
-  const unanchored: Annotation[] = [];
-  for (const a of annos) {
-    const t = a.target ?? {};
-    if (
-      (t.kind === "range" || t.kind === "file") &&
-      t.filePath &&
-      filePaths.has(t.filePath)
-    ) {
-      const file = fileForFact(files, t.filePath);
-      if (t.kind === "range" && !rangeTouchesCapturedRows(a, file)) {
-        unanchored.push(a);
-      } else {
-        anchored.push(a);
-      }
-    } else {
-      unanchored.push(a);
-    }
-  }
+  const { anchored, decisionContext, unanchored } = partitionAnnotations(
+    files,
+    annos,
+  );
 
-  const ctx: DiffCtx = { snapshotId, files, anchored, unanchored, filePaths };
+  const ctx: DiffCtx = {
+    snapshotId,
+    files,
+    anchored,
+    decisionContext,
+    unanchored,
+    filePaths,
+  };
 
   const counts: Record<string, number> = {};
   for (const a of annos) {
@@ -407,9 +495,8 @@ export function renderDiff(
   let html = `<div class="${CLASS.annoSummary}">${annos.length} review fact${annos.length === 1 ? "" : "s"} on this revision${
     breakdown ? ` · ${breakdown}` : ""
   }${unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""}</div>`;
-  if (unanchored.length) {
-    html += `<div class="${CLASS.annoGroup}">${unanchored.map((a) => renderAnnotation(a, true)).join("")}</div>`;
-  }
+  html += renderDecisionContext(decisionContext);
+  html += renderUnanchoredFacts(unanchored, filePaths);
   if (!files.length) {
     return {
       html: `${html}<p class="${CLASS.empty}">No files captured in this snapshot.</p>`,
@@ -443,25 +530,28 @@ export function renderDiff(
   return { html, ctx };
 }
 
-/** The navigator's file/fact/unanchored summary row. */
+/** The navigator's file/fact/context/unanchored summary row. */
 export function renderDiffNavSummary(summary: DiffNavSummary): string {
   return `<div class="${CLASS.diffNavSummary}" aria-label="diff summary">
     <span><b>${summary.fileCount}</b> files</span>
     <span><b>${summary.factCount}</b> facts</span>
+    <span><b>${summary.decisionContextCount}</b> context</span>
     <span><b>${summary.unanchoredCount}</b> unanchored</span>
   </div>`;
 }
 
 // Categorize why a fact did not anchor to a captured diff line, for the
 // navigator's unanchored panel.
-/** The reason a fact is unanchored (broad/revision-level/missing file/outside rows). */
+/** The reason a file/range target could not anchor to captured rows. */
 export function unanchoredReason(
   a: Annotation,
   filePaths: Set<string>,
 ): string {
   const t = a.target ?? {};
-  if (a.kind === "assessment") return "broad assessment";
-  if (t.kind === "revision" || !t.filePath) return "revision-level";
+  if (t.kind !== "range" && t.kind !== "file") {
+    return "not a file or range target";
+  }
+  if (!t.filePath) return "target missing file path";
   if (t.kind === "range" && filePaths.has(t.filePath)) {
     return "line outside captured rows";
   }

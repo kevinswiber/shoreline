@@ -75,6 +75,29 @@ fn diff_page_has_a_sticky_file_navigator() {
 }
 
 #[test]
+fn diff_page_serves_decision_context_and_true_unanchored_regions() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let app = inspector.get_text("/app.js");
+    let css = inspector.get_text("/app.css");
+
+    assert!(
+        app.contains("Decision context"),
+        "the routed diff bundle names its revision-level fact region"
+    );
+    assert!(
+        app.contains("Unanchored facts"),
+        "the routed diff bundle separately names genuine anchor failures"
+    );
+    assert!(
+        css.contains(".diff-decision-context")
+            && css.contains(".diff-unanchored-facts")
+            && css.contains(".diff-decision-context-nav"),
+        "body and navigator regions are styled by the served CSS"
+    );
+}
+
+#[test]
 fn diff_page_is_a_route_surface_not_a_modal() {
     let store = representative_store();
     let html = Inspector::spawn(store.repo.path()).get_text("/");

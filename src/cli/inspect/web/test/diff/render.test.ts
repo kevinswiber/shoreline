@@ -5,6 +5,7 @@ import type {
   DiffCtx,
   DiffFile,
 } from "../../src/diff/render";
+import * as diffRender from "../../src/diff/render";
 import {
   classifyLowSignal,
   fileFactCount,
@@ -42,7 +43,7 @@ const anchoredObs: Annotation = {
   target: { kind: "range", filePath: "src/lib.rs", startLine: 2, endLine: 2 },
 };
 
-// A revision-level assessment never anchors to a diff line.
+// A revision-level assessment belongs to Decision context, not an anchor error.
 const unanchoredAssessment: Annotation = {
   kind: "assessment",
   id: "assess:sha256:broad",
@@ -51,6 +52,27 @@ const unanchoredAssessment: Annotation = {
   body: "",
   tags: [],
   target: { kind: "revision" },
+};
+
+const decisionValidation: Annotation = {
+  kind: "validation",
+  id: "validation:sha256:decision",
+  title: "cargo test",
+  track: "agent:codex",
+  body: "tests passed",
+  status: "passed",
+  trigger: "manual",
+  command: "cargo test",
+  continuity: "current",
+  writer: { actorId: "actor:agent:pointbreak-example-author" },
+  target: { kind: "revision" },
+};
+
+const danglingFact: Annotation = {
+  ...anchoredObs,
+  id: "obs:sha256:dangling",
+  title: "Missing file",
+  target: { kind: "file", filePath: "src/missing.rs" },
 };
 
 function largeFile(rows: number): DiffFile {
@@ -175,25 +197,19 @@ describe("rangeTouchesCapturedRows", () => {
 describe("unanchoredReason", () => {
   const filePaths = new Set(["src/lib.rs"]);
 
-  it("labels a broad assessment", () => {
-    expect(unanchoredReason(unanchoredAssessment, filePaths)).toBe(
-      "broad assessment",
-    );
+  it("labels a file/range target that omits its file path", () => {
+    expect(
+      unanchoredReason(
+        { ...anchoredObs, target: { kind: "range", startLine: 2 } },
+        filePaths,
+      ),
+    ).toBe("target missing file path");
   });
 
-  it("labels a revision-level or fileless target", () => {
-    expect(
-      unanchoredReason(
-        { ...anchoredObs, kind: "observation", target: { kind: "revision" } },
-        filePaths,
-      ),
-    ).toBe("revision-level");
-    expect(
-      unanchoredReason(
-        { ...anchoredObs, kind: "observation", target: {} },
-        filePaths,
-      ),
-    ).toBe("revision-level");
+  it("does not invent an anchor-failure reason for Decision context", () => {
+    expect(unanchoredReason(unanchoredAssessment, filePaths)).toBe(
+      "not a file or range target",
+    );
   });
 
   it("labels a range whose file is captured but line is outside the rows", () => {
@@ -246,7 +262,7 @@ describe("renderAnnotation", () => {
     expect(
       parse(renderAnnotation(anchoredObs, true)).querySelector(".anno-loc")
         ?.textContent,
-    ).toBe("src/lib.rs:2-2");
+    ).toBe("src/lib.rs:2-2 (new)");
     expect(
       parse(renderAnnotation(anchoredObs, false)).querySelector(".anno-loc"),
     ).toBeNull();
@@ -269,6 +285,51 @@ describe("renderAnnotation", () => {
       ),
     );
     expect(doc.querySelector(".markdown-body h1")?.textContent).toBe("Heading");
+  });
+
+  it("reuses exact actor, status, and nested-response fragments", () => {
+    const opener = "actor:agent:pointbreak-example-author";
+    const responder = "actor:agent:pointbreak-example-reviewer";
+    const doc = parse(
+      renderAnnotation(
+        {
+          kind: "input-request",
+          id: "input-request:sha256:decision",
+          title: "Ship this change?",
+          track: "agent:review",
+          body: "Please decide",
+          status: "responded",
+          mode: "operative",
+          reasonCode: "manual_decision_required",
+          writer: { actorId: opener },
+          responses: [
+            {
+              id: "input-request-response:sha256:decision",
+              outcome: "approved",
+              reason: "evidence is sufficient",
+              createdAt: "2026-07-17T08:00:00Z",
+              writer: { actorId: responder },
+            },
+          ],
+          target: { kind: "revision" },
+        },
+        true,
+      ),
+    );
+    expect(doc.querySelector(".fact-status")?.textContent).toBe("responded");
+    expect(
+      doc.querySelector('.actor-attribution [data-ref-kind="actor"]')
+        ?.textContent,
+    ).toBe(opener);
+    expect(doc.querySelector(".fact-response .outcome")?.textContent).toBe(
+      "approved",
+    );
+    expect(
+      doc.querySelector('.fact-response [data-ref-kind="actor"]')?.textContent,
+    ).toBe(responder);
+    expect(doc.querySelector(".fact-response")?.textContent).toContain(
+      "evidence is sufficient",
+    );
   });
 });
 
@@ -334,9 +395,14 @@ describe("renderDiffFactVicinity", () => {
 });
 
 describe("renderDiffNavSummary", () => {
-  it("renders the file/fact/unanchored counts", () => {
+  it("renders the file/fact/Decision-context/unanchored counts", () => {
     const doc = parse(
-      renderDiffNavSummary({ fileCount: 3, factCount: 5, unanchoredCount: 2 }),
+      renderDiffNavSummary({
+        fileCount: 3,
+        factCount: 7,
+        decisionContextCount: 4,
+        unanchoredCount: 2,
+      }),
     );
     const summary = doc.querySelector(".diff-nav-summary");
     expect(summary?.getAttribute("aria-label")).toBe("diff summary");
@@ -344,29 +410,78 @@ describe("renderDiffNavSummary", () => {
       summary?.querySelectorAll("b") ?? [],
       (b) => b.textContent,
     );
-    expect(bolds).toEqual(["3", "5", "2"]);
+    expect(bolds).toEqual(["3", "7", "4", "2"]);
   });
 });
 
 describe("renderDiff", () => {
-  it("returns html plus a ctx partitioning the facts (no globals)", () => {
+  it("renders anchored, Decision context, and genuine unanchored facts separately", () => {
     const { html, ctx } = renderDiff("obj:sha256:lib", artifact, [
       anchoredObs,
       unanchoredAssessment,
+      decisionValidation,
+      danglingFact,
     ]);
     expect(ctx.snapshotId).toBe("obj:sha256:lib");
     expect(ctx.files).toBe(artifact.snapshot?.files);
     expect(ctx.anchored).toEqual([anchoredObs]);
-    expect(ctx.unanchored).toEqual([unanchoredAssessment]);
+    expect(ctx.decisionContext).toEqual([
+      unanchoredAssessment,
+      decisionValidation,
+    ]);
+    expect(ctx.unanchored).toEqual([danglingFact]);
     expect(ctx.filePaths.has("src/lib.rs")).toBe(true);
 
     const doc = parse(html);
-    // The summary names the fact breakdown and the unanchored count.
+    // The summary names the fact breakdown and only the true unanchored count.
     expect(doc.querySelector(".anno-summary")?.textContent).toContain(
       "not anchored to a diff line",
     );
-    // The unanchored assessment renders in its own group up top.
-    expect(doc.querySelector(".anno-group .anno-assessment")).not.toBeNull();
+    const decision = doc.querySelector(".diff-decision-context");
+    expect(decision?.getAttribute("aria-label")).toBe("Decision context");
+    expect(decision?.classList.contains("hidden")).toBe(false);
+    expect(decision?.querySelector("h2")?.textContent).toContain(
+      "Decision context",
+    );
+    expect(decision?.querySelector(".anno-assessment")).not.toBeNull();
+    expect(decision?.querySelector(".anno-validation")).not.toBeNull();
+    const unanchored = doc.querySelector(".diff-unanchored-facts");
+    expect(unanchored?.querySelector("h2")?.textContent).toContain(
+      "Unanchored facts",
+    );
+    expect(unanchored?.querySelector(".anno-observation")).not.toBeNull();
+    expect(
+      Array.from(doc.body.children).indexOf(decision as Element),
+    ).toBeLessThan(
+      Array.from(doc.body.children).indexOf(
+        doc.querySelector(".dfile") as Element,
+      ),
+    );
+  });
+
+  it("exports the fixed three-way partition as a pure classifier", () => {
+    const partition = (
+      diffRender as unknown as {
+        partitionAnnotations: (
+          files: DiffFile[],
+          annotations: Annotation[],
+        ) => {
+          anchored: Annotation[];
+          decisionContext: Annotation[];
+          unanchored: Annotation[];
+        };
+      }
+    ).partitionAnnotations(artifact.snapshot?.files ?? [], [
+      anchoredObs,
+      unanchoredAssessment,
+      decisionValidation,
+      danglingFact,
+    ]);
+    expect(partition).toEqual({
+      anchored: [anchoredObs],
+      decisionContext: [unanchoredAssessment, decisionValidation],
+      unanchored: [danglingFact],
+    });
   });
 
   it("renders each file as an accordion section with the disclosure on the header", () => {
@@ -509,6 +624,7 @@ describe("matchDiffFiles", () => {
       snapshotId: "obj:sha256:test",
       files,
       anchored,
+      decisionContext: [],
       unanchored,
       filePaths,
     };

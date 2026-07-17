@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  Assessment,
+  InputRequest,
+  Observation,
+  ValidationCheck,
+} from "../src/cards";
+import type { RevisionPageDoc } from "../src/detail";
+import type {
   AttentionDoc,
   AttentionItem,
   HistoryDoc,
@@ -312,6 +319,131 @@ describe("the #detail open-diff delegate (installed once, delegates to diff/cont
     expect(store.getState().diff).toBe(OBJ);
     expect(store.getState().diffHash).toBe(ARTIFACT);
     expect(store.getState().focus).toBe(OBS_ID);
+  });
+});
+
+describe("compositeAnnotations", () => {
+  it("normalizes every fact class with exact state, attribution, and continuity", () => {
+    const response = structuredClone(
+      revisionJson,
+    ) as unknown as RevisionPageDoc & {
+      observations: Observation[];
+      inputRequests: InputRequest[];
+      assessments: Assessment[];
+      validationChecks: ValidationCheck[];
+    };
+    const responder = "actor:agent:pointbreak-example-reviewer";
+    response.inputRequests[0].status = "responded";
+    response.inputRequests[0].responses = [
+      {
+        id: "input-request-response:sha256:response",
+        eventId: "evt:sha256:response",
+        outcome: "approved",
+        reason: "the reviewer accepts the evidence",
+        reasonContentType: "text/plain",
+        createdAt: "unix-ms:1782699185900",
+        verificationStatus: "unsigned",
+        writer: {
+          actorId: responder,
+          producer: { name: "pointbreak", version: "0.7.0" },
+        },
+      },
+    ];
+    response.validationChecks[0].completedAt = "unix-ms:1782699185950";
+
+    const annotations = detail.compositeAnnotations(response);
+
+    expect(annotations.map((annotation) => annotation.kind)).toEqual([
+      "observation",
+      "input-request",
+      "assessment",
+      "assessment",
+      "validation",
+      "validation",
+    ]);
+    expect(new Set(annotations.map((annotation) => annotation.id)).size).toBe(
+      annotations.length,
+    );
+    expect(annotations[0]).toMatchObject({
+      id: response.observations[0].id,
+      status: "active",
+      writer: response.observations[0].writer,
+      target: response.observations[0].target,
+    });
+    expect(annotations[1]).toMatchObject({
+      id: response.inputRequests[0].id,
+      status: "responded",
+      mode: "operative",
+      reasonCode: "manual_decision_required",
+      writer: response.inputRequests[0].writer,
+      responses: [
+        {
+          id: "input-request-response:sha256:response",
+          outcome: "approved",
+          reason: "the reviewer accepts the evidence",
+          createdAt: "unix-ms:1782699185900",
+          writer: { actorId: responder },
+        },
+      ],
+    });
+    expect(annotations.slice(2, 4)).toEqual([
+      expect.objectContaining({
+        id: response.assessments[0].id,
+        status: "replaced",
+        replaces: [],
+        writer: response.assessments[0].writer,
+      }),
+      expect.objectContaining({
+        id: response.assessments[1].id,
+        status: "current",
+        replaces: [response.assessments[0].id],
+        writer: response.assessments[1].writer,
+      }),
+    ]);
+    expect(annotations.slice(4)).toEqual([
+      expect.objectContaining({
+        id: response.validationChecks[0].id,
+        status: "passed",
+        trigger: "manual",
+        createdAt: response.validationChecks[0].createdAt,
+        completedAt: "unix-ms:1782699185950",
+        continuity: "current",
+        writer: response.validationChecks[0].writer,
+      }),
+      expect.objectContaining({
+        id: response.validationChecks[1].id,
+        status: "failed",
+        command: "cargo clippy -- -D warnings",
+        exitCode: 1,
+        continuity: "outstanding",
+        writer: response.validationChecks[1].writer,
+      }),
+    ]);
+    expect(
+      annotations.filter((annotation) => annotation.kind === "validation"),
+    ).toHaveLength(response.validationChecks.length);
+  });
+
+  it("keeps ambiguous assessment candidates as unranked current facts", () => {
+    const response = structuredClone(
+      revisionJson,
+    ) as unknown as RevisionPageDoc & {
+      assessments: Assessment[];
+    };
+    response.currentAssessment = {
+      status: "ambiguous",
+      candidates: response.assessments.map((assessment) => assessment.id),
+    };
+    for (const assessment of response.assessments) {
+      assessment.status = "current";
+    }
+
+    expect(
+      detail
+        .compositeAnnotations(response)
+        .filter((annotation) => annotation.kind === "assessment")
+        .map((annotation) => annotation.status),
+    ).toEqual(["current", "current"]);
   });
 });
 

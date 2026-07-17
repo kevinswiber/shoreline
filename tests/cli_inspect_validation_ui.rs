@@ -136,6 +136,22 @@ fn served_app_css_styles_validation_facts() {
 }
 
 #[test]
+fn served_diff_frames_validation_as_decision_context_only() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let app = inspector.get_text("/app.js");
+
+    assert!(
+        app.contains("Validation remains context only."),
+        "the diff bundle must not present validation as assessment authority"
+    );
+    assert!(
+        app.contains("validation") && app.contains("Decision context"),
+        "validation annotations remain visible in the named context region"
+    );
+}
+
+#[test]
 fn api_history_carries_typed_validation_summaries() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());

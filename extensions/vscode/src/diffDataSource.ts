@@ -18,6 +18,10 @@ export interface Annotation {
   readonly bodyContentType?: string;
   readonly tags?: string[];
   readonly target?: ReviewFactTarget;
+  readonly status?: string;
+  readonly mode?: string;
+  readonly reasonCode?: string;
+  readonly assessment?: string;
 }
 
 export interface DiffLoadRequest {
@@ -98,13 +102,11 @@ function observationAnnotation(observation: ReviewObservationDoc): Annotation {
     track: observation.trackId ?? "",
     tags: Array.isArray(observation.tags) ? observation.tags : [],
     target: observation.target ?? {},
+    status: observation.status,
   };
 }
 
 function inputRequestAnnotation(request: ReviewInputRequestDoc): Annotation {
-  const metadata = [request.mode, request.reasonCode]
-    .filter(Boolean)
-    .join(" · ");
   return {
     kind: "input-request",
     id: request.id ?? "",
@@ -112,8 +114,11 @@ function inputRequestAnnotation(request: ReviewInputRequestDoc): Annotation {
     body: request.body ?? "",
     bodyContentType: request.bodyContentType,
     track: request.trackId ?? "",
-    tags: metadata ? [metadata] : [],
+    tags: [],
     target: request.target ?? {},
+    status: request.status,
+    mode: request.mode,
+    reasonCode: request.reasonCode,
   };
 }
 
@@ -128,6 +133,8 @@ function assessmentAnnotation(assessment: ReviewAssessmentDoc): Annotation {
     track: assessment.trackId ?? "",
     tags: [],
     target: assessment.target ?? {},
+    status: assessment.status,
+    assessment: assessment.assessment,
   };
 }
 

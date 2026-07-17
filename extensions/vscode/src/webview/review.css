@@ -131,7 +131,7 @@ body {
 
 .diff-nav-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   margin: 0 0 8px;
   color: var(--fg-dim);
@@ -195,6 +195,7 @@ body {
   font: var(--fs-xs) / var(--line) var(--mono);
 }
 
+.diff-decision-context-nav h3,
 .diff-unanchored h3 {
   margin: 8px 6px 4px;
   color: var(--fg-dim);
@@ -226,6 +227,41 @@ body {
 .anno-summary,
 .anno-group {
   margin-bottom: 10px;
+}
+
+.diff-decision-context {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.diff-unanchored-facts {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.diff-decision-context h2,
+.diff-unanchored-facts h2 {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.diff-decision-context > p,
+.diff-anchor-reason {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
 }
 
 .dfile {
@@ -514,6 +550,11 @@ body {
   background: var(--bg-elev);
   border-left: 3px solid var(--border);
   border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+
+.diff-decision-context .anno,
+.diff-unanchored-facts .anno {
+  margin-left: 0;
 }
 
 .anno-observation {

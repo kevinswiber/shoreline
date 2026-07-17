@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HistoryDoc, RevisionsDoc } from "../../src/store";
 import historyJson from "../fixtures/history.json";
+import revisionJson from "../fixtures/revision.json";
 import revisionsJson from "../fixtures/revisions.json";
 import { mountInspectorDom, resetDom } from "../support/dom";
 import {
   installFetchMock,
+  resetCompositeResponse,
   resetSnapshotResponse,
+  setCompositeResponse,
   setSnapshotResponse,
   uninstallFetchMock,
 } from "../support/fetch";
@@ -31,6 +34,19 @@ const OBJ =
   "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7";
 const ARTIFACT =
   "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871";
+const COMPOSITE_FACT_IDS = [
+  ...revisionJson.observations,
+  ...revisionJson.inputRequests,
+  ...revisionJson.assessments,
+  ...revisionJson.validationChecks,
+].map((fact) => fact.id);
+
+function renderedFactIds(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("#diff-page-body .anno[data-anno]"),
+    (element) => element.dataset.anno ?? "",
+  ).sort();
+}
 
 beforeEach(async () => {
   vi.resetModules();
@@ -49,6 +65,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   uninstallFetchMock();
+  resetCompositeResponse();
   resetSnapshotResponse();
   resetDom();
 });
@@ -197,14 +214,19 @@ describe("lazy file bodies", () => {
 });
 
 describe("the file/fact navigator (query-driven, no filter buttons)", () => {
-  it("renders a summary, the full file list, and the always-available unanchored-facts panel with no query", async () => {
+  it("renders a summary, files, and the Decision context navigator section", async () => {
     await openCommitted();
     const nav = document.querySelector("#diff-page-nav-list");
     expect(nav?.querySelector("[data-diff-nav-filter]")).toBeNull(); // the button row is gone
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
-    // The three revision-level facts (an input request + two assessments) are
-    // unanchored and always reachable in the navigator panel.
-    expect(nav?.querySelector(".diff-unanchored")).not.toBeNull();
+    expect(renderedFactIds()).toEqual([...COMPOSITE_FACT_IDS].sort());
+    // Revision-level facts and validation remain reachable in their named
+    // context section, without consulting the loaded history window.
+    expect(nav?.querySelector(".diff-decision-context-nav")).not.toBeNull();
+    expect(
+      nav?.querySelectorAll(".diff-decision-context-nav .diff-nav-fact"),
+    ).toHaveLength(5);
+    expect(nav?.querySelector(".diff-unanchored")).toBeNull();
   });
 
   it("typing has:facts narrows the file list the same way the old with-facts filter did", async () => {
@@ -215,13 +237,76 @@ describe("the file/fact navigator (query-driven, no filter buttons)", () => {
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
   });
 
-  it("the unanchored-facts panel stays visible even when the file query narrows the file list to nothing", async () => {
+  it("Decision context stays visible when the file query narrows the file list to nothing", async () => {
     await openCommitted();
     store.commit({ diffFileQuery: "path:does-not-exist" });
     await controller.renderDiffPage();
     const nav = document.querySelector("#diff-page-nav-list");
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(0);
-    expect(nav?.querySelector(".diff-unanchored")).not.toBeNull();
+    expect(nav?.querySelector(".diff-decision-context-nav")).not.toBeNull();
+  });
+
+  it("a Decision context navigator click follows the shared focus route", async () => {
+    await openCommitted();
+    const button = document.querySelector<HTMLElement>(
+      ".diff-decision-context-nav .diff-nav-fact[data-anno]",
+    );
+    expect(button).not.toBeNull();
+    button?.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(store.getState().focus).toBe(button?.dataset.anno);
+  });
+
+  it("keeps a missing-file target in Unanchored facts with its reason", async () => {
+    const response = structuredClone(revisionJson);
+    response.observations[0].target.filePath = "src/missing.rs";
+    setCompositeResponse(response);
+    await openCommitted();
+    const nav = document.querySelector("#diff-page-nav-list .diff-unanchored");
+    expect(nav?.textContent).toContain("file missing from snapshot");
+    const button = nav?.querySelector<HTMLElement>(".diff-nav-fact[data-anno]");
+    button?.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(store.getState().focus).toBe(response.observations[0].id);
+    expect(
+      document.querySelector("#diff-page-body .diff-unanchored-facts"),
+    ).not.toBeNull();
+  });
+
+  it("nests responses under one request without adding response navigator facts", async () => {
+    const response = structuredClone(revisionJson) as unknown as {
+      inputRequests: Array<{
+        id: string;
+        status: string;
+        responses: Array<{
+          id: string;
+          outcome: string;
+          reason: string;
+          createdAt: string;
+          writer: { actorId: string };
+        }>;
+      }>;
+    };
+    const responseId = "input-request-response:sha256:nested";
+    response.inputRequests[0].status = "responded";
+    response.inputRequests[0].responses = [
+      {
+        id: responseId,
+        outcome: "approved",
+        reason: "ready to proceed",
+        createdAt: "2026-07-17T08:00:00Z",
+        writer: { actorId: "actor:agent:reviewer" },
+      },
+    ];
+    setCompositeResponse(response);
+    await openCommitted();
+    const request = document.querySelector(
+      `.diff-decision-context .anno[data-anno="${response.inputRequests[0].id}"]`,
+    );
+    expect(request?.querySelector(".fact-response")?.textContent).toContain(
+      "ready to proceed",
+    );
+    expect(
+      document.querySelector(`.diff-nav-fact[data-anno="${responseId}"]`),
+    ).toBeNull();
   });
 });
 
@@ -399,6 +484,21 @@ describe("diff page keyboard + history", () => {
 });
 
 describe("fact / change jump keys", () => {
+  it("applies a Decision context ?focus= deep link through the shared scroll path", async () => {
+    const validationId = revisionJson.validationChecks[0].id;
+    store.commit({
+      diffPage: true,
+      diffRevision: REV,
+      focus: validationId,
+    });
+    await controller.renderDiffPage();
+    const target = document.querySelector<HTMLElement>(
+      `.diff-decision-context .anno[data-anno="${validationId}"]`,
+    );
+    expect(target).not.toBeNull();
+    expect(target?.classList.contains("anno-flash")).toBe(true);
+  });
+
   it("jumpFact advances to the next fact and replaces the route focus", async () => {
     await openCommitted();
     const replaceSpy = vi.spyOn(history, "replaceState");
@@ -526,14 +626,35 @@ describe("renderDiffPage (the routed page surface)", () => {
     expect(pageBody()?.innerHTML).toContain("dfile");
     // The annotated half of "annotated diff": fact markers render from the
     // composite document, never the paged history or the list document.
-    expect(
-      pageBody()?.querySelectorAll(".anno[data-anno]").length,
-    ).toBeGreaterThan(0);
+    expect(pageBody()?.querySelectorAll(".anno[data-anno]").length).toBe(
+      COMPOSITE_FACT_IDS.length,
+    );
+    expect(renderedFactIds()).toEqual([...COMPOSITE_FACT_IDS].sort());
     expect(document.querySelector("#diff-page-title")?.textContent).toContain(
       "snapshot",
     );
+    expect(document.querySelector("#diff-page-title")?.textContent).toContain(
+      revisionJson.revision.targetDisplay.workLabel.text,
+    );
     // A route surface, not an overlay: the manager never owns the page.
     expect(overlay.activeName()).toBe(null);
+  });
+
+  it("keeps capture summary primary and derived work provenance visible", async () => {
+    const response = structuredClone(revisionJson) as unknown as {
+      revision: {
+        summary?: string;
+        targetDisplay: { workLabel: { text: string } };
+      };
+    };
+    response.revision.summary = "Preserve the review decision";
+    setCompositeResponse(response);
+    store.commit({ diffPage: true, diffRevision: REV });
+    await controller.renderDiffPage();
+    const title = document.querySelector("#diff-page-title")?.textContent ?? "";
+    expect(title.startsWith("Preserve the review decision")).toBe(true);
+    expect(title).toContain(response.revision.targetDisplay.workLabel.text);
+    expect(title).toContain("snapshot");
   });
 
   it("paints facts for a grouped-away revision absent from the loaded list", async () => {
@@ -544,9 +665,10 @@ describe("renderDiffPage (the routed page surface)", () => {
     });
     await controller.renderDiffPage();
     expect(pageBody()?.innerHTML).toContain("dfile");
-    expect(
-      pageBody()?.querySelectorAll(".anno[data-anno]").length,
-    ).toBeGreaterThan(0);
+    expect(pageBody()?.querySelectorAll(".anno[data-anno]").length).toBe(
+      COMPOSITE_FACT_IDS.length,
+    );
+    expect(renderedFactIds()).toEqual([...COMPOSITE_FACT_IDS].sort());
   });
 
   it("paints best-effort blank for an unmappable snapshot-only link", async () => {

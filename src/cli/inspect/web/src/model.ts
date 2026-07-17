@@ -11,10 +11,8 @@
 // predicate (matchesRevisionFilters) uses the pure `query` grammar here.
 
 import { CLASS } from "./classNames";
-import type { Annotation } from "./diff/render";
 import { parseMs } from "./format";
 import {
-  assessmentDisplayLabel,
   entryRevisionId,
   type Revision,
   revisionSearchIndex,
@@ -321,56 +319,6 @@ export function supersessionBadge(revisionId: string): string {
   if (successors.length)
     return `<span class="${CLASS.badge} ${CLASS.superseded}">superseded by ${successors.map(linkify).join(" ")}</span>`;
   return "";
-}
-
-// ---------------------------------------------------------------------------
-// Review annotations gathered onto a revision
-// ---------------------------------------------------------------------------
-
-/** The observation / input-request / assessment facts on a revision, as annotations. */
-export function annotationsForRevision(revisionId: string): Annotation[] {
-  const out: Annotation[] = [];
-  for (const e of getState().history?.entries ?? []) {
-    if (entryRevisionId(e) !== revisionId) continue;
-    const s = e.summary ?? {};
-    if (e.eventType === "review_observation_recorded") {
-      out.push({
-        kind: "observation",
-        id: s.observationId ?? e.eventId ?? "",
-        title: s.title ?? "(observation)",
-        body: s.body ?? "",
-        bodyContentType: s.bodyContentType,
-        track: e.trackId ?? "",
-        tags: Array.isArray(s.tags) ? s.tags : [],
-        target: s.target ?? {},
-      });
-    } else if (e.eventType === "input_request_opened") {
-      const meta = [s.mode, s.reasonCode].filter(Boolean).join(" · ");
-      out.push({
-        kind: "input-request",
-        id: s.inputRequestId ?? e.eventId ?? "",
-        title: s.title ?? "(input request)",
-        body: s.body ?? "",
-        bodyContentType: s.bodyContentType,
-        track: e.trackId ?? "",
-        tags: meta ? [meta] : [],
-        target: s.target ?? {},
-      });
-    } else if (e.eventType === "review_assessment_recorded") {
-      const label = assessmentDisplayLabel(s.assessment ?? "");
-      out.push({
-        kind: "assessment",
-        id: s.assessmentId ?? e.eventId ?? "",
-        title: `assessment: ${label || "?"}`,
-        body: s.summary ?? "",
-        bodyContentType: s.summaryContentType,
-        track: e.trackId ?? "",
-        tags: [],
-        target: s.target ?? {},
-      });
-    }
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------

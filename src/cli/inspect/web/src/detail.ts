@@ -367,12 +367,7 @@ export function ensureRevisionComposite(
   return read;
 }
 
-/**
- * The composite document's review facts as diff annotations — the cold-path
- * twin of `model.annotationsForRevision`, which reads the loaded history window
- * and therefore misses cold and grouped-away revisions. The diff page derives
- * its annotations here so a deep link paints annotated with nothing loaded.
- */
+/** The exact revision composite normalized into the routed diff's fact shape. */
 export function compositeAnnotations(doc: RevisionPageDoc): Annotation[] {
   const out: Annotation[] = [];
   for (const o of doc.observations ?? []) {
@@ -382,9 +377,16 @@ export function compositeAnnotations(doc: RevisionPageDoc): Annotation[] {
       title: o.title ?? "(observation)",
       body: o.body ?? "",
       bodyContentType: o.bodyContentType,
+      bodyContentState: o.bodyContentState,
       track: o.trackId ?? "",
       tags: Array.isArray(o.tags) ? o.tags : [],
       target: o.target ?? {},
+      status: o.status,
+      writer: o.writer,
+      createdAt: o.createdAt,
+      verificationStatus: o.verificationStatus,
+      endorsements: o.endorsements,
+      supersedes: o.supersedes,
     });
   }
   for (const r of doc.inputRequests ?? []) {
@@ -395,9 +397,18 @@ export function compositeAnnotations(doc: RevisionPageDoc): Annotation[] {
       title: r.title ?? "(input request)",
       body: r.body ?? "",
       bodyContentType: r.bodyContentType,
+      bodyContentState: r.bodyContentState,
       track: r.trackId ?? "",
       tags: meta ? [meta] : [],
       target: r.target ?? {},
+      status: r.status,
+      writer: r.writer,
+      createdAt: r.createdAt,
+      verificationStatus: r.verificationStatus,
+      endorsements: r.endorsements,
+      mode: r.mode,
+      reasonCode: r.reasonCode,
+      responses: (r.responses ?? []).map((response) => ({ ...response })),
     });
   }
   for (const a of doc.assessments ?? []) {
@@ -408,9 +419,43 @@ export function compositeAnnotations(doc: RevisionPageDoc): Annotation[] {
       title: `assessment: ${label || "?"}`,
       body: a.summary ?? "",
       bodyContentType: a.summaryContentType,
+      bodyContentState: a.summaryContentState,
       track: a.trackId ?? "",
       tags: [],
       target: a.target ?? {},
+      status: a.status,
+      writer: a.writer,
+      createdAt: a.createdAt,
+      verificationStatus: a.verificationStatus,
+      endorsements: a.endorsements,
+      assessment: a.assessment,
+      replaces: a.replaces,
+      relatedObservations: a.relatedObservations,
+      relatedInputRequests: a.relatedInputRequests,
+    });
+  }
+  for (const v of doc.validationChecks ?? []) {
+    out.push({
+      kind: "validation",
+      id: v.id ?? "",
+      title: v.checkName ?? "(validation check)",
+      body: v.summary ?? "",
+      bodyContentType: v.summaryContentType,
+      bodyContentState: v.summaryContentState,
+      track: v.trackId ?? "",
+      tags: [],
+      target: v.target ?? {},
+      status: v.status,
+      writer: v.writer,
+      createdAt: v.createdAt,
+      completedAt: v.completedAt,
+      verificationStatus: v.verificationStatus,
+      endorsements: v.endorsements,
+      trigger: v.trigger,
+      exitCode: v.exitCode,
+      command: v.command,
+      logArtifactContentHashes: v.logArtifactContentHashes,
+      continuity: v.id ? doc.validationContinuity?.checks?.[v.id] : undefined,
     });
   }
   return out;

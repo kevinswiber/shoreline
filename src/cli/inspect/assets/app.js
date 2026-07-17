@@ -302,6 +302,9 @@
     dfileSummary: "dfile-summary",
     dhunk: "dhunk",
     diffBtn: "diff-btn",
+    diffAnchorReason: "diff-anchor-reason",
+    diffDecisionContext: "diff-decision-context",
+    diffDecisionContextNav: "diff-decision-context-nav",
     diffFactVicinity: "diff-fact-vicinity",
     diffFileNotice: "diff-file-notice",
     diffNavFact: "diff-nav-fact",
@@ -310,6 +313,7 @@
     diffNavReason: "diff-nav-reason",
     diffNavSummary: "diff-nav-summary",
     diffUnanchored: "diff-unanchored",
+    diffUnanchoredFacts: "diff-unanchored-facts",
     dpath: "dpath",
     drow: "drow",
     drowMeta: "drow-meta",
@@ -2993,7 +2997,8 @@
   function factCard(kind, opts) {
     const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
     const body = removedBodyCue(opts.bodyContentState) ?? renderBodyContent(opts.body, opts.bodyContentType);
-    return `<div class="${annoContainerClass(kind)}">
+    const annotationId = opts.annotationId ? ` data-anno="${escapeHtml(opts.annotationId)}"` : "";
+    return `<div class="${annoContainerClass(kind)}"${annotationId}>
     <div class="${CLASS.annoHead}">
       <span class="${annoKindClass(kind)}">${kind}</span>
       <span class="${CLASS.annoTrack}">${escapeHtml(opts.track || "")}</span>
@@ -3014,6 +3019,7 @@
     const supersedes = o.supersedes ?? [];
     const extra = supersedes.length ? `<div class="${CLASS.factRel}">supersedes ${supersedes.map(linkify).join(", ")}</div>` : "";
     return factCard("observation", {
+      annotationId: o.id,
       track: o.trackId,
       title: o.title,
       status: o.status,
@@ -3048,6 +3054,7 @@
   function renderInputRequestCard(ir) {
     const responses = (ir.responses ?? []).map(renderInputRequestResponse).join("");
     return factCard("input-request", {
+      annotationId: ir.id,
       track: ir.trackId,
       title: ir.title,
       status: ir.status,
@@ -3077,6 +3084,7 @@
       rel.push(`re ${relatedInputRequests.map(linkify).join(", ")}`);
     }
     return factCard("assessment", {
+      annotationId: a.id,
       track: a.trackId,
       title: assessmentDisplayLabel(a.assessment ?? ""),
       status: a.status,
@@ -3100,6 +3108,7 @@
     const continuity = disposition ? `<div class="${CLASS.validationContinuity} ${disposition === "outstanding" ? CLASS.validationContinuityOutstanding : CLASS.validationContinuityNeutral}" title="server-projected validation continuity">${escapeHtml(VALIDATION_DISPOSITION_LABELS[disposition])}</div>` : "";
     const related = rel.length ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>` : "";
     return factCard("validation", {
+      annotationId: v.id,
       track: v.trackId,
       title: v.checkName,
       status: v.status,
@@ -3241,12 +3250,98 @@
   }
   __name(rangeTouchesCapturedRows, "rangeTouchesCapturedRows");
   function renderAnnotation(a, showLocation) {
-    const tags = (a.tags ?? []).map((t2) => `<span class="${CLASS.badge}">${escapeHtml(t2)}</span>`).join(" ");
-    const body = renderBodyContent(a.body, a.bodyContentType);
-    const t = a.target ?? {};
-    const loc = showLocation && t.filePath ? `<span class="${CLASS.annoLoc}">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>` : "";
-    return `<div class="${annoContainerClass(a.kind)}" data-anno="${escapeHtml(a.id)}">
-    <div class="${CLASS.annoHead}"><span class="${annoKindClass(a.kind)}">${a.kind}</span><span class="${CLASS.annoTrack}">${escapeHtml(a.track)}</span><span class="${CLASS.annoTitle}">${linkify(a.title)}</span> ${tags} ${loc}</div>${body}</div>`;
+    const target = showLocation && a.target?.filePath ? a.target : void 0;
+    switch (a.kind) {
+      case "observation":
+        return renderObservationCard({
+          id: a.id,
+          trackId: a.track,
+          title: a.title,
+          status: a.status,
+          target,
+          tags: a.tags,
+          body: a.body,
+          bodyContentType: a.bodyContentType,
+          bodyContentState: a.bodyContentState,
+          createdAt: a.createdAt,
+          verificationStatus: a.verificationStatus,
+          endorsements: a.endorsements,
+          supersedes: a.supersedes,
+          writer: a.writer
+        });
+      case "input-request":
+        return renderInputRequestCard({
+          id: a.id,
+          trackId: a.track,
+          title: a.title,
+          status: a.status,
+          target,
+          mode: a.mode,
+          reasonCode: a.reasonCode,
+          body: a.body,
+          bodyContentType: a.bodyContentType,
+          bodyContentState: a.bodyContentState,
+          createdAt: a.createdAt,
+          verificationStatus: a.verificationStatus,
+          endorsements: a.endorsements,
+          responses: a.responses,
+          writer: a.writer
+        });
+      case "assessment":
+        return renderAssessmentCard({
+          id: a.id,
+          trackId: a.track,
+          assessment: a.assessment ?? a.title.replace(/^assessment:\s*/, "").trim(),
+          status: a.status,
+          target,
+          summary: a.body,
+          summaryContentType: a.bodyContentType,
+          summaryContentState: a.bodyContentState,
+          createdAt: a.createdAt,
+          verificationStatus: a.verificationStatus,
+          endorsements: a.endorsements,
+          replaces: a.replaces,
+          relatedObservations: a.relatedObservations,
+          relatedInputRequests: a.relatedInputRequests,
+          writer: a.writer
+        });
+      case "validation":
+        return renderValidationCheckCard(
+          {
+            id: a.id,
+            trackId: a.track,
+            checkName: a.title,
+            status: a.status,
+            target,
+            trigger: a.trigger,
+            exitCode: a.exitCode,
+            summary: a.body,
+            summaryContentType: a.bodyContentType,
+            summaryContentState: a.bodyContentState,
+            completedAt: a.completedAt,
+            createdAt: a.createdAt,
+            verificationStatus: a.verificationStatus,
+            endorsements: a.endorsements,
+            command: a.command,
+            logArtifactContentHashes: a.logArtifactContentHashes,
+            writer: a.writer
+          },
+          a.continuity
+        );
+      default:
+        return factCard(a.kind, {
+          annotationId: a.id,
+          track: a.track,
+          title: a.title,
+          status: a.status,
+          body: a.body,
+          bodyContentType: a.bodyContentType,
+          bodyContentState: a.bodyContentState,
+          createdAt: a.createdAt,
+          writer: a.writer,
+          tags: a.tags
+        });
+    }
   }
   __name(renderAnnotation, "renderAnnotation");
   function renderDiffFactVicinity(f, anchored) {
@@ -3350,6 +3445,53 @@
     return html;
   }
   __name(renderDiffFileBody, "renderDiffFileBody");
+  function partitionAnnotations(files, annotations) {
+    const anchored = [];
+    const decisionContext = [];
+    const unanchored = [];
+    for (const annotation of annotations) {
+      const target = annotation.target ?? {};
+      if (annotation.kind === "validation") {
+        decisionContext.push(annotation);
+        continue;
+      }
+      if (target.kind !== "range" && target.kind !== "file") {
+        decisionContext.push(annotation);
+        continue;
+      }
+      if (!target.filePath) {
+        unanchored.push(annotation);
+        continue;
+      }
+      const file = fileForFact(files, target.filePath);
+      if (!file || target.kind === "range" && !rangeTouchesCapturedRows(annotation, file)) {
+        unanchored.push(annotation);
+        continue;
+      }
+      anchored.push(annotation);
+    }
+    return { anchored, decisionContext, unanchored };
+  }
+  __name(partitionAnnotations, "partitionAnnotations");
+  function renderDecisionContext(annotations) {
+    if (!annotations.length) return "";
+    return `<section class="${CLASS.diffDecisionContext}" aria-label="Decision context">
+    <h2>Decision context (${annotations.length})</h2>
+    <p>Review evidence and recorded assessments for this revision. Validation remains context only.</p>
+    <div class="${CLASS.annoGroup}">${annotations.map((annotation) => renderAnnotation(annotation, true)).join("")}</div>
+  </section>`;
+  }
+  __name(renderDecisionContext, "renderDecisionContext");
+  function renderUnanchoredFacts(annotations, filePaths) {
+    if (!annotations.length) return "";
+    return `<section class="${CLASS.diffUnanchoredFacts}" aria-label="Unanchored facts">
+    <h2>Unanchored facts (${annotations.length})</h2>
+    <div class="${CLASS.annoGroup}">${annotations.map(
+      (annotation) => `<div><p class="${CLASS.diffAnchorReason}">${escapeHtml(unanchoredReason(annotation, filePaths))}</p>${renderAnnotation(annotation, true)}</div>`
+    ).join("")}</div>
+  </section>`;
+  }
+  __name(renderUnanchoredFacts, "renderUnanchoredFacts");
   function renderDiff(snapshotId, artifact, annotations) {
     const annos = annotations ?? [];
     const files = artifact.snapshot?.files ?? [];
@@ -3358,31 +3500,26 @@
       if (f.new_path) filePaths.add(f.new_path);
       if (f.old_path) filePaths.add(f.old_path);
     }
-    const anchored = [];
-    const unanchored = [];
-    for (const a of annos) {
-      const t = a.target ?? {};
-      if ((t.kind === "range" || t.kind === "file") && t.filePath && filePaths.has(t.filePath)) {
-        const file = fileForFact(files, t.filePath);
-        if (t.kind === "range" && !rangeTouchesCapturedRows(a, file)) {
-          unanchored.push(a);
-        } else {
-          anchored.push(a);
-        }
-      } else {
-        unanchored.push(a);
-      }
-    }
-    const ctx = { snapshotId, files, anchored, unanchored, filePaths };
+    const { anchored, decisionContext, unanchored } = partitionAnnotations(
+      files,
+      annos
+    );
+    const ctx = {
+      snapshotId,
+      files,
+      anchored,
+      decisionContext,
+      unanchored,
+      filePaths
+    };
     const counts = {};
     for (const a of annos) {
       counts[a.kind] = (counts[a.kind] ?? 0) + 1;
     }
     const breakdown = Object.entries(counts).map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ");
     let html = `<div class="${CLASS.annoSummary}">${annos.length} review fact${annos.length === 1 ? "" : "s"} on this revision${breakdown ? ` · ${breakdown}` : ""}${unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""}</div>`;
-    if (unanchored.length) {
-      html += `<div class="${CLASS.annoGroup}">${unanchored.map((a) => renderAnnotation(a, true)).join("")}</div>`;
-    }
+    html += renderDecisionContext(decisionContext);
+    html += renderUnanchoredFacts(unanchored, filePaths);
     if (!files.length) {
       return {
         html: `${html}<p class="${CLASS.empty}">No files captured in this snapshot.</p>`,
@@ -3408,14 +3545,17 @@
     return `<div class="${CLASS.diffNavSummary}" aria-label="diff summary">
     <span><b>${summary.fileCount}</b> files</span>
     <span><b>${summary.factCount}</b> facts</span>
+    <span><b>${summary.decisionContextCount}</b> context</span>
     <span><b>${summary.unanchoredCount}</b> unanchored</span>
   </div>`;
   }
   __name(renderDiffNavSummary, "renderDiffNavSummary");
   function unanchoredReason(a, filePaths) {
     const t = a.target ?? {};
-    if (a.kind === "assessment") return "broad assessment";
-    if (t.kind === "revision" || !t.filePath) return "revision-level";
+    if (t.kind !== "range" && t.kind !== "file") {
+      return "not a file or range target";
+    }
+    if (!t.filePath) return "target missing file path";
     if (t.kind === "range" && filePaths.has(t.filePath)) {
       return "line outside captured rows";
     }
@@ -3646,11 +3786,16 @@
         body.innerHTML = `<p class="${CLASS.empty}">this revision names no captured snapshot</p>`;
       return;
     }
+    const summary = revision.summary;
+    const workLabel = revision.targetDisplay?.workLabel?.text;
+    const discoveryLabel = summary || workLabel;
+    const provenance = summary && workLabel ? ` · ${workLabel}` : "";
+    const titlePrefix = discoveryLabel ? `${discoveryLabel}${provenance} · ` : "";
     const painted = await paintDiffPage({
       snapshotId,
       contentHash: revision.objectArtifactContentHash ?? null,
       annotations: compositeAnnotations(doc),
-      title: `${shortId(revisionId)} · snapshot ${shortId(snapshotId)}`,
+      title: `${titlePrefix}${shortId(revisionId)} · snapshot ${shortId(snapshotId)}`,
       stillCurrent,
       factsNote: null
     });
@@ -3793,7 +3938,7 @@
   __name(toggleDiffFile, "toggleDiffFile");
   function renderDiffNav() {
     if (!diffCtx) return "";
-    const { files, anchored, unanchored, filePaths } = diffCtx;
+    const { files, anchored, decisionContext, unanchored, filePaths } = diffCtx;
     const { files: matchedFiles, diagnostics } = matchDiffFiles(
       diffCtx,
       getState().diffFileQuery
@@ -3809,6 +3954,14 @@
     if (diagnostics.length) {
       html += `<div class="${CLASS.diffFileNotice}" role="status">${diagnostics.map((d) => escapeHtml(d.message)).join(" ")}</div>`;
     }
+    if (decisionContext.length) {
+      const entries = decisionContext.map(
+        (annotation) => `<li><button class="${CLASS.diffNavFact}" data-anno="${escapeHtml(annotation.id)}"><span>${escapeHtml(annotation.title)}</span><span class="${CLASS.diffNavReason}">${escapeHtml(annotation.kind)}</span></button></li>`
+      ).join("");
+      html += `<section class="${CLASS.diffDecisionContextNav}" aria-label="Decision context">
+      <h3>Decision context (${decisionContext.length})</h3>
+      <ol>${entries}</ol></section>`;
+    }
     html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
     if (unanchored.length) {
       const entries = unanchored.map(
@@ -3822,10 +3975,17 @@
   }
   __name(renderDiffNav, "renderDiffNav");
   function diffNavSummary() {
-    if (!diffCtx) return { fileCount: 0, factCount: 0, unanchoredCount: 0 };
+    if (!diffCtx)
+      return {
+        fileCount: 0,
+        factCount: 0,
+        decisionContextCount: 0,
+        unanchoredCount: 0
+      };
     return {
       fileCount: diffCtx.files.length,
-      factCount: diffCtx.anchored.length + diffCtx.unanchored.length,
+      factCount: diffCtx.anchored.length + diffCtx.decisionContext.length + diffCtx.unanchored.length,
+      decisionContextCount: diffCtx.decisionContext.length,
       unanchoredCount: diffCtx.unanchored.length
     };
   }
@@ -4180,9 +4340,16 @@
         title: o.title ?? "(observation)",
         body: o.body ?? "",
         bodyContentType: o.bodyContentType,
+        bodyContentState: o.bodyContentState,
         track: o.trackId ?? "",
         tags: Array.isArray(o.tags) ? o.tags : [],
-        target: o.target ?? {}
+        target: o.target ?? {},
+        status: o.status,
+        writer: o.writer,
+        createdAt: o.createdAt,
+        verificationStatus: o.verificationStatus,
+        endorsements: o.endorsements,
+        supersedes: o.supersedes
       });
     }
     for (const r of doc.inputRequests ?? []) {
@@ -4193,9 +4360,18 @@
         title: r.title ?? "(input request)",
         body: r.body ?? "",
         bodyContentType: r.bodyContentType,
+        bodyContentState: r.bodyContentState,
         track: r.trackId ?? "",
         tags: meta ? [meta] : [],
-        target: r.target ?? {}
+        target: r.target ?? {},
+        status: r.status,
+        writer: r.writer,
+        createdAt: r.createdAt,
+        verificationStatus: r.verificationStatus,
+        endorsements: r.endorsements,
+        mode: r.mode,
+        reasonCode: r.reasonCode,
+        responses: (r.responses ?? []).map((response) => ({ ...response }))
       });
     }
     for (const a of doc.assessments ?? []) {
@@ -4206,9 +4382,43 @@
         title: `assessment: ${label || "?"}`,
         body: a.summary ?? "",
         bodyContentType: a.summaryContentType,
+        bodyContentState: a.summaryContentState,
         track: a.trackId ?? "",
         tags: [],
-        target: a.target ?? {}
+        target: a.target ?? {},
+        status: a.status,
+        writer: a.writer,
+        createdAt: a.createdAt,
+        verificationStatus: a.verificationStatus,
+        endorsements: a.endorsements,
+        assessment: a.assessment,
+        replaces: a.replaces,
+        relatedObservations: a.relatedObservations,
+        relatedInputRequests: a.relatedInputRequests
+      });
+    }
+    for (const v of doc.validationChecks ?? []) {
+      out.push({
+        kind: "validation",
+        id: v.id ?? "",
+        title: v.checkName ?? "(validation check)",
+        body: v.summary ?? "",
+        bodyContentType: v.summaryContentType,
+        bodyContentState: v.summaryContentState,
+        track: v.trackId ?? "",
+        tags: [],
+        target: v.target ?? {},
+        status: v.status,
+        writer: v.writer,
+        createdAt: v.createdAt,
+        completedAt: v.completedAt,
+        verificationStatus: v.verificationStatus,
+        endorsements: v.endorsements,
+        trigger: v.trigger,
+        exitCode: v.exitCode,
+        command: v.command,
+        logArtifactContentHashes: v.logArtifactContentHashes,
+        continuity: v.id ? doc.validationContinuity?.checks?.[v.id] : void 0
       });
     }
     return out;

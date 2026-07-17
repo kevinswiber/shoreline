@@ -131,3 +131,10 @@ test("the lens row/card layout tracks are pinned", () => {
   );
   expect(css).toMatch(/\.compact \.tier-medium \{[^}]*display: none;/s);
 });
+
+test("Decision context stays visible and resets inline annotation indentation", () => {
+  const css = readFileSync(APP_CSS_PATH, "utf8");
+  expect(css).toMatch(/\.diff-decision-context \{[^}]*display: grid;/s);
+  expect(css).toMatch(/\.diff-decision-context \.anno \{[^}]*margin-left: 0;/s);
+  expect(css).not.toMatch(/\.diff-decision-context \{[^}]*display: none;/s);
+});

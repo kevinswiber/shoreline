@@ -331,6 +331,54 @@ fn api_revision_composite_preserves_fact_writer_identity_fields() {
 }
 
 #[test]
+fn api_revision_composite_preserves_response_state_reason_and_writer() {
+    let store = representative_store();
+    let repo = store.repo.path().to_str().unwrap();
+    let request_id = {
+        let inspector = Inspector::spawn(store.repo.path());
+        let revision =
+            inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
+        revision["inputRequests"][0]["id"]
+            .as_str()
+            .expect("representative request id")
+            .to_owned()
+    };
+    let output = support::pointbreak([
+        "input-request",
+        "respond",
+        &request_id,
+        "--repo",
+        repo,
+        "--outcome",
+        "approved",
+        "--reason",
+        "reviewer approves the evidence",
+    ]);
+    assert!(
+        output.status.success(),
+        "input-request respond failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let inspector = Inspector::spawn(store.repo.path());
+    let revision = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
+    let request = &revision["inputRequests"][0];
+    assert_eq!(request["status"], "responded");
+    let response = &request["responses"][0];
+    assert_eq!(response["outcome"], "approved");
+    assert_eq!(response["reason"], "reviewer approves the evidence");
+    assert!(response["createdAt"].is_string());
+    assert!(
+        response["writer"]["actorId"]
+            .as_str()
+            .expect("response writer actor id")
+            .starts_with("actor:")
+    );
+    assert!(response["writer"]["producer"]["name"].is_string());
+    assert!(response["writer"]["producer"]["version"].is_string());
+}
+
+#[test]
 fn api_units_include_additive_overview_summary() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
