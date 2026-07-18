@@ -102,6 +102,10 @@ fn version_registry_adds_only_store_paths_to_the_frozen_document_set() {
         .unwrap()
         .remove("pointbreak.store-paths");
     actual["cliVersion"] = serde_json::json!("0.6.0");
+    assert!(
+        actual.as_object_mut().unwrap().remove("build").is_some(),
+        "current v1 adds build without rewriting the historical v1 fixture"
+    );
 
     let expected: serde_json::Value = serde_json::from_slice(include_bytes!(
         "fixtures/naming-cutover/protocol/version-v1.json"
