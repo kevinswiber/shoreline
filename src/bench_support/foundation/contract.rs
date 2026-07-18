@@ -77,6 +77,45 @@ pub struct QualificationProfileDescriptorV1 {
     pub logical_capabilities: LogicalCapabilityEpochV1,
 }
 
+pub trait QualificationJournal: std::fmt::Debug + Send + Sync {
+    fn create_once(
+        &self,
+        logical_key: &str,
+        decoded_bytes: &[u8],
+    ) -> Result<QualificationCreateOutcome, String>;
+
+    fn read(&self, logical_key: &str) -> Result<Option<QualificationEntry>, String>;
+
+    fn list(&self) -> Result<Vec<QualificationEntry>, String>;
+
+    fn head_marker(&self) -> Result<u64, String>;
+
+    fn integrity_check(&self) -> Result<(), String>;
+}
+
+pub trait QualificationProfile: std::fmt::Debug + Send + Sync {
+    fn descriptor(&self) -> Result<QualificationProfileDescriptorV1, String>;
+
+    fn journal(&self) -> &dyn QualificationJournal;
+
+    fn put_content_once(
+        &self,
+        content_key: &str,
+        record_kind: QualificationRecordKindV1,
+        decoded_bytes: &[u8],
+    ) -> Result<QualificationCreateOutcome, String>;
+
+    fn read_content(&self, content_key: &str) -> Result<Option<QualificationEntry>, String>;
+
+    fn remove_content(&self, content_key: &str) -> Result<bool, String>;
+
+    fn backup_to(&self, destination: &std::path::Path) -> Result<(), String>;
+
+    fn verify_restore(&self, restored_root: &std::path::Path) -> Result<(), String>;
+
+    fn inventory(&self) -> Result<QualificationInventoryV1, String>;
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum QualificationContractError {
     #[error("record {logical_key} has decoded hash {actual}, expected {expected}")]

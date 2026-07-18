@@ -1,0 +1,67 @@
+{
+  "schema": "pointbreak.store-foundation-codec-corrupt.v1",
+  "mutations": [
+    {
+      "name": "bad magic",
+      "base": "raw",
+      "offset": 0,
+      "replacementHex": "00",
+      "rehashHeader": false,
+      "expectedStage": "invalid_physical_header"
+    },
+    {
+      "name": "unknown envelope version",
+      "base": "raw",
+      "offset": 4,
+      "replacementHex": "0200",
+      "rehashHeader": true,
+      "expectedStage": "unsupported_version"
+    },
+    {
+      "name": "unknown kind",
+      "base": "raw",
+      "offset": 8,
+      "replacementHex": "ff",
+      "rehashHeader": true,
+      "expectedStage": "unsupported_record_kind"
+    },
+    {
+      "name": "stale header checksum",
+      "base": "raw",
+      "offset": 16,
+      "replacementHex": "04",
+      "rehashHeader": false,
+      "expectedStage": "header_hash_mismatch"
+    },
+    {
+      "name": "encoded payload mismatch",
+      "base": "raw",
+      "offset": 192,
+      "replacementHex": "00",
+      "rehashHeader": false,
+      "expectedStage": "encoded_hash_mismatch"
+    },
+    {
+      "name": "truncated header",
+      "base": "raw",
+      "truncateTo": 191,
+      "rehashHeader": false,
+      "expectedStage": "truncated"
+    },
+    {
+      "name": "trailing bytes",
+      "base": "zstd",
+      "appendHex": "00",
+      "rehashHeader": false,
+      "expectedStage": "length_mismatch"
+    },
+    {
+      "name": "invalid zstd bytes caught by outer hash before codec",
+      "base": "zstd",
+      "offset": 192,
+      "replacementHex": "00",
+      "rehashHeader": false,
+      "expectedStage": "encoded_hash_mismatch"
+    }
+  ]
+}

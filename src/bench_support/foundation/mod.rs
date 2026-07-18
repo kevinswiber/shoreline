@@ -1,4 +1,7 @@
 mod bundle_v2;
+mod candidate;
+mod codec;
+mod content;
 mod contract;
 mod corpus;
 mod documents;
@@ -8,6 +11,9 @@ mod receipt;
 use std::path::Path;
 
 pub use bundle_v2::*;
+pub use candidate::*;
+pub use codec::*;
+pub use content::*;
 pub use contract::*;
 pub use corpus::*;
 pub use documents::*;
