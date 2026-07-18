@@ -4490,6 +4490,7 @@
   }
   __name(renderAssociationAndLanding, "renderAssociationAndLanding");
   var shownCompositeId = null;
+  var shownCompositeEventSetHash;
   var compositeCache = /* @__PURE__ */ new Map();
   var compositeInFlight = /* @__PURE__ */ new Map();
   function ensureRevisionComposite(revisionId) {
@@ -4498,15 +4499,17 @@
     if (cached && cached.eventSetHash === eventSetHash)
       return Promise.resolve(cached.doc);
     const pending = compositeInFlight.get(revisionId);
-    if (pending) return pending;
+    if (pending && pending.eventSetHash === eventSetHash) return pending.promise;
     const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`).then((d) => {
       const doc = d;
-      compositeCache.set(revisionId, { doc, eventSetHash });
+      if (getState().history?.eventSetHash === eventSetHash)
+        compositeCache.set(revisionId, { doc, eventSetHash });
       return doc;
     }).catch(() => null).finally(() => {
-      compositeInFlight.delete(revisionId);
+      if (compositeInFlight.get(revisionId)?.promise === read)
+        compositeInFlight.delete(revisionId);
     });
-    compositeInFlight.set(revisionId, read);
+    compositeInFlight.set(revisionId, { eventSetHash, promise: read });
     return read;
   }
   __name(ensureRevisionComposite, "ensureRevisionComposite");
@@ -5111,6 +5114,7 @@
   }
   __name(renderRevisionPage, "renderRevisionPage");
   async function openRevision(revisionId) {
+    const eventSetHash = getState().history?.eventSetHash;
     const el = $("#detail-body");
     rememberScroll();
     if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
@@ -5119,7 +5123,8 @@
       fetchScopedAttention(revisionId)
     ]);
     const sel = getState().selected;
-    if (sel.kind !== "revision" || sel.id !== revisionId) return;
+    if (sel.kind !== "revision" || sel.id !== revisionId || getState().history?.eventSetHash !== eventSetHash)
+      return;
     if (!d) {
       const live = $("#detail-body");
       if (live)
@@ -5132,9 +5137,11 @@
   }
   __name(openRevision, "openRevision");
   function showComposite(revisionId) {
-    if (revisionId === shownCompositeId)
+    const eventSetHash = getState().history?.eventSetHash;
+    if (revisionId === shownCompositeId && eventSetHash === shownCompositeEventSetHash)
       return refreshOutstandingIfStale(revisionId);
     shownCompositeId = revisionId;
+    shownCompositeEventSetHash = eventSetHash;
     return openRevision(revisionId);
   }
   __name(showComposite, "showComposite");

@@ -986,6 +986,112 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
     expect(detailEl().innerHTML).not.toContain("loading…");
     expect(detailEl().querySelector(".unit-page")).not.toBeNull();
   });
+
+  it("re-fetches an open composite when the loaded event set moves", async () => {
+    const initial = structuredClone(revisionJson) as unknown as RevisionPageDoc;
+    initial.observations = [];
+    initial.summary = { ...initial.summary, observationCount: 0 };
+    setCompositeResponse(initial);
+    store.commit({
+      history: {
+        ...(store.getState().history as HistoryDoc),
+        eventSetHash: "sha256:before-poll",
+      },
+      selected: { kind: "revision", id: REV },
+      open: true,
+    });
+    await detail.showComposite(REV);
+    expect(detailEl().textContent).not.toContain("Freshly polled observation");
+
+    const updated = structuredClone(revisionJson) as unknown as RevisionPageDoc;
+    const updatedObservation = updated.observations?.[0];
+    if (!updatedObservation) throw new Error("expected observation fixture");
+    updatedObservation.title = "Freshly polled observation";
+    setCompositeResponse(updated);
+    store.commit({
+      history: {
+        ...(store.getState().history as HistoryDoc),
+        eventSetHash: "sha256:after-poll",
+      },
+    });
+
+    // The render subscriber calls showComposite again while the same revision
+    // remains open. A moved event set must invalidate both the fetch cache and
+    // the shown-revision guard so new facts appear without a page reload.
+    await detail.showComposite(REV);
+
+    expect(detailEl().textContent).toContain("Freshly polled observation");
+  });
+
+  it("does not reuse or repaint an older composite read after the event set moves", async () => {
+    const initial = structuredClone(revisionJson) as unknown as RevisionPageDoc;
+    initial.observations = [];
+    initial.summary = { ...initial.summary, observationCount: 0 };
+
+    let resolveInitial!: (response: Response) => void;
+    const initialResponse = new Promise<Response>((resolve) => {
+      resolveInitial = resolve;
+    });
+    let compositeRequests = 0;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (
+        new URL(url, "http://inspector.test").pathname.startsWith(
+          "/api/revisions/",
+        )
+      ) {
+        compositeRequests += 1;
+        if (compositeRequests === 1) return initialResponse;
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      store.commit({
+        history: {
+          ...(store.getState().history as HistoryDoc),
+          eventSetHash: "sha256:before-in-flight-poll",
+        },
+        selected: { kind: "revision", id: REV },
+        open: true,
+      });
+      const firstPaint = detail.showComposite(REV);
+
+      const updated = structuredClone(
+        revisionJson,
+      ) as unknown as RevisionPageDoc;
+      const updatedObservation = updated.observations?.[0];
+      if (!updatedObservation) throw new Error("expected observation fixture");
+      updatedObservation.title = "Newest composite wins";
+      setCompositeResponse(updated);
+      store.commit({
+        history: {
+          ...(store.getState().history as HistoryDoc),
+          eventSetHash: "sha256:after-in-flight-poll",
+        },
+      });
+      const secondPaint = detail.showComposite(REV);
+
+      resolveInitial(
+        new Response(JSON.stringify(initial), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await Promise.all([firstPaint, secondPaint]);
+
+      expect(compositeRequests).toBe(2);
+      expect(detailEl().textContent).toContain("Newest composite wins");
+    } finally {
+      globalThis.fetch = baseFetch;
+    }
+  });
 });
 
 describe("the per-revision outstanding block (scoped attention on the detail page)", () => {

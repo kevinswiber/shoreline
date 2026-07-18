@@ -326,10 +326,11 @@ export function renderAssociationAndLanding(
   </section>`;
 }
 
-// The revision whose composite is currently shown, so a re-render with an
-// unchanged revision selection does not re-fetch. Transient view-cache — never on
-// the store.
+// The revision and event-set generation whose composite is currently shown, so a
+// re-render with an unchanged selection and generation does not re-fetch.
+// Transient view-cache — never on the store.
 let shownCompositeId: string | null = null;
+let shownCompositeEventSetHash: string | undefined;
 
 // The composite documents fetched this session, keyed by revision id and stamped
 // with the history event-set hash they were fetched under: a freshness reload
@@ -340,15 +341,19 @@ interface CompositeCacheEntry {
   doc: RevisionPageDoc;
   eventSetHash: string | undefined;
 }
+interface CompositeInFlight {
+  eventSetHash: string | undefined;
+  promise: Promise<RevisionPageDoc | null>;
+}
 const compositeCache = new Map<string, CompositeCacheEntry>();
-const compositeInFlight = new Map<string, Promise<RevisionPageDoc | null>>();
+const compositeInFlight = new Map<string, CompositeInFlight>();
 
 /**
  * The one composite fetch path (the detail page and the diff page both consume
  * it): fetch `/api/revisions/{id}` — the entity-primary read that resolves
- * grouped-away and cold ids exactly — deduplicating in-flight calls and caching
- * per revision id. Never throws: a failed read resolves null and the caller
- * degrades (the cache stays empty, so a retry can succeed).
+ * grouped-away and cold ids exactly — deduplicating in-flight calls per event-set
+ * generation and caching per revision id. Never throws: a failed read resolves
+ * null and the caller degrades (the cache stays empty, so a retry can succeed).
  */
 export function ensureRevisionComposite(
   revisionId: string,
@@ -358,18 +363,22 @@ export function ensureRevisionComposite(
   if (cached && cached.eventSetHash === eventSetHash)
     return Promise.resolve(cached.doc);
   const pending = compositeInFlight.get(revisionId);
-  if (pending) return pending;
+  if (pending && pending.eventSetHash === eventSetHash) return pending.promise;
   const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`)
     .then((d) => {
       const doc = d as RevisionPageDoc;
-      compositeCache.set(revisionId, { doc, eventSetHash });
+      // An older request may finish after freshness polling advanced the page.
+      // Do not let that response evict the current generation from the cache.
+      if (getState().history?.eventSetHash === eventSetHash)
+        compositeCache.set(revisionId, { doc, eventSetHash });
       return doc;
     })
     .catch(() => null)
     .finally(() => {
-      compositeInFlight.delete(revisionId);
+      if (compositeInFlight.get(revisionId)?.promise === read)
+        compositeInFlight.delete(revisionId);
     });
-  compositeInFlight.set(revisionId, read);
+  compositeInFlight.set(revisionId, { eventSetHash, promise: read });
   return read;
 }
 
@@ -1165,6 +1174,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
 
 /** Fetch a revision's composite document and paint it, guarding a superseding selection. */
 export async function openRevision(revisionId: string): Promise<void> {
+  const eventSetHash = getState().history?.eventSetHash;
   const el = $("#detail-body");
   rememberScroll();
   if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
@@ -1175,9 +1185,14 @@ export async function openRevision(revisionId: string): Promise<void> {
     ensureRevisionComposite(revisionId),
     fetchScopedAttention(revisionId),
   ]);
-  // A later selection change may have superseded this fetch.
+  // A later selection or freshness generation may have superseded this fetch.
   const sel = getState().selected;
-  if (sel.kind !== "revision" || sel.id !== revisionId) return;
+  if (
+    sel.kind !== "revision" ||
+    sel.id !== revisionId ||
+    getState().history?.eventSetHash !== eventSetHash
+  )
+    return;
   if (!d) {
     const live = $("#detail-body");
     if (live)
@@ -1190,15 +1205,24 @@ export async function openRevision(revisionId: string): Promise<void> {
 }
 
 /**
- * Show a revision's composite, skipping the fetch when it is already shown. Returns
- * the in-flight fetch so a caller can await the paint; render ignores the return.
+ * Show a revision's composite, skipping the fetch when the same event-set generation
+ * is already shown. Returns the in-flight fetch so a caller can await the paint;
+ * render ignores the return.
  */
 export function showComposite(revisionId: string): Promise<void> {
+  const eventSetHash = getState().history?.eventSetHash;
   // The revision-id dedupe guards the composite fetch only — it must not pin
   // the outstanding block, which follows the global attention doc's freshness.
-  if (revisionId === shownCompositeId)
+  // The event-set hash is part of the shown identity: freshness polling keeps
+  // the same revision selected while its facts change, and that repaint must
+  // re-fetch the revision composite instead of leaving the open detail stale.
+  if (
+    revisionId === shownCompositeId &&
+    eventSetHash === shownCompositeEventSetHash
+  )
     return refreshOutstandingIfStale(revisionId);
   shownCompositeId = revisionId;
+  shownCompositeEventSetHash = eventSetHash;
   return openRevision(revisionId);
 }
 
