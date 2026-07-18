@@ -74,6 +74,9 @@ export interface HistoryDoc {
 /** The `/api/revisions` document: one entry per captured revision. */
 export interface RevisionsDoc {
   entries: Revision[];
+  // Whole-store generation for the revision summaries. Unlike the windowed
+  // history document, this advances on every whole-document poll refresh.
+  eventSetHash?: string;
   // The captured-revision count the stat row reads (present in the committed fixture).
   revisionCount?: number;
 }

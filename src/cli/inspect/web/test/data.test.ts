@@ -1,20 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import attentionJson from "./fixtures/attention.json";
 import historyJson from "./fixtures/history.json";
+import revisionJson from "./fixtures/revision.json";
 import revisionsJson from "./fixtures/revisions.json";
 import threadsJson from "./fixtures/threads.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
 import {
   installFetchMock,
   resetAttentionResponse,
+  resetCompositeResponse,
   resetFreshnessResponse,
   resetHistoryResponse,
   resetNewCountResponse,
+  resetRevisionsResponse,
   setAttentionResponse,
+  setCompositeResponse,
   setFreshnessResponse,
   setHistoryError,
   setHistoryResponse,
   setNewCountResponse,
+  setRevisionsResponse,
   uninstallFetchMock,
 } from "./support/fetch";
 
@@ -46,8 +51,10 @@ afterEach(() => {
   uninstallFetchMock();
   resetFreshnessResponse();
   resetAttentionResponse();
+  resetCompositeResponse();
   resetHistoryResponse();
   resetNewCountResponse();
+  resetRevisionsResponse();
   resetDom();
 });
 
@@ -923,6 +930,54 @@ describe("pollFreshness", () => {
     expect(paths).toContain("/api/attention");
     expect(paths).not.toContain("/api/history");
     expect(store.getState().lastEventCount).toBe(HISTORY_EVENT_COUNT + 1);
+  });
+
+  it("repaints an open revision composite from a parked whole-document refresh", async () => {
+    const before = structuredClone(revisionJson);
+    before.observations[0].title = "Before parked poll";
+    setCompositeResponse(before);
+    await data.load();
+
+    const revisionId = revisionsJson.entries[0].revisionId;
+    const render = await import("../src/render");
+    store.commit({
+      lens: "list",
+      selected: { kind: "revision", id: revisionId },
+      open: true,
+    });
+    store.subscribe(render.render);
+    render.render();
+    await flush();
+    expect(document.querySelector("#detail-body")?.textContent).toContain(
+      "Before parked poll",
+    );
+    const detailPane = document.querySelector<HTMLElement>("#detail");
+    if (!detailPane) throw new Error("expected detail pane");
+    detailPane.scrollTop = 120;
+
+    const after = structuredClone(revisionJson);
+    after.observations[0].title = "After parked poll";
+    setCompositeResponse(after);
+    setRevisionsResponse({
+      ...revisionsJson,
+      eventSetHash: "sha256:after-parked-poll",
+    });
+    follow.parkTimelineRead();
+    setFreshnessResponse({ eventCount: HISTORY_EVENT_COUNT + 1 });
+    const { paths, restore } = captureRequestPaths();
+    try {
+      await data.pollFreshness();
+      await flush();
+    } finally {
+      restore();
+    }
+
+    expect(paths).toContain("/api/revisions");
+    expect(paths).not.toContain("/api/history");
+    expect(document.querySelector("#detail-body")?.textContent).toContain(
+      "After parked poll",
+    );
+    expect(detailPane.scrollTop).toBe(120);
   });
 
   it("marks the refresh indicator watching when nothing changed", async () => {

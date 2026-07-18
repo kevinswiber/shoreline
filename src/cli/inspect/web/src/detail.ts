@@ -333,10 +333,11 @@ let shownCompositeId: string | null = null;
 let shownCompositeEventSetHash: string | undefined;
 
 // The composite documents fetched this session, keyed by revision id and stamped
-// with the history event-set hash they were fetched under: a freshness reload
-// that moves the hash invalidates the entry, so revisiting a revision after the
-// record moved re-fetches instead of serving a pinned document. Failures are
-// never cached. Transient view-cache — never on the store.
+// with the revisions document's event-set hash. Every whole-document freshness
+// reload advances that source even when the timeline keeps a parked history
+// window, so revisiting an open revision after the record moved re-fetches instead
+// of serving a pinned document. Failures are never cached. Transient view-cache —
+// never on the store.
 interface CompositeCacheEntry {
   doc: RevisionPageDoc;
   eventSetHash: string | undefined;
@@ -358,7 +359,7 @@ const compositeInFlight = new Map<string, CompositeInFlight>();
 export function ensureRevisionComposite(
   revisionId: string,
 ): Promise<RevisionPageDoc | null> {
-  const eventSetHash = getState().history?.eventSetHash;
+  const eventSetHash = getState().revisions?.eventSetHash;
   const cached = compositeCache.get(revisionId);
   if (cached && cached.eventSetHash === eventSetHash)
     return Promise.resolve(cached.doc);
@@ -369,7 +370,7 @@ export function ensureRevisionComposite(
       const doc = d as RevisionPageDoc;
       // An older request may finish after freshness polling advanced the page.
       // Do not let that response evict the current generation from the cache.
-      if (getState().history?.eventSetHash === eventSetHash)
+      if (getState().revisions?.eventSetHash === eventSetHash)
         compositeCache.set(revisionId, { doc, eventSetHash });
       return doc;
     })
@@ -1174,7 +1175,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
 
 /** Fetch a revision's composite document and paint it, guarding a superseding selection. */
 export async function openRevision(revisionId: string): Promise<void> {
-  const eventSetHash = getState().history?.eventSetHash;
+  const eventSetHash = getState().revisions?.eventSetHash;
   const el = $("#detail-body");
   rememberScroll();
   if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
@@ -1190,7 +1191,7 @@ export async function openRevision(revisionId: string): Promise<void> {
   if (
     sel.kind !== "revision" ||
     sel.id !== revisionId ||
-    getState().history?.eventSetHash !== eventSetHash
+    getState().revisions?.eventSetHash !== eventSetHash
   )
     return;
   if (!d) {
@@ -1210,7 +1211,7 @@ export async function openRevision(revisionId: string): Promise<void> {
  * render ignores the return.
  */
 export function showComposite(revisionId: string): Promise<void> {
-  const eventSetHash = getState().history?.eventSetHash;
+  const eventSetHash = getState().revisions?.eventSetHash;
   // The revision-id dedupe guards the composite fetch only — it must not pin
   // the outstanding block, which follows the global attention doc's freshness.
   // The event-set hash is part of the shown identity: freshness polling keeps

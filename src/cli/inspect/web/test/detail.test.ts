@@ -708,8 +708,8 @@ describe("openRevision / renderRevisionPage (the composite page, fetched via htt
       };
       setCompositeResponse(response);
       store.commit({
-        history: {
-          ...(store.getState().history as HistoryDoc),
+        revisions: {
+          ...(store.getState().revisions as RevisionsDoc),
           eventSetHash: `case-${index}`,
         },
         selected: { kind: "revision", id: REV },
@@ -993,8 +993,8 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
     initial.summary = { ...initial.summary, observationCount: 0 };
     setCompositeResponse(initial);
     store.commit({
-      history: {
-        ...(store.getState().history as HistoryDoc),
+      revisions: {
+        ...(store.getState().revisions as RevisionsDoc),
         eventSetHash: "sha256:before-poll",
       },
       selected: { kind: "revision", id: REV },
@@ -1009,8 +1009,8 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
     updatedObservation.title = "Freshly polled observation";
     setCompositeResponse(updated);
     store.commit({
-      history: {
-        ...(store.getState().history as HistoryDoc),
+      revisions: {
+        ...(store.getState().revisions as RevisionsDoc),
         eventSetHash: "sha256:after-poll",
       },
     });
@@ -1054,8 +1054,8 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
 
     try {
       store.commit({
-        history: {
-          ...(store.getState().history as HistoryDoc),
+        revisions: {
+          ...(store.getState().revisions as RevisionsDoc),
           eventSetHash: "sha256:before-in-flight-poll",
         },
         selected: { kind: "revision", id: REV },
@@ -1071,8 +1071,8 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
       updatedObservation.title = "Newest composite wins";
       setCompositeResponse(updated);
       store.commit({
-        history: {
-          ...(store.getState().history as HistoryDoc),
+        revisions: {
+          ...(store.getState().revisions as RevisionsDoc),
           eventSetHash: "sha256:after-in-flight-poll",
         },
       });

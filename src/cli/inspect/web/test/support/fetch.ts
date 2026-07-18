@@ -22,6 +22,19 @@ const FIXTURES: Record<string, unknown> = {
   "/api/identity": identityJson,
 };
 
+/** Override the `/api/revisions` response (whole-document polling tests). */
+export function setRevisionsResponse(payload: unknown): void {
+  FIXTURES["/api/revisions"] = {
+    schema: "pointbreak.review-revision-list",
+    ...(payload as Record<string, unknown>),
+  };
+}
+
+/** Restore the committed revisions fixture. */
+export function resetRevisionsResponse(): void {
+  FIXTURES["/api/revisions"] = revisionsJson;
+}
+
 let attentionResponse: unknown = attentionJson;
 
 /** Override the unscoped `/api/attention` response the mock returns. */

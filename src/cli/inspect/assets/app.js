@@ -4494,7 +4494,7 @@
   var compositeCache = /* @__PURE__ */ new Map();
   var compositeInFlight = /* @__PURE__ */ new Map();
   function ensureRevisionComposite(revisionId) {
-    const eventSetHash = getState().history?.eventSetHash;
+    const eventSetHash = getState().revisions?.eventSetHash;
     const cached = compositeCache.get(revisionId);
     if (cached && cached.eventSetHash === eventSetHash)
       return Promise.resolve(cached.doc);
@@ -4502,7 +4502,7 @@
     if (pending && pending.eventSetHash === eventSetHash) return pending.promise;
     const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`).then((d) => {
       const doc = d;
-      if (getState().history?.eventSetHash === eventSetHash)
+      if (getState().revisions?.eventSetHash === eventSetHash)
         compositeCache.set(revisionId, { doc, eventSetHash });
       return doc;
     }).catch(() => null).finally(() => {
@@ -5114,7 +5114,7 @@
   }
   __name(renderRevisionPage, "renderRevisionPage");
   async function openRevision(revisionId) {
-    const eventSetHash = getState().history?.eventSetHash;
+    const eventSetHash = getState().revisions?.eventSetHash;
     const el = $("#detail-body");
     rememberScroll();
     if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
@@ -5123,7 +5123,7 @@
       fetchScopedAttention(revisionId)
     ]);
     const sel = getState().selected;
-    if (sel.kind !== "revision" || sel.id !== revisionId || getState().history?.eventSetHash !== eventSetHash)
+    if (sel.kind !== "revision" || sel.id !== revisionId || getState().revisions?.eventSetHash !== eventSetHash)
       return;
     if (!d) {
       const live = $("#detail-body");
@@ -5137,7 +5137,7 @@
   }
   __name(openRevision, "openRevision");
   function showComposite(revisionId) {
-    const eventSetHash = getState().history?.eventSetHash;
+    const eventSetHash = getState().revisions?.eventSetHash;
     if (revisionId === shownCompositeId && eventSetHash === shownCompositeEventSetHash)
       return refreshOutstandingIfStale(revisionId);
     shownCompositeId = revisionId;
