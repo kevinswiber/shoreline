@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Materialize canonical and synthetic decision-continuity records beneath one empty destination.
+# Prefer `just review-decision-matrix-materialize`; writes stay inside the disposable destination.
 
 set -euo pipefail
 

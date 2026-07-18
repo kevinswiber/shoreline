@@ -36,7 +36,10 @@ just run --help
 
 Use `just lint` before sending a patch that changes Rust code. Use `just test` for the normal test
 suite. Use `just check` before opening or updating a pull request; it runs the commit check, build,
-lint, and tests.
+lint, and tests. It intentionally remains Rust-only. Use the change-to-gate matrix in
+[docs/development.md](docs/development.md) for Inspector, extension, release, installer,
+canonical-example, and browser changes. The script operating map in
+[scripts/README.md](scripts/README.md) identifies preferred entrypoints and mutation boundaries.
 
 For targeted test work:
 

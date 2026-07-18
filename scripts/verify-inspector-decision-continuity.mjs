@@ -1,3 +1,5 @@
+// Internal Playwright program template injected by `verify-inspector-decision-continuity.sh`.
+// It is not a standalone CLI and mutates only the supplied browser page.
 ((config) => async (page) => {
   const consoleErrors = [];
   const pageErrors = [];

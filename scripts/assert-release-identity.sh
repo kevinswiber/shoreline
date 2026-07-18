@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Release-workflow helper that fails unless a runnable binary reports the exact clean Git identity.
+# Exercise the accepted/rejected matrix through `just workflow-lint`; this script is read-only.
 set -euo pipefail
 
 if [ "$#" -ne 4 ]; then

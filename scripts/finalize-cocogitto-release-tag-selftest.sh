@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Hermetic Cocogitto/tag-finalizer contract test using temporary Git repositories and GPG state.
+# Run through `just release-bump-selftest`; it does not contact or mutate the project remote.
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)

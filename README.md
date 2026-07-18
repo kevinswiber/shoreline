@@ -118,6 +118,10 @@ For users:
 For contributors and maintainers:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) - setup, hooks, branch names, commits, tests, and PR flow.
+- [docs/development.md](docs/development.md) - change-to-gate matrix, generated artifacts, and
+  failure interpretation.
+- [scripts/README.md](scripts/README.md) - script ownership, preferred entrypoints, side effects,
+  and expected outcomes.
 - [docs/releasing.md](docs/releasing.md) - release planning and publish automation.
 - [docs/manual-testing.md](docs/manual-testing.md) - maintainer spot-check recipes.
 - [TRADEMARKS.md](TRADEMARKS.md) - trademark use for names and logos.

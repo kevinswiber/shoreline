@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Dispatch the live published-release verification workflow and retain its reports when requested.
+# Use only after publication, following `docs/releasing.md`; this requires GitHub CLI authentication.
 set -euo pipefail
 
 usage() {

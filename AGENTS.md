@@ -67,6 +67,11 @@ just run --help                # Run the CLI
 just fmt                       # Format code
 ```
 
+Run `just --list` for grouped recipe discovery. Read `docs/development.md` before choosing gates for
+Inspector, extension, release, installer, canonical-example, or browser changes; `just check` is the
+complete Rust gate, not a universal repository gate. `scripts/README.md` documents script ownership,
+side effects, expected outcomes, and failure classes.
+
 ## Implementation Guidance
 
 Keep the first version deliberately smaller than hunk. Prefer shelling out to `git` at first, and

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Cocogitto release-hook helper that guardedly replaces one local lightweight tag with a signed tag.
+# Do not invoke as a routine maintainer command; follow `docs/releasing.md` and the owner gate.
 set -euo pipefail
 
 usage() {

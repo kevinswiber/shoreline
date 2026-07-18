@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Materialize disposable Review stores and run the decision-continuity real-browser matrix.
+# Prefer `just review-decision-browser-verify`; all generated evidence stays beneath `--root`.
 
 set -euo pipefail
 

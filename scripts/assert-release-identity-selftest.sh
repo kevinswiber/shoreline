@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Hermetic contract tests for `assert-release-identity.sh`.
+# Run through `just workflow-lint`; only temporary fixture binaries are written.
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)

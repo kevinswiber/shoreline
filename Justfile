@@ -1,49 +1,67 @@
+# Pointbreak maintainer entrypoints. Run `just --list` for grouped discovery and read
+# `docs/development.md` for the change-to-gate matrix and failure interpretation.
+# `just check` is intentionally Rust-only; Inspector, extension, release, and browser
+# surfaces have separate groups and prerequisites.
+
 # Bump to upgrade the agentskills.io validator; review the diff at https://github.com/agentskills/agentskills/compare/<old-sha>...<new-sha> before bumping.
 export SKILLS_REF_REV := env_var_or_default("SKILLS_REF_REV", "5d4c1fda3f786fff826c7f56b6cb3341e7f3a911")
 
 # List available recipes.
+[group('help')]
 default:
     @just --list
 
 # Run all tests.
+[group('core')]
 test *args:
     cargo +stable nextest run --no-tests pass {{ args }}
 
 # Run all tests (CI mode: no fail-fast, verbose).
+[group('core')]
 test-ci *args:
     cargo +stable nextest run --profile ci --no-tests pass {{ args }}
 
 # Run a specific test file (e.g. just test-file integration).
+[group('core')]
 test-file name *args:
     cargo +stable nextest run --test {{ name }} {{ args }}
 
 # Build (debug).
+[group('core')]
 build *args:
     cargo +stable build {{ args }}
 
-# Build (release).
+# Build an optimized binary without publishing it.
+[group('core')]
 release *args:
     cargo +stable build --release {{ args }}
 
 # Self-test Cargo installation and all release archive layouts without publishing.
+[group('release')]
 package-archive-selftest:
     ./scripts/package-release-selftest.sh
 
 # Reproduce Cocogitto's native tag lifecycle and the guarded signed-tag finalizer.
+[group('release')]
 release-bump-selftest:
     ./scripts/finalize-cocogitto-release-tag-selftest.sh
 
 # Exercise the release installer for the current host platform without network access.
+[group('release')]
 installer-selftest:
     {{ if os() == "windows" { "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/install-selftest.ps1" } else { "./scripts/install-selftest.sh" } }}
 
 # Lint GitHub Actions workflows, the packaging script, and the binary target manifest.
+[group('release')]
 workflow-lint: workflow-actionlint workflow-lint-assertions
 
+# Run actionlint against GitHub Actions workflows.
+[group('release')]
 workflow-actionlint:
     actionlint
 
 # Run the workflow checks not provided by reviewdog/action-actionlint in CI.
+[group('release')]
 workflow-lint-assertions:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -103,40 +121,51 @@ workflow-lint-assertions:
     done
     echo "workflow-lint assertions ok"
 
-# Run clippy and fmt check.
+# Run Rust formatting checks and Clippy across all targets and features.
+[group('quality')]
 lint: fmt-check
     cargo +stable clippy --workspace --all-targets --all-features -- -D warnings
 
 # Type-check all targets without the full clippy/fmt gate. Used by CI's non-Linux
 # legs to keep the cfg(windows)/cfg(not(unix))/feature-gated arms compiled while
 # paying the workspace+test compile only once. Linux runs the full `lint` gate.
+# Type-check all workspace targets and features without the full lint gate.
+[group('core')]
 check-types:
     cargo +stable check --workspace --all-targets --all-features
 
 # Run clippy with auto-fix.
+[group('quality')]
 fix *args: fmt
     cargo +stable clippy --fix --workspace --all-targets --all-features --allow-dirty --allow-staged -- -D warnings {{ args }}
 
 # Format code.
+[group('quality')]
 fmt *args:
     cargo +nightly fmt --all {{ args }}
 
+# Check Rust formatting without writing files.
+[group('quality')]
 fmt-check:
     cargo +nightly fmt --all -- --check
 
 # Install git hooks (commit-msg and pre-push validation via cocogitto).
+[group('maintenance')]
 setup-hooks:
     cog install-hook --all --overwrite
 
 # Symlink repo Agent Skills into project-local or user-level agent skill directories.
+[group('skills')]
 skills-link *args:
     ./scripts/link-agent-skills.sh {{ args }}
 
 # Remove local symlinks for repo Agent Skills.
+[group('skills')]
 skills-unlink *args:
     ./scripts/link-agent-skills.sh unlink {{ args }}
 
 # Validate repo Agent Skills with the pinned agentskills.io validator.
+[group('skills')]
 skills-validate:
     for skill in skills/*; do \
       [ -d "$skill" ] || continue; \
@@ -145,37 +174,46 @@ skills-validate:
         skills-ref validate "$skill"; \
     done
 
-# Check commit messages on the current branch.
+# Check conventional commits in the selected range.
+[group('quality')]
 commit-check range='origin/main..HEAD':
     cog check "{{ range }}"
 
 # Run the CLI.
+[group('core')]
 run *args:
     cargo +stable run --bin pointbreak -- {{ args }}
 
 # Fold a worktree-local .pointbreak/data store into the Git-common-dir pointbreak store.
 # Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
 # you pass include-ephemeral=true. This IS a shipped subcommand (pointbreak store migrate).
+# Migrate a worktree-local store into the Git-common-dir store without deleting the source.
+[group('maintenance')]
 migrate-store-common-dir repo="." include-ephemeral="false":
     cargo +stable run --bin pointbreak -- store migrate --repo {{ repo }} \
         {{ if include-ephemeral == "true" { "--include-ephemeral" } else { "" } }}
 
-# Check commit messages, compile, lint, and tests.
+# Run the complete Rust gate: commit check, build, lint, and tests.
+[group('quality')]
 check: commit-check build lint test
 
 # Install the Visual Studio Code extension toolchain from its committed lockfile.
+[group('extension')]
 extension-install:
     cd extensions/vscode && npm ci
 
-# Node-only; intentionally not part of `just check` so the Rust gate stays Node-free.
+# Check the VS Code extension; intentionally separate from the Rust-only `just check`.
+[group('extension')]
 extension-check:
     cd extensions/vscode && npm run check
 
 # Build a host-only VSIX with its matching pointbreak binary for local dogfood.
+[group('extension')]
 extension-package:
     node extensions/vscode/scripts/package-local.mjs
 
 # Install the inspector front-end dev toolchain (Node) from the committed lockfile.
+[group('web')]
 web-install:
     cd src/cli/inspect/web && npm ci
 
@@ -183,46 +221,61 @@ web-install:
 # as its own ubuntu leg.
 # Front-end gate: Biome-lint the served app.js (lint-only) + Biome check (lint+format) the ported TS +
 # strict tsc --noEmit + the vitest unit tests.
+# Run the Inspector front-end lint, format, type, and unit-test gate.
+[group('web')]
 web-check:
     cd src/cli/inspect/web && npm run check
 
 # Run the inspector front-end JS unit tests (vitest).
+[group('web')]
 web-test:
     cd src/cli/inspect/web && npm run test
 
 # Build the inspector front-end bundle (esbuild -> the committed assets/app.js). Run after editing
 # web/src so the committed bundle stays fresh; the CI freshness gate fails a PR that forgets.
+# Rebuild the committed Inspector bundle after changing its web source.
+[group('web')]
 web-build:
     cd src/cli/inspect/web && npm run build
 
 # Verify the committed inspector bundle is in sync with web/src (the CI freshness gate, run locally).
 # Rebuilds the bundle and fails if it differs from the committed artifact.
+# Verify that the committed Inspector bundle matches its source without accepting drift.
+[group('web')]
 web-verify:
     cd src/cli/inspect/web && npm run build && git diff --exit-code ../assets/app.js
 
 # Refresh the dark/light Pointbreak Review screenshots embedded in README.md.
 # Requires a running inspector; pass --url/--revision/--track to override the checked-in framing.
+# Refresh README Review screenshots from an explicitly selected running Inspector.
+[group('review-evidence')]
 capture-inspector-screenshots *args:
     ./scripts/capture-inspector-screenshots.sh {{ args }}
 
 # Refresh the product-owned marketing capture from the verified canonical Review example.
 # Requires an inspector serving a materialized example repository.
+# Refresh the product-owned marketing capture and provenance manifest from the canonical example.
+[group('review-evidence')]
 capture-marketing-review-screenshots url="http://127.0.0.1:7878":
     ./scripts/capture-inspector-screenshots.sh --url {{ url }} --example-manifest examples/review/checkout-refactor/manifest.json --manifest assets/marketing/review-interface-capture.json --out-dir assets/marketing --hide-observations
 
 # Export the canonical Review example from a source repository through public Pointbreak APIs.
+[group('review-evidence')]
 review-example-export source output="examples/review/checkout-refactor":
     cargo +stable run --example review_example_pack -- export --repo {{ source }} --output {{ output }}
 
 # Verify the checked canonical Review example pack without depending on store layout.
+[group('review-evidence')]
 review-example-verify pack="examples/review/checkout-refactor":
     cargo +stable run --example review_example_pack -- verify --pack {{ pack }}
 
 # Materialize the canonical Review example into an empty destination repository.
+[group('review-evidence')]
 review-example-materialize output pack="examples/review/checkout-refactor":
     cargo +stable run --example review_example_pack -- materialize --pack {{ pack }} --output {{ output }}
 
-# Materialize the generated Inspector decision-continuity matrix into an empty, isolated repository.
+# Materialize the Inspector decision-continuity matrix into an empty, isolated repository.
+[group('review-evidence')]
 review-decision-matrix-materialize output:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -235,6 +288,7 @@ review-decision-matrix-materialize output:
     fi
 
 # Materialize both Review evidence stores and verify decision continuity in a real browser.
+[group('review-evidence')]
 review-decision-browser-verify root:
     #!/usr/bin/env bash
     set -euo pipefail

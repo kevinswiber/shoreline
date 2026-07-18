@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Validate the exact release archive set and optionally write its deterministic checksum manifest.
+# Prefer release workflows or `just package-archive-selftest`; `--write-checksums` is mutating.
 set -euo pipefail
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
