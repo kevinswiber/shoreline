@@ -1,0 +1,11 @@
+{
+  "schema": "pointbreak.qualification-lifecycle-fixture.v1",
+  "entries": [
+    { "logicalKey": "content/available", "recordKind": "object_artifact", "state": "available" },
+    { "logicalKey": "content/missing", "recordKind": "note_body", "state": "missing" },
+    { "logicalKey": "content/orphan", "recordKind": "document_blob", "state": "valid_orphan" },
+    { "logicalKey": "content/removed", "recordKind": "relation_proof", "state": "removed" },
+    { "logicalKey": "content/typed-absence", "recordKind": "document_manifest", "state": "typed_absence" },
+    { "logicalKey": "content/recomputable", "recordKind": "relation_proof", "state": "recomputable" }
+  ]
+}

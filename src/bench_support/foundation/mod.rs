@@ -6,6 +6,8 @@ mod contract;
 mod corpus;
 mod documents;
 mod fault;
+mod lifecycle;
+mod migration;
 mod proof;
 mod receipt;
 mod segments;
@@ -21,6 +23,8 @@ pub use contract::*;
 pub use corpus::*;
 pub use documents::*;
 pub use fault::*;
+pub use lifecycle::*;
+pub use migration::*;
 pub use proof::*;
 pub use receipt::*;
 pub use segments::*;
@@ -163,6 +167,118 @@ mod windows_tests {
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn platform_filesystem_name(_path: &Path) -> Option<String> {
     None
+}
+
+#[cfg(test)]
+mod migration_lifecycle_contract_tests {
+    use super::*;
+
+    #[test]
+    fn exact_manifest_rejects_changed_bytes_and_identity() {
+        let source = synthetic_legacy_manifest().expect("synthetic manifest");
+        let expected = ExactLogicalManifestV1::from_corpus(&source).expect("exact source manifest");
+        let mut changed = source.clone();
+        changed.records[0].decoded_bytes.push(b'!');
+
+        assert!(ExactLogicalManifestV1::from_corpus(&changed).is_err());
+        assert!(expected.compare_corpus(&changed).is_err());
+    }
+
+    #[test]
+    fn interrupted_migration_never_activates_a_partial_destination() {
+        let root = tempfile::tempdir().expect("temporary migration root");
+        let source = synthetic_legacy_manifest().expect("synthetic manifest");
+        let result = rehearse_candidate_migration(
+            &source,
+            MigrationCandidateV1::SqliteWal,
+            &root.path().join("destination"),
+            MigrationFailurePointV1::AfterFirstWrite,
+        );
+
+        assert!(result.is_err());
+        assert!(!root.path().join("destination/active").exists());
+        assert_eq!(
+            classify_rollback_boundary(false),
+            MigrationRollbackBoundaryV1::SafeBeforeDestinationMutation
+        );
+        assert_eq!(
+            classify_rollback_boundary(true),
+            MigrationRollbackBoundaryV1::ForwardRepairRequired
+        );
+    }
+
+    #[test]
+    fn lifecycle_states_and_removed_proof_remain_distinct() {
+        let report = validate_content_lifecycle_matrix(&content_lifecycle_fixture_v1())
+            .expect("valid lifecycle matrix");
+
+        assert!(report.required_states_complete);
+        assert_eq!(report.proof_after_removal, ProofEvidenceStateV1::Removed);
+        assert_ne!(
+            ContentLifecycleStateV1::Missing,
+            ContentLifecycleStateV1::Removed
+        );
+        assert_ne!(
+            ContentLifecycleStateV1::TypedAbsence,
+            ContentLifecycleStateV1::ValidOrphan
+        );
+    }
+
+    #[test]
+    fn cross_candidate_bundle_transfer_is_exact_and_conflicts_preflight() {
+        let root = tempfile::tempdir().expect("temporary transfer root");
+        let source = modeled_post_foundation_manifest().expect("modeled manifest");
+        let report = rehearse_cross_candidate_transfers(&source, root.path())
+            .expect("cross-candidate transfer");
+
+        assert!(report.paths.iter().all(|path| path.exact_manifest_match));
+        assert!(report.hard_conflict_rejected_before_write);
+        assert!(report.omission_preserved_existing_content);
+    }
+
+    #[test]
+    fn immutable_archive_requires_complete_manifest_bound_prefix() {
+        let root = tempfile::tempdir().expect("temporary archive root");
+        let profile =
+            SqliteQualificationProfile::open(&root.path().join("profile")).expect("SQLite profile");
+        profile
+            .journal()
+            .create_once("events/one.json", br#"{"event":"one"}"#)
+            .expect("seed event");
+        let backup = root.path().join("backup");
+        profile.backup_to(&backup).expect("completed backup");
+        let archive = root.path().join("archive");
+
+        let report = copy_completed_backup_to_immutable_prefix(
+            &backup,
+            &archive,
+            &profile.descriptor().expect("descriptor"),
+            ArchiveCopyFailurePointV1::None,
+        )
+        .expect("immutable archive copy");
+        assert!(report.completion_published_last);
+        assert!(profile.verify_restore(&archive).is_ok());
+
+        let incomplete = root.path().join("incomplete");
+        assert!(
+            copy_completed_backup_to_immutable_prefix(
+                &backup,
+                &incomplete,
+                &profile.descriptor().expect("descriptor"),
+                ArchiveCopyFailurePointV1::BeforeCompletion,
+            )
+            .is_err()
+        );
+        assert!(profile.verify_restore(&incomplete).is_err());
+    }
+
+    #[test]
+    fn external_corpus_coverage_requires_an_explicit_path() {
+        assert_eq!(
+            external_corpus_coverage(None).expect("unconfigured coverage"),
+            ExternalCorpusCoverageV1::NotConfigured
+        );
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
