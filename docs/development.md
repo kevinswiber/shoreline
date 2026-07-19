@@ -44,6 +44,14 @@ During an uncommitted first edit, `commit-check` may have no task commit to insp
 while iterating, then run `just check` after creating the reviewable commit range or pass the intended
 range to `just commit-check` explicitly.
 
+The differential git-backend parity harness is a separate gate. Git access runs through a typed
+backend seam (ADR-0040): subprocess `git` by default, with an optional in-process `gix` backend
+behind the `gix` and `gix-parity` cargo features. `just check` compiles the `gix` code (Clippy runs
+`--all-features`) but does not run the parity harness, which is gated on `--features gix-parity` and
+exercised by `just git-parity` — and by a dedicated CI lane on macOS and Windows. Run `just
+git-parity` when you change the git seam or either backend; `just git-bench` prints the per-operation
+subprocess-vs-gix win. See `docs/adr/adr-0040-git-backend-seam-and-hybrid.md`.
+
 ## Generated and protected artifacts
 
 Some commands are intentionally mutating:
