@@ -90,6 +90,7 @@ pub enum ExternalCorpusCoverageV1 {
         manifest_sha256: String,
         record_count: u64,
         decoded_bytes: u64,
+        source_revalidated_unchanged: bool,
     },
 }
 
@@ -265,19 +266,43 @@ pub fn rehearse_candidate_migration(
     })
 }
 
-pub fn external_corpus_coverage(
-    explicitly_supplied_path: Option<&Path>,
+fn validated_external_corpus_coverage(
+    before: &QualificationCorpusManifestV1,
+    after: &QualificationCorpusManifestV1,
 ) -> Result<ExternalCorpusCoverageV1, String> {
-    let Some(path) = explicitly_supplied_path else {
-        return Ok(ExternalCorpusCoverageV1::NotConfigured);
-    };
-    let manifest = load_external_legacy_manifest(path).map_err(|error| error.to_string())?;
-    let exact = ExactLogicalManifestV1::from_corpus(&manifest)?;
+    if before != after {
+        return Err("external qualification corpus changed during rehearsal".to_owned());
+    }
+    let exact = ExactLogicalManifestV1::from_corpus(after)?;
     Ok(ExternalCorpusCoverageV1::Validated {
         manifest_sha256: exact.manifest_sha256,
         record_count: exact.record_count,
         decoded_bytes: exact.decoded_bytes,
+        source_revalidated_unchanged: true,
     })
+}
+
+fn append_migration_workload_reports(
+    migrations: &mut Vec<MigrationWorkloadReportV1>,
+    workload: &str,
+    source: &QualificationCorpusManifestV1,
+    root: &Path,
+) -> Result<(), String> {
+    for candidate in [
+        MigrationCandidateV1::SqliteWal,
+        MigrationCandidateV1::BoundedSegments,
+    ] {
+        migrations.push(MigrationWorkloadReportV1 {
+            workload: workload.to_owned(),
+            report: rehearse_candidate_migration(
+                source,
+                candidate,
+                &root.join(format!("{workload}-{}", candidate_label(candidate))),
+                MigrationFailurePointV1::None,
+            )?,
+        });
+    }
+    Ok(())
 }
 
 pub fn run_migration_lifecycle_rehearsal(
@@ -287,28 +312,34 @@ pub fn run_migration_lifecycle_rehearsal(
     fs::create_dir_all(root).map_err(|error| format!("create rehearsal root: {error}"))?;
     let synthetic = super::synthetic_legacy_manifest().map_err(|error| error.to_string())?;
     let modeled = super::modeled_post_foundation_manifest().map_err(|error| error.to_string())?;
+    let external = explicitly_supplied_external_corpus
+        .map(|path| load_external_legacy_manifest(path).map_err(|error| error.to_string()))
+        .transpose()?;
     let candidates = [
         MigrationCandidateV1::SqliteWal,
         MigrationCandidateV1::BoundedSegments,
     ];
     let mut migrations = Vec::new();
-    for (workload, source) in [
-        ("synthetic_legacy", &synthetic),
-        ("modeled_foundation", &modeled),
-    ] {
-        for candidate in candidates {
-            migrations.push(MigrationWorkloadReportV1 {
-                workload: workload.to_owned(),
-                report: rehearse_candidate_migration(
-                    source,
-                    candidate,
-                    &root
-                        .join("migrations")
-                        .join(format!("{workload}-{}", candidate_label(candidate))),
-                    MigrationFailurePointV1::None,
-                )?,
-            });
-        }
+    let migrations_root = root.join("migrations");
+    append_migration_workload_reports(
+        &mut migrations,
+        "synthetic_legacy",
+        &synthetic,
+        &migrations_root,
+    )?;
+    append_migration_workload_reports(
+        &mut migrations,
+        "modeled_foundation",
+        &modeled,
+        &migrations_root,
+    )?;
+    if let Some(external) = external.as_ref() {
+        append_migration_workload_reports(
+            &mut migrations,
+            "external_legacy",
+            external,
+            &migrations_root,
+        )?;
     }
     let transfers =
         super::rehearse_cross_candidate_transfers(&modeled, &root.join("candidate-transfers"))?;
@@ -331,6 +362,15 @@ pub fn run_migration_lifecycle_rehearsal(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    let external_corpus_coverage = match (explicitly_supplied_external_corpus, external.as_ref()) {
+        (Some(path), Some(before)) => {
+            let after = load_external_legacy_manifest(path).map_err(|error| error.to_string())?;
+            validated_external_corpus_coverage(before, &after)?
+        }
+        (None, None) => ExternalCorpusCoverageV1::NotConfigured,
+        _ => return Err("external qualification corpus configuration mismatch".to_owned()),
+    };
+
     Ok(MigrationLifecycleRehearsalReportV1 {
         schema: "pointbreak.store-foundation-migration-lifecycle-rehearsal.v1".to_owned(),
         mode: "non_timing_exact_migration_and_lifecycle".to_owned(),
@@ -338,7 +378,7 @@ pub fn run_migration_lifecycle_rehearsal(
         transfers,
         lifecycle,
         archives,
-        external_corpus_coverage: external_corpus_coverage(explicitly_supplied_external_corpus)?,
+        external_corpus_coverage,
     })
 }
 
@@ -360,7 +400,12 @@ pub(crate) fn read_profile_corpus(
     profile: &dyn QualificationProfile,
     expected: &QualificationCorpusManifestV1,
 ) -> Result<QualificationCorpusManifestV1, String> {
-    let actual_events = profile.journal().list()?;
+    let mut actual_events = profile
+        .journal()
+        .list()?
+        .into_iter()
+        .map(|entry| (entry.logical_key.clone(), entry))
+        .collect::<BTreeMap<_, _>>();
     let expected_event_count = expected
         .records
         .iter()
@@ -376,7 +421,7 @@ pub(crate) fn read_profile_corpus(
     let mut records = Vec::with_capacity(expected.records.len());
     for expected_record in &expected.records {
         let entry = if is_event(expected_record.record_kind) {
-            profile.journal().read(&expected_record.logical_key)?
+            actual_events.remove(&expected_record.logical_key)
         } else {
             let entry = profile.read_content(&expected_record.logical_key)?;
             if entry.is_some()
@@ -618,6 +663,104 @@ mod tests {
             report.external_corpus_coverage,
             ExternalCorpusCoverageV1::NotConfigured
         );
+        println!(
+            "{}",
+            serde_json::to_string(&report).expect("rehearsal report serializes")
+        );
+    }
+
+    #[test]
+    fn external_manifest_is_migrated_through_both_candidates() {
+        let roots = tempfile::tempdir().expect("temporary roots");
+        let source = synthetic_legacy_manifest().expect("external-shape fixture");
+        let mut migrations = Vec::new();
+
+        append_migration_workload_reports(
+            &mut migrations,
+            "external_legacy",
+            &source,
+            &roots.path().join("migrations"),
+        )
+        .expect("external migrations");
+
+        assert_eq!(migrations.len(), 2);
+        assert!(migrations.iter().all(|row| {
+            row.workload == "external_legacy"
+                && row.report.source == row.report.destination
+                && row.report.source == row.report.restore
+                && row.report.source == row.report.inverse
+                && row.report.source_unchanged
+        }));
+    }
+
+    #[test]
+    fn explicit_external_root_runs_through_the_complete_rehearsal() {
+        let corpus = tempfile::tempdir().expect("external temp corpus");
+        let events = corpus.path().join("events");
+        let objects = corpus.path().join("artifacts/objects");
+        let notes = corpus.path().join("artifacts/notes");
+        std::fs::create_dir_all(&events).expect("events directory");
+        std::fs::create_dir_all(&objects).expect("objects directory");
+        std::fs::create_dir_all(&notes).expect("notes directory");
+        std::fs::write(events.join("one.json"), br#"{"event":"one"}"#).expect("external event");
+        std::fs::write(objects.join("one.json"), br#"{"object":"one"}"#).expect("external object");
+        std::fs::write(notes.join("one.md"), b"external note").expect("external note");
+        let roots = tempfile::tempdir().expect("temporary roots");
+
+        let report = run_migration_lifecycle_rehearsal(roots.path(), Some(corpus.path()))
+            .expect("external migration rehearsal");
+
+        assert_eq!(report.migrations.len(), 6);
+        assert_eq!(
+            report
+                .migrations
+                .iter()
+                .filter(|row| row.workload == "external_legacy")
+                .count(),
+            2
+        );
+        assert!(matches!(
+            report.external_corpus_coverage,
+            ExternalCorpusCoverageV1::Validated {
+                record_count: 3,
+                source_revalidated_unchanged: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    #[ignore = "requires an explicit POINTBREAK_QUALIFICATION_CORPUS"]
+    fn explicit_external_corpus_migration_rehearsal() {
+        let corpus = std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS")
+            .map(std::path::PathBuf::from)
+            .expect("POINTBREAK_QUALIFICATION_CORPUS must be explicitly supplied");
+        let roots = tempfile::tempdir().expect("temporary roots");
+        let report = run_migration_lifecycle_rehearsal(roots.path(), Some(&corpus))
+            .expect("external migration rehearsal");
+
+        assert_eq!(report.migrations.len(), 6);
+        assert_eq!(
+            report
+                .migrations
+                .iter()
+                .filter(|row| row.workload == "external_legacy")
+                .count(),
+            2
+        );
+        assert!(report.migrations.iter().all(|row| {
+            row.report.source == row.report.destination
+                && row.report.source == row.report.restore
+                && row.report.source == row.report.inverse
+                && row.report.source_unchanged
+        }));
+        assert!(matches!(
+            report.external_corpus_coverage,
+            ExternalCorpusCoverageV1::Validated {
+                source_revalidated_unchanged: true,
+                ..
+            }
+        ));
         println!(
             "{}",
             serde_json::to_string(&report).expect("rehearsal report serializes")

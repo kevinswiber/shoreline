@@ -271,14 +271,6 @@ mod migration_lifecycle_contract_tests {
         );
         assert!(profile.verify_restore(&incomplete).is_err());
     }
-
-    #[test]
-    fn external_corpus_coverage_requires_an_explicit_path() {
-        assert_eq!(
-            external_corpus_coverage(None).expect("unconfigured coverage"),
-            ExternalCorpusCoverageV1::NotConfigured
-        );
-    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
