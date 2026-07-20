@@ -327,18 +327,10 @@ mod tests {
         }
     }
 
-    /// Set `POINTBREAK_HOME` for the duration of `f`. nextest's process-per-test keeps the
-    /// mutation contained (the `keys/home.rs` seam). SAFETY: single-threaded test
-    /// process.
+    /// Set `POINTBREAK_HOME` for the duration of `f`, serialized crate-wide so
+    /// `cargo test`'s in-process threads cannot clobber each other's override.
     fn with_pointbreak_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
-        unsafe {
-            std::env::set_var("POINTBREAK_HOME", home);
-        }
-        let out = f();
-        unsafe {
-            std::env::remove_var("POINTBREAK_HOME");
-        }
-        out
+        crate::environment::test_support::with_home_override(home, f)
     }
 
     #[test]

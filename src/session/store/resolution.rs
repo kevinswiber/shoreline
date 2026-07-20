@@ -706,22 +706,17 @@ mod tests {
 
         let repo = GitRepo::new();
         let home = TempDir::new().unwrap();
-        // SAFETY: single-threaded test; nextest isolates each test in its own
-        // process, and POINTBREAK_HOME is the documented hermetic seam (keys/home.rs).
-        unsafe {
-            std::env::set_var("POINTBREAK_HOME", home.path());
-        }
+        let (family_dir, write, read) =
+            crate::environment::test_support::with_home_override(home.path(), || {
+                let slug = "acme-web";
+                let family_dir = user_level_store_dir(slug).unwrap();
+                ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
+                set_family_binding_for_repo(repo.path(), slug, "0123abcd4567ef89").unwrap();
 
-        let slug = "acme-web";
-        let family_dir = user_level_store_dir(slug).unwrap();
-        ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
-        set_family_binding_for_repo(repo.path(), slug, "0123abcd4567ef89").unwrap();
-
-        let write = resolve_write_store(repo.path()).unwrap();
-        let read = resolve_read_store(repo.path()).unwrap();
-        unsafe {
-            std::env::remove_var("POINTBREAK_HOME");
-        }
+                let write = resolve_write_store(repo.path()).unwrap();
+                let read = resolve_read_store(repo.path()).unwrap();
+                (family_dir, write, read)
+            });
 
         assert_eq!(write.store_dir(), read.store_dir());
         assert_existing_paths_eq(write.store_dir(), &family_dir);
@@ -736,28 +731,24 @@ mod tests {
 
         let fixture = LinkedWorktreeFixture::new();
         let home = TempDir::new().unwrap();
-        // SAFETY: single-threaded test; nextest isolates each test in its own process.
-        unsafe {
-            std::env::set_var("POINTBREAK_HOME", home.path());
-        }
+        let (family_dir, main_read, wt_read, wt_write) =
+            crate::environment::test_support::with_home_override(home.path(), || {
+                let slug = "fam";
+                let family_dir = user_level_store_dir(slug).unwrap();
+                ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
+                // The binding lives in the shared common dir — write it once (this is
+                // what `store link` on the main checkout does).
+                let common = git_common_dir(fixture.main.path()).unwrap();
+                write_common_dir_binding(&common, slug, "0123abcd4567ef89").unwrap();
 
-        let slug = "fam";
-        let family_dir = user_level_store_dir(slug).unwrap();
-        ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
-        // The binding lives in the shared common dir — write it once (this is what
-        // `store link` on the main checkout does).
-        let common = git_common_dir(fixture.main.path()).unwrap();
-        write_common_dir_binding(&common, slug, "0123abcd4567ef89").unwrap();
-
-        // Main AND the added worktree both resolve the family store (heal).
-        let main_read = resolve_read_store(fixture.main.path()).unwrap();
-        let wt_read = resolve_read_store(&fixture.linked_path).unwrap();
-        let wt_write = resolve_write_store(&fixture.linked_path).unwrap();
-        let wt_validation = resolve_write_validation_store(&fixture.linked_path).unwrap();
-        let _ = wt_validation.validation_events().unwrap();
-        unsafe {
-            std::env::remove_var("POINTBREAK_HOME");
-        }
+                // Main AND the added worktree both resolve the family store (heal).
+                let main_read = resolve_read_store(fixture.main.path()).unwrap();
+                let wt_read = resolve_read_store(&fixture.linked_path).unwrap();
+                let wt_write = resolve_write_store(&fixture.linked_path).unwrap();
+                let wt_validation = resolve_write_validation_store(&fixture.linked_path).unwrap();
+                let _ = wt_validation.validation_events().unwrap();
+                (family_dir, main_read, wt_read, wt_write)
+            });
 
         assert_existing_paths_eq(main_read.store_dir(), &family_dir);
         assert_existing_paths_eq(wt_read.store_dir(), &family_dir);
@@ -831,22 +822,18 @@ mod tests {
 
         let repo = GitRepo::new();
         let home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("POINTBREAK_HOME", home.path());
-        }
-        let slug = "fam";
-        ensure_family_store_scaffold(&user_level_store_dir(slug).unwrap(), slug, &[]).unwrap();
-        write_common_dir_binding(
-            &git_common_dir(repo.path()).unwrap(),
-            slug,
-            "0123abcd4567ef89",
-        )
-        .unwrap();
+        let advisory = crate::environment::test_support::with_home_override(home.path(), || {
+            let slug = "fam";
+            ensure_family_store_scaffold(&user_level_store_dir(slug).unwrap(), slug, &[]).unwrap();
+            write_common_dir_binding(
+                &git_common_dir(repo.path()).unwrap(),
+                slug,
+                "0123abcd4567ef89",
+            )
+            .unwrap();
 
-        let advisory = family_link_advisory(repo.path()).unwrap();
-        unsafe {
-            std::env::remove_var("POINTBREAK_HOME");
-        }
+            family_link_advisory(repo.path()).unwrap()
+        });
         assert!(
             advisory.is_none(),
             "a family-resolved worktree is not advised"
@@ -915,20 +902,16 @@ mod tests {
         use crate::session::store::store_config::write_common_dir_binding;
         let repo = GitRepo::new();
         let home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("POINTBREAK_HOME", home.path());
-        }
-        // Bind the clone but never scaffold the family store (no family.json).
-        write_common_dir_binding(
-            &git_common_dir(repo.path()).unwrap(),
-            "acme-web",
-            "0123abcd4567ef89",
-        )
-        .unwrap();
-        let result = resolve_store(repo.path());
-        unsafe {
-            std::env::remove_var("POINTBREAK_HOME");
-        }
+        let result = crate::environment::test_support::with_home_override(home.path(), || {
+            // Bind the clone but never scaffold the family store (no family.json).
+            write_common_dir_binding(
+                &git_common_dir(repo.path()).unwrap(),
+                "acme-web",
+                "0123abcd4567ef89",
+            )
+            .unwrap();
+            resolve_store(repo.path())
+        });
         let message = result
             .expect_err("a dangling family_ref is a hard error")
             .to_string();

@@ -34,15 +34,10 @@ mod tests {
     #[test]
     fn keys_dir_under_override_creates_keys_subtree_deterministically() {
         let tmp = tempfile::tempdir().unwrap();
-        // SAFETY: single-threaded test; the override is the documented hermetic seam.
-        unsafe {
-            std::env::set_var(crate::environment::HOME, tmp.path());
-        }
-        let first = keys_dir().unwrap();
-        let second = keys_dir().unwrap();
-        unsafe {
-            std::env::remove_var(crate::environment::HOME);
-        }
+        let (first, second) =
+            crate::environment::test_support::with_home_override(tmp.path(), || {
+                (keys_dir().unwrap(), keys_dir().unwrap())
+            });
 
         assert_eq!(first, second, "resolution is deterministic under override");
         assert_eq!(first, tmp.path().join("keys"));
@@ -55,13 +50,9 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
 
         let tmp = tempfile::tempdir().unwrap();
-        unsafe {
-            std::env::set_var(crate::environment::HOME, tmp.path());
-        }
-        let dir = keys_dir().unwrap();
-        unsafe {
-            std::env::remove_var(crate::environment::HOME);
-        }
+        let dir = crate::environment::test_support::with_home_override(tmp.path(), || {
+            keys_dir().unwrap()
+        });
 
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "keystore dir must be private");
