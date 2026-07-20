@@ -189,7 +189,7 @@ fn parse_windows_fsutil_filesystem(output: &str) -> Option<String> {
         label
             .trim()
             .eq_ignore_ascii_case("File System Name")
-            .then(|| value.trim().to_owned())
+            .then(|| value.trim().to_ascii_lowercase())
             .filter(|value| !value.is_empty())
     })
 }
@@ -213,15 +213,14 @@ mod windows_tests {
                 "Volume Name :\r\nFile System Name : NTFS\r\nIs ReadWrite\r\n"
             )
             .as_deref(),
-            Some("NTFS")
+            Some("ntfs")
         );
     }
 
     #[test]
     fn windows_probe_reports_a_local_filesystem_type() {
         assert_eq!(
-            qualification_filesystem_name(Path::new(env!("CARGO_MANIFEST_DIR")))
-                .to_ascii_lowercase(),
+            qualification_filesystem_name(Path::new(env!("CARGO_MANIFEST_DIR"))),
             "ntfs"
         );
     }
