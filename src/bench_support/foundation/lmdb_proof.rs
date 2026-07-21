@@ -722,8 +722,8 @@ mod tests {
 
     #[test]
     fn lmdb_adapter_and_modes_remain_feature_gated_and_out_of_runtime_routing() {
-        let foundation_module = include_str!("mod.rs");
-        let benchmark = include_str!("../../../benches/store_foundation.rs");
+        let foundation_module = include_str!("mod.rs").replace("\r\n", "\n");
+        let benchmark = include_str!("../../../benches/store_foundation.rs").replace("\r\n", "\n");
         let runtime = include_str!("../../../src/main.rs");
 
         assert!(foundation_module.contains("#[cfg(feature = \"lmdb-proof\")]\nmod lmdb;"));
