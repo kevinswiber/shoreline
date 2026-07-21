@@ -98,6 +98,63 @@ declared-coverage summaries. The JSON omits runtime identity and external-corpus
 source emits byte-identical output on macOS, Linux, and Windows. `G3` is not an executable workload
 in this target.
 
+## Loose-profile baseline evidence
+
+The foundation target has a candidate-independent loose-profile runner. Its evidence document uses
+the schema `pointbreak.qualification-loose-baseline-evidence.v1` and cannot represent a candidate,
+comparison, threshold, or verdict. It measures the current loose representation directly; the output
+is observational input for a later replacement contract, not a storage decision.
+
+Run a native evidence shard from a clean exact commit on a quiesced host with:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS
+export POINTBREAK_QUALIFICATION_QUIESCED=1
+cargo bench --features bench --bench store_foundation -- --loose-baseline-evidence
+```
+
+The runner uses only disposable roots and the frozen public generator. `G0` is a diagnostic row;
+`G1` and `G2` are baseline rows. Every workload gets three warm-up iterations, 30 measured
+iterations, and two independently prepared roots. All raw samples are retained and no outlier is
+removed. There is deliberately no pass/fail evaluator.
+
+Each measured root records durable append, strict replay, fresh-process open/recovery, and separate
+oldest, middle, newest, and absent keyed reads. Every sample carries a sanitized semantic receipt.
+Raw durations cover the verified operation rather than bare I/O: the timed window includes the
+semantic verification needed to prove the receipt, and open/recovery includes child-process startup
+and teardown. A later comparison must use the same operation windows.
+Allocation inventories cover event and complete-profile scopes in steady, reopened, and high-water
+states using the same native allocation APIs as the existing qualification runner:
+`stat(2)` blocks on APFS/ext4 and `FILE_STANDARD_INFO.AllocationSize` on NTFS.
+
+The evidence validator binds the source commit, `Cargo.lock`, generator schema and seed, workload
+specification, manifest and operation schedule, platform, filesystem, allocation API, independent
+run, operation, read class, receipt, and allocation inventory. Output retains aggregate receipt and
+carrier-set hashes, counts, byte totals, and raw durations. It cannot serialize disposable paths,
+environment values, payloads, logical keys, record-level hashes, or error text.
+
+For a quick correctness check, use the non-timing mode:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS
+cargo bench --features bench --bench store_foundation -- --loose-baseline-smoke
+```
+
+The smoke document uses `pointbreak.qualification-loose-baseline-smoke.v1`. It exercises `G0`, all
+four operation families, all four keyed-read classes, both allocation scopes, and all three inventory
+states without serializing timing samples.
+
+Both documents also expose the value-free
+`pointbreak.qualification-prospective-contract-proposal-shape.v1` checklist. The checklist requires
+the later proposal to cover operation-specific absolute ceilings, relative allowances, small-baseline
+guard bands and their combination formula; small-store overhead and peak headroom; the first public
+crossover; event and complete-profile savings at `G1`/`G2`; steady, reopened, and high-water states;
+high-water amplification and maintenance duration; `P0`/`M0`/`G0`/`G1`/`G2` roles; manifests, seed,
+generator version, schedule, and the verified-operation timing-window definition; platform,
+filesystem, and allocation rules; independent keyed-read classes; external evidence authority;
+provenance and privacy; and causal early stops. It names those fields only—it contains no proposed
+numeric values or evaluator.
+
 ## Frozen performance qualification contract
 
 The machine-readable performance qualification contract is compiled into the benchmark target. Print

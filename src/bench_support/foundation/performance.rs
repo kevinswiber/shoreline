@@ -11,14 +11,22 @@ use sha2::{Digest, Sha256};
 
 use super::fault::{baseline_inventory, baseline_record_path, populate_profile, read_all_files};
 use super::{
-    QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2, QualificationCandidateV1,
-    QualificationCorpusManifestV1, QualificationFilesystemDispositionV1, QualificationInventoryV1,
+    QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2, QUALIFICATION_G0_MANIFEST_SHA256_V1,
+    QUALIFICATION_G0_SCHEDULE_SHA256_V1, QUALIFICATION_G0_SPEC_SHA256_V1,
+    QUALIFICATION_G1_MANIFEST_SHA256_V1, QUALIFICATION_G1_SCHEDULE_SHA256_V1,
+    QUALIFICATION_G1_SPEC_SHA256_V1, QUALIFICATION_G2_MANIFEST_SHA256_V1,
+    QUALIFICATION_G2_SCHEDULE_SHA256_V1, QUALIFICATION_G2_SPEC_SHA256_V1,
+    QUALIFICATION_GENERATOR_SCHEMA_V1, QUALIFICATION_PUBLIC_SEED_HEX_V1, QualificationCandidateV1,
+    QualificationCorpusManifestV1, QualificationFilesystemDispositionV1,
+    QualificationGeneratedWorkloadV1, QualificationInventoryV1, QualificationKeyedReadClassV1,
     QualificationPlatformEnvironmentV1, QualificationProfile, QualificationRawSampleV1,
     QualificationRecordKindV1, SEGMENT_QUALIFICATION_PROFILE_ID_V1,
     SQLITE_QUALIFICATION_PROFILE_ID_V1, SegmentQualificationProfile, SqliteQualificationProfile,
     classify_qualification_filesystem, load_external_workload_v2_manifest_from_path,
     modeled_post_foundation_manifest, qualification_cargo_lock_sha256,
-    qualification_filesystem_name, qualification_source_commit, synthetic_legacy_manifest,
+    qualification_filesystem_name, qualification_generated_manifest_v1,
+    qualification_generator_spec_v1, qualification_operation_schedule_v1,
+    qualification_source_commit, synthetic_legacy_manifest,
 };
 use crate::canonical_hash::{canonical_json_bytes, sha256_bytes_hex};
 
@@ -38,6 +46,798 @@ pub const QUALIFICATION_PERFORMANCE_CONTRACT_PUBLICATION_SCHEMA_V2: &str =
     "pointbreak.qualification-performance-contract-publication.v2";
 pub const QUALIFICATION_PERFORMANCE_CONTRACT_SHA256_V2: &str =
     "55c473f448c80ba26e5e0eeaf23ebdd7c7b3827954bfec78873d1fd839a54a36";
+pub const QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1: &str = "--loose-baseline-evidence";
+pub const QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1: &str = "--loose-baseline-smoke";
+pub const QUALIFICATION_LOOSE_BASELINE_EVIDENCE_SCHEMA_V1: &str =
+    "pointbreak.qualification-loose-baseline-evidence.v1";
+pub const QUALIFICATION_LOOSE_BASELINE_SMOKE_SCHEMA_V1: &str =
+    "pointbreak.qualification-loose-baseline-smoke.v1";
+pub const QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHAPE_SCHEMA_V1: &str =
+    "pointbreak.qualification-prospective-contract-proposal-shape.v1";
+
+const QUALIFICATION_LOOSE_BASELINE_WARMUP_ITERATIONS_V1: u32 = 3;
+const QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1: u32 = 30;
+const QUALIFICATION_LOOSE_BASELINE_INDEPENDENT_ROOTS_V1: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationLooseBaselineOperationV1 {
+    DurableAppend,
+    StrictReplay,
+    FreshProcessOpenRecovery,
+    KeyedRead,
+}
+
+impl QualificationLooseBaselineOperationV1 {
+    pub const ALL: [Self; 4] = [
+        Self::DurableAppend,
+        Self::StrictReplay,
+        Self::FreshProcessOpenRecovery,
+        Self::KeyedRead,
+    ];
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationLooseBaselineMeasurementScopeV1 {
+    Diagnostic,
+    Baseline,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationLooseBaselineSampleRetentionV1 {
+    Raw,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineRunControlsV1 {
+    pub warmup_iterations: u32,
+    pub measured_iterations: u32,
+    pub independent_roots: u32,
+    pub sample_retention: QualificationLooseBaselineSampleRetentionV1,
+    pub outlier_policy: QualificationPerformanceOutlierPolicyV2,
+}
+
+impl QualificationLooseBaselineRunControlsV1 {
+    pub fn fixed() -> Self {
+        Self {
+            warmup_iterations: QUALIFICATION_LOOSE_BASELINE_WARMUP_ITERATIONS_V1,
+            measured_iterations: QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1,
+            independent_roots: QUALIFICATION_LOOSE_BASELINE_INDEPENDENT_ROOTS_V1,
+            sample_retention: QualificationLooseBaselineSampleRetentionV1::Raw,
+            outlier_policy: QualificationPerformanceOutlierPolicyV2::RetainAll,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationLooseBaselineReceiptKindV1 {
+    DurableAppendVisibleExact,
+    StrictReplayExact,
+    FreshProcessOpenExact,
+    KeyedReadPresentExact,
+    KeyedReadAbsentExact,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineSemanticReceiptV1 {
+    pub kind: QualificationLooseBaselineReceiptKindV1,
+    pub record_count: u64,
+    pub logical_byte_count: u64,
+    pub aggregate_receipt_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineSampleV1 {
+    pub operation: QualificationLooseBaselineOperationV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_class: Option<QualificationKeyedReadClassV1>,
+    pub iteration: u32,
+    pub elapsed_nanos: u64,
+    pub receipt: QualificationLooseBaselineSemanticReceiptV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineInventoryV1 {
+    pub carrier_count: u64,
+    pub carrier_set_sha256: String,
+    pub logical_bytes: u64,
+    pub encoded_bytes: u64,
+    pub allocated_bytes: u64,
+    pub high_water_bytes: u64,
+}
+
+impl From<QualificationPerformanceInventoryV2> for QualificationLooseBaselineInventoryV1 {
+    fn from(inventory: QualificationPerformanceInventoryV2) -> Self {
+        Self {
+            carrier_count: inventory.carrier_count,
+            carrier_set_sha256: inventory.carrier_set_sha256,
+            logical_bytes: inventory.logical_bytes,
+            encoded_bytes: inventory.encoded_bytes,
+            allocated_bytes: inventory.allocated_bytes,
+            high_water_bytes: inventory.high_water_bytes,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineAllocationSnapshotV1 {
+    pub scope: QualificationPerformanceAllocationScopeV2,
+    pub state: QualificationPerformanceInventoryStateV1,
+    pub inventory: QualificationLooseBaselineInventoryV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselinePlatformV1 {
+    pub operating_system: String,
+    pub operating_system_version: String,
+    pub architecture: String,
+    pub cpu: String,
+    pub filesystem: String,
+    pub allocation_api: String,
+    pub rustc: String,
+    pub build_source: String,
+    pub build_describe: String,
+    pub source_tree_clean: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineRunV1 {
+    pub run_index: u32,
+    pub run_identity: String,
+    pub workload: QualificationGeneratedWorkloadV1,
+    pub measurement_scope: QualificationLooseBaselineMeasurementScopeV1,
+    pub generator_spec_sha256: String,
+    pub manifest_sha256: String,
+    pub schedule_sha256: String,
+    pub controls: QualificationLooseBaselineRunControlsV1,
+    pub samples: Vec<QualificationLooseBaselineSampleV1>,
+    pub allocations: Vec<QualificationLooseBaselineAllocationSnapshotV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineEvidenceV1 {
+    pub schema: String,
+    pub source_commit: String,
+    pub cargo_lock_sha256: String,
+    pub generator_schema: String,
+    pub public_seed_hex: String,
+    pub platform: QualificationLooseBaselinePlatformV1,
+    pub runs: Vec<QualificationLooseBaselineRunV1>,
+    pub evidence_sha256: String,
+}
+
+impl QualificationLooseBaselineEvidenceV1 {
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let mut preimage = self.clone();
+        preimage.evidence_sha256.clear();
+        let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema != QUALIFICATION_LOOSE_BASELINE_EVIDENCE_SCHEMA_V1
+            || self.source_commit != qualification_source_commit()?
+            || self.cargo_lock_sha256 != qualification_cargo_lock_sha256()
+            || self.generator_schema != QUALIFICATION_GENERATOR_SCHEMA_V1
+            || self.public_seed_hex != QUALIFICATION_PUBLIC_SEED_HEX_V1
+        {
+            return Err("loose baseline evidence identity is missing or stale".to_owned());
+        }
+        validate_loose_baseline_platform_v1(&self.platform)?;
+        if self.evidence_sha256 != self.canonical_sha256()? {
+            return Err("loose baseline evidence hash does not match its preimage".to_owned());
+        }
+        let mut run_keys = BTreeSet::new();
+        for run in &self.runs {
+            validate_loose_baseline_run_v1(run, &self.platform)?;
+            if !run_keys.insert((run.workload, run.run_index)) {
+                return Err("loose baseline evidence contains a duplicate run".to_owned());
+            }
+        }
+        let expected = QualificationGeneratedWorkloadV1::ALL
+            .into_iter()
+            .flat_map(|workload| {
+                (1..=QUALIFICATION_LOOSE_BASELINE_INDEPENDENT_ROOTS_V1)
+                    .map(move |run_index| (workload, run_index))
+            })
+            .collect::<BTreeSet<_>>();
+        if run_keys != expected {
+            return Err(
+                "loose baseline evidence is missing a workload or independent root".to_owned(),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectiveContractDecisionFieldV1 {
+    OperationAbsoluteP95Ceilings,
+    OperationRelativeP95Allowances,
+    OperationSmallBaselineGuardBands,
+    AbsoluteRelativeCombinationFormula,
+    P0M0FixedOverheadCap,
+    P0M0PeakHeadroomCap,
+    FirstRequiredPublicCrossoverTier,
+    EventAllocationSavingsG1G2,
+    CompleteProfileAllocationSavingsG1G2,
+    AllocationStates,
+    HighWaterAmplificationBudget,
+    MaintenanceDurationBudget,
+    P0Role,
+    M0Role,
+    G0Role,
+    G1Role,
+    G2Role,
+    WorkloadManifestIdentities,
+    PublicSeed,
+    GeneratorCalibrationVersion,
+    OperationSchedule,
+    OperationTimedWindowDefinition,
+    NativePlatformRoles,
+    FilesystemRules,
+    AllocationRules,
+    KeyedReadClassTreatment,
+    ExternalSnapshotAuthority,
+    ProvenanceSchema,
+    PrivacySchema,
+    CausalEarlyStops,
+}
+
+impl QualificationProspectiveContractDecisionFieldV1 {
+    pub const ALL: [Self; 30] = [
+        Self::OperationAbsoluteP95Ceilings,
+        Self::OperationRelativeP95Allowances,
+        Self::OperationSmallBaselineGuardBands,
+        Self::AbsoluteRelativeCombinationFormula,
+        Self::P0M0FixedOverheadCap,
+        Self::P0M0PeakHeadroomCap,
+        Self::FirstRequiredPublicCrossoverTier,
+        Self::EventAllocationSavingsG1G2,
+        Self::CompleteProfileAllocationSavingsG1G2,
+        Self::AllocationStates,
+        Self::HighWaterAmplificationBudget,
+        Self::MaintenanceDurationBudget,
+        Self::P0Role,
+        Self::M0Role,
+        Self::G0Role,
+        Self::G1Role,
+        Self::G2Role,
+        Self::WorkloadManifestIdentities,
+        Self::PublicSeed,
+        Self::GeneratorCalibrationVersion,
+        Self::OperationSchedule,
+        Self::OperationTimedWindowDefinition,
+        Self::NativePlatformRoles,
+        Self::FilesystemRules,
+        Self::AllocationRules,
+        Self::KeyedReadClassTreatment,
+        Self::ExternalSnapshotAuthority,
+        Self::ProvenanceSchema,
+        Self::PrivacySchema,
+        Self::CausalEarlyStops,
+    ];
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveContractProposalShapeV1 {
+    pub schema: String,
+    pub decision_fields: Vec<QualificationProspectiveContractDecisionFieldV1>,
+}
+
+impl QualificationProspectiveContractProposalShapeV1 {
+    pub fn complete() -> Self {
+        Self {
+            schema: QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHAPE_SCHEMA_V1.to_owned(),
+            decision_fields: QualificationProspectiveContractDecisionFieldV1::ALL.to_vec(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema != QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHAPE_SCHEMA_V1
+            || self.decision_fields != QualificationProspectiveContractDecisionFieldV1::ALL
+        {
+            return Err("prospective contract proposal shape is incomplete".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineSmokeReceiptV1 {
+    pub operation: QualificationLooseBaselineOperationV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_class: Option<QualificationKeyedReadClassV1>,
+    pub receipt: QualificationLooseBaselineSemanticReceiptV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLooseBaselineSmokeV1 {
+    pub schema: String,
+    pub mode: String,
+    pub generator_schema: String,
+    pub public_seed_hex: String,
+    pub workload: QualificationGeneratedWorkloadV1,
+    pub generator_spec_sha256: String,
+    pub manifest_sha256: String,
+    pub schedule_sha256: String,
+    pub receipts: Vec<QualificationLooseBaselineSmokeReceiptV1>,
+    pub allocations: Vec<QualificationLooseBaselineAllocationSnapshotV1>,
+    pub proposal_shape: QualificationProspectiveContractProposalShapeV1,
+}
+
+impl QualificationLooseBaselineSmokeV1 {
+    pub fn validate(&self) -> Result<(), String> {
+        let (spec_sha256, manifest_sha256, schedule_sha256) =
+            frozen_generated_identities_v1(QualificationGeneratedWorkloadV1::G0);
+        if self.schema != QUALIFICATION_LOOSE_BASELINE_SMOKE_SCHEMA_V1
+            || self.mode != "non_timing_validation"
+            || self.generator_schema != QUALIFICATION_GENERATOR_SCHEMA_V1
+            || self.public_seed_hex != QUALIFICATION_PUBLIC_SEED_HEX_V1
+            || self.workload != QualificationGeneratedWorkloadV1::G0
+            || self.generator_spec_sha256 != spec_sha256
+            || self.manifest_sha256 != manifest_sha256
+            || self.schedule_sha256 != schedule_sha256
+        {
+            return Err("loose baseline smoke identity is incomplete".to_owned());
+        }
+        validate_loose_baseline_smoke_receipts_v1(&self.receipts)?;
+        validate_loose_baseline_allocations_v1(&self.allocations)?;
+        self.proposal_shape.validate()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct QualificationLooseBaselineEvidenceConfigurationV1 {
+    pub executable: PathBuf,
+    pub root: PathBuf,
+    pub source_commit: String,
+    pub cargo_lock_sha256: String,
+    pub quiesced_host: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct QualificationLooseBaselineSmokeConfigurationV1 {
+    pub executable: PathBuf,
+    pub root: PathBuf,
+}
+
+fn frozen_generated_identities_v1(
+    workload: QualificationGeneratedWorkloadV1,
+) -> (&'static str, &'static str, &'static str) {
+    match workload {
+        QualificationGeneratedWorkloadV1::G0 => (
+            QUALIFICATION_G0_SPEC_SHA256_V1,
+            QUALIFICATION_G0_MANIFEST_SHA256_V1,
+            QUALIFICATION_G0_SCHEDULE_SHA256_V1,
+        ),
+        QualificationGeneratedWorkloadV1::G1 => (
+            QUALIFICATION_G1_SPEC_SHA256_V1,
+            QUALIFICATION_G1_MANIFEST_SHA256_V1,
+            QUALIFICATION_G1_SCHEDULE_SHA256_V1,
+        ),
+        QualificationGeneratedWorkloadV1::G2 => (
+            QUALIFICATION_G2_SPEC_SHA256_V1,
+            QUALIFICATION_G2_MANIFEST_SHA256_V1,
+            QUALIFICATION_G2_SCHEDULE_SHA256_V1,
+        ),
+    }
+}
+
+fn loose_baseline_measurement_scope_v1(
+    workload: QualificationGeneratedWorkloadV1,
+) -> QualificationLooseBaselineMeasurementScopeV1 {
+    match workload {
+        QualificationGeneratedWorkloadV1::G0 => {
+            QualificationLooseBaselineMeasurementScopeV1::Diagnostic
+        }
+        QualificationGeneratedWorkloadV1::G1 | QualificationGeneratedWorkloadV1::G2 => {
+            QualificationLooseBaselineMeasurementScopeV1::Baseline
+        }
+    }
+}
+
+fn loose_baseline_workload_label_v1(workload: QualificationGeneratedWorkloadV1) -> &'static str {
+    match workload {
+        QualificationGeneratedWorkloadV1::G0 => "g0",
+        QualificationGeneratedWorkloadV1::G1 => "g1",
+        QualificationGeneratedWorkloadV1::G2 => "g2",
+    }
+}
+
+fn qualification_keyed_read_classes_v1() -> [QualificationKeyedReadClassV1; 4] {
+    [
+        QualificationKeyedReadClassV1::Oldest,
+        QualificationKeyedReadClassV1::Middle,
+        QualificationKeyedReadClassV1::Newest,
+        QualificationKeyedReadClassV1::Absent,
+    ]
+}
+
+fn validate_loose_baseline_platform_v1(
+    platform: &QualificationLooseBaselinePlatformV1,
+) -> Result<(), String> {
+    let supported = matches!(
+        (
+            platform.operating_system.as_str(),
+            platform.filesystem.as_str()
+        ),
+        ("macos", "apfs") | ("linux", "ext4") | ("windows", "ntfs")
+    );
+    if !supported
+        || platform.operating_system != std::env::consts::OS
+        || platform.architecture != std::env::consts::ARCH
+        || platform.allocation_api != final_native_allocation_method()
+        || classify_qualification_filesystem(&platform.filesystem)
+            != QualificationFilesystemDispositionV1::LocalProofEligible
+        || platform.operating_system_version.trim().is_empty()
+        || platform.cpu.trim().is_empty()
+        || platform.rustc.trim().is_empty()
+        || platform.build_source.trim().is_empty()
+        || platform.build_describe.trim().is_empty()
+        || !platform.source_tree_clean
+    {
+        return Err("loose baseline platform provenance is incomplete".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_loose_baseline_run_v1(
+    run: &QualificationLooseBaselineRunV1,
+    platform: &QualificationLooseBaselinePlatformV1,
+) -> Result<(), String> {
+    let (spec_sha256, manifest_sha256, schedule_sha256) =
+        frozen_generated_identities_v1(run.workload);
+    let expected_run_identity = format!(
+        "{}-{}-{}-independent-{}",
+        platform.operating_system,
+        platform.architecture,
+        loose_baseline_workload_label_v1(run.workload),
+        run.run_index,
+    );
+    if !(1..=QUALIFICATION_LOOSE_BASELINE_INDEPENDENT_ROOTS_V1).contains(&run.run_index)
+        || run.run_identity != expected_run_identity
+        || run.measurement_scope != loose_baseline_measurement_scope_v1(run.workload)
+        || run.generator_spec_sha256 != spec_sha256
+        || run.manifest_sha256 != manifest_sha256
+        || run.schedule_sha256 != schedule_sha256
+        || run.controls != QualificationLooseBaselineRunControlsV1::fixed()
+    {
+        return Err("loose baseline run identity or controls are incomplete".to_owned());
+    }
+
+    let mut sample_keys = BTreeSet::new();
+    for sample in &run.samples {
+        if sample.iteration >= QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1
+            || sample.elapsed_nanos == 0
+        {
+            return Err("loose baseline raw sample is invalid".to_owned());
+        }
+        validate_loose_baseline_receipt_v1(sample.operation, sample.read_class, &sample.receipt)?;
+        if !sample_keys.insert((sample.operation, sample.read_class, sample.iteration)) {
+            return Err("loose baseline run contains a duplicate sample".to_owned());
+        }
+    }
+    let expected_samples = (0..QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1)
+        .flat_map(|iteration| {
+            [
+                (
+                    QualificationLooseBaselineOperationV1::DurableAppend,
+                    None,
+                    iteration,
+                ),
+                (
+                    QualificationLooseBaselineOperationV1::StrictReplay,
+                    None,
+                    iteration,
+                ),
+                (
+                    QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+                    None,
+                    iteration,
+                ),
+            ]
+            .into_iter()
+            .chain(
+                qualification_keyed_read_classes_v1()
+                    .into_iter()
+                    .map(move |read_class| {
+                        (
+                            QualificationLooseBaselineOperationV1::KeyedRead,
+                            Some(read_class),
+                            iteration,
+                        )
+                    }),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    if sample_keys != expected_samples {
+        return Err("loose baseline run is missing an operation or read class".to_owned());
+    }
+    validate_loose_baseline_allocations_v1(&run.allocations)
+}
+
+fn validate_loose_baseline_receipt_v1(
+    operation: QualificationLooseBaselineOperationV1,
+    read_class: Option<QualificationKeyedReadClassV1>,
+    receipt: &QualificationLooseBaselineSemanticReceiptV1,
+) -> Result<(), String> {
+    let expected_kind = match (operation, read_class) {
+        (QualificationLooseBaselineOperationV1::DurableAppend, None) => {
+            QualificationLooseBaselineReceiptKindV1::DurableAppendVisibleExact
+        }
+        (QualificationLooseBaselineOperationV1::StrictReplay, None) => {
+            QualificationLooseBaselineReceiptKindV1::StrictReplayExact
+        }
+        (QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery, None) => {
+            QualificationLooseBaselineReceiptKindV1::FreshProcessOpenExact
+        }
+        (
+            QualificationLooseBaselineOperationV1::KeyedRead,
+            Some(QualificationKeyedReadClassV1::Absent),
+        ) => QualificationLooseBaselineReceiptKindV1::KeyedReadAbsentExact,
+        (QualificationLooseBaselineOperationV1::KeyedRead, Some(_)) => {
+            QualificationLooseBaselineReceiptKindV1::KeyedReadPresentExact
+        }
+        _ => return Err("loose baseline receipt operation shape is invalid".to_owned()),
+    };
+    let absent = receipt.kind == QualificationLooseBaselineReceiptKindV1::KeyedReadAbsentExact;
+    if receipt.kind != expected_kind
+        || (absent && (receipt.record_count != 0 || receipt.logical_byte_count != 0))
+        || (!absent && (receipt.record_count == 0 || receipt.logical_byte_count == 0))
+    {
+        return Err("loose baseline semantic receipt is incomplete".to_owned());
+    }
+    validate_hex(
+        &receipt.aggregate_receipt_sha256,
+        64,
+        "loose baseline aggregate receipt SHA-256",
+    )
+}
+
+fn validate_loose_baseline_allocations_v1(
+    allocations: &[QualificationLooseBaselineAllocationSnapshotV1],
+) -> Result<(), String> {
+    let mut keys = BTreeSet::new();
+    for allocation in allocations {
+        if allocation.inventory.carrier_count == 0
+            || allocation.inventory.logical_bytes == 0
+            || allocation.inventory.encoded_bytes == 0
+            || allocation.inventory.allocated_bytes == 0
+            || allocation.inventory.high_water_bytes < allocation.inventory.allocated_bytes
+            || !keys.insert((allocation.scope, allocation.state))
+        {
+            return Err("loose baseline allocation inventory is incomplete".to_owned());
+        }
+        validate_hex(
+            &allocation.inventory.carrier_set_sha256,
+            64,
+            "loose baseline carrier-set SHA-256",
+        )?;
+    }
+    let expected = [
+        QualificationPerformanceAllocationScopeV2::Event,
+        QualificationPerformanceAllocationScopeV2::CompleteProfile,
+    ]
+    .into_iter()
+    .flat_map(|scope| {
+        QualificationPerformanceInventoryStateV1::ALL
+            .into_iter()
+            .map(move |state| (scope, state))
+    })
+    .collect::<BTreeSet<_>>();
+    if keys != expected {
+        return Err("loose baseline allocation scope or state is missing".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_loose_baseline_smoke_receipts_v1(
+    receipts: &[QualificationLooseBaselineSmokeReceiptV1],
+) -> Result<(), String> {
+    let mut keys = BTreeSet::new();
+    for receipt in receipts {
+        validate_loose_baseline_receipt_v1(
+            receipt.operation,
+            receipt.read_class,
+            &receipt.receipt,
+        )?;
+        if !keys.insert((receipt.operation, receipt.read_class)) {
+            return Err("loose baseline smoke contains a duplicate receipt".to_owned());
+        }
+    }
+    let expected = [
+        (QualificationLooseBaselineOperationV1::DurableAppend, None),
+        (QualificationLooseBaselineOperationV1::StrictReplay, None),
+        (
+            QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+            None,
+        ),
+    ]
+    .into_iter()
+    .chain(
+        qualification_keyed_read_classes_v1()
+            .into_iter()
+            .map(|read_class| {
+                (
+                    QualificationLooseBaselineOperationV1::KeyedRead,
+                    Some(read_class),
+                )
+            }),
+    )
+    .collect::<BTreeSet<_>>();
+    if keys != expected {
+        return Err("loose baseline smoke is missing an operation or read class".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+impl QualificationLooseBaselineEvidenceV1 {
+    fn fixture_for_tests() -> Self {
+        let filesystem = match std::env::consts::OS {
+            "macos" => "apfs",
+            "linux" => "ext4",
+            "windows" => "ntfs",
+            operating_system => panic!("unsupported test operating system {operating_system}"),
+        };
+        let platform = QualificationLooseBaselinePlatformV1 {
+            operating_system: std::env::consts::OS.to_owned(),
+            operating_system_version: "fixture-os-version".to_owned(),
+            architecture: std::env::consts::ARCH.to_owned(),
+            cpu: "fixture-cpu".to_owned(),
+            filesystem: filesystem.to_owned(),
+            allocation_api: final_native_allocation_method().to_owned(),
+            rustc: format!("rustc fixture host: {}", std::env::consts::ARCH),
+            build_source: "git".to_owned(),
+            build_describe: "fixture".to_owned(),
+            source_tree_clean: true,
+        };
+        let runs = QualificationGeneratedWorkloadV1::ALL
+            .into_iter()
+            .flat_map(|workload| {
+                let platform = platform.clone();
+                (1..=QUALIFICATION_LOOSE_BASELINE_INDEPENDENT_ROOTS_V1).map(move |run_index| {
+                    let mut samples = Vec::new();
+                    for iteration in 0..QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1 {
+                        for (operation, read_class) in [
+                            (QualificationLooseBaselineOperationV1::DurableAppend, None),
+                            (QualificationLooseBaselineOperationV1::StrictReplay, None),
+                            (
+                                QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+                                None,
+                            ),
+                        ]
+                        .into_iter()
+                        .chain(qualification_keyed_read_classes_v1().into_iter().map(
+                            |read_class| {
+                                (
+                                    QualificationLooseBaselineOperationV1::KeyedRead,
+                                    Some(read_class),
+                                )
+                            },
+                        )) {
+                            let kind = match (operation, read_class) {
+                                (QualificationLooseBaselineOperationV1::DurableAppend, None) => {
+                                    QualificationLooseBaselineReceiptKindV1::DurableAppendVisibleExact
+                                }
+                                (QualificationLooseBaselineOperationV1::StrictReplay, None) => {
+                                    QualificationLooseBaselineReceiptKindV1::StrictReplayExact
+                                }
+                                (
+                                    QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+                                    None,
+                                ) => QualificationLooseBaselineReceiptKindV1::FreshProcessOpenExact,
+                                (
+                                    QualificationLooseBaselineOperationV1::KeyedRead,
+                                    Some(QualificationKeyedReadClassV1::Absent),
+                                ) => QualificationLooseBaselineReceiptKindV1::KeyedReadAbsentExact,
+                                (QualificationLooseBaselineOperationV1::KeyedRead, Some(_)) => {
+                                    QualificationLooseBaselineReceiptKindV1::KeyedReadPresentExact
+                                }
+                                _ => unreachable!(),
+                            };
+                            let absent = kind
+                                == QualificationLooseBaselineReceiptKindV1::KeyedReadAbsentExact;
+                            let receipt_seed = format!(
+                                "{workload:?}-{run_index}-{iteration}-{operation:?}-{read_class:?}"
+                            );
+                            samples.push(QualificationLooseBaselineSampleV1 {
+                                operation,
+                                read_class,
+                                iteration,
+                                elapsed_nanos: 1,
+                                receipt: QualificationLooseBaselineSemanticReceiptV1 {
+                                    kind,
+                                    record_count: u64::from(!absent),
+                                    logical_byte_count: u64::from(!absent),
+                                    aggregate_receipt_sha256: sha256_bytes_hex(
+                                        receipt_seed.as_bytes(),
+                                    ),
+                                },
+                            });
+                        }
+                    }
+                    let allocations = [
+                        QualificationPerformanceAllocationScopeV2::Event,
+                        QualificationPerformanceAllocationScopeV2::CompleteProfile,
+                    ]
+                    .into_iter()
+                    .flat_map(|scope| {
+                        QualificationPerformanceInventoryStateV1::ALL.into_iter().map(
+                            move |state| QualificationLooseBaselineAllocationSnapshotV1 {
+                                scope,
+                                state,
+                                inventory: QualificationLooseBaselineInventoryV1 {
+                                    carrier_count: 1,
+                                    carrier_set_sha256: sha256_bytes_hex(
+                                        format!("{workload:?}-{run_index}-{scope:?}-{state:?}")
+                                            .as_bytes(),
+                                    ),
+                                    logical_bytes: 1,
+                                    encoded_bytes: 1,
+                                    allocated_bytes: 1,
+                                    high_water_bytes: 1,
+                                },
+                            },
+                        )
+                    })
+                    .collect();
+                    let (generator_spec_sha256, manifest_sha256, schedule_sha256) =
+                        frozen_generated_identities_v1(workload);
+                    QualificationLooseBaselineRunV1 {
+                        run_index,
+                        run_identity: format!(
+                            "{}-{}-{}-independent-{run_index}",
+                            platform.operating_system,
+                            platform.architecture,
+                            loose_baseline_workload_label_v1(workload),
+                        ),
+                        workload,
+                        measurement_scope: loose_baseline_measurement_scope_v1(workload),
+                        generator_spec_sha256: generator_spec_sha256.to_owned(),
+                        manifest_sha256: manifest_sha256.to_owned(),
+                        schedule_sha256: schedule_sha256.to_owned(),
+                        controls: QualificationLooseBaselineRunControlsV1::fixed(),
+                        samples,
+                        allocations,
+                    }
+                })
+            })
+            .collect();
+        let mut evidence = Self {
+            schema: QUALIFICATION_LOOSE_BASELINE_EVIDENCE_SCHEMA_V1.to_owned(),
+            source_commit: qualification_source_commit().expect("test build source commit"),
+            cargo_lock_sha256: qualification_cargo_lock_sha256(),
+            generator_schema: QUALIFICATION_GENERATOR_SCHEMA_V1.to_owned(),
+            public_seed_hex: QUALIFICATION_PUBLIC_SEED_HEX_V1.to_owned(),
+            platform,
+            runs,
+            evidence_sha256: String::new(),
+        };
+        evidence.evidence_sha256 = evidence
+            .canonical_sha256()
+            .expect("canonical loose baseline evidence");
+        evidence
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -1097,6 +1897,688 @@ fn scoped_native_inventory(
         allocated_bytes,
         high_water_bytes: high_water_bytes.max(allocated_bytes),
     })
+}
+
+const QUALIFICATION_LOOSE_BASELINE_OPEN_REQUEST_SCHEMA_V1: &str =
+    "pointbreak.qualification-loose-baseline-open-request.v1";
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct QualificationLooseBaselineOpenRequestV1 {
+    schema: String,
+    root: PathBuf,
+    result_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct LooseBaselineEventAggregateV1 {
+    record_count: u64,
+    logical_byte_count: u64,
+    receipt_sha256: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LooseBaselineReceiptPreimageV1<'a> {
+    kind: QualificationLooseBaselineReceiptKindV1,
+    record_count: u64,
+    logical_byte_count: u64,
+    witness_sha256: &'a str,
+}
+
+type LooseBaselineInventoryMapV1 =
+    BTreeMap<QualificationPerformanceAllocationScopeV2, QualificationLooseBaselineInventoryV1>;
+
+pub fn run_qualification_loose_baseline_evidence_v1(
+    configuration: &QualificationLooseBaselineEvidenceConfigurationV1,
+) -> Result<QualificationLooseBaselineEvidenceV1, String> {
+    validate_loose_baseline_evidence_configuration_v1(configuration)?;
+    fs::create_dir(&configuration.root)
+        .map_err(|_| "loose baseline evidence root creation failed".to_owned())?;
+    let platform = loose_baseline_platform_v1(&configuration.root);
+    validate_loose_baseline_platform_v1(&platform)?;
+
+    let mut runs = Vec::new();
+    for workload in QualificationGeneratedWorkloadV1::ALL {
+        let (manifest, schedule) = generated_loose_baseline_inputs_v1(workload)?;
+        for run_index in 1..=QUALIFICATION_LOOSE_BASELINE_INDEPENDENT_ROOTS_V1 {
+            let case_root = configuration.root.join(format!(
+                "{}-independent-{run_index}",
+                loose_baseline_workload_label_v1(workload),
+            ));
+            fs::create_dir(&case_root)
+                .map_err(|_| "loose baseline case root creation failed".to_owned())?;
+            runs.push(run_loose_baseline_case_v1(
+                &configuration.executable,
+                workload,
+                &manifest,
+                &schedule,
+                run_index,
+                &case_root,
+                &platform,
+            )?);
+        }
+    }
+
+    let mut evidence = QualificationLooseBaselineEvidenceV1 {
+        schema: QUALIFICATION_LOOSE_BASELINE_EVIDENCE_SCHEMA_V1.to_owned(),
+        source_commit: configuration.source_commit.clone(),
+        cargo_lock_sha256: configuration.cargo_lock_sha256.clone(),
+        generator_schema: QUALIFICATION_GENERATOR_SCHEMA_V1.to_owned(),
+        public_seed_hex: QUALIFICATION_PUBLIC_SEED_HEX_V1.to_owned(),
+        platform,
+        runs,
+        evidence_sha256: String::new(),
+    };
+    evidence.evidence_sha256 = evidence.canonical_sha256()?;
+    evidence.validate()?;
+    Ok(evidence)
+}
+
+pub fn run_qualification_loose_baseline_smoke_v1(
+    configuration: &QualificationLooseBaselineSmokeConfigurationV1,
+) -> Result<QualificationLooseBaselineSmokeV1, String> {
+    validate_loose_baseline_smoke_configuration_v1(configuration)?;
+    fs::create_dir(&configuration.root)
+        .map_err(|_| "loose baseline smoke root creation failed".to_owned())?;
+    let workload = QualificationGeneratedWorkloadV1::G0;
+    let (manifest, schedule) = generated_loose_baseline_inputs_v1(workload)?;
+    let measurement_root = configuration.root.join("measurement");
+    let probe = LooseQualificationPerformanceProbe::create(measurement_root.clone(), &manifest)?;
+    let samples = execute_loose_baseline_iteration_v1(
+        &configuration.executable,
+        &probe,
+        workload,
+        &manifest,
+        &schedule,
+        0,
+        &configuration.root,
+        "smoke",
+    )?;
+    let (event_logical_bytes, complete_logical_bytes) =
+        loose_baseline_logical_bytes_v1(&manifest, &schedule, 1)?;
+    let mut high_water = BTreeMap::new();
+    let current = capture_loose_baseline_inventories_v1(
+        &measurement_root,
+        event_logical_bytes,
+        complete_logical_bytes,
+        &mut high_water,
+    )?;
+    let allocations = loose_baseline_allocation_snapshots_v1(&current, &current, &high_water)?;
+    let (generator_spec_sha256, manifest_sha256, schedule_sha256) =
+        frozen_generated_identities_v1(workload);
+    let report = QualificationLooseBaselineSmokeV1 {
+        schema: QUALIFICATION_LOOSE_BASELINE_SMOKE_SCHEMA_V1.to_owned(),
+        mode: "non_timing_validation".to_owned(),
+        generator_schema: QUALIFICATION_GENERATOR_SCHEMA_V1.to_owned(),
+        public_seed_hex: QUALIFICATION_PUBLIC_SEED_HEX_V1.to_owned(),
+        workload,
+        generator_spec_sha256: generator_spec_sha256.to_owned(),
+        manifest_sha256: manifest_sha256.to_owned(),
+        schedule_sha256: schedule_sha256.to_owned(),
+        receipts: samples
+            .into_iter()
+            .map(|sample| QualificationLooseBaselineSmokeReceiptV1 {
+                operation: sample.operation,
+                read_class: sample.read_class,
+                receipt: sample.receipt,
+            })
+            .collect(),
+        allocations,
+        proposal_shape: QualificationProspectiveContractProposalShapeV1::complete(),
+    };
+    report.validate()?;
+    Ok(report)
+}
+
+pub fn run_qualification_loose_baseline_open_child_v1(request_path: &Path) -> Result<(), String> {
+    let bytes = fs::read(request_path)
+        .map_err(|_| "loose baseline open request could not be read".to_owned())?;
+    let request: QualificationLooseBaselineOpenRequestV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| "loose baseline open request is invalid".to_owned())?;
+    if request.schema != QUALIFICATION_LOOSE_BASELINE_OPEN_REQUEST_SCHEMA_V1
+        || !request.root.is_dir()
+        || request.result_path.exists()
+        || request
+            .result_path
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+    {
+        return Err("loose baseline open request is invalid".to_owned());
+    }
+    let aggregate = loose_baseline_event_aggregate_v1(&request.root)?;
+    let receipt = loose_baseline_receipt_v1(
+        QualificationLooseBaselineReceiptKindV1::FreshProcessOpenExact,
+        aggregate.record_count,
+        aggregate.logical_byte_count,
+        &aggregate.receipt_sha256,
+    )?;
+    write_json_new_synced(&request.result_path, &receipt)
+}
+
+fn validate_loose_baseline_evidence_configuration_v1(
+    configuration: &QualificationLooseBaselineEvidenceConfigurationV1,
+) -> Result<(), String> {
+    if std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS").is_some()
+        || !configuration.executable.is_file()
+        || configuration.root.exists()
+        || configuration
+            .root
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+        || configuration.source_commit != qualification_source_commit()?
+        || configuration.cargo_lock_sha256 != qualification_cargo_lock_sha256()
+        || !configuration.quiesced_host
+        || env!("POINTBREAK_BUILD_DIRTY") == "true"
+    {
+        return Err("loose baseline evidence configuration is not proof-eligible".to_owned());
+    }
+    let parent = configuration
+        .root
+        .parent()
+        .ok_or_else(|| "loose baseline evidence root has no parent".to_owned())?;
+    let filesystem = qualification_filesystem_name(parent);
+    let supported = matches!(
+        (std::env::consts::OS, filesystem.as_str()),
+        ("macos", "apfs") | ("linux", "ext4") | ("windows", "ntfs")
+    );
+    if !supported
+        || classify_qualification_filesystem(&filesystem)
+            != QualificationFilesystemDispositionV1::LocalProofEligible
+    {
+        return Err("loose baseline evidence requires a supported native filesystem".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_loose_baseline_smoke_configuration_v1(
+    configuration: &QualificationLooseBaselineSmokeConfigurationV1,
+) -> Result<(), String> {
+    if std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS").is_some()
+        || !configuration.executable.is_file()
+        || configuration.root.exists()
+        || configuration
+            .root
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+    {
+        return Err("loose baseline smoke configuration is invalid".to_owned());
+    }
+    Ok(())
+}
+
+fn loose_baseline_platform_v1(root: &Path) -> QualificationLooseBaselinePlatformV1 {
+    QualificationLooseBaselinePlatformV1 {
+        operating_system: std::env::consts::OS.to_owned(),
+        operating_system_version: native_operating_system_version(),
+        architecture: std::env::consts::ARCH.to_owned(),
+        cpu: native_cpu_description(),
+        filesystem: qualification_filesystem_name(root),
+        allocation_api: final_native_allocation_method().to_owned(),
+        rustc: rustc_verbose_version(),
+        build_source: env!("POINTBREAK_BUILD_SOURCE").to_owned(),
+        build_describe: env!("POINTBREAK_BUILD_DESCRIBE").to_owned(),
+        source_tree_clean: env!("POINTBREAK_BUILD_DIRTY") != "true",
+    }
+}
+
+fn generated_loose_baseline_inputs_v1(
+    workload: QualificationGeneratedWorkloadV1,
+) -> Result<
+    (
+        QualificationCorpusManifestV1,
+        super::QualificationOperationScheduleV1,
+    ),
+    String,
+> {
+    let spec = qualification_generator_spec_v1(workload);
+    let manifest = qualification_generated_manifest_v1(&spec).map_err(|error| error.to_string())?;
+    let schedule = qualification_operation_schedule_v1(&spec).map_err(|error| error.to_string())?;
+    let (spec_sha256, manifest_sha256, schedule_sha256) = frozen_generated_identities_v1(workload);
+    let actual_spec_sha256 = {
+        let value = serde_json::to_value(&spec).map_err(|error| error.to_string())?;
+        let bytes = canonical_json_bytes(&value).map_err(|error| error.to_string())?;
+        sha256_bytes_hex(&bytes)
+    };
+    if actual_spec_sha256 != spec_sha256
+        || manifest.manifest_sha256 != manifest_sha256
+        || schedule.schedule_sha256 != schedule_sha256
+    {
+        return Err("loose baseline generated workload identity has drifted".to_owned());
+    }
+    Ok((manifest, schedule))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_loose_baseline_case_v1(
+    executable: &Path,
+    workload: QualificationGeneratedWorkloadV1,
+    manifest: &QualificationCorpusManifestV1,
+    schedule: &super::QualificationOperationScheduleV1,
+    run_index: u32,
+    case_root: &Path,
+    platform: &QualificationLooseBaselinePlatformV1,
+) -> Result<QualificationLooseBaselineRunV1, String> {
+    let warmup_root = case_root.join("warmup");
+    let warmup = LooseQualificationPerformanceProbe::create(warmup_root.clone(), manifest)?;
+    for iteration in 0..QUALIFICATION_LOOSE_BASELINE_WARMUP_ITERATIONS_V1 {
+        execute_loose_baseline_iteration_v1(
+            executable, &warmup, workload, manifest, schedule, iteration, case_root, "warmup",
+        )?;
+    }
+    drop(warmup);
+    fs::remove_dir_all(&warmup_root)
+        .map_err(|_| "loose baseline warm-up root cleanup failed".to_owned())?;
+
+    let measurement_root = case_root.join("measurement");
+    let probe = LooseQualificationPerformanceProbe::create(measurement_root.clone(), manifest)?;
+    let (event_logical_base, complete_logical_base) =
+        loose_baseline_logical_bytes_v1(manifest, schedule, 0)?;
+    let mut high_water = BTreeMap::new();
+    capture_loose_baseline_inventories_v1(
+        &measurement_root,
+        event_logical_base,
+        complete_logical_base,
+        &mut high_water,
+    )?;
+    let mut samples = Vec::new();
+    for iteration in 0..QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1 {
+        samples.extend(execute_loose_baseline_iteration_v1(
+            executable, &probe, workload, manifest, schedule, iteration, case_root, "measured",
+        )?);
+        let (event_logical_bytes, complete_logical_bytes) =
+            loose_baseline_logical_bytes_v1(manifest, schedule, iteration + 1)?;
+        capture_loose_baseline_inventories_v1(
+            &measurement_root,
+            event_logical_bytes,
+            complete_logical_bytes,
+            &mut high_water,
+        )?;
+    }
+    let (event_logical_bytes, complete_logical_bytes) = loose_baseline_logical_bytes_v1(
+        manifest,
+        schedule,
+        QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1,
+    )?;
+    let steady = capture_loose_baseline_inventories_v1(
+        &measurement_root,
+        event_logical_bytes,
+        complete_logical_bytes,
+        &mut high_water,
+    )?;
+    drop(probe);
+    spawn_loose_baseline_open_receipt_v1(executable, &measurement_root, case_root, "final-reopen")?;
+    let reopened = capture_loose_baseline_inventories_v1(
+        &measurement_root,
+        event_logical_bytes,
+        complete_logical_bytes,
+        &mut high_water,
+    )?;
+    let allocations = loose_baseline_allocation_snapshots_v1(&steady, &reopened, &high_water)?;
+    let (generator_spec_sha256, manifest_sha256, schedule_sha256) =
+        frozen_generated_identities_v1(workload);
+    Ok(QualificationLooseBaselineRunV1 {
+        run_index,
+        run_identity: format!(
+            "{}-{}-{}-independent-{run_index}",
+            platform.operating_system,
+            platform.architecture,
+            loose_baseline_workload_label_v1(workload),
+        ),
+        workload,
+        measurement_scope: loose_baseline_measurement_scope_v1(workload),
+        generator_spec_sha256: generator_spec_sha256.to_owned(),
+        manifest_sha256: manifest_sha256.to_owned(),
+        schedule_sha256: schedule_sha256.to_owned(),
+        controls: QualificationLooseBaselineRunControlsV1::fixed(),
+        samples,
+        allocations,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_loose_baseline_iteration_v1(
+    executable: &Path,
+    probe: &LooseQualificationPerformanceProbe,
+    workload: QualificationGeneratedWorkloadV1,
+    manifest: &QualificationCorpusManifestV1,
+    schedule: &super::QualificationOperationScheduleV1,
+    iteration: u32,
+    control_root: &Path,
+    series: &str,
+) -> Result<Vec<QualificationLooseBaselineSampleV1>, String> {
+    let append_index = *schedule
+        .append_record_indices
+        .get(iteration as usize)
+        .ok_or_else(|| "loose baseline append schedule is incomplete".to_owned())?;
+    let append_record = manifest
+        .records
+        .get(append_index as usize)
+        .ok_or_else(|| "loose baseline append record is missing".to_owned())?;
+    let append_key = format!(
+        "qualification/loose-append/{}/{series}-{iteration:08}",
+        loose_baseline_workload_label_v1(workload),
+    );
+    let append_path = baseline_record_path(
+        &probe.root,
+        &append_key,
+        QualificationRecordKindV1::LegacyEvent,
+    );
+    let started = Instant::now();
+    write_new_synced(&append_path, &append_record.decoded_bytes)?;
+    probe.record_legacy_append(&append_record.decoded_bytes);
+    let stored = fs::read(&append_path)
+        .map_err(|_| "loose baseline durable append readback failed".to_owned())?;
+    if stored != append_record.decoded_bytes {
+        return Err("loose baseline durable append readback differed".to_owned());
+    }
+    let append_elapsed = elapsed_nanos(started);
+    let aggregate = loose_baseline_event_aggregate_v1(&probe.root)?;
+    let mut samples = vec![QualificationLooseBaselineSampleV1 {
+        operation: QualificationLooseBaselineOperationV1::DurableAppend,
+        read_class: None,
+        iteration,
+        elapsed_nanos: append_elapsed,
+        receipt: loose_baseline_receipt_v1(
+            QualificationLooseBaselineReceiptKindV1::DurableAppendVisibleExact,
+            aggregate.record_count,
+            aggregate.logical_byte_count,
+            &aggregate.receipt_sha256,
+        )?,
+    }];
+
+    let started = Instant::now();
+    read_all_files(&probe.root.join("events"))
+        .map_err(|_| "loose baseline strict replay failed".to_owned())?;
+    let replay_elapsed = elapsed_nanos(started);
+    let replay_aggregate = loose_baseline_event_aggregate_v1(&probe.root)?;
+    samples.push(QualificationLooseBaselineSampleV1 {
+        operation: QualificationLooseBaselineOperationV1::StrictReplay,
+        read_class: None,
+        iteration,
+        elapsed_nanos: replay_elapsed,
+        receipt: loose_baseline_receipt_v1(
+            QualificationLooseBaselineReceiptKindV1::StrictReplayExact,
+            replay_aggregate.record_count,
+            replay_aggregate.logical_byte_count,
+            &replay_aggregate.receipt_sha256,
+        )?,
+    });
+
+    let (open_elapsed, open_receipt) = spawn_loose_baseline_open_receipt_v1(
+        executable,
+        &probe.root,
+        control_root,
+        &format!("{series}-{iteration}"),
+    )?;
+    samples.push(QualificationLooseBaselineSampleV1 {
+        operation: QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+        read_class: None,
+        iteration,
+        elapsed_nanos: open_elapsed,
+        receipt: open_receipt,
+    });
+
+    for scheduled_read in &schedule.keyed_reads {
+        let started = Instant::now();
+        let (kind, record_count, logical_byte_count, witness_sha256) =
+            if scheduled_read.class == QualificationKeyedReadClassV1::Absent {
+                let event_path = baseline_record_path(
+                    &probe.root,
+                    &scheduled_read.logical_key,
+                    QualificationRecordKindV1::LegacyEvent,
+                );
+                let content_path = baseline_record_path(
+                    &probe.root,
+                    &scheduled_read.logical_key,
+                    QualificationRecordKindV1::ObjectArtifact,
+                );
+                if event_path.exists() || content_path.exists() {
+                    return Err("loose baseline absent keyed read found a record".to_owned());
+                }
+                (
+                    QualificationLooseBaselineReceiptKindV1::KeyedReadAbsentExact,
+                    0,
+                    0,
+                    sha256_bytes_hex(b"loose-baseline-keyed-read-absent-v1"),
+                )
+            } else {
+                let expected = manifest
+                    .records
+                    .iter()
+                    .find(|record| record.logical_key == scheduled_read.logical_key)
+                    .ok_or_else(|| "loose baseline keyed read target is missing".to_owned())?;
+                let path = baseline_record_path(
+                    &probe.root,
+                    &scheduled_read.logical_key,
+                    expected.record_kind,
+                );
+                let bytes =
+                    fs::read(path).map_err(|_| "loose baseline keyed read failed".to_owned())?;
+                if bytes != expected.decoded_bytes {
+                    return Err("loose baseline keyed read returned different bytes".to_owned());
+                }
+                std::hint::black_box(Sha256::digest(&bytes));
+                (
+                    QualificationLooseBaselineReceiptKindV1::KeyedReadPresentExact,
+                    1,
+                    bytes.len() as u64,
+                    sha256_bytes_hex(&bytes),
+                )
+            };
+        samples.push(QualificationLooseBaselineSampleV1 {
+            operation: QualificationLooseBaselineOperationV1::KeyedRead,
+            read_class: Some(scheduled_read.class),
+            iteration,
+            elapsed_nanos: elapsed_nanos(started),
+            receipt: loose_baseline_receipt_v1(
+                kind,
+                record_count,
+                logical_byte_count,
+                &witness_sha256,
+            )?,
+        });
+    }
+    Ok(samples)
+}
+
+fn spawn_loose_baseline_open_receipt_v1(
+    executable: &Path,
+    root: &Path,
+    control_root: &Path,
+    label: &str,
+) -> Result<(u64, QualificationLooseBaselineSemanticReceiptV1), String> {
+    let control = control_root.join("loose-open-controls");
+    fs::create_dir_all(&control)
+        .map_err(|_| "loose baseline open control creation failed".to_owned())?;
+    let request_path = control.join(format!("{label}-request.json"));
+    let result_path = control.join(format!("{label}-result.json"));
+    let request = QualificationLooseBaselineOpenRequestV1 {
+        schema: QUALIFICATION_LOOSE_BASELINE_OPEN_REQUEST_SCHEMA_V1.to_owned(),
+        root: root.to_path_buf(),
+        result_path: result_path.clone(),
+    };
+    write_json_new_synced(&request_path, &request)?;
+    let started = Instant::now();
+    let output = Command::new(executable)
+        .arg("--loose-baseline-open-child")
+        .arg(&request_path)
+        .output()
+        .map_err(|_| "loose baseline open child could not start".to_owned())?;
+    let elapsed = elapsed_nanos(started);
+    if !output.status.success() {
+        return Err("loose baseline open child failed".to_owned());
+    }
+    let bytes = fs::read(&result_path)
+        .map_err(|_| "loose baseline open result could not be read".to_owned())?;
+    let receipt: QualificationLooseBaselineSemanticReceiptV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| "loose baseline open result is invalid".to_owned())?;
+    validate_loose_baseline_receipt_v1(
+        QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+        None,
+        &receipt,
+    )?;
+    fs::remove_file(&request_path)
+        .and_then(|_| fs::remove_file(&result_path))
+        .map_err(|_| "loose baseline open control cleanup failed".to_owned())?;
+    Ok((elapsed, receipt))
+}
+
+fn loose_baseline_event_aggregate_v1(root: &Path) -> Result<LooseBaselineEventAggregateV1, String> {
+    let events = root.join("events");
+    let mut records = Vec::new();
+    let mut logical_byte_count = 0_u64;
+    let entries = fs::read_dir(&events)
+        .map_err(|_| "loose baseline event directory could not be read".to_owned())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "loose baseline event directory is invalid".to_owned())?;
+    for entry in entries {
+        let path = entry.path();
+        if !entry
+            .file_type()
+            .map_err(|_| "loose baseline event carrier type could not be read".to_owned())?
+            .is_file()
+        {
+            return Err("loose baseline event carrier is not a file".to_owned());
+        }
+        let key_hash = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| "loose baseline event carrier name is invalid".to_owned())?
+            .to_owned();
+        validate_hex(&key_hash, 64, "loose baseline event key SHA-256")?;
+        let bytes = fs::read(&path)
+            .map_err(|_| "loose baseline event carrier could not be read".to_owned())?;
+        logical_byte_count = logical_byte_count
+            .checked_add(bytes.len() as u64)
+            .ok_or_else(|| "loose baseline receipt byte total overflow".to_owned())?;
+        records.push((key_hash, sha256_bytes_hex(&bytes)));
+    }
+    if records.is_empty() {
+        return Err("loose baseline event receipt is empty".to_owned());
+    }
+    records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let value = serde_json::to_value(&records).map_err(|error| error.to_string())?;
+    let bytes = canonical_json_bytes(&value).map_err(|error| error.to_string())?;
+    Ok(LooseBaselineEventAggregateV1 {
+        record_count: records.len() as u64,
+        logical_byte_count,
+        receipt_sha256: sha256_bytes_hex(&bytes),
+    })
+}
+
+fn loose_baseline_receipt_v1(
+    kind: QualificationLooseBaselineReceiptKindV1,
+    record_count: u64,
+    logical_byte_count: u64,
+    witness_sha256: &str,
+) -> Result<QualificationLooseBaselineSemanticReceiptV1, String> {
+    validate_hex(witness_sha256, 64, "loose baseline receipt witness SHA-256")?;
+    let preimage = LooseBaselineReceiptPreimageV1 {
+        kind,
+        record_count,
+        logical_byte_count,
+        witness_sha256,
+    };
+    let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+    let bytes = canonical_json_bytes(&value).map_err(|error| error.to_string())?;
+    Ok(QualificationLooseBaselineSemanticReceiptV1 {
+        kind,
+        record_count,
+        logical_byte_count,
+        aggregate_receipt_sha256: sha256_bytes_hex(&bytes),
+    })
+}
+
+fn loose_baseline_logical_bytes_v1(
+    manifest: &QualificationCorpusManifestV1,
+    schedule: &super::QualificationOperationScheduleV1,
+    appended_iterations: u32,
+) -> Result<(u64, u64), String> {
+    let event_base = manifest
+        .records
+        .iter()
+        .filter(|record| is_journal_record(record.record_kind))
+        .try_fold(0_u64, |total, record| {
+            total.checked_add(record.decoded_bytes.len() as u64)
+        })
+        .ok_or_else(|| "loose baseline event logical-byte total overflow".to_owned())?;
+    let complete_base = manifest
+        .records
+        .iter()
+        .try_fold(0_u64, |total, record| {
+            total.checked_add(record.decoded_bytes.len() as u64)
+        })
+        .ok_or_else(|| "loose baseline complete logical-byte total overflow".to_owned())?;
+    let appended = schedule
+        .append_record_indices
+        .iter()
+        .take(appended_iterations as usize)
+        .try_fold(0_u64, |total, index| {
+            manifest
+                .records
+                .get(*index as usize)
+                .and_then(|record| total.checked_add(record.decoded_bytes.len() as u64))
+        })
+        .ok_or_else(|| "loose baseline append logical-byte total is invalid".to_owned())?;
+    Ok((event_base + appended, complete_base + appended))
+}
+
+fn capture_loose_baseline_inventories_v1(
+    root: &Path,
+    event_logical_bytes: u64,
+    complete_logical_bytes: u64,
+    high_water: &mut BTreeMap<QualificationPerformanceAllocationScopeV2, u64>,
+) -> Result<LooseBaselineInventoryMapV1, String> {
+    let mut inventories = BTreeMap::new();
+    for scope in [
+        QualificationPerformanceAllocationScopeV2::Event,
+        QualificationPerformanceAllocationScopeV2::CompleteProfile,
+    ] {
+        let logical_bytes = match scope {
+            QualificationPerformanceAllocationScopeV2::Event => event_logical_bytes,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile => complete_logical_bytes,
+        };
+        let mut inventory: QualificationLooseBaselineInventoryV1 =
+            scoped_native_inventory(root, scope, logical_bytes, 0)?.into();
+        let observed = high_water.entry(scope).or_default();
+        *observed = (*observed).max(inventory.allocated_bytes);
+        inventory.high_water_bytes = *observed;
+        inventories.insert(scope, inventory);
+    }
+    Ok(inventories)
+}
+
+fn loose_baseline_allocation_snapshots_v1(
+    steady: &LooseBaselineInventoryMapV1,
+    reopened: &LooseBaselineInventoryMapV1,
+    high_water: &BTreeMap<QualificationPerformanceAllocationScopeV2, u64>,
+) -> Result<Vec<QualificationLooseBaselineAllocationSnapshotV1>, String> {
+    let mut snapshots = Vec::new();
+    for (state, source) in [
+        (QualificationPerformanceInventoryStateV1::Steady, steady),
+        (QualificationPerformanceInventoryStateV1::Reopened, reopened),
+        (QualificationPerformanceInventoryStateV1::HighWater, steady),
+    ] {
+        for scope in [
+            QualificationPerformanceAllocationScopeV2::Event,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile,
+        ] {
+            let mut inventory = source
+                .get(&scope)
+                .cloned()
+                .ok_or_else(|| "loose baseline allocation inventory is missing".to_owned())?;
+            inventory.high_water_bytes = *high_water
+                .get(&scope)
+                .ok_or_else(|| "loose baseline allocation high-water is missing".to_owned())?;
+            snapshots.push(QualificationLooseBaselineAllocationSnapshotV1 {
+                scope,
+                state,
+                inventory,
+            });
+        }
+    }
+    Ok(snapshots)
 }
 
 pub fn evaluate_qualification_performance_v2(
@@ -4430,5 +5912,227 @@ mod tests {
         });
 
         assert!(serde_json::from_value::<QualificationPerformanceEvidenceV2>(historical).is_err());
+    }
+
+    #[test]
+    fn loose_baseline_evidence_rejects_candidate_authority_and_has_no_verdict() {
+        let evidence = QualificationLooseBaselineEvidenceV1::fixture_for_tests();
+        evidence.validate().expect("complete loose-only evidence");
+
+        let serialized = serde_json::to_string(&evidence).expect("loose evidence JSON");
+        for forbidden in [
+            "candidate",
+            "candidateRole",
+            "comparison",
+            "threshold",
+            "ceiling",
+            "verdict",
+            "eligible",
+            "passed",
+            "failed",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "loose evidence serialized forbidden authority {forbidden}"
+            );
+        }
+
+        for (field, value) in [
+            ("candidate", serde_json::json!("engine")),
+            ("candidateRole", serde_json::json!("replacement")),
+            ("comparison", serde_json::json!({"baseline": 1})),
+            ("threshold", serde_json::json!(125)),
+            ("verdict", serde_json::json!("passed")),
+        ] {
+            let mut document = serde_json::to_value(&evidence).expect("loose evidence value");
+            document
+                .as_object_mut()
+                .expect("evidence object")
+                .insert(field.to_owned(), value);
+            assert!(
+                serde_json::from_value::<QualificationLooseBaselineEvidenceV1>(document).is_err(),
+                "loose evidence admitted {field}"
+            );
+        }
+
+        let mut nested = serde_json::to_value(&evidence).expect("loose evidence value");
+        nested["runs"][0]["allocations"][0]["inventory"]["candidate"] = serde_json::json!("engine");
+        assert!(
+            serde_json::from_value::<QualificationLooseBaselineEvidenceV1>(nested).is_err(),
+            "loose inventory admitted candidate identity"
+        );
+    }
+
+    #[test]
+    fn loose_baseline_evidence_requires_every_identity_operation_and_read_class() {
+        let complete = QualificationLooseBaselineEvidenceV1::fixture_for_tests();
+        complete.validate().expect("complete loose evidence");
+
+        let mut stale_source = complete.clone();
+        stale_source.source_commit = SOURCE_COMMIT.to_owned();
+        stale_source.evidence_sha256 = stale_source.canonical_sha256().expect("canonical evidence");
+        assert!(stale_source.validate().is_err());
+
+        let mut missing_schedule = complete.clone();
+        missing_schedule.runs[0].schedule_sha256.clear();
+        missing_schedule.evidence_sha256 = missing_schedule
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(missing_schedule.validate().is_err());
+
+        let mut missing_operation = complete.clone();
+        missing_operation.runs[0].samples.retain(|sample| {
+            sample.operation != QualificationLooseBaselineOperationV1::StrictReplay
+        });
+        missing_operation.evidence_sha256 = missing_operation
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(missing_operation.validate().is_err());
+
+        let mut missing_read_class = complete;
+        missing_read_class.runs[0]
+            .samples
+            .retain(|sample| sample.read_class != Some(QualificationKeyedReadClassV1::Middle));
+        missing_read_class.evidence_sha256 = missing_read_class
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(missing_read_class.validate().is_err());
+    }
+
+    #[test]
+    fn loose_baseline_evidence_requires_fixed_controls_receipts_and_allocation_states() {
+        let complete = QualificationLooseBaselineEvidenceV1::fixture_for_tests();
+
+        let mut wrong_controls = complete.clone();
+        wrong_controls.runs[0].controls.measured_iterations -= 1;
+        wrong_controls.evidence_sha256 = wrong_controls
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(wrong_controls.validate().is_err());
+
+        let mut missing_receipt = complete.clone();
+        missing_receipt.runs[0].samples[0]
+            .receipt
+            .aggregate_receipt_sha256
+            .clear();
+        missing_receipt.evidence_sha256 = missing_receipt
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(missing_receipt.validate().is_err());
+
+        let mut missing_scope = complete.clone();
+        missing_scope.runs[0].allocations.retain(|allocation| {
+            allocation.scope != QualificationPerformanceAllocationScopeV2::Event
+        });
+        missing_scope.evidence_sha256 = missing_scope
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(missing_scope.validate().is_err());
+
+        let mut missing_state = complete;
+        missing_state.runs[0].allocations.retain(|allocation| {
+            allocation.state != QualificationPerformanceInventoryStateV1::Reopened
+        });
+        missing_state.evidence_sha256 = missing_state
+            .canonical_sha256()
+            .expect("canonical evidence");
+        assert!(missing_state.validate().is_err());
+    }
+
+    #[test]
+    fn loose_baseline_serialization_excludes_private_and_record_level_material() {
+        let evidence = QualificationLooseBaselineEvidenceV1::fixture_for_tests();
+        let serialized = serde_json::to_string(&evidence).expect("loose evidence JSON");
+
+        for forbidden in [
+            "/Users/",
+            "\\\\",
+            "POINTBREAK_",
+            "environmentValue",
+            "root",
+            "path",
+            "payload",
+            "decodedBytes",
+            "logicalKey",
+            "recordHash",
+            "recordSha256",
+            "error",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "loose evidence serialized private material {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn loose_baseline_keyed_read_receipts_bind_exact_outcomes_without_exposing_record_hashes() {
+        let first = loose_baseline_receipt_v1(
+            QualificationLooseBaselineReceiptKindV1::KeyedReadPresentExact,
+            1,
+            512,
+            &sha256_bytes_hex(b"first exact value"),
+        )
+        .expect("first keyed-read receipt");
+        let second = loose_baseline_receipt_v1(
+            QualificationLooseBaselineReceiptKindV1::KeyedReadPresentExact,
+            1,
+            512,
+            &sha256_bytes_hex(b"second exact value"),
+        )
+        .expect("second keyed-read receipt");
+
+        assert_ne!(
+            first.aggregate_receipt_sha256,
+            second.aggregate_receipt_sha256
+        );
+        let serialized = serde_json::to_string(&first).expect("keyed-read receipt JSON");
+        assert!(!serialized.contains(&sha256_bytes_hex(b"first exact value")));
+    }
+
+    #[test]
+    fn prospective_contract_proposal_shape_requires_every_decision_surface_field() {
+        let complete = QualificationProspectiveContractProposalShapeV1::complete();
+        complete.validate().expect("complete proposal shape");
+        assert!(complete.decision_fields.contains(
+            &QualificationProspectiveContractDecisionFieldV1::OperationTimedWindowDefinition
+        ));
+        assert_eq!(complete.decision_fields.len(), 30);
+        assert_eq!(
+            complete.decision_fields,
+            QualificationProspectiveContractDecisionFieldV1::ALL
+        );
+
+        let mut missing = complete.clone();
+        missing.decision_fields.pop();
+        assert!(missing.validate().is_err());
+
+        let mut duplicate = complete;
+        duplicate.decision_fields[0] = duplicate.decision_fields[1];
+        assert!(duplicate.validate().is_err());
+    }
+
+    #[test]
+    fn loose_baseline_cli_modes_and_schema_identities_are_frozen() {
+        assert_eq!(
+            QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1,
+            "--loose-baseline-evidence"
+        );
+        assert_eq!(
+            QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
+            "--loose-baseline-smoke"
+        );
+        assert_eq!(
+            QUALIFICATION_LOOSE_BASELINE_EVIDENCE_SCHEMA_V1,
+            "pointbreak.qualification-loose-baseline-evidence.v1"
+        );
+        assert_eq!(
+            QUALIFICATION_LOOSE_BASELINE_SMOKE_SCHEMA_V1,
+            "pointbreak.qualification-loose-baseline-smoke.v1"
+        );
+        assert_eq!(
+            QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHAPE_SCHEMA_V1,
+            "pointbreak.qualification-prospective-contract-proposal-shape.v1"
+        );
     }
 }

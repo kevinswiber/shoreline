@@ -8,8 +8,12 @@ use std::process::{Command, ExitCode};
 use pointbreak::bench_support::foundation::{
     DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
-    ImportReceiptPrototypeV1, LogicalCapabilityEpochV1, QualificationCorpusError,
-    QualificationCorpusSummaryV1, QualificationPerformanceCampaignConfigurationV2,
+    ImportReceiptPrototypeV1, LogicalCapabilityEpochV1,
+    QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1, QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
+    QualificationCorpusError, QualificationCorpusSummaryV1,
+    QualificationLooseBaselineEvidenceConfigurationV1,
+    QualificationLooseBaselineSmokeConfigurationV1,
+    QualificationPerformanceCampaignConfigurationV2,
     QualificationPerformanceDiagnosticConfigurationV1, QualificationPerformanceEvidenceV2,
     QualificationPerformancePackageV2, QualificationPerformancePairOrderV1,
     QualificationRunConfigurationV1, QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1,
@@ -18,16 +22,17 @@ use pointbreak::bench_support::foundation::{
     modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_cargo_lock_sha256,
     qualification_filesystem_name, qualification_generated_workload_smoke_v1,
     qualification_performance_contract_v2_publication, qualification_source_commit,
-    run_qualification_child, run_qualification_performance_campaign_v2,
-    run_qualification_performance_diagnostics, run_qualification_performance_open_child,
-    run_qualification_platform_matrix, run_segment_workload, run_sqlite_workload,
-    synthetic_legacy_manifest,
+    run_qualification_child, run_qualification_loose_baseline_evidence_v1,
+    run_qualification_loose_baseline_open_child_v1, run_qualification_loose_baseline_smoke_v1,
+    run_qualification_performance_campaign_v2, run_qualification_performance_diagnostics,
+    run_qualification_performance_open_child, run_qualification_platform_matrix,
+    run_segment_workload, run_sqlite_workload, synthetic_legacy_manifest,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
        --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
 \n\
@@ -141,6 +146,24 @@ fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     if arguments
         .first()
+        .is_some_and(|argument| argument == "--loose-baseline-open-child")
+    {
+        if arguments.len() != 2 {
+            eprintln!("loose baseline open child requires exactly one request path");
+            return ExitCode::from(2);
+        }
+        return match run_qualification_loose_baseline_open_child_v1(std::path::Path::new(
+            &arguments[1],
+        )) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("store foundation loose baseline open child failed: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if arguments
+        .first()
         .is_some_and(|argument| argument == "--qualification-performance-open-child")
     {
         if arguments.len() != 2 {
@@ -178,6 +201,8 @@ fn main() -> ExitCode {
     let requested_modes = [
         "--smoke",
         "--generated-workload-smoke",
+        QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
+        QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1,
         "--transfer-smoke",
         "--sqlite-smoke",
         "--segments-smoke",
@@ -211,6 +236,8 @@ fn main() -> ExitCode {
     if arguments.iter().any(|argument| {
         argument != "--smoke"
             && argument != "--generated-workload-smoke"
+            && argument != QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1
+            && argument != QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1
             && argument != "--transfer-smoke"
             && argument != "--sqlite-smoke"
             && argument != "--segments-smoke"
@@ -250,6 +277,20 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         };
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1)
+    {
+        return qualification_loose_baseline_smoke_report();
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1)
+    {
+        return qualification_loose_baseline_evidence_report();
     }
 
     if arguments
@@ -366,6 +407,83 @@ fn main() -> ExitCode {
         }
         Err(error) => {
             eprintln!("store foundation smoke failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn qualification_loose_baseline_smoke_report() -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("store foundation loose baseline smoke root failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let configuration = QualificationLooseBaselineSmokeConfigurationV1 {
+        executable: match std::env::current_exe() {
+            Ok(executable) => executable,
+            Err(error) => {
+                eprintln!("store foundation loose baseline smoke executable failed: {error}");
+                return ExitCode::from(1);
+            }
+        },
+        root: disposable.path().join("loose-baseline-smoke"),
+    };
+    match run_qualification_loose_baseline_smoke_v1(&configuration) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("loose baseline smoke serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("store foundation loose baseline smoke failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn qualification_loose_baseline_evidence_report() -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("store foundation loose baseline evidence root failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let source_commit = match qualification_source_commit() {
+        Ok(commit) => commit,
+        Err(error) => {
+            eprintln!("store foundation loose baseline provenance failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let configuration = QualificationLooseBaselineEvidenceConfigurationV1 {
+        executable: match std::env::current_exe() {
+            Ok(executable) => executable,
+            Err(error) => {
+                eprintln!("store foundation loose baseline evidence executable failed: {error}");
+                return ExitCode::from(1);
+            }
+        },
+        root: disposable.path().join("loose-baseline-evidence"),
+        source_commit,
+        cargo_lock_sha256: qualification_cargo_lock_sha256(),
+        quiesced_host: std::env::var("POINTBREAK_QUALIFICATION_QUIESCED")
+            .is_ok_and(|value| value == "1"),
+    };
+    match run_qualification_loose_baseline_evidence_v1(&configuration) {
+        Ok(evidence) => {
+            println!(
+                "{}",
+                serde_json::to_string(&evidence).expect("loose baseline evidence serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("store foundation loose baseline evidence failed: {error}");
             ExitCode::from(1)
         }
     }
