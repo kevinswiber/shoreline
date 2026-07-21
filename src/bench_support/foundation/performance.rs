@@ -54,6 +54,19 @@ pub const QUALIFICATION_LOOSE_BASELINE_SMOKE_SCHEMA_V1: &str =
     "pointbreak.qualification-loose-baseline-smoke.v1";
 pub const QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHAPE_SCHEMA_V1: &str =
     "pointbreak.qualification-prospective-contract-proposal-shape.v1";
+pub const QUALIFICATION_PROSPECTIVE_CONTRACT_SCHEMA_V1: &str =
+    "pointbreak.qualification-prospective-feasibility-contract.v1";
+pub const QUALIFICATION_PROSPECTIVE_EVIDENCE_SCHEMA_V1: &str =
+    "pointbreak.qualification-prospective-feasibility-evidence.v1";
+pub const QUALIFICATION_PROSPECTIVE_EVALUATION_SCHEMA_V1: &str =
+    "pointbreak.qualification-prospective-feasibility-evaluation.v1";
+pub const QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_SCHEMA_V1: &str =
+    "pointbreak.qualification-prospective-feasibility-contract-publication.v1";
+pub const QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1: &str = "--prospective-contract";
+pub const QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHA256_V1: &str =
+    "83446c8a40eb71fa4696ee5d71043c47beb8624fc97e2360b62337e489ad67e8";
+pub const QUALIFICATION_PROSPECTIVE_CONTRACT_SHA256_V1: &str =
+    "8e9fb5bffef230d97d3f4abc8a70c79958e4372668af8bde19b3aa815382857d";
 
 const QUALIFICATION_LOOSE_BASELINE_WARMUP_ITERATIONS_V1: u32 = 3;
 const QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1: u32 = 30;
@@ -1232,6 +1245,10 @@ pub enum QualificationPerformanceAllocationScopeV2 {
     CompleteProfile,
 }
 
+impl QualificationPerformanceAllocationScopeV2 {
+    pub const ALL: [Self; 2] = [Self::Event, Self::CompleteProfile];
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QualificationPerformanceConfidenceMethodV2 {
@@ -1477,6 +1494,1600 @@ pub fn qualification_performance_contract_v2_publication()
             .expect("the frozen performance contract is canonical"),
         decision_table_markdown: contract.decision_table_markdown(),
         contract,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectivePlatformV1 {
+    MacosApfs,
+    LinuxExt4,
+    WindowsNtfs,
+}
+
+impl QualificationProspectivePlatformV1 {
+    pub const ALL: [Self; 3] = [Self::MacosApfs, Self::LinuxExt4, Self::WindowsNtfs];
+
+    fn operating_system(self) -> &'static str {
+        match self {
+            Self::MacosApfs => "macos",
+            Self::LinuxExt4 => "linux",
+            Self::WindowsNtfs => "windows",
+        }
+    }
+
+    fn filesystem(self) -> &'static str {
+        match self {
+            Self::MacosApfs => "apfs",
+            Self::LinuxExt4 => "ext4",
+            Self::WindowsNtfs => "ntfs",
+        }
+    }
+
+    fn allocation_api(self) -> &'static str {
+        match self {
+            Self::MacosApfs | Self::LinuxExt4 => "stat_blocks_512",
+            Self::WindowsNtfs => "file_standard_info_allocation_size",
+        }
+    }
+
+    fn evidence_role(self) -> &'static str {
+        match self {
+            Self::MacosApfs => "required_quantitative",
+            Self::LinuxExt4 => "required_quantitative_non_container",
+            Self::WindowsNtfs => "required_quantitative_native",
+        }
+    }
+
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::MacosApfs => "macOS/APFS",
+            Self::LinuxExt4 => "Linux/ext4 (non-container)",
+            Self::WindowsNtfs => "Windows/NTFS (native)",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectiveWorkloadV1 {
+    P0,
+    M0,
+    G0,
+    G1,
+    G2,
+}
+
+impl QualificationProspectiveWorkloadV1 {
+    pub const ALL: [Self; 5] = [Self::P0, Self::M0, Self::G0, Self::G1, Self::G2];
+
+    pub fn timing_required(self) -> bool {
+        matches!(self, Self::G0 | Self::G1 | Self::G2)
+    }
+
+    pub fn savings_required(self) -> bool {
+        matches!(self, Self::G1 | Self::G2)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectiveWorkloadRoleV1 {
+    SemanticProvenancePrivacySmoke,
+    CapabilityFixedCostSentinel,
+    DiagnosticCausalEarlyStop,
+    RequiredMediumFirstCrossover,
+    RequiredRepresentativePublic,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectivePlatformRequirementV1 {
+    pub platform: QualificationProspectivePlatformV1,
+    pub operating_system: String,
+    pub filesystem: String,
+    pub allocation_api: String,
+    pub evidence_role: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveWorkloadRequirementV1 {
+    pub workload: QualificationProspectiveWorkloadV1,
+    pub role: QualificationProspectiveWorkloadRoleV1,
+    pub manifest_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generator_spec_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_schedule_sha256: Option<String>,
+    pub timing_required: bool,
+    pub savings_required: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveRunControlsV1 {
+    pub warmup_iterations: u32,
+    pub measured_iterations: u32,
+    pub independent_runs: u32,
+    pub p95_estimator: String,
+    pub p95_rank: u32,
+    pub sample_retention: String,
+    pub outlier_policy: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveTimingThresholdV1 {
+    pub operation: QualificationLooseBaselineOperationV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_class: Option<QualificationKeyedReadClassV1>,
+    pub absolute_ceiling_nanos: u64,
+    pub relative_numerator: u32,
+    pub relative_denominator: u32,
+    pub small_baseline_guard_band_nanos: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveAllocationPolicyV1 {
+    pub event_fixed_overhead_bytes: u64,
+    pub complete_profile_fixed_overhead_bytes: u64,
+    pub event_peak_headroom_bytes: u64,
+    pub complete_profile_peak_headroom_bytes: u64,
+    pub first_required_crossover_workload: QualificationProspectiveWorkloadV1,
+    pub event_savings_percent: u32,
+    pub complete_profile_savings_percent: u32,
+    pub savings_workloads: Vec<QualificationProspectiveWorkloadV1>,
+    pub states: Vec<QualificationPerformanceInventoryStateV1>,
+    pub high_water_numerator: u32,
+    pub high_water_denominator: u32,
+    pub carrier_accounting: String,
+    pub virtual_address_reservation_excluded: bool,
+}
+
+impl QualificationProspectiveAllocationPolicyV1 {
+    pub fn fixed_overhead_cap(&self, scope: QualificationPerformanceAllocationScopeV2) -> u64 {
+        match scope {
+            QualificationPerformanceAllocationScopeV2::Event => self.event_fixed_overhead_bytes,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile => {
+                self.complete_profile_fixed_overhead_bytes
+            }
+        }
+    }
+
+    pub fn peak_headroom_cap(&self, scope: QualificationPerformanceAllocationScopeV2) -> u64 {
+        match scope {
+            QualificationPerformanceAllocationScopeV2::Event => self.event_peak_headroom_bytes,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile => {
+                self.complete_profile_peak_headroom_bytes
+            }
+        }
+    }
+
+    fn savings_percent(&self, scope: QualificationPerformanceAllocationScopeV2) -> u32 {
+        match scope {
+            QualificationPerformanceAllocationScopeV2::Event => self.event_savings_percent,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile => {
+                self.complete_profile_savings_percent
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveMaintenancePolicyV1 {
+    pub foreground_p95_max_nanos: u64,
+    pub g1_total_max_nanos: u64,
+    pub g2_total_max_nanos: u64,
+    pub not_applicable_requires_mechanism_proof: bool,
+}
+
+impl QualificationProspectiveMaintenancePolicyV1 {
+    pub fn total_max_nanos(&self, workload: QualificationProspectiveWorkloadV1) -> u64 {
+        match workload {
+            QualificationProspectiveWorkloadV1::G1 => self.g1_total_max_nanos,
+            QualificationProspectiveWorkloadV1::G2 => self.g2_total_max_nanos,
+            _ => 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveBaselineAuthorityV1 {
+    pub platform: QualificationProspectivePlatformV1,
+    pub evidence_sha256: String,
+    pub file_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveDerivationV1 {
+    pub pointbreak_commit: String,
+    pub pointbreak_tree: String,
+    pub cargo_lock_sha256: String,
+    pub generator_schema: String,
+    pub generator_landing_commit: String,
+    pub public_seed_hex: String,
+    pub calibration_version: String,
+    pub allowed_inputs: Vec<String>,
+    pub candidate_measurements_used: bool,
+    pub historical_candidate_results_used: bool,
+    pub private_calibration_used: bool,
+    pub private_corpus_used: bool,
+    pub owner_approval_required_before_compilation: bool,
+    pub baseline_authorities: Vec<QualificationProspectiveBaselineAuthorityV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveContractV1 {
+    pub schema: String,
+    pub approved_proposal_sha256: String,
+    pub derivation: QualificationProspectiveDerivationV1,
+    pub run_controls: QualificationProspectiveRunControlsV1,
+    pub operations: Vec<QualificationLooseBaselineOperationV1>,
+    pub keyed_read_classes: Vec<QualificationKeyedReadClassV1>,
+    pub timing_thresholds: Vec<QualificationProspectiveTimingThresholdV1>,
+    pub timing_combination_formula: String,
+    pub platforms: Vec<QualificationProspectivePlatformRequirementV1>,
+    pub workloads: Vec<QualificationProspectiveWorkloadRequirementV1>,
+    pub allocation: QualificationProspectiveAllocationPolicyV1,
+    pub maintenance: QualificationProspectiveMaintenancePolicyV1,
+    pub timed_window_definition: BTreeMap<String, String>,
+    pub external_snapshot_authority: String,
+    pub filesystem_proof_eligible: Vec<String>,
+    pub filesystem_refused: Vec<String>,
+    pub filesystem_advisory_only: Vec<String>,
+    pub provenance_required_fields: Vec<String>,
+    pub provenance_rejected_conditions: Vec<String>,
+    pub privacy_allowed_fields: Vec<String>,
+    pub privacy_forbidden_fields: Vec<String>,
+    pub causal_early_stops: Vec<String>,
+    pub prospective_feasibility_only: bool,
+    pub h1_h10_selection_authorized: bool,
+    pub production_storage_authorized: bool,
+    pub migration_authorized: bool,
+}
+
+impl QualificationProspectiveContractV1 {
+    pub fn frozen() -> Self {
+        let timing_thresholds = [
+            (
+                QualificationLooseBaselineOperationV1::DurableAppend,
+                None,
+                50_000_000,
+                5_000_000,
+            ),
+            (
+                QualificationLooseBaselineOperationV1::StrictReplay,
+                None,
+                500_000_000,
+                10_000_000,
+            ),
+            (
+                QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+                None,
+                750_000_000,
+                25_000_000,
+            ),
+        ]
+        .into_iter()
+        .map(
+            |(operation, read_class, absolute_ceiling_nanos, guard_band_nanos)| {
+                QualificationProspectiveTimingThresholdV1 {
+                    operation,
+                    read_class,
+                    absolute_ceiling_nanos,
+                    relative_numerator: 125,
+                    relative_denominator: 100,
+                    small_baseline_guard_band_nanos: guard_band_nanos,
+                }
+            },
+        )
+        .chain(
+            qualification_keyed_read_classes_v1()
+                .into_iter()
+                .map(|read_class| QualificationProspectiveTimingThresholdV1 {
+                    operation: QualificationLooseBaselineOperationV1::KeyedRead,
+                    read_class: Some(read_class),
+                    absolute_ceiling_nanos: 5_000_000,
+                    relative_numerator: 125,
+                    relative_denominator: 100,
+                    small_baseline_guard_band_nanos: 1_000_000,
+                }),
+        )
+        .collect();
+        let platforms = QualificationProspectivePlatformV1::ALL
+            .into_iter()
+            .map(|platform| QualificationProspectivePlatformRequirementV1 {
+                platform,
+                operating_system: platform.operating_system().to_owned(),
+                filesystem: platform.filesystem().to_owned(),
+                allocation_api: platform.allocation_api().to_owned(),
+                evidence_role: platform.evidence_role().to_owned(),
+            })
+            .collect();
+        let workloads = vec![
+            QualificationProspectiveWorkloadRequirementV1 {
+                workload: QualificationProspectiveWorkloadV1::P0,
+                role: QualificationProspectiveWorkloadRoleV1::SemanticProvenancePrivacySmoke,
+                manifest_sha256: "03cfda81e2ea988ec119b942530022b345d08b1261a6f198f87fdade2a4d1b01"
+                    .to_owned(),
+                generator_spec_sha256: None,
+                operation_schedule_sha256: None,
+                timing_required: false,
+                savings_required: false,
+            },
+            QualificationProspectiveWorkloadRequirementV1 {
+                workload: QualificationProspectiveWorkloadV1::M0,
+                role: QualificationProspectiveWorkloadRoleV1::CapabilityFixedCostSentinel,
+                manifest_sha256: "5d7ea2f2a8398722e2dcc853ef2c4ebe1976a02fd1585a190c9c6b86e132da7d"
+                    .to_owned(),
+                generator_spec_sha256: None,
+                operation_schedule_sha256: None,
+                timing_required: false,
+                savings_required: false,
+            },
+            QualificationProspectiveWorkloadRequirementV1 {
+                workload: QualificationProspectiveWorkloadV1::G0,
+                role: QualificationProspectiveWorkloadRoleV1::DiagnosticCausalEarlyStop,
+                manifest_sha256: QUALIFICATION_G0_MANIFEST_SHA256_V1.to_owned(),
+                generator_spec_sha256: Some(QUALIFICATION_G0_SPEC_SHA256_V1.to_owned()),
+                operation_schedule_sha256: Some(QUALIFICATION_G0_SCHEDULE_SHA256_V1.to_owned()),
+                timing_required: true,
+                savings_required: false,
+            },
+            QualificationProspectiveWorkloadRequirementV1 {
+                workload: QualificationProspectiveWorkloadV1::G1,
+                role: QualificationProspectiveWorkloadRoleV1::RequiredMediumFirstCrossover,
+                manifest_sha256: QUALIFICATION_G1_MANIFEST_SHA256_V1.to_owned(),
+                generator_spec_sha256: Some(QUALIFICATION_G1_SPEC_SHA256_V1.to_owned()),
+                operation_schedule_sha256: Some(QUALIFICATION_G1_SCHEDULE_SHA256_V1.to_owned()),
+                timing_required: true,
+                savings_required: true,
+            },
+            QualificationProspectiveWorkloadRequirementV1 {
+                workload: QualificationProspectiveWorkloadV1::G2,
+                role: QualificationProspectiveWorkloadRoleV1::RequiredRepresentativePublic,
+                manifest_sha256: QUALIFICATION_G2_MANIFEST_SHA256_V1.to_owned(),
+                generator_spec_sha256: Some(QUALIFICATION_G2_SPEC_SHA256_V1.to_owned()),
+                operation_schedule_sha256: Some(QUALIFICATION_G2_SCHEDULE_SHA256_V1.to_owned()),
+                timing_required: true,
+                savings_required: true,
+            },
+        ];
+        let timed_window_definition = BTreeMap::from([
+            (
+                "durable_append".to_owned(),
+                "begin before append; end only after the normal durable acknowledgement, semantic receipt, and fresh-reader visibility proof".to_owned(),
+            ),
+            (
+                "strict_replay".to_owned(),
+                "begin before strict ordered replay; end after exact count, byte total, order, and aggregate receipt verification".to_owned(),
+            ),
+            (
+                "fresh_process_open_recovery".to_owned(),
+                "include child-process startup, open/recovery, exact visible-event receipt, teardown, and result transfer".to_owned(),
+            ),
+            (
+                "keyed_read".to_owned(),
+                "begin before the independent oldest/middle/newest/absent lookup; end after the exact present-or-absent semantic receipt".to_owned(),
+            ),
+        ]);
+        Self {
+            schema: QUALIFICATION_PROSPECTIVE_CONTRACT_SCHEMA_V1.to_owned(),
+            approved_proposal_sha256:
+                QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHA256_V1.to_owned(),
+            derivation: QualificationProspectiveDerivationV1 {
+                pointbreak_commit: "5155d1459330b111ba5eac8a4abcdc57e4107d7f".to_owned(),
+                pointbreak_tree: "47182acd6c54b261618dd7e0dc6bd25713dffbd5".to_owned(),
+                cargo_lock_sha256:
+                    "a2ca8ebbe2d95af8ce58bee9f6b95e67f63451f75874716d9d112fbfe502976b"
+                        .to_owned(),
+                generator_schema: QUALIFICATION_GENERATOR_SCHEMA_V1.to_owned(),
+                generator_landing_commit: "8e4894fb93a0b184f5af7340fd5b4e91751743fe"
+                    .to_owned(),
+                public_seed_hex: QUALIFICATION_PUBLIC_SEED_HEX_V1.to_owned(),
+                calibration_version: "public_stress_envelope_v1".to_owned(),
+                allowed_inputs: [
+                    "current_product_tolerance",
+                    "admitted_public_loose_baseline_evidence",
+                    "migration_and_permanent_support_cost",
+                ]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+                candidate_measurements_used: false,
+                historical_candidate_results_used: false,
+                private_calibration_used: false,
+                private_corpus_used: false,
+                owner_approval_required_before_compilation: true,
+                baseline_authorities: vec![
+                    QualificationProspectiveBaselineAuthorityV1 {
+                        platform: QualificationProspectivePlatformV1::MacosApfs,
+                        evidence_sha256: "4030be89a544dfe143fdd058bb413e76e6bdc66f6815201671e460c0eac8df5a".to_owned(),
+                        file_sha256: "6ac32f94d4f0379ca0fe94edbe1c669b724bce064177aade4b6467e54ce54b65".to_owned(),
+                    },
+                    QualificationProspectiveBaselineAuthorityV1 {
+                        platform: QualificationProspectivePlatformV1::LinuxExt4,
+                        evidence_sha256: "75d06dbcffc100ea9f4d6d082f9229860961e20f6d6634be94675d0407b8e9ed".to_owned(),
+                        file_sha256: "134584e827618111c12929f20fe7d662d37dff42218ae0437642c282824baea8".to_owned(),
+                    },
+                    QualificationProspectiveBaselineAuthorityV1 {
+                        platform: QualificationProspectivePlatformV1::WindowsNtfs,
+                        evidence_sha256: "03c7115df99fa5b3ac9098e7902557bcd479f624602dde2c8fc590b02ff532b1".to_owned(),
+                        file_sha256: "5a9f9abd8a6af6ad2c7b706a2a426d17c7b70aad6b87ddde06c8dba6a90e42bc".to_owned(),
+                    },
+                ],
+            },
+            run_controls: QualificationProspectiveRunControlsV1 {
+                warmup_iterations: 3,
+                measured_iterations: 30,
+                independent_runs: 2,
+                p95_estimator: "ascending_nearest_rank".to_owned(),
+                p95_rank: 29,
+                sample_retention: "raw".to_owned(),
+                outlier_policy: "retain_all".to_owned(),
+            },
+            operations: QualificationLooseBaselineOperationV1::ALL.to_vec(),
+            keyed_read_classes: qualification_keyed_read_classes_v1().to_vec(),
+            timing_thresholds,
+            timing_combination_formula: "candidate_p95_ns <= absolute_ceiling_ns AND candidate_p95_ns <= max(ceil(loose_p95_ns * relative_numerator / relative_denominator), loose_p95_ns + guard_band_ns); each platform, workload, independent run, operation, and keyed-read class gates separately with no pooling or offset".to_owned(),
+            platforms,
+            workloads,
+            allocation: QualificationProspectiveAllocationPolicyV1 {
+                event_fixed_overhead_bytes: 1_048_576,
+                complete_profile_fixed_overhead_bytes: 2_097_152,
+                event_peak_headroom_bytes: 1_048_576,
+                complete_profile_peak_headroom_bytes: 2_097_152,
+                first_required_crossover_workload: QualificationProspectiveWorkloadV1::G1,
+                event_savings_percent: 25,
+                complete_profile_savings_percent: 10,
+                savings_workloads: vec![
+                    QualificationProspectiveWorkloadV1::G1,
+                    QualificationProspectiveWorkloadV1::G2,
+                ],
+                states: QualificationPerformanceInventoryStateV1::ALL.to_vec(),
+                high_water_numerator: 150,
+                high_water_denominator: 100,
+                carrier_accounting: "all_profile_owned_event_content_index_log_manifest_metadata_old_generation_and_temporary_carriers".to_owned(),
+                virtual_address_reservation_excluded: true,
+            },
+            maintenance: QualificationProspectiveMaintenancePolicyV1 {
+                foreground_p95_max_nanos: 250_000_000,
+                g1_total_max_nanos: 5_000_000_000,
+                g2_total_max_nanos: 30_000_000_000,
+                not_applicable_requires_mechanism_proof: true,
+            },
+            timed_window_definition,
+            external_snapshot_authority: "owner_local_sanitized_corroboration_and_adoption_veto_after_all_public_gates; never a public row, never transported, never pooled, and never able to turn a public failure into a pass".to_owned(),
+            filesystem_proof_eligible: ["apfs", "ext4", "ntfs"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            filesystem_refused: ["nfs", "smb", "cifs", "sshfs", "fuse", "overlay"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            filesystem_advisory_only: vec!["cloud_synced_or_unknown".to_owned()],
+            provenance_required_fields: [
+                "source_commit",
+                "source_tree",
+                "cargo_lock_sha256",
+                "contract_sha256",
+                "approved_proposal_sha256",
+                "generator_schema",
+                "public_seed_hex",
+                "generator_spec_sha256",
+                "manifest_sha256",
+                "operation_schedule_sha256",
+                "platform",
+                "filesystem",
+                "allocation_api",
+                "controls",
+                "run_index",
+                "semantic_receipt_sha256",
+                "baseline_evidence_sha256",
+                "evidence_sha256",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            provenance_rejected_conditions: [
+                "missing",
+                "stale",
+                "duplicate",
+                "mixed_revision",
+                "wrong_hash",
+                "noncanonical",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            privacy_allowed_fields: [
+                "aggregate_receipts",
+                "carrier_set_hashes",
+                "counts",
+                "byte_totals",
+                "timings",
+                "allocation",
+                "toolchain_identity",
+                "platform_identity",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            privacy_forbidden_fields: [
+                "paths",
+                "environment_values",
+                "payloads",
+                "logical_keys",
+                "record_level_hashes",
+                "error_text",
+                "private_corpus_material",
+                "candidate_results_in_publication",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            causal_early_stops: [
+                "stop_on_semantic_receipt_mismatch_or_inexact_create_once",
+                "stop_on_acknowledged_loss_ambiguous_retry_failure_or_fresh_process_visibility_failure",
+                "stop_on_missing_stale_mixed_or_noncanonical_provenance",
+                "stop_on_unsupported_native_platform_filesystem_or_allocation_api",
+                "stop_on_unknown_or_incomplete_carrier_inventory",
+                "stop_after_g0_if_any_operation_exceeds_its_absolute_product_ceiling",
+                "stop_after_g1_if_event_or_complete_profile_fails_crossover_or_savings_in_any_state",
+                "stop_after_g1_if_high_water_amplification_or_maintenance_duration_exceeds_budget",
+                "stop_on_superlinear_retained_growth_unbounded_reader_retention_or_unbounded_maintenance",
+                "stop_on_private_data_path_key_payload_error_or_candidate_result_leakage",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            prospective_feasibility_only: true,
+            h1_h10_selection_authorized: false,
+            production_storage_authorized: false,
+            migration_authorized: false,
+        }
+    }
+
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self != &Self::frozen() {
+            return Err("unsupported prospective feasibility contract".to_owned());
+        }
+        if self.canonical_sha256()? != QUALIFICATION_PROSPECTIVE_CONTRACT_SHA256_V1 {
+            return Err("prospective feasibility contract hash is not frozen".to_owned());
+        }
+        for hash in self
+            .derivation
+            .baseline_authorities
+            .iter()
+            .flat_map(|authority| [&authority.evidence_sha256, &authority.file_sha256])
+            .chain(self.workloads.iter().flat_map(|workload| {
+                std::iter::once(&workload.manifest_sha256)
+                    .chain(workload.generator_spec_sha256.iter())
+                    .chain(workload.operation_schedule_sha256.iter())
+            }))
+        {
+            validate_hex(hash, 64, "prospective contract SHA-256")?;
+        }
+        Ok(())
+    }
+
+    pub fn decision_table_markdown(&self) -> String {
+        let mut rows = vec![
+            "| Decision | Required value |".to_owned(),
+            "| --- | --- |".to_owned(),
+            format!(
+                "| Native platforms | {} |",
+                self.platforms
+                    .iter()
+                    .map(|platform| platform.platform.display_name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            "| Timing | absolute ceiling and relative 125% or operation guard band; every operation/read class/run stands alone |".to_owned(),
+            format!(
+                "| G1/G2 event allocation | at least {}% savings in steady, reopened, and high-water states |",
+                self.allocation.event_savings_percent
+            ),
+            format!(
+                "| G1/G2 complete profile | at least {}% savings in steady, reopened, and high-water states |",
+                self.allocation.complete_profile_savings_percent
+            ),
+            "| First crossover | G1; candidate allocation must be strictly below paired loose allocation |".to_owned(),
+            format!(
+                "| High water | at most {}/{} of candidate steady allocation and still satisfies savings |",
+                self.allocation.high_water_numerator, self.allocation.high_water_denominator
+            ),
+            format!(
+                "| Maintenance | foreground p95 <= {} ms; G1 total <= {} s; G2 total <= {} s |",
+                self.maintenance.foreground_p95_max_nanos / 1_000_000,
+                self.maintenance.g1_total_max_nanos / 1_000_000_000,
+                self.maintenance.g2_total_max_nanos / 1_000_000_000,
+            ),
+            "| Authority | public G1/G2 gates decide feasibility; owner-local external corroboration can veto adoption but cannot rescue a failure |".to_owned(),
+            "| Meaning | prospective feasibility only; no H1-H10 selection, production storage, or migration authorization |".to_owned(),
+        ];
+        rows.push(format!(
+            "| Contract | `{}` from approved proposal `{}` |",
+            self.canonical_sha256()
+                .expect("the frozen prospective contract is canonical"),
+            self.approved_proposal_sha256
+        ));
+        rows.join("\n")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveContractPublicationV1 {
+    pub schema: String,
+    pub mode: String,
+    pub contract: QualificationProspectiveContractV1,
+    pub contract_sha256: String,
+    pub decision_table_markdown: String,
+}
+
+pub fn qualification_prospective_contract_v1_publication()
+-> QualificationProspectiveContractPublicationV1 {
+    let contract = QualificationProspectiveContractV1::frozen();
+    QualificationProspectiveContractPublicationV1 {
+        schema: QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_SCHEMA_V1.to_owned(),
+        mode: "non_timing_contract_publication".to_owned(),
+        contract_sha256: contract
+            .canonical_sha256()
+            .expect("the frozen prospective contract is canonical"),
+        decision_table_markdown: contract.decision_table_markdown(),
+        contract,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectiveCriterionStatusV1 {
+    Passed,
+    Failed,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectiveCriterionKindV1 {
+    Protocol,
+    Timing,
+    DiagnosticAllocation,
+    SmallStoreFixedOverhead,
+    SmallStorePeakHeadroom,
+    AllocationSavings,
+    FirstCrossover,
+    HighWaterAmplification,
+    MaintenanceForeground,
+    MaintenanceTotal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationProspectiveExternalCorroborationV1 {
+    Satisfied,
+    Vetoed,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveEvidenceControlsV1 {
+    pub fresh_root: bool,
+    pub native_execution: bool,
+    pub quiesced_host: bool,
+    pub semantic_receipt_verified: bool,
+    pub durable_acknowledgement_verified: bool,
+    pub fresh_process_visibility_verified: bool,
+    pub carrier_inventory_complete: bool,
+}
+
+impl QualificationProspectiveEvidenceControlsV1 {
+    fn all_satisfied(&self) -> bool {
+        self.fresh_root
+            && self.native_execution
+            && self.quiesced_host
+            && self.semantic_receipt_verified
+            && self.durable_acknowledgement_verified
+            && self.fresh_process_visibility_verified
+            && self.carrier_inventory_complete
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveTimingEvidenceV1 {
+    pub operation: QualificationLooseBaselineOperationV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_class: Option<QualificationKeyedReadClassV1>,
+    pub candidate_samples_nanos: Vec<u64>,
+    pub baseline_samples_nanos: Vec<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveAllocationEvidenceV1 {
+    pub scope: QualificationPerformanceAllocationScopeV2,
+    pub state: QualificationPerformanceInventoryStateV1,
+    pub candidate_logical_bytes: u64,
+    pub candidate_allocated_bytes: u64,
+    pub baseline_allocated_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveMaintenanceEvidenceV1 {
+    pub required: bool,
+    pub foreground_samples_nanos: Vec<u64>,
+    pub total_nanos: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_applicable_mechanism_proof_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveRunEvidenceV1 {
+    pub platform: QualificationProspectivePlatformV1,
+    pub workload: QualificationProspectiveWorkloadV1,
+    pub run_index: u32,
+    pub manifest_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generator_spec_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_schedule_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_evidence_sha256: Option<String>,
+    pub allocation_api: String,
+    pub controls: QualificationProspectiveEvidenceControlsV1,
+    pub semantic_receipt_sha256: String,
+    pub timing: Vec<QualificationProspectiveTimingEvidenceV1>,
+    pub allocations: Vec<QualificationProspectiveAllocationEvidenceV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<QualificationProspectiveMaintenanceEvidenceV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveEvidenceV1 {
+    pub schema: String,
+    pub contract_schema: String,
+    pub contract_sha256: String,
+    pub approved_proposal_sha256: String,
+    pub source_commit: String,
+    pub source_tree: String,
+    pub cargo_lock_sha256: String,
+    pub generator_schema: String,
+    pub public_seed_hex: String,
+    pub profile_id: String,
+    pub runs: Vec<QualificationProspectiveRunEvidenceV1>,
+    pub evidence_sha256: String,
+}
+
+impl QualificationProspectiveEvidenceV1 {
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let mut preimage = self.clone();
+        preimage.evidence_sha256.clear();
+        let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let contract = QualificationProspectiveContractV1::frozen();
+        contract.validate()?;
+        if self.schema != QUALIFICATION_PROSPECTIVE_EVIDENCE_SCHEMA_V1
+            || self.contract_schema != contract.schema
+            || self.contract_sha256 != contract.canonical_sha256()?
+            || self.approved_proposal_sha256 != contract.approved_proposal_sha256
+        {
+            return Err("prospective evidence uses a different contract".to_owned());
+        }
+        if self.source_commit != contract.derivation.pointbreak_commit
+            || self.source_tree != contract.derivation.pointbreak_tree
+            || self.cargo_lock_sha256 != contract.derivation.cargo_lock_sha256
+            || self.generator_schema != contract.derivation.generator_schema
+            || self.public_seed_hex != contract.derivation.public_seed_hex
+        {
+            return Err("prospective evidence uses stale derivation identities".to_owned());
+        }
+        if self.profile_id.trim().is_empty() {
+            return Err("prospective evidence profile identity is missing".to_owned());
+        }
+        validate_hex(&self.evidence_sha256, 64, "prospective evidence SHA-256")?;
+        if self.evidence_sha256 != self.canonical_sha256()? {
+            return Err("prospective evidence hash does not match its preimage".to_owned());
+        }
+
+        let mut run_keys = BTreeSet::new();
+        for run in &self.runs {
+            validate_prospective_run_v1(run, &contract)?;
+            if !run_keys.insert((run.platform, run.workload, run.run_index)) {
+                return Err("prospective evidence contains a duplicate run".to_owned());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveCriterionV1 {
+    pub kind: QualificationProspectiveCriterionKindV1,
+    pub platform: QualificationProspectivePlatformV1,
+    pub workload: QualificationProspectiveWorkloadV1,
+    pub run_index: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation: Option<QualificationLooseBaselineOperationV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_class: Option<QualificationKeyedReadClassV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation_scope: Option<QualificationPerformanceAllocationScopeV2>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inventory_state: Option<QualificationPerformanceInventoryStateV1>,
+    pub status: QualificationProspectiveCriterionStatusV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_value: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_value: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationProspectiveEvaluationV1 {
+    pub schema: String,
+    pub contract_sha256: String,
+    pub evidence_sha256: String,
+    pub status: QualificationProspectiveCriterionStatusV1,
+    pub eligible: bool,
+    pub criteria: Vec<QualificationProspectiveCriterionV1>,
+}
+
+pub fn prospective_timing_limit_nanos_v1(
+    threshold: &QualificationProspectiveTimingThresholdV1,
+    baseline_p95_nanos: u64,
+) -> u64 {
+    let relative = u128::from(baseline_p95_nanos)
+        .saturating_mul(u128::from(threshold.relative_numerator))
+        .div_ceil(u128::from(threshold.relative_denominator));
+    let guard = baseline_p95_nanos.saturating_add(threshold.small_baseline_guard_band_nanos);
+    let dynamic = relative.max(u128::from(guard)).min(u128::from(u64::MAX)) as u64;
+    threshold.absolute_ceiling_nanos.min(dynamic)
+}
+
+pub fn prospective_timing_status_v1(
+    threshold: &QualificationProspectiveTimingThresholdV1,
+    baseline_p95_nanos: u64,
+    candidate_p95_nanos: u64,
+) -> QualificationProspectiveCriterionStatusV1 {
+    prospective_at_or_below_status_v1(
+        candidate_p95_nanos,
+        prospective_timing_limit_nanos_v1(threshold, baseline_p95_nanos),
+    )
+}
+
+pub fn prospective_at_or_below_status_v1(
+    candidate: u64,
+    limit: u64,
+) -> QualificationProspectiveCriterionStatusV1 {
+    if candidate <= limit {
+        QualificationProspectiveCriterionStatusV1::Passed
+    } else {
+        QualificationProspectiveCriterionStatusV1::Failed
+    }
+}
+
+pub fn prospective_savings_status_v1(
+    candidate_bytes: u64,
+    baseline_bytes: u64,
+    savings_percent: u32,
+) -> QualificationProspectiveCriterionStatusV1 {
+    if baseline_bytes == 0 {
+        return QualificationProspectiveCriterionStatusV1::Unknown;
+    }
+    if candidate_bytes <= prospective_savings_limit_bytes_v1(baseline_bytes, savings_percent) {
+        QualificationProspectiveCriterionStatusV1::Passed
+    } else {
+        QualificationProspectiveCriterionStatusV1::Failed
+    }
+}
+
+fn prospective_savings_limit_bytes_v1(baseline_bytes: u64, savings_percent: u32) -> u64 {
+    let limit = u128::from(baseline_bytes)
+        .saturating_mul(u128::from(100_u32.saturating_sub(savings_percent)))
+        / 100;
+    limit.min(u128::from(u64::MAX)) as u64
+}
+
+fn prospective_ceiling_ratio_v1(value: u64, numerator: u32, denominator: u32) -> u64 {
+    let ceiling = u128::from(value)
+        .saturating_mul(u128::from(numerator))
+        .div_ceil(u128::from(denominator));
+    ceiling.min(u128::from(u64::MAX)) as u64
+}
+
+pub fn prospective_crossover_status_v1(
+    candidate_bytes: u64,
+    baseline_bytes: u64,
+) -> QualificationProspectiveCriterionStatusV1 {
+    if baseline_bytes == 0 {
+        QualificationProspectiveCriterionStatusV1::Unknown
+    } else if candidate_bytes < baseline_bytes {
+        QualificationProspectiveCriterionStatusV1::Passed
+    } else {
+        QualificationProspectiveCriterionStatusV1::Failed
+    }
+}
+
+pub fn prospective_nearest_rank_p95_v1(samples: &[u64]) -> Option<u64> {
+    if samples.is_empty() {
+        return None;
+    }
+    let mut ordered = samples.to_vec();
+    ordered.sort_unstable();
+    let rank = ordered.len().saturating_mul(95).div_ceil(100).max(1);
+    ordered.get(rank - 1).copied()
+}
+
+pub fn apply_prospective_external_corroboration_v1(
+    public_status: QualificationProspectiveCriterionStatusV1,
+    corroboration: QualificationProspectiveExternalCorroborationV1,
+) -> QualificationProspectiveCriterionStatusV1 {
+    match (public_status, corroboration) {
+        (
+            QualificationProspectiveCriterionStatusV1::Passed,
+            QualificationProspectiveExternalCorroborationV1::Vetoed,
+        ) => QualificationProspectiveCriterionStatusV1::Failed,
+        (status, _) => status,
+    }
+}
+
+fn validate_prospective_run_v1(
+    run: &QualificationProspectiveRunEvidenceV1,
+    contract: &QualificationProspectiveContractV1,
+) -> Result<(), String> {
+    let measured_iterations = contract.run_controls.measured_iterations as usize;
+    let platform = contract
+        .platforms
+        .iter()
+        .find(|requirement| requirement.platform == run.platform)
+        .ok_or_else(|| "prospective run uses an unsupported platform".to_owned())?;
+    let workload = contract
+        .workloads
+        .iter()
+        .find(|requirement| requirement.workload == run.workload)
+        .ok_or_else(|| "prospective run uses an unsupported workload".to_owned())?;
+    if !(1..=contract.run_controls.independent_runs).contains(&run.run_index)
+        || run.manifest_sha256 != workload.manifest_sha256
+        || run.generator_spec_sha256 != workload.generator_spec_sha256
+        || run.operation_schedule_sha256 != workload.operation_schedule_sha256
+        || run.allocation_api != platform.allocation_api
+    {
+        return Err("prospective run provenance does not match the contract".to_owned());
+    }
+    let expected_baseline = contract
+        .derivation
+        .baseline_authorities
+        .iter()
+        .find(|authority| authority.platform == run.platform)
+        .map(|authority| authority.evidence_sha256.as_str())
+        .ok_or_else(|| "prospective run has no baseline authority".to_owned())?;
+    if run.baseline_evidence_sha256.as_deref() != Some(expected_baseline) {
+        return Err("prospective run baseline identity does not match the contract".to_owned());
+    }
+    validate_hex(
+        &run.semantic_receipt_sha256,
+        64,
+        "prospective semantic receipt SHA-256",
+    )?;
+    let mut timing_keys = BTreeSet::new();
+    for row in &run.timing {
+        if !timing_keys.insert((row.operation, row.read_class)) {
+            return Err("prospective run contains a duplicate timing row".to_owned());
+        }
+        let valid_axis = contract.timing_thresholds.iter().any(|threshold| {
+            threshold.operation == row.operation && threshold.read_class == row.read_class
+        });
+        if !valid_axis {
+            return Err("prospective run contains an unsupported timing row".to_owned());
+        }
+        if row.candidate_samples_nanos.len() > measured_iterations
+            || row.baseline_samples_nanos.len() > measured_iterations
+        {
+            return Err("prospective run contains too many timing samples".to_owned());
+        }
+    }
+    let mut allocation_keys = BTreeSet::new();
+    for row in &run.allocations {
+        if !allocation_keys.insert((row.scope, row.state)) {
+            return Err("prospective run contains a duplicate allocation row".to_owned());
+        }
+        if row.candidate_logical_bytes == 0
+            || row.candidate_allocated_bytes == 0
+            || row.baseline_allocated_bytes == 0
+        {
+            return Err("prospective run contains an incomplete allocation row".to_owned());
+        }
+    }
+    if let Some(maintenance) = &run.maintenance {
+        if maintenance.required {
+            if maintenance.not_applicable_mechanism_proof_sha256.is_some()
+                || maintenance.foreground_samples_nanos.len() > measured_iterations
+            {
+                return Err("prospective maintenance evidence is inconsistent".to_owned());
+            }
+        } else {
+            let proof = maintenance
+                .not_applicable_mechanism_proof_sha256
+                .as_deref()
+                .ok_or_else(|| "maintenance N/A requires mechanism proof".to_owned())?;
+            validate_hex(proof, 64, "maintenance N/A mechanism proof SHA-256")?;
+            if !maintenance.foreground_samples_nanos.is_empty() || maintenance.total_nanos != 0 {
+                return Err("maintenance N/A contains measurements".to_owned());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn prospective_criterion_v1(
+    kind: QualificationProspectiveCriterionKindV1,
+    run: &QualificationProspectiveRunEvidenceV1,
+    status: QualificationProspectiveCriterionStatusV1,
+    message: impl Into<String>,
+) -> QualificationProspectiveCriterionV1 {
+    QualificationProspectiveCriterionV1 {
+        kind,
+        platform: run.platform,
+        workload: run.workload,
+        run_index: run.run_index,
+        operation: None,
+        read_class: None,
+        allocation_scope: None,
+        inventory_state: None,
+        status,
+        candidate_value: None,
+        baseline_value: None,
+        limit: None,
+        message: message.into(),
+    }
+}
+
+fn prospective_missing_criterion_v1(
+    platform: QualificationProspectivePlatformV1,
+    workload: QualificationProspectiveWorkloadV1,
+    run_index: u32,
+) -> QualificationProspectiveCriterionV1 {
+    QualificationProspectiveCriterionV1 {
+        kind: QualificationProspectiveCriterionKindV1::Protocol,
+        platform,
+        workload,
+        run_index,
+        operation: None,
+        read_class: None,
+        allocation_scope: None,
+        inventory_state: None,
+        status: QualificationProspectiveCriterionStatusV1::Unknown,
+        candidate_value: None,
+        baseline_value: None,
+        limit: None,
+        message: "required prospective evidence run is missing".to_owned(),
+    }
+}
+
+pub fn evaluate_qualification_prospective_v1(
+    evidence: &QualificationProspectiveEvidenceV1,
+) -> Result<QualificationProspectiveEvaluationV1, String> {
+    evidence.validate()?;
+    let contract = QualificationProspectiveContractV1::frozen();
+    let mut criteria = Vec::new();
+    for platform in QualificationProspectivePlatformV1::ALL {
+        for workload in QualificationProspectiveWorkloadV1::ALL {
+            for run_index in 1..=contract.run_controls.independent_runs {
+                let Some(run) = evidence.runs.iter().find(|run| {
+                    (run.platform, run.workload, run.run_index) == (platform, workload, run_index)
+                }) else {
+                    criteria.push(prospective_missing_criterion_v1(
+                        platform, workload, run_index,
+                    ));
+                    continue;
+                };
+                criteria.push(prospective_criterion_v1(
+                    QualificationProspectiveCriterionKindV1::Protocol,
+                    run,
+                    if run.controls.all_satisfied() {
+                        QualificationProspectiveCriterionStatusV1::Passed
+                    } else {
+                        QualificationProspectiveCriterionStatusV1::Failed
+                    },
+                    "native run controls, provenance, and semantic receipt",
+                ));
+                evaluate_prospective_timing_v1(run, &contract, &mut criteria);
+                evaluate_prospective_allocations_v1(run, &contract, &mut criteria);
+                evaluate_prospective_maintenance_v1(run, &contract, &mut criteria);
+            }
+        }
+    }
+    let status = aggregate_prospective_status_v1(criteria.iter().map(|row| row.status));
+    Ok(QualificationProspectiveEvaluationV1 {
+        schema: QUALIFICATION_PROSPECTIVE_EVALUATION_SCHEMA_V1.to_owned(),
+        contract_sha256: evidence.contract_sha256.clone(),
+        evidence_sha256: evidence.evidence_sha256.clone(),
+        status,
+        eligible: status == QualificationProspectiveCriterionStatusV1::Passed,
+        criteria,
+    })
+}
+
+fn evaluate_prospective_timing_v1(
+    run: &QualificationProspectiveRunEvidenceV1,
+    contract: &QualificationProspectiveContractV1,
+    criteria: &mut Vec<QualificationProspectiveCriterionV1>,
+) {
+    if !run.workload.timing_required() {
+        return;
+    }
+    let measured_iterations = contract.run_controls.measured_iterations as usize;
+    for threshold in &contract.timing_thresholds {
+        let row = run.timing.iter().find(|row| {
+            row.operation == threshold.operation && row.read_class == threshold.read_class
+        });
+        let complete_row = row.filter(|row| {
+            row.candidate_samples_nanos.len() == measured_iterations
+                && row.baseline_samples_nanos.len() == measured_iterations
+        });
+        let p95 = complete_row.and_then(|row| {
+            Some((
+                prospective_nearest_rank_p95_v1(&row.candidate_samples_nanos)?,
+                prospective_nearest_rank_p95_v1(&row.baseline_samples_nanos)?,
+            ))
+        });
+        let (status, candidate, baseline, limit, message) = if let Some((candidate, baseline)) = p95
+        {
+            let limit = if run.workload == QualificationProspectiveWorkloadV1::G0 {
+                threshold.absolute_ceiling_nanos
+            } else {
+                prospective_timing_limit_nanos_v1(threshold, baseline)
+            };
+            let message = if run.workload == QualificationProspectiveWorkloadV1::G0 {
+                "G0 candidate p95 must satisfy the absolute causal-stop ceiling"
+            } else {
+                "candidate p95 must satisfy both the absolute and dynamic ceiling"
+            };
+            (
+                prospective_at_or_below_status_v1(candidate, limit),
+                Some(candidate),
+                Some(baseline),
+                Some(limit),
+                message,
+            )
+        } else {
+            (
+                QualificationProspectiveCriterionStatusV1::Unknown,
+                None,
+                None,
+                None,
+                "required timing samples are missing or incomplete",
+            )
+        };
+        let mut criterion = prospective_criterion_v1(
+            QualificationProspectiveCriterionKindV1::Timing,
+            run,
+            status,
+            message,
+        );
+        criterion.operation = Some(threshold.operation);
+        criterion.read_class = threshold.read_class;
+        criterion.candidate_value = candidate;
+        criterion.baseline_value = baseline;
+        criterion.limit = limit;
+        criteria.push(criterion);
+    }
+}
+
+fn evaluate_prospective_allocations_v1(
+    run: &QualificationProspectiveRunEvidenceV1,
+    contract: &QualificationProspectiveContractV1,
+    criteria: &mut Vec<QualificationProspectiveCriterionV1>,
+) {
+    for scope in QualificationPerformanceAllocationScopeV2::ALL {
+        let steady = run.allocations.iter().find(|row| {
+            row.scope == scope && row.state == QualificationPerformanceInventoryStateV1::Steady
+        });
+        for state in QualificationPerformanceInventoryStateV1::ALL {
+            let row = run
+                .allocations
+                .iter()
+                .find(|row| row.scope == scope && row.state == state);
+            let mut push = |kind, status, candidate, baseline, limit, message| {
+                let mut criterion = prospective_criterion_v1(kind, run, status, message);
+                criterion.allocation_scope = Some(scope);
+                criterion.inventory_state = Some(state);
+                criterion.candidate_value = candidate;
+                criterion.baseline_value = baseline;
+                criterion.limit = limit;
+                criteria.push(criterion);
+            };
+            match run.workload {
+                QualificationProspectiveWorkloadV1::P0 | QualificationProspectiveWorkloadV1::M0 => {
+                    let (kind, cap, baseline) =
+                        if state == QualificationPerformanceInventoryStateV1::HighWater {
+                            (
+                                QualificationProspectiveCriterionKindV1::SmallStorePeakHeadroom,
+                                contract.allocation.peak_headroom_cap(scope),
+                                steady.map(|row| row.candidate_allocated_bytes),
+                            )
+                        } else {
+                            (
+                                QualificationProspectiveCriterionKindV1::SmallStoreFixedOverhead,
+                                contract.allocation.fixed_overhead_cap(scope),
+                                row.map(|row| row.candidate_logical_bytes),
+                            )
+                        };
+                    match (row, baseline) {
+                        (Some(row), Some(baseline)) => {
+                            let limit = baseline.saturating_add(cap);
+                            push(
+                                kind,
+                                prospective_at_or_below_status_v1(
+                                    row.candidate_allocated_bytes,
+                                    limit,
+                                ),
+                                Some(row.candidate_allocated_bytes),
+                                Some(baseline),
+                                Some(limit),
+                                "small-store allocation must remain within fixed headroom",
+                            );
+                        }
+                        _ => push(
+                            kind,
+                            QualificationProspectiveCriterionStatusV1::Unknown,
+                            None,
+                            baseline,
+                            None,
+                            "required small-store allocation row is missing",
+                        ),
+                    }
+                }
+                QualificationProspectiveWorkloadV1::G0 => match row {
+                    Some(row) => push(
+                        QualificationProspectiveCriterionKindV1::DiagnosticAllocation,
+                        QualificationProspectiveCriterionStatusV1::Passed,
+                        Some(row.candidate_allocated_bytes),
+                        Some(row.baseline_allocated_bytes),
+                        None,
+                        "G0 allocation is diagnostic but must be present",
+                    ),
+                    None => push(
+                        QualificationProspectiveCriterionKindV1::DiagnosticAllocation,
+                        QualificationProspectiveCriterionStatusV1::Unknown,
+                        None,
+                        None,
+                        None,
+                        "required G0 diagnostic allocation row is missing",
+                    ),
+                },
+                QualificationProspectiveWorkloadV1::G1 | QualificationProspectiveWorkloadV1::G2 => {
+                    let savings_percent = contract.allocation.savings_percent(scope);
+                    match row {
+                        Some(row) => {
+                            push(
+                                QualificationProspectiveCriterionKindV1::AllocationSavings,
+                                prospective_savings_status_v1(
+                                    row.candidate_allocated_bytes,
+                                    row.baseline_allocated_bytes,
+                                    savings_percent,
+                                ),
+                                Some(row.candidate_allocated_bytes),
+                                Some(row.baseline_allocated_bytes),
+                                Some(prospective_savings_limit_bytes_v1(
+                                    row.baseline_allocated_bytes,
+                                    savings_percent,
+                                )),
+                                "candidate allocation must satisfy the scope savings floor",
+                            );
+                            if run.workload == contract.allocation.first_required_crossover_workload
+                            {
+                                push(
+                                    QualificationProspectiveCriterionKindV1::FirstCrossover,
+                                    prospective_crossover_status_v1(
+                                        row.candidate_allocated_bytes,
+                                        row.baseline_allocated_bytes,
+                                    ),
+                                    Some(row.candidate_allocated_bytes),
+                                    Some(row.baseline_allocated_bytes),
+                                    None,
+                                    "G1 candidate allocation must be strictly below loose",
+                                );
+                            }
+                            if state == QualificationPerformanceInventoryStateV1::HighWater {
+                                if let Some(steady) = steady {
+                                    let limit = prospective_ceiling_ratio_v1(
+                                        steady.candidate_allocated_bytes,
+                                        contract.allocation.high_water_numerator,
+                                        contract.allocation.high_water_denominator,
+                                    );
+                                    push(
+                                        QualificationProspectiveCriterionKindV1::HighWaterAmplification,
+                                        prospective_at_or_below_status_v1(
+                                            row.candidate_allocated_bytes,
+                                            limit,
+                                        ),
+                                        Some(row.candidate_allocated_bytes),
+                                        Some(steady.candidate_allocated_bytes),
+                                        Some(limit),
+                                        "high-water allocation must remain within steady-state amplification",
+                                    );
+                                } else {
+                                    push(
+                                        QualificationProspectiveCriterionKindV1::HighWaterAmplification,
+                                        QualificationProspectiveCriterionStatusV1::Unknown,
+                                        Some(row.candidate_allocated_bytes),
+                                        None,
+                                        None,
+                                        "steady allocation is missing for high-water comparison",
+                                    );
+                                }
+                            }
+                        }
+                        None => push(
+                            QualificationProspectiveCriterionKindV1::AllocationSavings,
+                            QualificationProspectiveCriterionStatusV1::Unknown,
+                            None,
+                            None,
+                            None,
+                            "required quantitative allocation row is missing",
+                        ),
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn evaluate_prospective_maintenance_v1(
+    run: &QualificationProspectiveRunEvidenceV1,
+    contract: &QualificationProspectiveContractV1,
+    criteria: &mut Vec<QualificationProspectiveCriterionV1>,
+) {
+    if !matches!(
+        run.workload,
+        QualificationProspectiveWorkloadV1::G1 | QualificationProspectiveWorkloadV1::G2
+    ) {
+        return;
+    }
+    let Some(maintenance) = &run.maintenance else {
+        for kind in [
+            QualificationProspectiveCriterionKindV1::MaintenanceForeground,
+            QualificationProspectiveCriterionKindV1::MaintenanceTotal,
+        ] {
+            criteria.push(prospective_criterion_v1(
+                kind,
+                run,
+                QualificationProspectiveCriterionStatusV1::Unknown,
+                "required maintenance evidence is missing",
+            ));
+        }
+        return;
+    };
+    if !maintenance.required {
+        for kind in [
+            QualificationProspectiveCriterionKindV1::MaintenanceForeground,
+            QualificationProspectiveCriterionKindV1::MaintenanceTotal,
+        ] {
+            criteria.push(prospective_criterion_v1(
+                kind,
+                run,
+                QualificationProspectiveCriterionStatusV1::Passed,
+                "maintenance is inapplicable and a mechanism proof is present",
+            ));
+        }
+        return;
+    }
+    let foreground =
+        prospective_nearest_rank_p95_v1(&maintenance.foreground_samples_nanos).filter(|_| {
+            maintenance.foreground_samples_nanos.len()
+                == contract.run_controls.measured_iterations as usize
+        });
+    let mut foreground_criterion = prospective_criterion_v1(
+        QualificationProspectiveCriterionKindV1::MaintenanceForeground,
+        run,
+        foreground.map_or(
+            QualificationProspectiveCriterionStatusV1::Unknown,
+            |value| {
+                prospective_at_or_below_status_v1(
+                    value,
+                    contract.maintenance.foreground_p95_max_nanos,
+                )
+            },
+        ),
+        "maintenance foreground p95 must remain within budget",
+    );
+    foreground_criterion.candidate_value = foreground;
+    foreground_criterion.limit = Some(contract.maintenance.foreground_p95_max_nanos);
+    criteria.push(foreground_criterion);
+
+    let total_limit = contract.maintenance.total_max_nanos(run.workload);
+    let mut total_criterion = prospective_criterion_v1(
+        QualificationProspectiveCriterionKindV1::MaintenanceTotal,
+        run,
+        prospective_at_or_below_status_v1(maintenance.total_nanos, total_limit),
+        "maintenance completion time must remain within the workload budget",
+    );
+    total_criterion.candidate_value = Some(maintenance.total_nanos);
+    total_criterion.limit = Some(total_limit);
+    criteria.push(total_criterion);
+}
+
+fn aggregate_prospective_status_v1(
+    statuses: impl IntoIterator<Item = QualificationProspectiveCriterionStatusV1>,
+) -> QualificationProspectiveCriterionStatusV1 {
+    let mut aggregate = QualificationProspectiveCriterionStatusV1::Passed;
+    for status in statuses {
+        match status {
+            QualificationProspectiveCriterionStatusV1::Failed => {
+                return QualificationProspectiveCriterionStatusV1::Failed;
+            }
+            QualificationProspectiveCriterionStatusV1::Unknown => {
+                aggregate = QualificationProspectiveCriterionStatusV1::Unknown;
+            }
+            QualificationProspectiveCriterionStatusV1::Passed => {}
+        }
+    }
+    aggregate
+}
+
+#[cfg(test)]
+impl QualificationProspectiveEvidenceV1 {
+    fn fixture_for_tests() -> Self {
+        let contract = QualificationProspectiveContractV1::frozen();
+        let mut runs = Vec::new();
+        for platform in QualificationProspectivePlatformV1::ALL {
+            let platform_requirement = contract
+                .platforms
+                .iter()
+                .find(|requirement| requirement.platform == platform)
+                .expect("fixture platform");
+            let baseline_evidence_sha256 = contract
+                .derivation
+                .baseline_authorities
+                .iter()
+                .find(|authority| authority.platform == platform)
+                .expect("fixture baseline")
+                .evidence_sha256
+                .clone();
+            for workload in QualificationProspectiveWorkloadV1::ALL {
+                let workload_requirement = contract
+                    .workloads
+                    .iter()
+                    .find(|requirement| requirement.workload == workload)
+                    .expect("fixture workload");
+                for run_index in 1..=contract.run_controls.independent_runs {
+                    let timing = if workload.timing_required() {
+                        contract
+                            .timing_thresholds
+                            .iter()
+                            .map(|threshold| QualificationProspectiveTimingEvidenceV1 {
+                                operation: threshold.operation,
+                                read_class: threshold.read_class,
+                                candidate_samples_nanos: vec![10_000; 30],
+                                baseline_samples_nanos: vec![10_000; 30],
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let mut allocations = Vec::new();
+                    for scope in QualificationPerformanceAllocationScopeV2::ALL {
+                        for state in QualificationPerformanceInventoryStateV1::ALL {
+                            let (logical, candidate, baseline) = match workload {
+                                QualificationProspectiveWorkloadV1::P0
+                                | QualificationProspectiveWorkloadV1::M0 => {
+                                    let logical = 1_000_000;
+                                    let steady =
+                                        logical + contract.allocation.fixed_overhead_cap(scope);
+                                    let candidate = if state
+                                        == QualificationPerformanceInventoryStateV1::HighWater
+                                    {
+                                        steady + contract.allocation.peak_headroom_cap(scope)
+                                    } else {
+                                        steady
+                                    };
+                                    (logical, candidate, candidate + 1_000_000)
+                                }
+                                QualificationProspectiveWorkloadV1::G0 => (8_000, 8_000, 10_000),
+                                QualificationProspectiveWorkloadV1::G1
+                                | QualificationProspectiveWorkloadV1::G2 => {
+                                    let candidate = match scope {
+                                        QualificationPerformanceAllocationScopeV2::Event => 7_000,
+                                        QualificationPerformanceAllocationScopeV2::CompleteProfile => {
+                                            8_500
+                                        }
+                                    };
+                                    (candidate, candidate, 10_000)
+                                }
+                            };
+                            allocations.push(QualificationProspectiveAllocationEvidenceV1 {
+                                scope,
+                                state,
+                                candidate_logical_bytes: logical,
+                                candidate_allocated_bytes: candidate,
+                                baseline_allocated_bytes: baseline,
+                            });
+                        }
+                    }
+                    let maintenance = workload.savings_required().then(|| {
+                        QualificationProspectiveMaintenanceEvidenceV1 {
+                            required: true,
+                            foreground_samples_nanos: vec![100_000_000; 30],
+                            total_nanos: 1_000_000_000,
+                            not_applicable_mechanism_proof_sha256: None,
+                        }
+                    });
+                    runs.push(QualificationProspectiveRunEvidenceV1 {
+                        platform,
+                        workload,
+                        run_index,
+                        manifest_sha256: workload_requirement.manifest_sha256.clone(),
+                        generator_spec_sha256: workload_requirement.generator_spec_sha256.clone(),
+                        operation_schedule_sha256: workload_requirement
+                            .operation_schedule_sha256
+                            .clone(),
+                        baseline_evidence_sha256: Some(baseline_evidence_sha256.clone()),
+                        allocation_api: platform_requirement.allocation_api.clone(),
+                        controls: QualificationProspectiveEvidenceControlsV1 {
+                            fresh_root: true,
+                            native_execution: true,
+                            quiesced_host: true,
+                            semantic_receipt_verified: true,
+                            durable_acknowledgement_verified: true,
+                            fresh_process_visibility_verified: true,
+                            carrier_inventory_complete: true,
+                        },
+                        semantic_receipt_sha256:
+                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                                .to_owned(),
+                        timing,
+                        allocations,
+                        maintenance,
+                    });
+                }
+            }
+        }
+        let mut evidence = Self {
+            schema: QUALIFICATION_PROSPECTIVE_EVIDENCE_SCHEMA_V1.to_owned(),
+            contract_schema: contract.schema.clone(),
+            contract_sha256: contract.canonical_sha256().expect("fixture contract hash"),
+            approved_proposal_sha256: contract.approved_proposal_sha256.clone(),
+            source_commit: contract.derivation.pointbreak_commit.clone(),
+            source_tree: contract.derivation.pointbreak_tree.clone(),
+            cargo_lock_sha256: contract.derivation.cargo_lock_sha256.clone(),
+            generator_schema: contract.derivation.generator_schema.clone(),
+            public_seed_hex: contract.derivation.public_seed_hex.clone(),
+            profile_id: "prospective-fixture".to_owned(),
+            runs,
+            evidence_sha256: String::new(),
+        };
+        evidence.evidence_sha256 = evidence.canonical_sha256().expect("fixture evidence hash");
+        evidence
     }
 }
 
@@ -5455,6 +7066,45 @@ mod tests {
     }
 
     #[test]
+    fn historical_h8_v2_publication_evidence_evaluation_and_verdicts_are_byte_identical() {
+        let evidence = complete_v2_evidence(100, 100, 99, 100);
+        let evaluation = evaluate_qualification_performance_v2(&evidence).expect("evaluation");
+        let publication = qualification_performance_contract_v2_publication();
+
+        for (label, value, expected_sha256) in [
+            (
+                "evidence",
+                serde_json::to_value(&evidence).expect("evidence value"),
+                "b57eec7c10a8a7230117873b4023ea95dc673781cbe364c3130abe312cff554f",
+            ),
+            (
+                "evaluation",
+                serde_json::to_value(&evaluation).expect("evaluation value"),
+                "36c01966f72d43ec0e85d57a79d91478540c6fadddac00c1a85028c8ef8d1f93",
+            ),
+            (
+                "publication",
+                serde_json::to_value(&publication).expect("publication value"),
+                "d96840d658bb83d8c4c0117d24e04fd6f4dd1e54829d6186e32f2c9c7fffbc45",
+            ),
+        ] {
+            let bytes = canonical_json_bytes(&value).expect("canonical bytes");
+            assert_eq!(sha256_bytes_hex(&bytes), expected_sha256, "{label}");
+        }
+        let stdout = format!(
+            "{}\n",
+            serde_json::to_string(&publication).expect("publication JSON")
+        );
+        assert_eq!(
+            sha256_bytes_hex(stdout.as_bytes()),
+            "b369b0e913e3f320de1ce8c84566b2adbede80492702346a5262b57f15536695"
+        );
+        assert!(evaluation.candidates.iter().all(|candidate| {
+            candidate.status == QualificationPerformanceCriterionStatusV2::Passed
+        }));
+    }
+
+    #[test]
     fn final_append_records_are_valid_exact_sized_and_content_addressed() {
         let first =
             generate_qualification_append_record("measured", 0, 512).expect("first append record");
@@ -6191,6 +7841,602 @@ mod tests {
         assert_eq!(
             QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHAPE_SCHEMA_V1,
             "pointbreak.qualification-prospective-contract-proposal-shape.v1"
+        );
+    }
+
+    #[test]
+    fn prospective_contract_v1_compiles_the_exact_approved_docket() {
+        let contract = QualificationProspectiveContractV1::frozen();
+
+        assert_eq!(
+            contract.schema,
+            "pointbreak.qualification-prospective-feasibility-contract.v1"
+        );
+        assert_eq!(
+            contract.approved_proposal_sha256,
+            "83446c8a40eb71fa4696ee5d71043c47beb8624fc97e2360b62337e489ad67e8"
+        );
+        assert_eq!(contract.run_controls.warmup_iterations, 3);
+        assert_eq!(contract.run_controls.measured_iterations, 30);
+        assert_eq!(contract.run_controls.independent_runs, 2);
+        assert_eq!(contract.run_controls.p95_rank, 29);
+        assert_eq!(contract.timing_thresholds.len(), 7);
+        assert_eq!(contract.platforms.len(), 3);
+        assert_eq!(contract.workloads.len(), 5);
+        assert_eq!(contract.allocation.event_savings_percent, 25);
+        assert_eq!(contract.allocation.complete_profile_savings_percent, 10);
+        assert_eq!(contract.allocation.high_water_numerator, 150);
+        assert_eq!(contract.allocation.high_water_denominator, 100);
+        assert_eq!(contract.maintenance.foreground_p95_max_nanos, 250_000_000);
+        assert_eq!(contract.maintenance.g1_total_max_nanos, 5_000_000_000);
+        assert_eq!(contract.maintenance.g2_total_max_nanos, 30_000_000_000);
+        assert_eq!(
+            contract.derivation.generator_landing_commit,
+            "8e4894fb93a0b184f5af7340fd5b4e91751743fe"
+        );
+        assert!(!contract.derivation.candidate_measurements_used);
+        assert!(!contract.derivation.historical_candidate_results_used);
+        assert!(!contract.derivation.private_corpus_used);
+        assert_eq!(contract.filesystem_proof_eligible, ["apfs", "ext4", "ntfs"]);
+        assert!(
+            contract
+                .timing_combination_formula
+                .contains("ceil(loose_p95_ns")
+        );
+        assert_eq!(
+            contract.canonical_sha256().expect("contract hash"),
+            QUALIFICATION_PROSPECTIVE_CONTRACT_SHA256_V1
+        );
+        contract.validate().expect("frozen prospective contract");
+
+        let publication = qualification_prospective_contract_v1_publication();
+        assert_eq!(publication.contract, contract);
+        assert_eq!(
+            publication.contract_sha256,
+            QUALIFICATION_PROSPECTIVE_CONTRACT_SHA256_V1
+        );
+        assert!(publication.decision_table_markdown.contains("G1"));
+        assert!(publication.decision_table_markdown.contains("25%"));
+        assert!(publication.decision_table_markdown.contains("APFS"));
+    }
+
+    #[test]
+    fn prospective_contract_v1_timing_boundaries_bind_absolute_relative_and_guard_rules() {
+        let contract = QualificationProspectiveContractV1::frozen();
+
+        for threshold in &contract.timing_thresholds {
+            let small_baseline = 1_000;
+            let small_limit = prospective_timing_limit_nanos_v1(threshold, small_baseline);
+            assert_eq!(
+                small_limit,
+                small_baseline + threshold.small_baseline_guard_band_nanos
+            );
+            assert_eq!(
+                prospective_timing_status_v1(threshold, small_baseline, small_limit),
+                QualificationProspectiveCriterionStatusV1::Passed
+            );
+            assert_eq!(
+                prospective_timing_status_v1(threshold, small_baseline, small_limit + 1),
+                QualificationProspectiveCriterionStatusV1::Failed
+            );
+
+            let large_baseline = threshold.small_baseline_guard_band_nanos.saturating_mul(5);
+            let relative_limit = large_baseline
+                .saturating_mul(u64::from(threshold.relative_numerator))
+                .div_ceil(u64::from(threshold.relative_denominator));
+            assert!(relative_limit >= large_baseline + threshold.small_baseline_guard_band_nanos);
+            assert_eq!(
+                prospective_timing_limit_nanos_v1(threshold, large_baseline),
+                threshold.absolute_ceiling_nanos.min(relative_limit)
+            );
+
+            let ceiling_baseline = threshold.absolute_ceiling_nanos;
+            assert_eq!(
+                prospective_timing_status_v1(
+                    threshold,
+                    ceiling_baseline,
+                    threshold.absolute_ceiling_nanos,
+                ),
+                QualificationProspectiveCriterionStatusV1::Passed
+            );
+            assert_eq!(
+                prospective_timing_status_v1(
+                    threshold,
+                    ceiling_baseline,
+                    threshold.absolute_ceiling_nanos + 1,
+                ),
+                QualificationProspectiveCriterionStatusV1::Failed
+            );
+        }
+    }
+
+    #[test]
+    fn prospective_contract_v1_allocation_and_maintenance_boundaries_are_exact() {
+        let contract = QualificationProspectiveContractV1::frozen();
+
+        for cap in [
+            contract.allocation.event_fixed_overhead_bytes,
+            contract.allocation.complete_profile_fixed_overhead_bytes,
+            contract.allocation.event_peak_headroom_bytes,
+            contract.allocation.complete_profile_peak_headroom_bytes,
+        ] {
+            assert_eq!(
+                prospective_at_or_below_status_v1(cap, cap),
+                QualificationProspectiveCriterionStatusV1::Passed
+            );
+            assert_eq!(
+                prospective_at_or_below_status_v1(cap + 1, cap),
+                QualificationProspectiveCriterionStatusV1::Failed
+            );
+        }
+
+        for savings_percent in [
+            contract.allocation.event_savings_percent,
+            contract.allocation.complete_profile_savings_percent,
+        ] {
+            let baseline_bytes = 1_000;
+            let largest_passing = baseline_bytes * u64::from(100 - savings_percent) / 100;
+            assert_eq!(
+                prospective_savings_status_v1(largest_passing, baseline_bytes, savings_percent,),
+                QualificationProspectiveCriterionStatusV1::Passed
+            );
+            assert_eq!(
+                prospective_savings_status_v1(largest_passing + 1, baseline_bytes, savings_percent,),
+                QualificationProspectiveCriterionStatusV1::Failed
+            );
+        }
+
+        assert_eq!(
+            prospective_crossover_status_v1(999, 1_000),
+            QualificationProspectiveCriterionStatusV1::Passed
+        );
+        assert_eq!(
+            prospective_crossover_status_v1(1_000, 1_000),
+            QualificationProspectiveCriterionStatusV1::Failed
+        );
+
+        let high_water_limit = 1_001_u64
+            .saturating_mul(u64::from(contract.allocation.high_water_numerator))
+            .div_ceil(u64::from(contract.allocation.high_water_denominator));
+        assert_eq!(
+            prospective_at_or_below_status_v1(high_water_limit, high_water_limit),
+            QualificationProspectiveCriterionStatusV1::Passed
+        );
+        assert_eq!(
+            prospective_at_or_below_status_v1(high_water_limit + 1, high_water_limit),
+            QualificationProspectiveCriterionStatusV1::Failed
+        );
+
+        for limit in [
+            contract.maintenance.foreground_p95_max_nanos,
+            contract.maintenance.g1_total_max_nanos,
+            contract.maintenance.g2_total_max_nanos,
+        ] {
+            assert_eq!(
+                prospective_at_or_below_status_v1(limit, limit),
+                QualificationProspectiveCriterionStatusV1::Passed
+            );
+            assert_eq!(
+                prospective_at_or_below_status_v1(limit + 1, limit),
+                QualificationProspectiveCriterionStatusV1::Failed
+            );
+        }
+    }
+
+    #[test]
+    fn prospective_contract_v1_missing_duplicate_stale_and_wrong_hash_evidence_fail_closed() {
+        let complete = QualificationProspectiveEvidenceV1::fixture_for_tests();
+        let complete_evaluation =
+            evaluate_qualification_prospective_v1(&complete).expect("complete evaluation");
+        assert_eq!(
+            complete_evaluation.status,
+            QualificationProspectiveCriterionStatusV1::Passed
+        );
+        assert!(complete_evaluation.eligible);
+
+        for run in complete.runs.clone() {
+            let mut missing = complete.clone();
+            missing.runs.retain(|candidate| {
+                (candidate.platform, candidate.workload, candidate.run_index)
+                    != (run.platform, run.workload, run.run_index)
+            });
+            missing.evidence_sha256 = missing.canonical_sha256().expect("missing evidence hash");
+            let evaluation =
+                evaluate_qualification_prospective_v1(&missing).expect("partial evidence");
+            assert_eq!(
+                evaluation.status,
+                QualificationProspectiveCriterionStatusV1::Unknown
+            );
+            assert!(!evaluation.eligible);
+            assert!(evaluation.criteria.iter().any(|criterion| {
+                criterion.platform == run.platform
+                    && criterion.workload == run.workload
+                    && criterion.run_index == run.run_index
+                    && criterion.status == QualificationProspectiveCriterionStatusV1::Unknown
+            }));
+        }
+
+        let mut duplicate = complete.clone();
+        duplicate.runs.push(duplicate.runs[0].clone());
+        duplicate.evidence_sha256 = duplicate
+            .canonical_sha256()
+            .expect("duplicate evidence hash");
+        assert!(evaluate_qualification_prospective_v1(&duplicate).is_err());
+
+        let mut missing_timing = complete.clone();
+        missing_timing
+            .runs
+            .iter_mut()
+            .find(|run| run.workload == QualificationProspectiveWorkloadV1::G1)
+            .expect("G1 run")
+            .timing
+            .pop();
+        missing_timing.evidence_sha256 = missing_timing
+            .canonical_sha256()
+            .expect("missing-timing evidence hash");
+        assert_eq!(
+            evaluate_qualification_prospective_v1(&missing_timing)
+                .expect("missing timing evaluates")
+                .status,
+            QualificationProspectiveCriterionStatusV1::Unknown
+        );
+
+        let mut missing_allocation = complete.clone();
+        missing_allocation.runs[0].allocations.pop();
+        missing_allocation.evidence_sha256 = missing_allocation
+            .canonical_sha256()
+            .expect("missing-allocation evidence hash");
+        assert_eq!(
+            evaluate_qualification_prospective_v1(&missing_allocation)
+                .expect("missing allocation evaluates")
+                .status,
+            QualificationProspectiveCriterionStatusV1::Unknown
+        );
+
+        let mut duplicate_timing = complete.clone();
+        let timing_row = duplicate_timing
+            .runs
+            .iter()
+            .find(|run| run.workload == QualificationProspectiveWorkloadV1::G1)
+            .expect("G1 run")
+            .timing[0]
+            .clone();
+        duplicate_timing
+            .runs
+            .iter_mut()
+            .find(|run| run.workload == QualificationProspectiveWorkloadV1::G1)
+            .expect("G1 run")
+            .timing
+            .push(timing_row);
+        duplicate_timing.evidence_sha256 = duplicate_timing
+            .canonical_sha256()
+            .expect("duplicate-timing evidence hash");
+        assert!(evaluate_qualification_prospective_v1(&duplicate_timing).is_err());
+
+        let mut stale = complete.clone();
+        stale.source_commit = SOURCE_COMMIT.to_owned();
+        stale.evidence_sha256 = stale.canonical_sha256().expect("stale evidence hash");
+        assert!(evaluate_qualification_prospective_v1(&stale).is_err());
+
+        let mut wrong_contract = complete.clone();
+        wrong_contract.contract_sha256 = LOCK_SHA256.to_owned();
+        wrong_contract.evidence_sha256 = wrong_contract
+            .canonical_sha256()
+            .expect("wrong-contract evidence hash");
+        assert!(evaluate_qualification_prospective_v1(&wrong_contract).is_err());
+
+        let mut wrong_hash = complete;
+        wrong_hash.evidence_sha256 = LOCK_SHA256.to_owned();
+        assert!(evaluate_qualification_prospective_v1(&wrong_hash).is_err());
+    }
+
+    #[test]
+    fn prospective_contract_v1_every_timing_read_and_allocation_axis_gates_independently() {
+        let complete = QualificationProspectiveEvidenceV1::fixture_for_tests();
+        let contract = QualificationProspectiveContractV1::frozen();
+
+        for run in complete
+            .runs
+            .iter()
+            .filter(|run| run.workload.timing_required())
+        {
+            for threshold in &contract.timing_thresholds {
+                let mut failed = complete.clone();
+                let row = failed
+                    .runs
+                    .iter_mut()
+                    .find(|candidate| {
+                        (candidate.platform, candidate.workload, candidate.run_index)
+                            == (run.platform, run.workload, run.run_index)
+                    })
+                    .and_then(|candidate| {
+                        candidate.timing.iter_mut().find(|row| {
+                            row.operation == threshold.operation
+                                && row.read_class == threshold.read_class
+                        })
+                    })
+                    .expect("timing row");
+                let baseline_p95 = prospective_nearest_rank_p95_v1(&row.baseline_samples_nanos)
+                    .expect("baseline p95");
+                let failed_value = if run.workload == QualificationProspectiveWorkloadV1::G0 {
+                    threshold.absolute_ceiling_nanos + 1
+                } else {
+                    prospective_timing_limit_nanos_v1(threshold, baseline_p95) + 1
+                };
+                row.candidate_samples_nanos.fill(failed_value);
+                failed.evidence_sha256 = failed.canonical_sha256().expect("failed evidence hash");
+                let evaluation =
+                    evaluate_qualification_prospective_v1(&failed).expect("timing evaluation");
+                assert_eq!(
+                    evaluation.status,
+                    QualificationProspectiveCriterionStatusV1::Failed
+                );
+                assert!(evaluation.criteria.iter().any(|criterion| {
+                    criterion.platform == run.platform
+                        && criterion.workload == run.workload
+                        && criterion.run_index == run.run_index
+                        && criterion.operation == Some(threshold.operation)
+                        && criterion.read_class == threshold.read_class
+                        && criterion.status == QualificationProspectiveCriterionStatusV1::Failed
+                }));
+            }
+        }
+
+        for run in complete
+            .runs
+            .iter()
+            .filter(|run| run.workload.savings_required())
+        {
+            for scope in QualificationPerformanceAllocationScopeV2::ALL {
+                for state in QualificationPerformanceInventoryStateV1::ALL {
+                    let mut failed = complete.clone();
+                    let row = failed
+                        .runs
+                        .iter_mut()
+                        .find(|candidate| {
+                            (candidate.platform, candidate.workload, candidate.run_index)
+                                == (run.platform, run.workload, run.run_index)
+                        })
+                        .and_then(|candidate| {
+                            candidate
+                                .allocations
+                                .iter_mut()
+                                .find(|row| row.scope == scope && row.state == state)
+                        })
+                        .expect("allocation row");
+                    row.candidate_allocated_bytes = row.baseline_allocated_bytes;
+                    failed.evidence_sha256 =
+                        failed.canonical_sha256().expect("failed evidence hash");
+                    let evaluation = evaluate_qualification_prospective_v1(&failed)
+                        .expect("allocation evaluation");
+                    assert_eq!(
+                        evaluation.status,
+                        QualificationProspectiveCriterionStatusV1::Failed
+                    );
+                    assert!(evaluation.criteria.iter().any(|criterion| {
+                        criterion.platform == run.platform
+                            && criterion.workload == run.workload
+                            && criterion.run_index == run.run_index
+                            && criterion.allocation_scope == Some(scope)
+                            && criterion.inventory_state == Some(state)
+                            && criterion.status == QualificationProspectiveCriterionStatusV1::Failed
+                    }));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn prospective_contract_v1_small_store_high_water_and_maintenance_rows_are_distinct() {
+        let complete = QualificationProspectiveEvidenceV1::fixture_for_tests();
+        let contract = QualificationProspectiveContractV1::frozen();
+
+        for workload in [
+            QualificationProspectiveWorkloadV1::P0,
+            QualificationProspectiveWorkloadV1::M0,
+        ] {
+            for scope in QualificationPerformanceAllocationScopeV2::ALL {
+                let mut fixed_overhead = complete.clone();
+                let row = fixed_overhead
+                    .runs
+                    .iter_mut()
+                    .find(|run| run.workload == workload)
+                    .and_then(|run| {
+                        run.allocations.iter_mut().find(|row| {
+                            row.scope == scope
+                                && row.state == QualificationPerformanceInventoryStateV1::Steady
+                        })
+                    })
+                    .expect("small-store steady row");
+                let cap = contract.allocation.fixed_overhead_cap(scope);
+                row.candidate_allocated_bytes = row.candidate_logical_bytes + cap + 1;
+                fixed_overhead.evidence_sha256 = fixed_overhead
+                    .canonical_sha256()
+                    .expect("fixed-overhead evidence hash");
+                let evaluation = evaluate_qualification_prospective_v1(&fixed_overhead)
+                    .expect("fixed-overhead evaluation");
+                assert!(evaluation.criteria.iter().any(|criterion| {
+                    criterion.kind
+                        == QualificationProspectiveCriterionKindV1::SmallStoreFixedOverhead
+                        && criterion.workload == workload
+                        && criterion.allocation_scope == Some(scope)
+                        && criterion.status == QualificationProspectiveCriterionStatusV1::Failed
+                }));
+
+                let mut peak = complete.clone();
+                let run = peak
+                    .runs
+                    .iter_mut()
+                    .find(|run| run.workload == workload)
+                    .expect("small-store run");
+                let steady = run
+                    .allocations
+                    .iter()
+                    .find(|row| {
+                        row.scope == scope
+                            && row.state == QualificationPerformanceInventoryStateV1::Steady
+                    })
+                    .expect("small-store steady row")
+                    .candidate_allocated_bytes;
+                let high_water = run
+                    .allocations
+                    .iter_mut()
+                    .find(|row| {
+                        row.scope == scope
+                            && row.state == QualificationPerformanceInventoryStateV1::HighWater
+                    })
+                    .expect("small-store high-water row");
+                high_water.candidate_allocated_bytes =
+                    steady + contract.allocation.peak_headroom_cap(scope) + 1;
+                peak.evidence_sha256 = peak.canonical_sha256().expect("peak evidence hash");
+                let evaluation =
+                    evaluate_qualification_prospective_v1(&peak).expect("peak evaluation");
+                assert!(evaluation.criteria.iter().any(|criterion| {
+                    criterion.kind
+                        == QualificationProspectiveCriterionKindV1::SmallStorePeakHeadroom
+                        && criterion.workload == workload
+                        && criterion.allocation_scope == Some(scope)
+                        && criterion.status == QualificationProspectiveCriterionStatusV1::Failed
+                }));
+            }
+        }
+
+        for workload in [
+            QualificationProspectiveWorkloadV1::G1,
+            QualificationProspectiveWorkloadV1::G2,
+        ] {
+            let mut high_water = complete.clone();
+            let run = high_water
+                .runs
+                .iter_mut()
+                .find(|run| run.workload == workload)
+                .expect("quantitative run");
+            let steady = run
+                .allocations
+                .iter()
+                .find(|row| {
+                    row.scope == QualificationPerformanceAllocationScopeV2::Event
+                        && row.state == QualificationPerformanceInventoryStateV1::Steady
+                })
+                .expect("steady row")
+                .candidate_allocated_bytes;
+            let row = run
+                .allocations
+                .iter_mut()
+                .find(|row| {
+                    row.scope == QualificationPerformanceAllocationScopeV2::Event
+                        && row.state == QualificationPerformanceInventoryStateV1::HighWater
+                })
+                .expect("high-water row");
+            row.candidate_allocated_bytes = steady
+                .saturating_mul(u64::from(contract.allocation.high_water_numerator))
+                .div_ceil(u64::from(contract.allocation.high_water_denominator))
+                + 1;
+            high_water.evidence_sha256 = high_water
+                .canonical_sha256()
+                .expect("high-water evidence hash");
+            let evaluation =
+                evaluate_qualification_prospective_v1(&high_water).expect("high-water evaluation");
+            assert!(evaluation.criteria.iter().any(|criterion| {
+                criterion.kind == QualificationProspectiveCriterionKindV1::HighWaterAmplification
+                    && criterion.workload == workload
+                    && criterion.status == QualificationProspectiveCriterionStatusV1::Failed
+            }));
+
+            let mut maintenance = complete.clone();
+            let run = maintenance
+                .runs
+                .iter_mut()
+                .find(|run| run.workload == workload)
+                .expect("maintenance run");
+            let maintenance_row = run.maintenance.as_mut().expect("maintenance row");
+            maintenance_row.total_nanos = contract.maintenance.total_max_nanos(workload) + 1;
+            maintenance.evidence_sha256 = maintenance
+                .canonical_sha256()
+                .expect("maintenance evidence hash");
+            let evaluation = evaluate_qualification_prospective_v1(&maintenance)
+                .expect("maintenance evaluation");
+            assert!(evaluation.criteria.iter().any(|criterion| {
+                criterion.kind == QualificationProspectiveCriterionKindV1::MaintenanceTotal
+                    && criterion.workload == workload
+                    && criterion.status == QualificationProspectiveCriterionStatusV1::Failed
+            }));
+        }
+
+        let mut not_applicable = complete.clone();
+        for run in not_applicable
+            .runs
+            .iter_mut()
+            .filter(|run| run.workload.savings_required())
+        {
+            run.maintenance = Some(QualificationProspectiveMaintenanceEvidenceV1 {
+                required: false,
+                foreground_samples_nanos: Vec::new(),
+                total_nanos: 0,
+                not_applicable_mechanism_proof_sha256: Some(
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned(),
+                ),
+            });
+        }
+        not_applicable.evidence_sha256 = not_applicable
+            .canonical_sha256()
+            .expect("N/A evidence hash");
+        assert_eq!(
+            evaluate_qualification_prospective_v1(&not_applicable)
+                .expect("mechanism-proven N/A evaluates")
+                .status,
+            QualificationProspectiveCriterionStatusV1::Passed
+        );
+
+        not_applicable.runs[6]
+            .maintenance
+            .as_mut()
+            .expect("maintenance row")
+            .not_applicable_mechanism_proof_sha256 = None;
+        not_applicable.evidence_sha256 = not_applicable
+            .canonical_sha256()
+            .expect("invalid N/A evidence hash");
+        assert!(evaluate_qualification_prospective_v1(&not_applicable).is_err());
+    }
+
+    #[test]
+    fn prospective_contract_v1_external_corroboration_is_veto_only_and_never_public() {
+        assert_eq!(
+            apply_prospective_external_corroboration_v1(
+                QualificationProspectiveCriterionStatusV1::Failed,
+                QualificationProspectiveExternalCorroborationV1::Satisfied,
+            ),
+            QualificationProspectiveCriterionStatusV1::Failed
+        );
+        assert_eq!(
+            apply_prospective_external_corroboration_v1(
+                QualificationProspectiveCriterionStatusV1::Passed,
+                QualificationProspectiveExternalCorroborationV1::Vetoed,
+            ),
+            QualificationProspectiveCriterionStatusV1::Failed
+        );
+        assert_eq!(
+            apply_prospective_external_corroboration_v1(
+                QualificationProspectiveCriterionStatusV1::Passed,
+                QualificationProspectiveExternalCorroborationV1::Satisfied,
+            ),
+            QualificationProspectiveCriterionStatusV1::Passed
+        );
+
+        let publication = qualification_prospective_contract_v1_publication();
+        let serialized = serde_json::to_string(&publication).expect("publication JSON");
+        for forbidden in [
+            "candidateObservation",
+            "candidateP95",
+            "baselineP95",
+            "profileId",
+            "externalCorroborationEvidence",
+        ] {
+            assert!(!serialized.contains(forbidden), "published {forbidden}");
+        }
+        assert_eq!(
+            QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1,
+            "--prospective-contract"
         );
     }
 }

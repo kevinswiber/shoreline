@@ -155,6 +155,53 @@ filesystem, and allocation rules; independent keyed-read classes; external evide
 provenance and privacy; and causal early stops. It names those fields only—it contains no proposed
 numeric values or evaluator.
 
+## Prospective feasibility contract
+
+The approved prospective contract is compiled into the benchmark target as
+`pointbreak.qualification-prospective-feasibility-contract.v1`. Its canonical SHA-256 is
+`8e9fb5bffef230d97d3f4abc8a70c79958e4372668af8bde19b3aa815382857d`, and it binds the exact approved
+proposal SHA-256
+`83446c8a40eb71fa4696ee5d71043c47beb8624fc97e2360b62337e489ad67e8`. Print the contract and its
+generated decision table without running a candidate, reading an evidence corpus, or collecting timing:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS
+cargo bench --features bench --bench store_foundation -- --prospective-contract
+```
+
+The contract requires two independent native runs on macOS/APFS, non-container Linux/ext4, and native
+Windows/NTFS. Each run retains 30 raw samples after three warm-ups. `G0` is a diagnostic early-stop row;
+`G1` is the first required allocation crossover; `G2` is the representative public scale row. `P0` and
+`M0` separately gate small-store fixed overhead and peak headroom. Evidence binds the admitted loose
+baseline authorities, exact source commit and tree, `Cargo.lock`, generator, public seed, manifests,
+operation schedules, native allocation API, semantic receipt, and contract identity. Missing evidence
+evaluates as unknown, while stale, duplicate, mixed, or hash-mismatched evidence is rejected.
+
+For durable append, replay, fresh-process open/recovery, and each oldest/middle/newest/absent keyed read,
+the candidate p95 must satisfy both the operation's absolute ceiling and this dynamic ceiling:
+
+```text
+min(absolute ceiling, max(ceil(loose p95 * 125 / 100), loose p95 + guard band))
+```
+
+The absolute ceilings are 50 ms for durable append, 500 ms for replay, 750 ms for fresh-process open,
+and 5 ms for each keyed read. Guard bands are respectively 5 ms, 10 ms, 25 ms, and 1 ms. Equality passes;
+one nanosecond above the resulting limit fails.
+
+Event allocation must save at least 25% and complete-profile allocation at least 10% versus the paired
+loose baseline at both `G1` and `G2`, in steady, reopened, and high-water states. `G1` must also be strictly
+smaller in both scopes and every state. High-water allocation may be no more than 150% of candidate steady
+allocation while still satisfying the savings floor. Small-store fixed-overhead and peak-headroom caps
+are 1 MiB for event scope and 2 MiB for complete-profile scope. Maintenance foreground p95 is capped at
+250 ms, with total budgets of 5 seconds at `G1` and 30 seconds at `G2`; a genuinely inapplicable
+maintenance mechanism requires a hash-bound mechanism proof.
+
+Only public native rows decide prospective feasibility. An owner-local sanitized snapshot may veto later
+adoption but cannot rescue a public failure, is never pooled with the public rows, and is excluded from
+the contract publication. The publication also excludes candidate observations and results. Passing this
+contract establishes prospective plain-store feasibility only: it does not select a storage profile,
+authorize production use or migration, or alter the historical H8 qualification artifacts below.
+
 ## Frozen performance qualification contract
 
 The machine-readable performance qualification contract is compiled into the benchmark target. Print

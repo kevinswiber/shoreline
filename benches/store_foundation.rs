@@ -10,8 +10,8 @@ use pointbreak::bench_support::foundation::{
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
     ImportReceiptPrototypeV1, LogicalCapabilityEpochV1,
     QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1, QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
-    QualificationCorpusError, QualificationCorpusSummaryV1,
-    QualificationLooseBaselineEvidenceConfigurationV1,
+    QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1, QualificationCorpusError,
+    QualificationCorpusSummaryV1, QualificationLooseBaselineEvidenceConfigurationV1,
     QualificationLooseBaselineSmokeConfigurationV1,
     QualificationPerformanceCampaignConfigurationV2,
     QualificationPerformanceDiagnosticConfigurationV1, QualificationPerformanceEvidenceV2,
@@ -21,7 +21,8 @@ use pointbreak::bench_support::foundation::{
     SqliteWorkloadEvidenceV1, load_external_workload_v2_manifest_from_env,
     modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_cargo_lock_sha256,
     qualification_filesystem_name, qualification_generated_workload_smoke_v1,
-    qualification_performance_contract_v2_publication, qualification_source_commit,
+    qualification_performance_contract_v2_publication,
+    qualification_prospective_contract_v1_publication, qualification_source_commit,
     run_qualification_child, run_qualification_loose_baseline_evidence_v1,
     run_qualification_loose_baseline_open_child_v1, run_qualification_loose_baseline_smoke_v1,
     run_qualification_performance_campaign_v2, run_qualification_performance_diagnostics,
@@ -32,7 +33,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
        --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
 \n\
@@ -203,6 +204,7 @@ fn main() -> ExitCode {
         "--generated-workload-smoke",
         QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
         QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1,
+        QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1,
         "--transfer-smoke",
         "--sqlite-smoke",
         "--segments-smoke",
@@ -238,6 +240,7 @@ fn main() -> ExitCode {
             && argument != "--generated-workload-smoke"
             && argument != QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1
             && argument != QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1
+            && argument != QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1
             && argument != "--transfer-smoke"
             && argument != "--sqlite-smoke"
             && argument != "--segments-smoke"
@@ -291,6 +294,18 @@ fn main() -> ExitCode {
         .any(|argument| argument == QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1)
     {
         return qualification_loose_baseline_evidence_report();
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1)
+    {
+        println!(
+            "{}",
+            serde_json::to_string(&qualification_prospective_contract_v1_publication())
+                .expect("prospective contract publication serializes")
+        );
+        return ExitCode::SUCCESS;
     }
 
     if arguments
