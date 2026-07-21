@@ -30,3 +30,7 @@ assets/marketing/review-interface-capture.json text eol=lf
 # directory; git reads HEAD and config literally, so pin them to LF and keep them
 # valid on a Windows autocrlf checkout.
 tests/support/assets/git-skeleton/** text eol=lf
+
+# The developer-only LMDB proof validates every reviewed source and license
+# byte by SHA-256. Preserve those bytes on Windows autocrlf checkouts.
+vendor/lmdb-proof/** text eol=lf
