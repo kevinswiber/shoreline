@@ -5,8 +5,31 @@ are easiest to review.
 
 ## Development Setup
 
-Install a stable Rust toolchain, a nightly Rust toolchain for formatting, `just`, `cargo-nextest`,
-and Cocogitto:
+The toolchain is a stable Rust toolchain, a nightly toolchain (used only for formatting), `just`,
+`cargo-nextest`, and Cocogitto, plus a C compiler for the bundled native dependencies. Pick whichever
+environment manager you prefer — all three yield the same tools.
+
+### Nix (recommended)
+
+With [Nix](https://nixos.org/download) and flakes enabled:
+
+```bash
+nix develop
+```
+
+This drops you into a shell with every tool pinned by `flake.nix`. If you use `direnv` (with
+`nix-direnv`), the checked-in `.envrc` activates it automatically on `cd`.
+
+### mise
+
+```bash
+mise install
+```
+
+reads `mise.toml` and installs the pinned tools. The `.envrc` also activates mise via `direnv` when
+Nix is not present.
+
+### Manual
 
 ```bash
 rustup toolchain install stable
@@ -15,12 +38,13 @@ cargo install cargo-nextest --locked
 cargo install cocogitto --locked
 ```
 
-Then install the repository hooks:
+Finally, install the repository hooks:
 
 ```bash
 just setup-hooks
 ```
 
+The Nix shell and mise install these hooks for you; run the command yourself after a manual setup.
 The hooks validate conventional commits and conventional branch names before changes leave your
 machine.
 

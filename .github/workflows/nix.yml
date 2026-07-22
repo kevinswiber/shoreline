@@ -1,0 +1,38 @@
+name: Nix
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - "**.nix"
+      - "flake.lock"
+      - ".github/workflows/nix.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix-check:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      # nixfmt --check + statix + deadnix + `nix flake check`. Runs only on Nix
+      # changes (see paths above); the Rust gate stays in ci.yml.
+      - name: Run nix-check
+        run: just nix-check

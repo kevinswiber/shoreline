@@ -20,3 +20,7 @@ AGENTS.local.md
 # Tool caches
 __pycache__
 .DS_Store
+
+# direnv / nix-direnv local cache
+/.direnv/
+/.envrc.local

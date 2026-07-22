@@ -166,6 +166,26 @@ fmt *args:
 fmt-check:
     cargo +nightly fmt --all -- --check
 
+# Format Nix files with the canonical RFC-166 formatter. Requires Nix.
+[group('nix')]
+nix-fmt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nix run nixpkgs#nixfmt -- $(git ls-files '*.nix')
+
+# Lint and format-check Nix files: nixfmt, statix, deadnix, and `nix flake check`.
+# Requires Nix. Deliberately separate from `just lint`/`check`, which stay
+# Rust-only so contributors without Nix (mise/manual) can run the core gate.
+[group('nix')]
+nix-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=$(git ls-files '*.nix')
+    nix run nixpkgs#nixfmt -- --check $files
+    nix run nixpkgs#statix -- check .
+    nix run nixpkgs#deadnix -- --fail .
+    nix flake check
+
 # Install git hooks (commit-msg and pre-push validation via cocogitto).
 [group('maintenance')]
 setup-hooks:

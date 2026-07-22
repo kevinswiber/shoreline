@@ -103,7 +103,10 @@ Do not turn a fail-closed identity or protected-proof check into a write path me
 
 ## Prerequisites and setup
 
-- Run `just setup-hooks` once per clone for Cocogitto commit and branch checks.
+- Provision the toolchain with `nix develop`, `mise install`, or a manual `rustup` setup; see
+  `CONTRIBUTING.md` for the three environment options.
+- Run `just setup-hooks` once per clone for Cocogitto commit and branch checks (the Nix shell and
+  mise do this for you).
 - Run `just web-install` before Inspector Node commands and `just extension-install` before VS Code
   extension commands.
 - `just workflow-lint` requires `actionlint`, `shellcheck`, and `jq`.

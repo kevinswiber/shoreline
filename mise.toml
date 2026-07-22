@@ -3,6 +3,9 @@ _.path = [
   "{{config_root}}/target/release",
   "{{config_root}}/target/debug",
 ]
+# `cargo +stable` (build/test) and `cargo +nightly` (rustfmt) auto-install their
+# toolchain on first use instead of erroring; mirrors the Nix dev shell.
+RUSTUP_AUTO_INSTALL = "1"
 
 [tools]
 github-cli = "latest"
