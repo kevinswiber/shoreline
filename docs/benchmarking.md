@@ -241,6 +241,54 @@ filesystem, and allocation rules; independent keyed-read classes; external evide
 provenance and privacy; and causal early stops. It names those fields only—it contains no proposed
 numeric values or evaluator.
 
+## Content-only APFS falsifier contract
+
+The candidate-independent content-only contract is compiled into the benchmark target as
+`pointbreak.qualification-content-only-contract.v1`. Its canonical SHA-256 is
+`77ce55dd47363bc924d0612c3b508db92bd7969a0ca9bac8d9c7e096e985f654`. Print the contract and its
+generated decision table without constructing a candidate, reading a corpus, or collecting timing or
+allocation observations:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS
+cargo bench --features bench --bench store_foundation -- --content-only-contract
+```
+
+<!-- content-only-contract-v1:start -->
+| Decision | Required value |
+| --- | --- |
+| Profile | `qualification-loose-journal-pbrf-content-v1` |
+| Physical profile ID | 3 |
+| Logical capability epoch | `pointbreak.foundation.v1` |
+| Events | unchanged raw loose carriers and receipt; byte-equal to loose; 0 bps informational only |
+| Content | one PBRF v1 carrier per logical key across object, note, relation-proof, document-manifest, and document-blob |
+| Content codec | 192-byte PBRF v1 header; adaptive raw or zstd level 1; checksum and pledged decoded size; no dictionary or trailing bytes |
+| Publication | complete same-directory temp, durable create-once, cleanup, and parent-directory durability; retry compares decoded kind, key, and bytes |
+| Public workloads | G0 admission, then G1 allocation; frozen manifests and schedules |
+| Native platform | macos/apfs via `stat_blocks_512` |
+| Independent runs | exactly [0, 1] |
+| Allocation states | steady, reopened, high-water; each gates independently |
+| Complete-profile floor | at least 1000 basis points in every run/state; no pooling or reruns |
+| G0 | every named semantic, lifecycle, transfer, repair, migration, privacy, provenance, and inventory row passes |
+| Package admission | macOS aarch64, macOS x86_64; required only for aggregate pass |
+| Meaning | bounded content-only APFS falsifier; no timing, recovery-speed, physical-profile selection, migration, activation, or rollout claim |
+<!-- content-only-contract-v1:end -->
+
+Every named G0 row, each of the two native APFS G1 runs, and every steady, reopened, and high-water
+complete-profile allocation row gates independently. A missing row evaluates as `unknown`; a present row
+below the 1,000-basis-point floor evaluates as `failed`. Rows are never pooled, averaged, discarded, or rerun.
+The unchanged `events/` carriers and semantic receipt must be byte-equal to loose; their reported saving is
+always zero and informational, not a journal qualification criterion. Default-package evidence for both macOS
+release architectures is required only for an aggregate pass and cannot rescue an earlier failure.
+
+Evidence and packages bind clean source and tree, `Cargo.lock`, contract, profile, codec and runner sources,
+frozen public G0/G1 manifests and schedules, native platform, run index, row identities, and canonical hashes.
+Configured private-corpus input and stale, mixed, duplicate, unsupported, or hash-mismatched inputs are
+rejected before evaluation. The publication contains no candidate
+measurements or observed APFS results, and the contract makes no timing or recovery-speed claim. It does not
+select or route a physical profile, authorize migration or activation, or expand qualification beyond this
+bounded APFS falsifier.
+
 ## Prospective feasibility contract
 
 The approved prospective contract is compiled into the benchmark target as

@@ -1,0 +1,143 @@
+{
+  "schema": "pointbreak.qualification-content-only-contract-publication.v1",
+  "mode": "non_timing_contract_publication",
+  "contract": {
+    "schema": "pointbreak.qualification-content-only-contract.v1",
+    "derivation": {
+      "pointbreakCommit": "8ac504bf318b73f3559dcc7c4e25fb827e452bcc",
+      "pointbreakTree": "9e422cee6dfd72c463dfce4f2d77db1a8af6c2f8",
+      "cargoLockSha256": "27a080ac57d757d19d0f386fd9d48e00cae1866654beeb112a36d0f07f63327f",
+      "generatorSchema": "pointbreak.qualification-workload-generator.v1",
+      "publicSeedHex": "f4da49601a212010bae444e6ca2de6c6bf28b5ec1b0a05bf42154a533ca513ff",
+      "candidateMeasurementsUsed": false,
+      "historicalCandidateResultsUsed": false,
+      "privateCorpusUsed": false
+    },
+    "profileId": "qualification-loose-journal-pbrf-content-v1",
+    "physicalProfileId": 3,
+    "logicalCapabilityEpoch": "pointbreak.foundation.v1",
+    "profileDescriptor": "profile.pbst: PhysicalStoreHeaderV1 { profile_id: 3, store_uuid }",
+    "eventLayout": "events/<sha256(logical-key)>.json",
+    "eventRequirement": "unchanged raw loose carriers and journal receipt; candidate and loose are byte-equal",
+    "contentLayout": "content/{object,note,relation-proof,document-manifest,document-blob}/<hex(logical-key)>.pbrf",
+    "contentCarrierFormat": "one_pbrf_v1_carrier_per_logical_key",
+    "contentRequirements": [
+      {
+        "recordKind": "object_artifact",
+        "directory": "object"
+      },
+      {
+        "recordKind": "note_body",
+        "directory": "note"
+      },
+      {
+        "recordKind": "relation_proof",
+        "directory": "relation-proof"
+      },
+      {
+        "recordKind": "document_manifest",
+        "directory": "document-manifest"
+      },
+      {
+        "recordKind": "document_blob",
+        "directory": "document-blob"
+      }
+    ],
+    "codec": {
+      "format": "pbrf_v1",
+      "headerBytes": 192,
+      "adaptiveEncoding": "raw_or_zstd",
+      "zstdLevel": 1,
+      "checksumRequired": true,
+      "pledgedDecodedSizeRequired": true,
+      "dictionaryAllowed": false,
+      "exactExistingBoundsAndHashesRequired": true,
+      "trailingBytesAllowed": false
+    },
+    "publication": {
+      "completeSameDirectoryTempRequired": true,
+      "durableCreateOnceRequired": true,
+      "cleanupRequired": true,
+      "parentDirectoryDurabilityRequired": true,
+      "retryComparesDecodedKindKeyAndBytes": true,
+      "outcomes": [
+        "created",
+        "already_exists",
+        "conflict"
+      ]
+    },
+    "forbiddenProfileShapes": [
+      "mixed_raw_pbrf_content_root",
+      "sniffing_fallback",
+      "runtime_selector",
+      "pack_or_shared_carrier",
+      "content_page_or_value_log",
+      "journal_change",
+      "projection_authority"
+    ],
+    "workloads": [
+      {
+        "workload": "g0",
+        "role": "g0_admission",
+        "generatorSpecSha256": "5dd08fab4e371f90f9de401ea78c6e281d442627967a3a16db55f724eb32c928",
+        "manifestSha256": "b35ebf4bd7bf09a40133e2066cce43cb901a07bf06d5b1caa0f4881bdad27595",
+        "operationScheduleSha256": "8f2c69c54a1ea590d05c139cc5405a3e3081be1c9ca50278e3a5ec03df8f788b"
+      },
+      {
+        "workload": "g1",
+        "role": "g1_allocation",
+        "generatorSpecSha256": "9a4b6c1ef8363866005d47860206f94f089a0ad0e2b0e89471dd7254098d368a",
+        "manifestSha256": "f520817b751d672810bd8fbe842bb2983b5ff437cce1ad4db3341d79c9b4bf4f",
+        "operationScheduleSha256": "a8a094aee8b4154d1c6d1c8c1dcf82f1bf2ecd12d22d4d8ffa4391960e1c0f58"
+      }
+    ],
+    "platform": {
+      "operatingSystem": "macos",
+      "filesystem": "apfs",
+      "allocationApi": "stat_blocks_512",
+      "nativeExecutionRequired": true
+    },
+    "independentRuns": 2,
+    "runIndices": [
+      0,
+      1
+    ],
+    "inventoryStates": [
+      "steady",
+      "reopened",
+      "high_water"
+    ],
+    "g0Criteria": [
+      "event_carrier_byte_create_once_order_head_receipt_equality",
+      "content_create_retry_conflict_read",
+      "content_raw_zstd_round_trip",
+      "content_absence_orphan_removal",
+      "manifest_blob_independence",
+      "exhaustive_content_validation",
+      "interruption_before_acknowledgement",
+      "interruption_after_acknowledgement",
+      "stale_temp_cleanup_and_safe_reopen",
+      "exact_decoded_export_import",
+      "completion_last_backup_restore",
+      "copy_out_repair",
+      "source_preserving_migration_rollback",
+      "privacy",
+      "provenance",
+      "complete_inventory"
+    ],
+    "minimumCompleteProfileSavingsBps": 1000,
+    "eventSavingsBps": 0,
+    "packageTargets": [
+      "macos_aarch64",
+      "macos_x8664"
+    ],
+    "completeProfileScope": "profile.pbst, events, content, receipts, temporary/orphan, and operational carriers",
+    "publicInputsOnly": true,
+    "freshDisposableRootsRequired": true,
+    "timingClaimAuthorized": false,
+    "recoverySpeedClaimAuthorized": false,
+    "physicalProfileSelectionAuthorized": false
+  },
+  "contractSha256": "77ce55dd47363bc924d0612c3b508db92bd7969a0ca9bac8d9c7e096e985f654",
+  "decisionTableMarkdown": "| Decision | Required value |\n| --- | --- |\n| Profile | `qualification-loose-journal-pbrf-content-v1` |\n| Physical profile ID | 3 |\n| Logical capability epoch | `pointbreak.foundation.v1` |\n| Events | unchanged raw loose carriers and receipt; byte-equal to loose; 0 bps informational only |\n| Content | one PBRF v1 carrier per logical key across object, note, relation-proof, document-manifest, and document-blob |\n| Content codec | 192-byte PBRF v1 header; adaptive raw or zstd level 1; checksum and pledged decoded size; no dictionary or trailing bytes |\n| Publication | complete same-directory temp, durable create-once, cleanup, and parent-directory durability; retry compares decoded kind, key, and bytes |\n| Public workloads | G0 admission, then G1 allocation; frozen manifests and schedules |\n| Native platform | macos/apfs via `stat_blocks_512` |\n| Independent runs | exactly [0, 1] |\n| Allocation states | steady, reopened, high-water; each gates independently |\n| Complete-profile floor | at least 1000 basis points in every run/state; no pooling or reruns |\n| G0 | every named semantic, lifecycle, transfer, repair, migration, privacy, provenance, and inventory row passes |\n| Package admission | macOS aarch64, macOS x86_64; required only for aggregate pass |\n| Meaning | bounded content-only APFS falsifier; no timing, recovery-speed, physical-profile selection, migration, activation, or rollout claim |"
+}
