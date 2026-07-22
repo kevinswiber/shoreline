@@ -9,6 +9,8 @@ use pointbreak::bench_support::foundation::{
     DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
     ImportReceiptPrototypeV1, LogicalCapabilityEpochV1,
+    QUALIFICATION_LMDB_PROSPECTIVE_EVIDENCE_MODE_V1,
+    QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1, QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_MODE_V1,
     QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1, QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
     QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1, QualificationCorpusError,
     QualificationCorpusSummaryV1, QualificationLooseBaselineEvidenceConfigurationV1,
@@ -31,16 +33,21 @@ use pointbreak::bench_support::foundation::{
 };
 #[cfg(feature = "lmdb-proof")]
 use pointbreak::bench_support::foundation::{
+    QualificationLmdbProspectiveEvidenceConfigurationV1, QualificationLmdbProspectivePackageV1,
+    parse_qualification_lmdb_prospective_shard_v1, qualification_lmdb_prospective_execution_v1,
     run_lmdb_proof_open_close_v1, run_qualification_lmdb_lifecycle_child_v1,
-    run_qualification_lmdb_lifecycle_smoke_v1, run_qualification_lmdb_smoke_v1,
+    run_qualification_lmdb_lifecycle_smoke_v1, run_qualification_lmdb_prospective_evidence_v1,
+    run_qualification_lmdb_prospective_open_child_v1, run_qualification_lmdb_prospective_smoke_v1,
+    run_qualification_lmdb_smoke_v1,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--lmdb-smoke|--lmdb-lifecycle-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--lmdb-smoke|--lmdb-lifecycle-smoke|--lmdb-prospective-smoke|--lmdb-prospective-evidence|--lmdb-prospective-package|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
        --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
+       --lmdb-prospective-package --lmdb-prospective-input=<path> [--lmdb-prospective-input=<path> ...]\n\
 \n\
 Validates deterministic workload, transfer, candidate, or native-platform qualification contracts and prints JSON.\n\
 Qualification modes use disposable roots and never select or activate production storage.\n";
@@ -218,6 +225,25 @@ fn main() -> ExitCode {
             }
         };
     }
+    #[cfg(feature = "lmdb-proof")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "--lmdb-prospective-open-child")
+    {
+        if arguments.len() != 2 {
+            eprintln!("plain LMDB prospective open child requires exactly one request path");
+            return ExitCode::from(2);
+        }
+        return match run_qualification_lmdb_prospective_open_child_v1(std::path::Path::new(
+            &arguments[1],
+        )) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("store foundation plain LMDB prospective open child failed: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if arguments.iter().any(|argument| argument == "--help") {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
@@ -234,6 +260,9 @@ fn main() -> ExitCode {
         "--lmdb-proof-open-close",
         "--lmdb-smoke",
         "--lmdb-lifecycle-smoke",
+        QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_MODE_V1,
+        QUALIFICATION_LMDB_PROSPECTIVE_EVIDENCE_MODE_V1,
+        QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1,
         "--qualification-smoke",
         "--qualification-evidence",
         "--qualification-diagnostics",
@@ -261,6 +290,13 @@ fn main() -> ExitCode {
         .iter()
         .filter_map(|argument| argument.strip_prefix("--qualification-input="))
         .collect::<Vec<_>>();
+    let lmdb_prospective_package_requested = arguments
+        .iter()
+        .any(|argument| argument == QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1);
+    let lmdb_prospective_inputs = arguments
+        .iter()
+        .filter_map(|argument| argument.strip_prefix("--lmdb-prospective-input="))
+        .collect::<Vec<_>>();
     if arguments.iter().any(|argument| {
         argument != "--smoke"
             && argument != "--generated-workload-smoke"
@@ -273,6 +309,9 @@ fn main() -> ExitCode {
             && argument != "--lmdb-proof-open-close"
             && argument != "--lmdb-smoke"
             && argument != "--lmdb-lifecycle-smoke"
+            && argument != QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_MODE_V1
+            && argument != QUALIFICATION_LMDB_PROSPECTIVE_EVIDENCE_MODE_V1
+            && argument != QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1
             && argument != "--qualification-smoke"
             && argument != "--qualification-evidence"
             && argument != "--qualification-diagnostics"
@@ -282,10 +321,13 @@ fn main() -> ExitCode {
             && argument != "--bench"
             && !argument.starts_with("--qualification-pair-order=")
             && !argument.starts_with("--qualification-input=")
+            && !argument.starts_with("--lmdb-prospective-input=")
     }) || requested_modes > 1
         || (!diagnostics_requested && diagnostic_pair_order.is_some())
         || (!package_requested && !package_inputs.is_empty())
         || (package_requested && package_inputs.is_empty())
+        || (!lmdb_prospective_package_requested && !lmdb_prospective_inputs.is_empty())
+        || (lmdb_prospective_package_requested && lmdb_prospective_inputs.is_empty())
     {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
@@ -335,6 +377,24 @@ fn main() -> ExitCode {
                 .expect("prospective contract publication serializes")
         );
         return ExitCode::SUCCESS;
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_MODE_V1)
+    {
+        return lmdb_prospective_smoke_report();
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == QUALIFICATION_LMDB_PROSPECTIVE_EVIDENCE_MODE_V1)
+    {
+        return lmdb_prospective_evidence_report();
+    }
+
+    if lmdb_prospective_package_requested {
+        return lmdb_prospective_package_report(&lmdb_prospective_inputs);
     }
 
     if arguments
@@ -563,6 +623,145 @@ fn lmdb_lifecycle_smoke_report() -> ExitCode {
 #[cfg(not(feature = "lmdb-proof"))]
 fn lmdb_lifecycle_smoke_report() -> ExitCode {
     eprintln!("--lmdb-lifecycle-smoke requires --features bench,lmdb-proof");
+    ExitCode::from(2)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_smoke_report() -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(_) => {
+            eprintln!("plain LMDB prospective smoke could not create a disposable root");
+            return ExitCode::from(1);
+        }
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(_) => {
+            eprintln!("plain LMDB prospective smoke could not resolve its executable");
+            return ExitCode::from(1);
+        }
+    };
+    match run_qualification_lmdb_prospective_smoke_v1(
+        &executable,
+        &disposable.path().join("lmdb-prospective-smoke"),
+    ) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string(&report)
+                    .expect("plain LMDB prospective smoke report serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("plain LMDB prospective smoke failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(not(feature = "lmdb-proof"))]
+fn lmdb_prospective_smoke_report() -> ExitCode {
+    eprintln!("--lmdb-prospective-smoke requires --features bench,lmdb-proof");
+    ExitCode::from(2)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_evidence_report() -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(_) => {
+            eprintln!("plain LMDB prospective evidence could not create a disposable root");
+            return ExitCode::from(1);
+        }
+    };
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(_) => {
+            eprintln!("plain LMDB prospective evidence could not resolve its executable");
+            return ExitCode::from(1);
+        }
+    };
+    let execution = match qualification_lmdb_prospective_execution_v1() {
+        Ok(execution) => execution,
+        Err(error) => {
+            eprintln!("plain LMDB prospective evidence provenance failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let configuration = QualificationLmdbProspectiveEvidenceConfigurationV1 {
+        executable,
+        root: disposable.path().join("lmdb-prospective-evidence"),
+        execution,
+        quiesced_host: std::env::var("POINTBREAK_QUALIFICATION_QUIESCED")
+            .is_ok_and(|value| value == "1"),
+    };
+    match run_qualification_lmdb_prospective_evidence_v1(&configuration) {
+        Ok(shard) => {
+            println!(
+                "{}",
+                serde_json::to_string(&shard).expect("plain LMDB prospective evidence serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("plain LMDB prospective evidence failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(not(feature = "lmdb-proof"))]
+fn lmdb_prospective_evidence_report() -> ExitCode {
+    eprintln!("--lmdb-prospective-evidence requires --features bench,lmdb-proof");
+    ExitCode::from(2)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_package_report(inputs: &[&str]) -> ExitCode {
+    let mut shards = Vec::new();
+    for input in inputs {
+        let bytes = match std::fs::read(input) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                eprintln!("plain LMDB prospective package input could not be read");
+                return ExitCode::from(1);
+            }
+        };
+        match parse_qualification_lmdb_prospective_shard_v1(&bytes) {
+            Ok(shard) => shards.push(shard),
+            Err(error) => {
+                eprintln!("plain LMDB prospective package input failed validation: {error}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+    let execution = match qualification_lmdb_prospective_execution_v1() {
+        Ok(execution) => execution,
+        Err(error) => {
+            eprintln!("plain LMDB prospective package provenance failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    match QualificationLmdbProspectivePackageV1::assemble_for_execution(&shards, &execution) {
+        Ok(package) => {
+            println!(
+                "{}",
+                serde_json::to_string(&package).expect("plain LMDB prospective package serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("plain LMDB prospective package failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(not(feature = "lmdb-proof"))]
+fn lmdb_prospective_package_report(_inputs: &[&str]) -> ExitCode {
+    eprintln!("--lmdb-prospective-package requires --features bench,lmdb-proof");
     ExitCode::from(2)
 }
 

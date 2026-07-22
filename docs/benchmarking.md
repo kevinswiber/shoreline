@@ -288,6 +288,73 @@ the contract publication. The publication also excludes candidate observations a
 contract establishes prospective plain-store feasibility only: it does not select a storage profile,
 authorize production use or migration, or alter the historical H8 qualification artifacts below.
 
+## Plain LMDB prospective evidence runner
+
+The `lmdb-proof` feature includes a native evidence runner and a separate package assembler for the
+approved prospective contract. The runner emits one
+`pointbreak.qualification-lmdb-prospective-evidence-shard.v1` document for the current native
+platform. The assembler accepts exactly one macOS/APFS, one non-container Linux/ext4, and one native
+Windows/NTFS shard, then emits a
+`pointbreak.qualification-lmdb-prospective-package.v1` document containing the unchanged
+`pointbreak.qualification-prospective-feasibility-evidence.v1` aggregate and its frozen
+`pointbreak.qualification-prospective-feasibility-evaluation.v1` evaluator output.
+
+Before collecting evidence, exercise the runner, the plain LMDB semantic and lifecycle preflights,
+and deterministic package assembly without collecting normative timing or allocation samples:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS
+cargo bench --locked --features bench,lmdb-proof --bench store_foundation -- \
+  --lmdb-prospective-smoke
+```
+
+The smoke report schema is `pointbreak.qualification-lmdb-prospective-smoke.v1`. Its
+`deterministicFixtureOnly` and `normativeMeasurementCollected` fields are respectively `true` and
+`false`; its shard and package hashes cover synthetic protocol fixtures, not candidate results.
+
+A real native shard must be built and run from the exact clean commit being evaluated, with the host
+quiesced and only the generated public workloads enabled:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS
+export POINTBREAK_QUALIFICATION_QUIESCED=1
+cargo bench --locked --features bench,lmdb-proof --bench store_foundation -- \
+  --lmdb-prospective-evidence > native-shard.json
+```
+
+The runner performs the non-timing semantic and lifecycle preflights first, then executes two
+independently prepared runs for `P0`, `M0`, `G0`, `G1`, and `G2`. Timing-required rows retain all 30
+paired candidate and loose-baseline samples after three warm-ups; allocation rows retain event and
+complete-profile inventories for steady, reopened, and high-water states. Candidate operations and
+their adjacent loose controls cover durable append, strict replay, fresh-process open/recovery, and
+oldest, middle, newest, and absent keyed reads with the contract's verified-operation windows.
+
+Every shard carries two distinct provenance layers. The published contract retains the source
+commit, source tree, and `Cargo.lock` identities from which its thresholds were derived. The shard's
+execution envelope instead records the exact clean commit and tree that produced the measurements,
+the current `Cargo.lock` SHA-256, the reviewed LMDB closure-manifest SHA-256, the frozen contract and
+approved proposal hashes, the public generator and seed, the physical profile, and the run controls.
+Package assembly rejects stale or mixed execution envelopes, missing platforms or runs, duplicate
+rows, hash mismatches, and private-data markers. Shards and packages serialize no disposable paths,
+environment values, command lines, logical keys, payload bytes, or record-level hashes.
+
+After the three native shards have been collected from the same execution identity, assemble and
+evaluate them from that same clean commit:
+
+```sh
+cargo bench --locked --features bench,lmdb-proof --bench store_foundation -- \
+  --lmdb-prospective-package \
+  --lmdb-prospective-input=macos-apfs.json \
+  --lmdb-prospective-input=linux-ext4.json \
+  --lmdb-prospective-input=windows-ntfs.json
+```
+
+The assembler validates all inputs before running the frozen evaluator and binds both the evaluation
+and the final package with canonical SHA-256 identities. A well-formed package can evaluate to
+passed, failed, or unknown; assembly success is not a feasibility verdict. No prospective runner or
+package command selects a store, changes production routing, authorizes migration, or rewrites prior
+qualification evidence.
+
 ## Frozen performance qualification contract
 
 The machine-readable performance qualification contract is compiled into the benchmark target. Print

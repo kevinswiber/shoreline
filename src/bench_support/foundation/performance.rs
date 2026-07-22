@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::fault::{baseline_inventory, baseline_record_path, populate_profile, read_all_files};
+#[cfg(feature = "lmdb-proof")]
+use super::{
+    LmdbExactReceiptV1, LmdbQualificationProfile, QualificationLmdbLifecycleSmokeV1,
+    QualificationLmdbSmokeV1, run_qualification_lmdb_lifecycle_smoke_v1,
+    run_qualification_lmdb_smoke_v1,
+};
 use super::{
     QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2, QUALIFICATION_G0_MANIFEST_SHA256_V1,
     QUALIFICATION_G0_SCHEDULE_SHA256_V1, QUALIFICATION_G0_SPEC_SHA256_V1,
@@ -67,6 +73,19 @@ pub const QUALIFICATION_PROSPECTIVE_CONTRACT_PROPOSAL_SHA256_V1: &str =
     "83446c8a40eb71fa4696ee5d71043c47beb8624fc97e2360b62337e489ad67e8";
 pub const QUALIFICATION_PROSPECTIVE_CONTRACT_SHA256_V1: &str =
     "8e9fb5bffef230d97d3f4abc8a70c79958e4372668af8bde19b3aa815382857d";
+pub const QUALIFICATION_LMDB_PROSPECTIVE_EVIDENCE_MODE_V1: &str = "--lmdb-prospective-evidence";
+pub const QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1: &str = "--lmdb-prospective-package";
+pub const QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_MODE_V1: &str = "--lmdb-prospective-smoke";
+pub const QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1: &str =
+    "pointbreak.qualification-lmdb-prospective-evidence-shard.v1";
+pub const QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_SCHEMA_V1: &str =
+    "pointbreak.qualification-lmdb-prospective-package.v1";
+pub const QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_SCHEMA_V1: &str =
+    "pointbreak.qualification-lmdb-prospective-smoke.v1";
+
+#[cfg(feature = "lmdb-proof")]
+const QUALIFICATION_LMDB_PROOF_CLOSURE_SHA256_V1: &str =
+    "5c4bd57b2db28c989feaabec7bcd6c1b5a6ec43d2934bbbbf209e0bcf6c513b0";
 
 const QUALIFICATION_LOOSE_BASELINE_WARMUP_ITERATIONS_V1: u32 = 3;
 const QUALIFICATION_LOOSE_BASELINE_MEASURED_ITERATIONS_V1: u32 = 30;
@@ -2298,13 +2317,23 @@ impl QualificationProspectiveEvidenceV1 {
         {
             return Err("prospective evidence uses a different contract".to_owned());
         }
-        if self.source_commit != contract.derivation.pointbreak_commit
-            || self.source_tree != contract.derivation.pointbreak_tree
-            || self.cargo_lock_sha256 != contract.derivation.cargo_lock_sha256
+        if validate_hex(
+            &self.source_commit,
+            40,
+            "prospective execution source commit",
+        )
+        .is_err()
+            || validate_hex(&self.source_tree, 40, "prospective execution source tree").is_err()
+            || validate_hex(
+                &self.cargo_lock_sha256,
+                64,
+                "prospective execution Cargo.lock SHA-256",
+            )
+            .is_err()
             || self.generator_schema != contract.derivation.generator_schema
             || self.public_seed_hex != contract.derivation.public_seed_hex
         {
-            return Err("prospective evidence uses stale derivation identities".to_owned());
+            return Err("prospective evidence uses invalid execution identities".to_owned());
         }
         if self.profile_id.trim().is_empty() {
             return Err("prospective evidence profile identity is missing".to_owned());
@@ -2359,6 +2388,558 @@ pub struct QualificationProspectiveEvaluationV1 {
     pub status: QualificationProspectiveCriterionStatusV1,
     pub eligible: bool,
     pub criteria: Vec<QualificationProspectiveCriterionV1>,
+}
+
+impl QualificationProspectiveEvaluationV1 {
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLmdbProspectiveExecutionV1 {
+    pub source_commit: String,
+    pub source_tree: String,
+    pub cargo_lock_sha256: String,
+    pub closure_manifest_sha256: String,
+    pub contract_schema: String,
+    pub contract_sha256: String,
+    pub approved_proposal_sha256: String,
+    pub generator_schema: String,
+    pub public_seed_hex: String,
+    pub profile_id: String,
+    pub run_controls: QualificationProspectiveRunControlsV1,
+}
+
+#[cfg(feature = "lmdb-proof")]
+impl QualificationLmdbProspectiveExecutionV1 {
+    pub fn validate(&self) -> Result<(), String> {
+        let contract = QualificationProspectiveContractV1::frozen();
+        contract.validate()?;
+        validate_hex(&self.source_commit, 40, "LMDB execution source commit")?;
+        validate_hex(&self.source_tree, 40, "LMDB execution source tree")?;
+        validate_hex(
+            &self.cargo_lock_sha256,
+            64,
+            "LMDB execution Cargo.lock SHA-256",
+        )?;
+        validate_hex(
+            &self.closure_manifest_sha256,
+            64,
+            "LMDB execution closure manifest SHA-256",
+        )?;
+        if self.cargo_lock_sha256 != qualification_cargo_lock_sha256()
+            || self.closure_manifest_sha256 != QUALIFICATION_LMDB_PROOF_CLOSURE_SHA256_V1
+            || self.contract_schema != contract.schema
+            || self.contract_sha256 != contract.canonical_sha256()?
+            || self.approved_proposal_sha256 != contract.approved_proposal_sha256
+            || self.generator_schema != contract.derivation.generator_schema
+            || self.public_seed_hex != contract.derivation.public_seed_hex
+            || self.profile_id != super::QUALIFICATION_LMDB_PLAIN_PROFILE_ID_V1
+            || self.run_controls != contract.run_controls
+        {
+            return Err("LMDB prospective execution identity is stale or incomplete".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLmdbProspectiveShardV1 {
+    pub schema: String,
+    pub execution: QualificationLmdbProspectiveExecutionV1,
+    pub platform: QualificationProspectivePlatformV1,
+    pub filesystem: String,
+    pub allocation_api: String,
+    pub runs: Vec<QualificationProspectiveRunEvidenceV1>,
+    pub shard_sha256: String,
+}
+
+#[cfg(feature = "lmdb-proof")]
+impl QualificationLmdbProspectiveShardV1 {
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let mut preimage = self.clone();
+        preimage.shard_sha256.clear();
+        let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.execution.validate()?;
+        let contract = QualificationProspectiveContractV1::frozen();
+        let platform = contract
+            .platforms
+            .iter()
+            .find(|requirement| requirement.platform == self.platform)
+            .ok_or_else(|| "LMDB prospective shard uses an unsupported platform".to_owned())?;
+        if self.schema != QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1
+            || self.filesystem != platform.filesystem
+            || self.allocation_api != platform.allocation_api
+        {
+            return Err("LMDB prospective shard platform identity is stale".to_owned());
+        }
+        validate_hex(&self.shard_sha256, 64, "LMDB prospective shard SHA-256")?;
+        if self.shard_sha256 != self.canonical_sha256()? {
+            return Err("LMDB prospective shard hash does not match its preimage".to_owned());
+        }
+
+        let mut keys = BTreeSet::new();
+        for run in &self.runs {
+            if run.platform != self.platform {
+                return Err("LMDB prospective shard mixes platform rows".to_owned());
+            }
+            validate_prospective_run_v1(run, &contract)?;
+            if !keys.insert((run.workload, run.run_index)) {
+                return Err("LMDB prospective shard contains a duplicate run".to_owned());
+            }
+        }
+        let expected = QualificationProspectiveWorkloadV1::ALL
+            .into_iter()
+            .flat_map(|workload| {
+                (1..=contract.run_controls.independent_runs)
+                    .map(move |run_index| (workload, run_index))
+            })
+            .collect::<BTreeSet<_>>();
+        if keys != expected {
+            return Err("LMDB prospective shard is missing a required run".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+pub fn parse_qualification_lmdb_prospective_shard_v1(
+    bytes: &[u8],
+) -> Result<QualificationLmdbProspectiveShardV1, String> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| "LMDB prospective shard is not UTF-8 JSON".to_owned())?;
+    let lowercase = text.to_ascii_lowercase();
+    if [
+        "/users/",
+        "\\users\\",
+        "pointbreak_qualification_corpus",
+        "logicalkey",
+        "payload",
+        "rootpath",
+        "commandline",
+        "environmentvalues",
+    ]
+    .iter()
+    .any(|marker| lowercase.contains(marker))
+    {
+        return Err("LMDB prospective shard contains a forbidden private marker".to_owned());
+    }
+    let shard: QualificationLmdbProspectiveShardV1 = serde_json::from_str(text)
+        .map_err(|_| "LMDB prospective shard JSON is invalid".to_owned())?;
+    shard.validate()?;
+    Ok(shard)
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLmdbProspectivePackageV1 {
+    pub schema: String,
+    pub execution: QualificationLmdbProspectiveExecutionV1,
+    pub evidence: QualificationProspectiveEvidenceV1,
+    pub evaluation: QualificationProspectiveEvaluationV1,
+    pub evaluation_sha256: String,
+    pub package_sha256: String,
+}
+
+#[cfg(feature = "lmdb-proof")]
+impl QualificationLmdbProspectivePackageV1 {
+    pub fn assemble(shards: &[QualificationLmdbProspectiveShardV1]) -> Result<Self, String> {
+        if shards.len() != QualificationProspectivePlatformV1::ALL.len() {
+            return Err(
+                "LMDB prospective package requires exactly three platform shards".to_owned(),
+            );
+        }
+        let execution = shards
+            .first()
+            .ok_or_else(|| "LMDB prospective package has no shards".to_owned())?
+            .execution
+            .clone();
+        let mut platforms = BTreeSet::new();
+        let mut runs = Vec::new();
+        for shard in shards {
+            shard.validate()?;
+            if shard.execution != execution {
+                return Err("LMDB prospective package mixes execution identities".to_owned());
+            }
+            if !platforms.insert(shard.platform) {
+                return Err("LMDB prospective package contains a duplicate platform".to_owned());
+            }
+            runs.extend(shard.runs.clone());
+        }
+        if platforms
+            != QualificationProspectivePlatformV1::ALL
+                .into_iter()
+                .collect()
+        {
+            return Err("LMDB prospective package is missing a required platform".to_owned());
+        }
+
+        let mut evidence = QualificationProspectiveEvidenceV1 {
+            schema: QUALIFICATION_PROSPECTIVE_EVIDENCE_SCHEMA_V1.to_owned(),
+            contract_schema: execution.contract_schema.clone(),
+            contract_sha256: execution.contract_sha256.clone(),
+            approved_proposal_sha256: execution.approved_proposal_sha256.clone(),
+            source_commit: execution.source_commit.clone(),
+            source_tree: execution.source_tree.clone(),
+            cargo_lock_sha256: execution.cargo_lock_sha256.clone(),
+            generator_schema: execution.generator_schema.clone(),
+            public_seed_hex: execution.public_seed_hex.clone(),
+            profile_id: execution.profile_id.clone(),
+            runs,
+            evidence_sha256: String::new(),
+        };
+        evidence.evidence_sha256 = evidence.canonical_sha256()?;
+        evidence.validate()?;
+        let evaluation = evaluate_qualification_prospective_v1(&evidence)?;
+        let evaluation_sha256 = evaluation.canonical_sha256()?;
+        let mut package = Self {
+            schema: QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_SCHEMA_V1.to_owned(),
+            execution,
+            evidence,
+            evaluation,
+            evaluation_sha256,
+            package_sha256: String::new(),
+        };
+        package.package_sha256 = package.canonical_sha256()?;
+        package.validate()?;
+        Ok(package)
+    }
+
+    pub fn assemble_for_execution(
+        shards: &[QualificationLmdbProspectiveShardV1],
+        expected: &QualificationLmdbProspectiveExecutionV1,
+    ) -> Result<Self, String> {
+        let package = Self::assemble(shards)?;
+        if &package.execution != expected {
+            return Err("LMDB prospective package input is stale for this runner".to_owned());
+        }
+        Ok(package)
+    }
+
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let mut preimage = self.clone();
+        preimage.package_sha256.clear();
+        let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.execution.validate()?;
+        self.evidence.validate()?;
+        if self.schema != QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_SCHEMA_V1
+            || self.evidence.source_commit != self.execution.source_commit
+            || self.evidence.source_tree != self.execution.source_tree
+            || self.evidence.cargo_lock_sha256 != self.execution.cargo_lock_sha256
+            || self.evidence.contract_sha256 != self.execution.contract_sha256
+            || self.evidence.profile_id != self.execution.profile_id
+        {
+            return Err("LMDB prospective package identity is inconsistent".to_owned());
+        }
+        let expected_evaluation = evaluate_qualification_prospective_v1(&self.evidence)?;
+        if self.evaluation != expected_evaluation
+            || self.evaluation_sha256 != self.evaluation.canonical_sha256()?
+        {
+            return Err("LMDB prospective package evaluation is stale".to_owned());
+        }
+        validate_hex(&self.package_sha256, 64, "LMDB prospective package SHA-256")?;
+        if self.package_sha256 != self.canonical_sha256()? {
+            return Err("LMDB prospective package hash does not match its preimage".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[derive(Clone, Debug)]
+pub struct QualificationLmdbProspectiveEvidenceConfigurationV1 {
+    pub executable: PathBuf,
+    pub root: PathBuf,
+    pub execution: QualificationLmdbProspectiveExecutionV1,
+    pub quiesced_host: bool,
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct QualificationLmdbProspectiveOpenRequestV1 {
+    schema: String,
+    source_root: PathBuf,
+    result_path: PathBuf,
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QualificationLmdbProspectiveSmokeV1 {
+    pub schema: String,
+    pub mode: String,
+    pub shard_schema: String,
+    pub package_schema: String,
+    pub evidence_schema: String,
+    pub evaluation_schema: String,
+    pub profile_id: String,
+    pub contract_sha256: String,
+    pub semantic_smoke: QualificationLmdbSmokeV1,
+    pub lifecycle_smoke: QualificationLmdbLifecycleSmokeV1,
+    pub shard_sha256: Vec<String>,
+    pub evidence_sha256: String,
+    pub evaluation_sha256: String,
+    pub package_sha256: String,
+    pub deterministic_fixture_only: bool,
+    pub normative_measurement_collected: bool,
+}
+
+#[cfg(feature = "lmdb-proof")]
+impl QualificationLmdbProspectiveSmokeV1 {
+    pub fn validate(&self) -> Result<(), String> {
+        let contract = QualificationProspectiveContractV1::frozen();
+        if self.schema != QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_SCHEMA_V1
+            || self.mode != "non_timing_runner_package"
+            || self.shard_schema != QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1
+            || self.package_schema != QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_SCHEMA_V1
+            || self.evidence_schema != QUALIFICATION_PROSPECTIVE_EVIDENCE_SCHEMA_V1
+            || self.evaluation_schema != QUALIFICATION_PROSPECTIVE_EVALUATION_SCHEMA_V1
+            || self.profile_id != super::QUALIFICATION_LMDB_PLAIN_PROFILE_ID_V1
+            || self.contract_sha256 != contract.canonical_sha256()?
+            || self.semantic_smoke.profile_id != self.profile_id
+            || self.lifecycle_smoke.profile_id != self.profile_id
+            || self.shard_sha256.len() != QualificationProspectivePlatformV1::ALL.len()
+            || !self.deterministic_fixture_only
+            || self.normative_measurement_collected
+        {
+            return Err("LMDB prospective smoke report is incomplete".to_owned());
+        }
+        for hash in self.shard_sha256.iter().chain([
+            &self.evidence_sha256,
+            &self.evaluation_sha256,
+            &self.package_sha256,
+        ]) {
+            validate_hex(hash, 64, "LMDB prospective smoke SHA-256")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+pub fn qualification_lmdb_prospective_execution_v1()
+-> Result<QualificationLmdbProspectiveExecutionV1, String> {
+    if env!("POINTBREAK_BUILD_SOURCE") != "git" || env!("POINTBREAK_BUILD_DIRTY") == "true" {
+        return Err("LMDB prospective runner requires a clean Git build".to_owned());
+    }
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source_commit = qualification_source_commit()?;
+    let live_commit =
+        git_identity_stdout_v1(manifest_dir, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    let source_tree =
+        git_identity_stdout_v1(manifest_dir, &["rev-parse", "--verify", "HEAD^{tree}"])?;
+    let status = git_identity_stdout_v1(
+        manifest_dir,
+        &["status", "--porcelain=v1", "--untracked-files=no"],
+    )?;
+    if live_commit != source_commit || !status.is_empty() {
+        return Err("LMDB prospective runner source identity changed after build".to_owned());
+    }
+    let closure_manifest_sha256 =
+        sha256_bytes_hex(include_bytes!("../../../vendor/lmdb-proof/closure.json"));
+    let contract = QualificationProspectiveContractV1::frozen();
+    let execution = QualificationLmdbProspectiveExecutionV1 {
+        source_commit,
+        source_tree,
+        cargo_lock_sha256: qualification_cargo_lock_sha256(),
+        closure_manifest_sha256,
+        contract_schema: contract.schema.clone(),
+        contract_sha256: contract.canonical_sha256()?,
+        approved_proposal_sha256: contract.approved_proposal_sha256.clone(),
+        generator_schema: contract.derivation.generator_schema.clone(),
+        public_seed_hex: contract.derivation.public_seed_hex.clone(),
+        profile_id: super::QUALIFICATION_LMDB_PLAIN_PROFILE_ID_V1.to_owned(),
+        run_controls: contract.run_controls.clone(),
+    };
+    execution.validate()?;
+    Ok(execution)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn git_identity_stdout_v1(manifest_dir: &Path, arguments: &[&str]) -> Result<String, String> {
+    Command::new("git")
+        .arg("-C")
+        .arg(manifest_dir)
+        .args(arguments)
+        .output()
+        .map_err(|_| "LMDB prospective runner could not inspect Git identity".to_owned())
+        .and_then(|output| {
+            if !output.status.success() {
+                return Err("LMDB prospective runner Git identity probe failed".to_owned());
+            }
+            String::from_utf8(output.stdout)
+                .map(|value| value.trim_end_matches(['\r', '\n']).to_owned())
+                .map_err(|_| "LMDB prospective runner Git identity is not UTF-8".to_owned())
+        })
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn qualification_lmdb_prospective_fixture_shards_v1()
+-> Result<Vec<QualificationLmdbProspectiveShardV1>, String> {
+    let contract = QualificationProspectiveContractV1::frozen();
+    let execution = QualificationLmdbProspectiveExecutionV1 {
+        source_commit: "dddddddddddddddddddddddddddddddddddddddd".to_owned(),
+        source_tree: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_owned(),
+        cargo_lock_sha256: qualification_cargo_lock_sha256(),
+        closure_manifest_sha256: QUALIFICATION_LMDB_PROOF_CLOSURE_SHA256_V1.to_owned(),
+        contract_schema: contract.schema.clone(),
+        contract_sha256: contract.canonical_sha256()?,
+        approved_proposal_sha256: contract.approved_proposal_sha256.clone(),
+        generator_schema: contract.derivation.generator_schema.clone(),
+        public_seed_hex: contract.derivation.public_seed_hex.clone(),
+        profile_id: super::QUALIFICATION_LMDB_PLAIN_PROFILE_ID_V1.to_owned(),
+        run_controls: contract.run_controls.clone(),
+    };
+    let mut shards = Vec::new();
+    for platform in QualificationProspectivePlatformV1::ALL {
+        let platform_requirement = contract
+            .platforms
+            .iter()
+            .find(|requirement| requirement.platform == platform)
+            .ok_or_else(|| "fixture platform is missing".to_owned())?;
+        let baseline_evidence_sha256 = contract
+            .derivation
+            .baseline_authorities
+            .iter()
+            .find(|authority| authority.platform == platform)
+            .ok_or_else(|| "fixture baseline authority is missing".to_owned())?
+            .evidence_sha256
+            .clone();
+        let mut runs = Vec::new();
+        for workload in QualificationProspectiveWorkloadV1::ALL {
+            let workload_requirement = contract
+                .workloads
+                .iter()
+                .find(|requirement| requirement.workload == workload)
+                .ok_or_else(|| "fixture workload is missing".to_owned())?;
+            for run_index in 1..=contract.run_controls.independent_runs {
+                let timing = if workload.timing_required() {
+                    contract
+                        .timing_thresholds
+                        .iter()
+                        .map(|threshold| QualificationProspectiveTimingEvidenceV1 {
+                            operation: threshold.operation,
+                            read_class: threshold.read_class,
+                            candidate_samples_nanos: vec![10_000; 30],
+                            baseline_samples_nanos: vec![10_000; 30],
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let mut allocations = Vec::new();
+                for scope in QualificationPerformanceAllocationScopeV2::ALL {
+                    for state in QualificationPerformanceInventoryStateV1::ALL {
+                        let (logical, candidate, baseline) = match workload {
+                            QualificationProspectiveWorkloadV1::P0
+                            | QualificationProspectiveWorkloadV1::M0 => {
+                                let logical = 1_000_000;
+                                let steady =
+                                    logical + contract.allocation.fixed_overhead_cap(scope);
+                                let candidate = if state
+                                    == QualificationPerformanceInventoryStateV1::HighWater
+                                {
+                                    steady + contract.allocation.peak_headroom_cap(scope)
+                                } else {
+                                    steady
+                                };
+                                (logical, candidate, candidate + 1_000_000)
+                            }
+                            QualificationProspectiveWorkloadV1::G0 => (8_000, 8_000, 10_000),
+                            QualificationProspectiveWorkloadV1::G1
+                            | QualificationProspectiveWorkloadV1::G2 => {
+                                let candidate = match scope {
+                                    QualificationPerformanceAllocationScopeV2::Event => 7_000,
+                                    QualificationPerformanceAllocationScopeV2::CompleteProfile => {
+                                        8_500
+                                    }
+                                };
+                                (candidate, candidate, 10_000)
+                            }
+                        };
+                        allocations.push(QualificationProspectiveAllocationEvidenceV1 {
+                            scope,
+                            state,
+                            candidate_logical_bytes: logical,
+                            candidate_allocated_bytes: candidate,
+                            baseline_allocated_bytes: baseline,
+                        });
+                    }
+                }
+                let maintenance = workload.savings_required().then(|| {
+                    QualificationProspectiveMaintenanceEvidenceV1 {
+                        required: false,
+                        foreground_samples_nanos: Vec::new(),
+                        total_nanos: 0,
+                        not_applicable_mechanism_proof_sha256: Some(sha256_bytes_hex(
+                            b"qualification-lmdb-plain-v1-has-no-maintenance-mechanism-v1",
+                        )),
+                    }
+                });
+                runs.push(QualificationProspectiveRunEvidenceV1 {
+                    platform,
+                    workload,
+                    run_index,
+                    manifest_sha256: workload_requirement.manifest_sha256.clone(),
+                    generator_spec_sha256: workload_requirement.generator_spec_sha256.clone(),
+                    operation_schedule_sha256: workload_requirement
+                        .operation_schedule_sha256
+                        .clone(),
+                    baseline_evidence_sha256: Some(baseline_evidence_sha256.clone()),
+                    allocation_api: platform_requirement.allocation_api.clone(),
+                    controls: QualificationProspectiveEvidenceControlsV1 {
+                        fresh_root: true,
+                        native_execution: true,
+                        quiesced_host: true,
+                        semantic_receipt_verified: true,
+                        durable_acknowledgement_verified: true,
+                        fresh_process_visibility_verified: true,
+                        carrier_inventory_complete: true,
+                    },
+                    semantic_receipt_sha256: sha256_bytes_hex(
+                        format!("{platform:?}-{workload:?}-{run_index}").as_bytes(),
+                    ),
+                    timing,
+                    allocations,
+                    maintenance,
+                });
+            }
+        }
+        let mut shard = QualificationLmdbProspectiveShardV1 {
+            schema: QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1.to_owned(),
+            execution: execution.clone(),
+            platform,
+            filesystem: platform_requirement.filesystem.clone(),
+            allocation_api: platform_requirement.allocation_api.clone(),
+            runs,
+            shard_sha256: String::new(),
+        };
+        shard.shard_sha256 = shard.canonical_sha256()?;
+        shard.validate()?;
+        shards.push(shard);
+    }
+    Ok(shards)
 }
 
 pub fn prospective_timing_limit_nanos_v1(
@@ -3088,6 +3669,13 @@ impl QualificationProspectiveEvidenceV1 {
         };
         evidence.evidence_sha256 = evidence.canonical_sha256().expect("fixture evidence hash");
         evidence
+    }
+}
+
+#[cfg(all(test, feature = "lmdb-proof"))]
+impl QualificationLmdbProspectiveShardV1 {
+    fn fixtures_for_tests() -> Vec<Self> {
+        qualification_lmdb_prospective_fixture_shards_v1().expect("fixture shards")
     }
 }
 
@@ -4195,6 +4783,1008 @@ fn loose_baseline_allocation_snapshots_v1(
         }
     }
     Ok(snapshots)
+}
+
+#[cfg(feature = "lmdb-proof")]
+const QUALIFICATION_LMDB_PROSPECTIVE_OPEN_REQUEST_SCHEMA_V1: &str =
+    "pointbreak.qualification-lmdb-prospective-open-request.v1";
+
+#[cfg(feature = "lmdb-proof")]
+type ProspectiveTimingSamplesV1 = BTreeMap<
+    (
+        QualificationLooseBaselineOperationV1,
+        Option<QualificationKeyedReadClassV1>,
+    ),
+    (Vec<u64>, Vec<u64>),
+>;
+
+#[cfg(feature = "lmdb-proof")]
+type ProspectiveInventoryMapV1 = BTreeMap<
+    QualificationPerformanceAllocationScopeV2,
+    (
+        QualificationPerformanceInventoryV2,
+        QualificationPerformanceInventoryV2,
+    ),
+>;
+
+#[cfg(feature = "lmdb-proof")]
+pub fn run_qualification_lmdb_prospective_smoke_v1(
+    executable: &Path,
+    root: &Path,
+) -> Result<QualificationLmdbProspectiveSmokeV1, String> {
+    if std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS").is_some()
+        || !executable.is_file()
+        || root.exists()
+        || root.parent().is_none_or(|parent| !parent.is_dir())
+    {
+        return Err("LMDB prospective smoke configuration is invalid".to_owned());
+    }
+    fs::create_dir(root).map_err(|_| "LMDB prospective smoke root creation failed".to_owned())?;
+    let semantic_smoke = run_qualification_lmdb_smoke_v1(&root.join("semantic"))
+        .map_err(|_| "LMDB prospective semantic preflight failed".to_owned())?;
+    let lifecycle_smoke =
+        run_qualification_lmdb_lifecycle_smoke_v1(executable, &root.join("lifecycle"))
+            .map_err(|_| "LMDB prospective lifecycle preflight failed".to_owned())?;
+    let shards = qualification_lmdb_prospective_fixture_shards_v1()?;
+    let package = QualificationLmdbProspectivePackageV1::assemble(&shards)?;
+    let report = QualificationLmdbProspectiveSmokeV1 {
+        schema: QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_SCHEMA_V1.to_owned(),
+        mode: "non_timing_runner_package".to_owned(),
+        shard_schema: QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1.to_owned(),
+        package_schema: QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_SCHEMA_V1.to_owned(),
+        evidence_schema: QUALIFICATION_PROSPECTIVE_EVIDENCE_SCHEMA_V1.to_owned(),
+        evaluation_schema: QUALIFICATION_PROSPECTIVE_EVALUATION_SCHEMA_V1.to_owned(),
+        profile_id: super::QUALIFICATION_LMDB_PLAIN_PROFILE_ID_V1.to_owned(),
+        contract_sha256: package.execution.contract_sha256.clone(),
+        semantic_smoke,
+        lifecycle_smoke,
+        shard_sha256: shards
+            .iter()
+            .map(|shard| shard.shard_sha256.clone())
+            .collect(),
+        evidence_sha256: package.evidence.evidence_sha256.clone(),
+        evaluation_sha256: package.evaluation_sha256.clone(),
+        package_sha256: package.package_sha256.clone(),
+        deterministic_fixture_only: true,
+        normative_measurement_collected: false,
+    };
+    report.validate()?;
+    Ok(report)
+}
+
+#[cfg(feature = "lmdb-proof")]
+pub fn run_qualification_lmdb_prospective_open_child_v1(request_path: &Path) -> Result<(), String> {
+    let bytes = fs::read(request_path)
+        .map_err(|_| "LMDB prospective open request could not be read".to_owned())?;
+    let request: QualificationLmdbProspectiveOpenRequestV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| "LMDB prospective open request is invalid".to_owned())?;
+    if request.schema != QUALIFICATION_LMDB_PROSPECTIVE_OPEN_REQUEST_SCHEMA_V1
+        || !request.source_root.is_dir()
+        || request.result_path.exists()
+        || request
+            .result_path
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+    {
+        return Err("LMDB prospective open request is invalid".to_owned());
+    }
+    let profile = LmdbQualificationProfile::open(&request.source_root)
+        .map_err(|_| "LMDB prospective child profile open failed".to_owned())?;
+    let receipt = profile
+        .exact_receipt()
+        .map_err(|_| "LMDB prospective child receipt failed".to_owned())?;
+    write_json_new_synced(&request.result_path, &receipt)
+}
+
+#[cfg(feature = "lmdb-proof")]
+pub fn run_qualification_lmdb_prospective_evidence_v1(
+    configuration: &QualificationLmdbProspectiveEvidenceConfigurationV1,
+) -> Result<QualificationLmdbProspectiveShardV1, String> {
+    validate_lmdb_prospective_configuration_v1(configuration)?;
+    fs::create_dir(&configuration.root)
+        .map_err(|_| "LMDB prospective evidence root creation failed".to_owned())?;
+    run_qualification_lmdb_smoke_v1(&configuration.root.join("semantic-preflight"))
+        .map_err(|_| "LMDB prospective semantic preflight failed".to_owned())?;
+    run_qualification_lmdb_lifecycle_smoke_v1(
+        &configuration.executable,
+        &configuration.root.join("lifecycle-preflight"),
+    )
+    .map_err(|_| "LMDB prospective lifecycle preflight failed".to_owned())?;
+
+    let platform = lmdb_prospective_platform_v1(&configuration.root)?;
+    let contract = QualificationProspectiveContractV1::frozen();
+    let platform_requirement = contract
+        .platforms
+        .iter()
+        .find(|requirement| requirement.platform == platform)
+        .ok_or_else(|| "LMDB prospective platform is unsupported".to_owned())?;
+    let baseline_evidence_sha256 = contract
+        .derivation
+        .baseline_authorities
+        .iter()
+        .find(|authority| authority.platform == platform)
+        .ok_or_else(|| "LMDB prospective baseline authority is missing".to_owned())?
+        .evidence_sha256
+        .clone();
+    let mut runs = Vec::new();
+    for workload in QualificationProspectiveWorkloadV1::ALL {
+        let (manifest, schedule) = lmdb_prospective_workload_v1(workload)?;
+        for run_index in 1..=contract.run_controls.independent_runs {
+            let case_root = configuration.root.join(format!(
+                "{}-independent-{run_index}",
+                prospective_workload_label_v1(workload)
+            ));
+            fs::create_dir(&case_root)
+                .map_err(|_| "LMDB prospective case root creation failed".to_owned())?;
+            runs.push(run_lmdb_prospective_case_v1(
+                configuration,
+                platform,
+                workload,
+                run_index,
+                &manifest,
+                schedule.as_ref(),
+                &case_root,
+                &baseline_evidence_sha256,
+                &platform_requirement.allocation_api,
+            )?);
+        }
+    }
+    let mut shard = QualificationLmdbProspectiveShardV1 {
+        schema: QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1.to_owned(),
+        execution: configuration.execution.clone(),
+        platform,
+        filesystem: platform_requirement.filesystem.clone(),
+        allocation_api: platform_requirement.allocation_api.clone(),
+        runs,
+        shard_sha256: String::new(),
+    };
+    shard.shard_sha256 = shard.canonical_sha256()?;
+    shard.validate()?;
+    Ok(shard)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn validate_lmdb_prospective_configuration_v1(
+    configuration: &QualificationLmdbProspectiveEvidenceConfigurationV1,
+) -> Result<(), String> {
+    if std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS").is_some()
+        || !configuration.executable.is_file()
+        || configuration.root.exists()
+        || configuration
+            .root
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+        || !configuration.quiesced_host
+        || env!("POINTBREAK_BUILD_DIRTY") == "true"
+    {
+        return Err("LMDB prospective evidence configuration is not proof-eligible".to_owned());
+    }
+    let expected = qualification_lmdb_prospective_execution_v1()?;
+    if configuration.execution != expected {
+        return Err("LMDB prospective evidence execution identity is stale".to_owned());
+    }
+    let filesystem = qualification_filesystem_name(
+        configuration
+            .root
+            .parent()
+            .ok_or_else(|| "LMDB prospective evidence root has no parent".to_owned())?,
+    );
+    if lmdb_prospective_platform_for_v1(std::env::consts::OS, &filesystem).is_none()
+        || classify_qualification_filesystem(&filesystem)
+            != QualificationFilesystemDispositionV1::LocalProofEligible
+    {
+        return Err("LMDB prospective evidence requires a supported native filesystem".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_platform_v1(root: &Path) -> Result<QualificationProspectivePlatformV1, String> {
+    let filesystem = qualification_filesystem_name(root);
+    lmdb_prospective_platform_for_v1(std::env::consts::OS, &filesystem)
+        .ok_or_else(|| "LMDB prospective evidence platform is unsupported".to_owned())
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_platform_for_v1(
+    operating_system: &str,
+    filesystem: &str,
+) -> Option<QualificationProspectivePlatformV1> {
+    match (operating_system, filesystem) {
+        ("macos", "apfs") => Some(QualificationProspectivePlatformV1::MacosApfs),
+        ("linux", "ext4") => Some(QualificationProspectivePlatformV1::LinuxExt4),
+        ("windows", "ntfs") => Some(QualificationProspectivePlatformV1::WindowsNtfs),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_workload_v1(
+    workload: QualificationProspectiveWorkloadV1,
+) -> Result<
+    (
+        QualificationCorpusManifestV1,
+        Option<super::QualificationOperationScheduleV1>,
+    ),
+    String,
+> {
+    match workload {
+        QualificationProspectiveWorkloadV1::P0 => synthetic_legacy_manifest()
+            .map(|manifest| (manifest, None))
+            .map_err(|_| "LMDB prospective P0 workload is invalid".to_owned()),
+        QualificationProspectiveWorkloadV1::M0 => modeled_post_foundation_manifest()
+            .map(|manifest| (manifest, None))
+            .map_err(|_| "LMDB prospective M0 workload is invalid".to_owned()),
+        QualificationProspectiveWorkloadV1::G0 => {
+            generated_loose_baseline_inputs_v1(QualificationGeneratedWorkloadV1::G0)
+                .map(|(manifest, schedule)| (manifest, Some(schedule)))
+        }
+        QualificationProspectiveWorkloadV1::G1 => {
+            generated_loose_baseline_inputs_v1(QualificationGeneratedWorkloadV1::G1)
+                .map(|(manifest, schedule)| (manifest, Some(schedule)))
+        }
+        QualificationProspectiveWorkloadV1::G2 => {
+            generated_loose_baseline_inputs_v1(QualificationGeneratedWorkloadV1::G2)
+                .map(|(manifest, schedule)| (manifest, Some(schedule)))
+        }
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn prospective_workload_label_v1(workload: QualificationProspectiveWorkloadV1) -> &'static str {
+    match workload {
+        QualificationProspectiveWorkloadV1::P0 => "p0",
+        QualificationProspectiveWorkloadV1::M0 => "m0",
+        QualificationProspectiveWorkloadV1::G0 => "g0",
+        QualificationProspectiveWorkloadV1::G1 => "g1",
+        QualificationProspectiveWorkloadV1::G2 => "g2",
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[allow(clippy::too_many_arguments)]
+fn run_lmdb_prospective_case_v1(
+    configuration: &QualificationLmdbProspectiveEvidenceConfigurationV1,
+    platform: QualificationProspectivePlatformV1,
+    workload: QualificationProspectiveWorkloadV1,
+    run_index: u32,
+    manifest: &QualificationCorpusManifestV1,
+    schedule: Option<&super::QualificationOperationScheduleV1>,
+    case_root: &Path,
+    baseline_evidence_sha256: &str,
+    allocation_api: &str,
+) -> Result<QualificationProspectiveRunEvidenceV1, String> {
+    let contract = QualificationProspectiveContractV1::frozen();
+    let timing_required = workload.timing_required();
+    let workload_requirement = contract
+        .workloads
+        .iter()
+        .find(|requirement| requirement.workload == workload)
+        .ok_or_else(|| "LMDB prospective workload contract is missing".to_owned())?;
+    if manifest.manifest_sha256 != workload_requirement.manifest_sha256
+        || schedule.map(|value| value.schedule_sha256.as_str())
+            != workload_requirement.operation_schedule_sha256.as_deref()
+    {
+        return Err("LMDB prospective workload identity has drifted".to_owned());
+    }
+    if timing_required {
+        let schedule = schedule
+            .ok_or_else(|| "LMDB prospective timing workload has no schedule".to_owned())?;
+        let warmup_root = case_root.join("warmup");
+        run_lmdb_prospective_series_v1(
+            &configuration.executable,
+            workload,
+            manifest,
+            Some(schedule),
+            &warmup_root,
+            contract.run_controls.warmup_iterations,
+            false,
+        )?;
+        fs::remove_dir_all(&warmup_root)
+            .map_err(|_| "LMDB prospective warm-up cleanup failed".to_owned())?;
+    }
+    let measured_root = case_root.join("measurement");
+    let series = run_lmdb_prospective_series_v1(
+        &configuration.executable,
+        workload,
+        manifest,
+        schedule,
+        &measured_root,
+        if timing_required {
+            contract.run_controls.measured_iterations
+        } else {
+            0
+        },
+        timing_required,
+    )?;
+    let timing = contract
+        .timing_thresholds
+        .iter()
+        .filter(|_| timing_required)
+        .map(|threshold| {
+            let key = (threshold.operation, threshold.read_class);
+            let (candidate, baseline) = series
+                .timing
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| "LMDB prospective timing axis is missing".to_owned())?;
+            Ok(QualificationProspectiveTimingEvidenceV1 {
+                operation: threshold.operation,
+                read_class: threshold.read_class,
+                candidate_samples_nanos: candidate,
+                baseline_samples_nanos: baseline,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let maintenance =
+        workload
+            .savings_required()
+            .then(|| QualificationProspectiveMaintenanceEvidenceV1 {
+                required: false,
+                foreground_samples_nanos: Vec::new(),
+                total_nanos: 0,
+                not_applicable_mechanism_proof_sha256: Some(sha256_bytes_hex(
+                    b"qualification-lmdb-plain-v1-has-no-maintenance-mechanism-v1",
+                )),
+            });
+    Ok(QualificationProspectiveRunEvidenceV1 {
+        platform,
+        workload,
+        run_index,
+        manifest_sha256: workload_requirement.manifest_sha256.clone(),
+        generator_spec_sha256: workload_requirement.generator_spec_sha256.clone(),
+        operation_schedule_sha256: workload_requirement.operation_schedule_sha256.clone(),
+        baseline_evidence_sha256: Some(baseline_evidence_sha256.to_owned()),
+        allocation_api: allocation_api.to_owned(),
+        controls: QualificationProspectiveEvidenceControlsV1 {
+            fresh_root: true,
+            native_execution: true,
+            quiesced_host: configuration.quiesced_host,
+            semantic_receipt_verified: true,
+            durable_acknowledgement_verified: true,
+            fresh_process_visibility_verified: true,
+            carrier_inventory_complete: true,
+        },
+        semantic_receipt_sha256: series.semantic_receipt_sha256,
+        timing,
+        allocations: series.allocations,
+        maintenance,
+    })
+}
+
+#[cfg(feature = "lmdb-proof")]
+struct LmdbProspectiveSeriesV1 {
+    timing: ProspectiveTimingSamplesV1,
+    allocations: Vec<QualificationProspectiveAllocationEvidenceV1>,
+    semantic_receipt_sha256: String,
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn run_lmdb_prospective_series_v1(
+    executable: &Path,
+    workload: QualificationProspectiveWorkloadV1,
+    manifest: &QualificationCorpusManifestV1,
+    schedule: Option<&super::QualificationOperationScheduleV1>,
+    root: &Path,
+    iterations: u32,
+    retain_timing: bool,
+) -> Result<LmdbProspectiveSeriesV1, String> {
+    fs::create_dir(root).map_err(|_| "LMDB prospective series root creation failed".to_owned())?;
+    let candidate_root = root.join("candidate");
+    let baseline_root = root.join("baseline");
+    let candidate = LmdbQualificationProfile::open(&candidate_root)
+        .map_err(|_| "LMDB prospective candidate open failed".to_owned())?;
+    populate_profile(&candidate, manifest)
+        .map_err(|_| "LMDB prospective candidate population failed".to_owned())?;
+    let baseline = LooseQualificationPerformanceProbe::create(baseline_root.clone(), manifest)
+        .map_err(|_| "LMDB prospective baseline population failed".to_owned())?;
+    let mut timing = ProspectiveTimingSamplesV1::new();
+    let mut candidate_high_water = BTreeMap::new();
+    let mut baseline_high_water = BTreeMap::new();
+    let (event_base, complete_base) = prospective_logical_bytes_v1(manifest, schedule, 0)?;
+    capture_prospective_inventories_v1(
+        &candidate_root,
+        &baseline_root,
+        event_base,
+        complete_base,
+        &mut candidate_high_water,
+        &mut baseline_high_water,
+    )?;
+    if iterations > 0 {
+        let schedule = schedule
+            .ok_or_else(|| "LMDB prospective measured series has no schedule".to_owned())?;
+        for iteration in 0..iterations {
+            run_lmdb_prospective_iteration_v1(
+                executable,
+                &candidate,
+                &candidate_root,
+                &baseline,
+                workload,
+                manifest,
+                schedule,
+                iteration,
+                root,
+                &mut timing,
+            )?;
+            let (event_logical, complete_logical) =
+                prospective_logical_bytes_v1(manifest, Some(schedule), iteration + 1)?;
+            capture_prospective_inventories_v1(
+                &candidate_root,
+                &baseline_root,
+                event_logical,
+                complete_logical,
+                &mut candidate_high_water,
+                &mut baseline_high_water,
+            )?;
+        }
+    }
+    if !retain_timing {
+        timing.clear();
+    }
+    let (event_logical, complete_logical) =
+        prospective_logical_bytes_v1(manifest, schedule, iterations)?;
+    let steady = capture_prospective_inventories_v1(
+        &candidate_root,
+        &baseline_root,
+        event_logical,
+        complete_logical,
+        &mut candidate_high_water,
+        &mut baseline_high_water,
+    )?;
+    let expected_candidate_receipt = candidate
+        .exact_receipt()
+        .map_err(|_| "LMDB prospective candidate receipt failed".to_owned())?;
+    let semantic_receipt_sha256 = prospective_semantic_receipt_v1(
+        &candidate,
+        &baseline,
+        manifest,
+        &expected_candidate_receipt,
+    )?;
+    drop(candidate);
+    let reopened_candidate = LmdbQualificationProfile::open(&candidate_root)
+        .map_err(|_| "LMDB prospective candidate reopen failed".to_owned())?;
+    reopened_candidate
+        .journal()
+        .integrity_check()
+        .map_err(|_| "LMDB prospective candidate reopen integrity failed".to_owned())?;
+    if reopened_candidate
+        .exact_receipt()
+        .map_err(|_| "LMDB prospective reopened receipt failed".to_owned())?
+        != expected_candidate_receipt
+    {
+        return Err("LMDB prospective reopened receipt changed".to_owned());
+    }
+    let reopened_child =
+        spawn_lmdb_prospective_open_receipt_v1(executable, &candidate_root, root, "final")?.1;
+    if reopened_child != expected_candidate_receipt {
+        return Err("LMDB prospective fresh-process receipt changed".to_owned());
+    }
+    spawn_loose_baseline_open_receipt_v1(executable, &baseline_root, root, "final")?;
+    let reopened = capture_prospective_inventories_v1(
+        &candidate_root,
+        &baseline_root,
+        event_logical,
+        complete_logical,
+        &mut candidate_high_water,
+        &mut baseline_high_water,
+    )?;
+    let allocations = prospective_allocation_evidence_v1(
+        &steady,
+        &reopened,
+        &candidate_high_water,
+        &baseline_high_water,
+    )?;
+    Ok(LmdbProspectiveSeriesV1 {
+        timing,
+        allocations,
+        semantic_receipt_sha256,
+    })
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[allow(clippy::too_many_arguments)]
+fn run_lmdb_prospective_iteration_v1(
+    executable: &Path,
+    candidate: &LmdbQualificationProfile,
+    candidate_root: &Path,
+    baseline: &LooseQualificationPerformanceProbe,
+    workload: QualificationProspectiveWorkloadV1,
+    manifest: &QualificationCorpusManifestV1,
+    schedule: &super::QualificationOperationScheduleV1,
+    iteration: u32,
+    control_root: &Path,
+    timing: &mut ProspectiveTimingSamplesV1,
+) -> Result<(), String> {
+    let append_index = *schedule
+        .append_record_indices
+        .get(iteration as usize)
+        .ok_or_else(|| "LMDB prospective append schedule is incomplete".to_owned())?;
+    let append_record = manifest
+        .records
+        .get(append_index as usize)
+        .ok_or_else(|| "LMDB prospective append record is missing".to_owned())?;
+    let append_key = format!(
+        "qualification/prospective/{}/append-{iteration:08}",
+        prospective_workload_label_v1(workload)
+    );
+    let (candidate_elapsed, baseline_elapsed) = prospective_paired_timing_v1(
+        iteration,
+        || {
+            let started = Instant::now();
+            let outcome = candidate
+                .journal()
+                .create_once(&append_key, &append_record.decoded_bytes)
+                .map_err(|_| "LMDB prospective append failed".to_owned())?;
+            if outcome != super::QualificationCreateOutcome::Created
+                || candidate
+                    .journal()
+                    .read(&append_key)
+                    .map_err(|_| "LMDB prospective append readback failed".to_owned())?
+                    .is_none_or(|entry| entry.decoded_bytes != append_record.decoded_bytes)
+            {
+                return Err("LMDB prospective append receipt differed".to_owned());
+            }
+            Ok(elapsed_nanos(started))
+        },
+        || {
+            let started = Instant::now();
+            let path = baseline_record_path(
+                &baseline.root,
+                &append_key,
+                QualificationRecordKindV1::LegacyEvent,
+            );
+            write_new_synced(&path, &append_record.decoded_bytes)?;
+            baseline.record_legacy_append(&append_record.decoded_bytes);
+            let bytes = fs::read(path)
+                .map_err(|_| "LMDB prospective baseline append readback failed".to_owned())?;
+            if bytes != append_record.decoded_bytes {
+                return Err("LMDB prospective baseline append receipt differed".to_owned());
+            }
+            Ok(elapsed_nanos(started))
+        },
+    )?;
+    push_prospective_timing_v1(
+        timing,
+        QualificationLooseBaselineOperationV1::DurableAppend,
+        None,
+        candidate_elapsed,
+        baseline_elapsed,
+    );
+
+    let (candidate_elapsed, baseline_elapsed) = prospective_paired_timing_v1(
+        iteration,
+        || {
+            let started = Instant::now();
+            let aggregate = lmdb_prospective_event_aggregate_v1(candidate)?;
+            std::hint::black_box(&aggregate.receipt_sha256);
+            Ok(elapsed_nanos(started))
+        },
+        || {
+            let started = Instant::now();
+            let aggregate = loose_baseline_event_aggregate_v1(&baseline.root)?;
+            std::hint::black_box(&aggregate.receipt_sha256);
+            Ok(elapsed_nanos(started))
+        },
+    )?;
+    push_prospective_timing_v1(
+        timing,
+        QualificationLooseBaselineOperationV1::StrictReplay,
+        None,
+        candidate_elapsed,
+        baseline_elapsed,
+    );
+
+    let expected_candidate_open = candidate
+        .exact_receipt()
+        .map_err(|_| "LMDB prospective open expectation failed".to_owned())?;
+    let baseline_aggregate = loose_baseline_event_aggregate_v1(&baseline.root)?;
+    let expected_baseline_open = loose_baseline_receipt_v1(
+        QualificationLooseBaselineReceiptKindV1::FreshProcessOpenExact,
+        baseline_aggregate.record_count,
+        baseline_aggregate.logical_byte_count,
+        &baseline_aggregate.receipt_sha256,
+    )?;
+    let (candidate_elapsed, baseline_elapsed) = prospective_paired_timing_v1(
+        iteration,
+        || {
+            let started = Instant::now();
+            let receipt = spawn_lmdb_prospective_open_receipt_v1(
+                executable,
+                candidate_root,
+                control_root,
+                &format!("measured-{iteration}"),
+            )
+            .map(|(_, receipt)| receipt)?;
+            if receipt != expected_candidate_open {
+                return Err("LMDB prospective open receipt differed".to_owned());
+            }
+            Ok(elapsed_nanos(started))
+        },
+        || {
+            let started = Instant::now();
+            let receipt = spawn_loose_baseline_open_receipt_v1(
+                executable,
+                &baseline.root,
+                control_root,
+                &format!("measured-{iteration}"),
+            )
+            .map(|(_, receipt)| receipt)?;
+            if receipt != expected_baseline_open {
+                return Err("LMDB prospective baseline open receipt differed".to_owned());
+            }
+            Ok(elapsed_nanos(started))
+        },
+    )?;
+    push_prospective_timing_v1(
+        timing,
+        QualificationLooseBaselineOperationV1::FreshProcessOpenRecovery,
+        None,
+        candidate_elapsed,
+        baseline_elapsed,
+    );
+
+    for scheduled_read in &schedule.keyed_reads {
+        let expected = manifest
+            .records
+            .iter()
+            .find(|record| record.logical_key == scheduled_read.logical_key);
+        let (candidate_elapsed, baseline_elapsed) = prospective_paired_timing_v1(
+            iteration,
+            || {
+                let started = Instant::now();
+                verify_lmdb_prospective_candidate_read_v1(
+                    candidate,
+                    &scheduled_read.logical_key,
+                    expected,
+                )?;
+                Ok(elapsed_nanos(started))
+            },
+            || {
+                let started = Instant::now();
+                verify_lmdb_prospective_baseline_read_v1(
+                    &baseline.root,
+                    &scheduled_read.logical_key,
+                    expected,
+                )?;
+                Ok(elapsed_nanos(started))
+            },
+        )?;
+        push_prospective_timing_v1(
+            timing,
+            QualificationLooseBaselineOperationV1::KeyedRead,
+            Some(scheduled_read.class),
+            candidate_elapsed,
+            baseline_elapsed,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn prospective_paired_timing_v1(
+    iteration: u32,
+    candidate: impl FnOnce() -> Result<u64, String>,
+    baseline: impl FnOnce() -> Result<u64, String>,
+) -> Result<(u64, u64), String> {
+    if iteration.is_multiple_of(2) {
+        Ok((candidate()?, baseline()?))
+    } else {
+        let baseline = baseline()?;
+        Ok((candidate()?, baseline))
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn push_prospective_timing_v1(
+    timing: &mut ProspectiveTimingSamplesV1,
+    operation: QualificationLooseBaselineOperationV1,
+    read_class: Option<QualificationKeyedReadClassV1>,
+    candidate: u64,
+    baseline: u64,
+) {
+    let samples = timing.entry((operation, read_class)).or_default();
+    samples.0.push(candidate);
+    samples.1.push(baseline);
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn verify_lmdb_prospective_candidate_read_v1(
+    profile: &LmdbQualificationProfile,
+    logical_key: &str,
+    expected: Option<&super::QualificationRecordV1>,
+) -> Result<(), String> {
+    let (journal, content) = (
+        profile
+            .journal()
+            .read(logical_key)
+            .map_err(|_| "LMDB prospective keyed journal read failed".to_owned())?,
+        profile
+            .read_content(logical_key)
+            .map_err(|_| "LMDB prospective keyed content read failed".to_owned())?,
+    );
+    match expected {
+        None if journal.is_none() && content.is_none() => Ok(()),
+        Some(expected) => {
+            let actual = if is_journal_record(expected.record_kind) {
+                journal
+            } else {
+                content
+            }
+            .ok_or_else(|| "LMDB prospective keyed read omitted a record".to_owned())?;
+            if actual.decoded_bytes != expected.decoded_bytes {
+                return Err("LMDB prospective keyed read returned different bytes".to_owned());
+            }
+            std::hint::black_box(Sha256::digest(&actual.decoded_bytes));
+            Ok(())
+        }
+        None => Err("LMDB prospective absent keyed read returned a record".to_owned()),
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn verify_lmdb_prospective_baseline_read_v1(
+    root: &Path,
+    logical_key: &str,
+    expected: Option<&super::QualificationRecordV1>,
+) -> Result<(), String> {
+    match expected {
+        Some(expected) => {
+            let bytes = fs::read(baseline_record_path(
+                root,
+                logical_key,
+                expected.record_kind,
+            ))
+            .map_err(|_| "LMDB prospective baseline keyed read failed".to_owned())?;
+            if bytes != expected.decoded_bytes {
+                return Err(
+                    "LMDB prospective baseline keyed read returned different bytes".to_owned(),
+                );
+            }
+            std::hint::black_box(Sha256::digest(&bytes));
+            Ok(())
+        }
+        None => {
+            if [
+                QualificationRecordKindV1::LegacyEvent,
+                QualificationRecordKindV1::GenerationProposal,
+                QualificationRecordKindV1::RelationAttestation,
+                QualificationRecordKindV1::FactPort,
+                QualificationRecordKindV1::ObjectArtifact,
+                QualificationRecordKindV1::NoteBody,
+                QualificationRecordKindV1::RelationProof,
+                QualificationRecordKindV1::DocumentManifest,
+                QualificationRecordKindV1::DocumentBlob,
+            ]
+            .into_iter()
+            .any(|kind| baseline_record_path(root, logical_key, kind).exists())
+            {
+                Err("LMDB prospective baseline absent read returned a record".to_owned())
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn spawn_lmdb_prospective_open_receipt_v1(
+    executable: &Path,
+    source_root: &Path,
+    control_root: &Path,
+    label: &str,
+) -> Result<(u64, LmdbExactReceiptV1), String> {
+    let control = control_root.join("lmdb-open-controls");
+    fs::create_dir_all(&control)
+        .map_err(|_| "LMDB prospective open control creation failed".to_owned())?;
+    let request_path = control.join(format!("{label}-request.json"));
+    let result_path = control.join(format!("{label}-result.json"));
+    write_json_new_synced(
+        &request_path,
+        &QualificationLmdbProspectiveOpenRequestV1 {
+            schema: QUALIFICATION_LMDB_PROSPECTIVE_OPEN_REQUEST_SCHEMA_V1.to_owned(),
+            source_root: source_root.to_path_buf(),
+            result_path: result_path.clone(),
+        },
+    )?;
+    let started = Instant::now();
+    let output = Command::new(executable)
+        .arg("--lmdb-prospective-open-child")
+        .arg(&request_path)
+        .output()
+        .map_err(|_| "LMDB prospective open child could not start".to_owned())?;
+    let elapsed = elapsed_nanos(started);
+    if !output.status.success() {
+        return Err("LMDB prospective open child failed".to_owned());
+    }
+    let receipt: LmdbExactReceiptV1 = serde_json::from_slice(
+        &fs::read(&result_path)
+            .map_err(|_| "LMDB prospective open result could not be read".to_owned())?,
+    )
+    .map_err(|_| "LMDB prospective open result is invalid".to_owned())?;
+    fs::remove_file(&request_path)
+        .and_then(|_| fs::remove_file(&result_path))
+        .map_err(|_| "LMDB prospective open control cleanup failed".to_owned())?;
+    Ok((elapsed, receipt))
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn prospective_logical_bytes_v1(
+    manifest: &QualificationCorpusManifestV1,
+    schedule: Option<&super::QualificationOperationScheduleV1>,
+    appended_iterations: u32,
+) -> Result<(u64, u64), String> {
+    let event_base = manifest
+        .records
+        .iter()
+        .filter(|record| is_journal_record(record.record_kind))
+        .try_fold(0_u64, |total, record| {
+            total.checked_add(record.decoded_bytes.len() as u64)
+        })
+        .ok_or_else(|| "LMDB prospective event logical bytes overflow".to_owned())?;
+    let complete_base = manifest
+        .records
+        .iter()
+        .try_fold(0_u64, |total, record| {
+            total.checked_add(record.decoded_bytes.len() as u64)
+        })
+        .ok_or_else(|| "LMDB prospective complete logical bytes overflow".to_owned())?;
+    let appended = schedule
+        .into_iter()
+        .flat_map(|schedule| schedule.append_record_indices.iter())
+        .take(appended_iterations as usize)
+        .try_fold(0_u64, |total, index| {
+            manifest
+                .records
+                .get(*index as usize)
+                .and_then(|record| total.checked_add(record.decoded_bytes.len() as u64))
+        })
+        .ok_or_else(|| "LMDB prospective append logical bytes are invalid".to_owned())?;
+    Ok((event_base + appended, complete_base + appended))
+}
+
+#[cfg(feature = "lmdb-proof")]
+#[allow(clippy::too_many_arguments)]
+fn capture_prospective_inventories_v1(
+    candidate_root: &Path,
+    baseline_root: &Path,
+    event_logical: u64,
+    complete_logical: u64,
+    candidate_high_water: &mut BTreeMap<QualificationPerformanceAllocationScopeV2, u64>,
+    baseline_high_water: &mut BTreeMap<QualificationPerformanceAllocationScopeV2, u64>,
+) -> Result<ProspectiveInventoryMapV1, String> {
+    let mut inventories = BTreeMap::new();
+    for scope in QualificationPerformanceAllocationScopeV2::ALL {
+        let logical = match scope {
+            QualificationPerformanceAllocationScopeV2::Event => event_logical,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile => complete_logical,
+        };
+        let mut candidate = scoped_native_inventory(candidate_root, scope, logical, 0)
+            .map_err(|_| "LMDB prospective candidate inventory failed".to_owned())?;
+        let mut baseline = scoped_native_inventory(baseline_root, scope, logical, 0)
+            .map_err(|_| "LMDB prospective baseline inventory failed".to_owned())?;
+        let candidate_peak = candidate_high_water.entry(scope).or_default();
+        *candidate_peak = (*candidate_peak).max(candidate.allocated_bytes);
+        candidate.high_water_bytes = *candidate_peak;
+        let baseline_peak = baseline_high_water.entry(scope).or_default();
+        *baseline_peak = (*baseline_peak).max(baseline.allocated_bytes);
+        baseline.high_water_bytes = *baseline_peak;
+        inventories.insert(scope, (candidate, baseline));
+    }
+    Ok(inventories)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn prospective_allocation_evidence_v1(
+    steady: &ProspectiveInventoryMapV1,
+    reopened: &ProspectiveInventoryMapV1,
+    candidate_high_water: &BTreeMap<QualificationPerformanceAllocationScopeV2, u64>,
+    baseline_high_water: &BTreeMap<QualificationPerformanceAllocationScopeV2, u64>,
+) -> Result<Vec<QualificationProspectiveAllocationEvidenceV1>, String> {
+    let mut rows = Vec::new();
+    for state in QualificationPerformanceInventoryStateV1::ALL {
+        let source = if state == QualificationPerformanceInventoryStateV1::Reopened {
+            reopened
+        } else {
+            steady
+        };
+        for scope in QualificationPerformanceAllocationScopeV2::ALL {
+            let (candidate, baseline) = source
+                .get(&scope)
+                .ok_or_else(|| "LMDB prospective allocation inventory is missing".to_owned())?;
+            rows.push(QualificationProspectiveAllocationEvidenceV1 {
+                scope,
+                state,
+                candidate_logical_bytes: candidate.logical_bytes,
+                candidate_allocated_bytes: if state
+                    == QualificationPerformanceInventoryStateV1::HighWater
+                {
+                    *candidate_high_water.get(&scope).ok_or_else(|| {
+                        "LMDB prospective candidate high-water is missing".to_owned()
+                    })?
+                } else {
+                    candidate.allocated_bytes
+                },
+                baseline_allocated_bytes: if state
+                    == QualificationPerformanceInventoryStateV1::HighWater
+                {
+                    *baseline_high_water.get(&scope).ok_or_else(|| {
+                        "LMDB prospective baseline high-water is missing".to_owned()
+                    })?
+                } else {
+                    baseline.allocated_bytes
+                },
+            });
+        }
+    }
+    Ok(rows)
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn prospective_semantic_receipt_v1(
+    candidate: &LmdbQualificationProfile,
+    baseline: &LooseQualificationPerformanceProbe,
+    manifest: &QualificationCorpusManifestV1,
+    candidate_receipt: &LmdbExactReceiptV1,
+) -> Result<String, String> {
+    for record in &manifest.records {
+        verify_lmdb_prospective_candidate_read_v1(candidate, &record.logical_key, Some(record))?;
+        verify_lmdb_prospective_baseline_read_v1(
+            &baseline.root,
+            &record.logical_key,
+            Some(record),
+        )?;
+    }
+    let candidate_events = lmdb_prospective_event_aggregate_v1(candidate)?;
+    let baseline_events = loose_baseline_event_aggregate_v1(&baseline.root)?;
+    if candidate_events.record_count != baseline_events.record_count
+        || candidate_events.logical_byte_count != baseline_events.logical_byte_count
+        || candidate_events.receipt_sha256 != baseline_events.receipt_sha256
+    {
+        return Err("LMDB prospective candidate and baseline receipts differ".to_owned());
+    }
+    let value = serde_json::json!({
+        "candidateProfile": candidate_receipt.profile_id,
+        "journalRecords": candidate_events.record_count,
+        "journalLogicalBytes": candidate_events.logical_byte_count,
+        "journalReceiptSha256": candidate_events.receipt_sha256,
+        "contentRecords": candidate_receipt.content_records,
+        "contentLogicalBytes": candidate_receipt.content_logical_bytes,
+        "contentReceiptSha256": candidate_receipt.content_receipt_sha256,
+        "manifestSha256": manifest.manifest_sha256,
+    });
+    canonical_json_bytes(&value)
+        .map(|bytes| sha256_bytes_hex(&bytes))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_prospective_event_aggregate_v1(
+    profile: &LmdbQualificationProfile,
+) -> Result<LooseBaselineEventAggregateV1, String> {
+    let entries = profile
+        .journal()
+        .list()
+        .map_err(|_| "LMDB prospective replay failed".to_owned())?;
+    let record_count = entries.len() as u64;
+    let mut records = Vec::with_capacity(entries.len());
+    let mut logical_byte_count = 0_u64;
+    for entry in entries {
+        logical_byte_count = logical_byte_count
+            .checked_add(entry.decoded_bytes.len() as u64)
+            .ok_or_else(|| "LMDB prospective receipt bytes overflow".to_owned())?;
+        records.push((
+            sha256_bytes_hex(entry.logical_key.as_bytes()),
+            sha256_bytes_hex(&entry.decoded_bytes),
+        ));
+    }
+    records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let value = serde_json::to_value(records).map_err(|error| error.to_string())?;
+    let bytes = canonical_json_bytes(&value).map_err(|error| error.to_string())?;
+    Ok(LooseBaselineEventAggregateV1 {
+        record_count,
+        logical_byte_count,
+        receipt_sha256: sha256_bytes_hex(&bytes),
+    })
 }
 
 pub fn evaluate_qualification_performance_v2(
@@ -8054,7 +9644,7 @@ mod tests {
     }
 
     #[test]
-    fn prospective_contract_v1_missing_duplicate_stale_and_wrong_hash_evidence_fail_closed() {
+    fn prospective_contract_v1_missing_duplicate_malformed_and_wrong_hash_evidence_fail_closed() {
         let complete = QualificationProspectiveEvidenceV1::fixture_for_tests();
         let complete_evaluation =
             evaluate_qualification_prospective_v1(&complete).expect("complete evaluation");
@@ -8143,10 +9733,12 @@ mod tests {
             .expect("duplicate-timing evidence hash");
         assert!(evaluate_qualification_prospective_v1(&duplicate_timing).is_err());
 
-        let mut stale = complete.clone();
-        stale.source_commit = SOURCE_COMMIT.to_owned();
-        stale.evidence_sha256 = stale.canonical_sha256().expect("stale evidence hash");
-        assert!(evaluate_qualification_prospective_v1(&stale).is_err());
+        let mut malformed = complete.clone();
+        malformed.source_commit = "not-a-commit".to_owned();
+        malformed.evidence_sha256 = malformed
+            .canonical_sha256()
+            .expect("malformed evidence hash");
+        assert!(evaluate_qualification_prospective_v1(&malformed).is_err());
 
         let mut wrong_contract = complete.clone();
         wrong_contract.contract_sha256 = LOCK_SHA256.to_owned();
@@ -8158,6 +9750,110 @@ mod tests {
         let mut wrong_hash = complete;
         wrong_hash.evidence_sha256 = LOCK_SHA256.to_owned();
         assert!(evaluate_qualification_prospective_v1(&wrong_hash).is_err());
+    }
+
+    #[test]
+    fn prospective_evidence_v1_execution_identity_is_distinct_from_contract_derivation() {
+        let contract = QualificationProspectiveContractV1::frozen();
+        let mut evidence = QualificationProspectiveEvidenceV1::fixture_for_tests();
+        evidence.source_commit = SOURCE_COMMIT.to_owned();
+        evidence.source_tree = "cccccccccccccccccccccccccccccccccccccccc".to_owned();
+        evidence.cargo_lock_sha256 = LOCK_SHA256.to_owned();
+        evidence.evidence_sha256 = evidence
+            .canonical_sha256()
+            .expect("execution-bound evidence hash");
+
+        assert_ne!(
+            evidence.source_commit,
+            contract.derivation.pointbreak_commit
+        );
+        assert_ne!(evidence.source_tree, contract.derivation.pointbreak_tree);
+        assert_ne!(
+            evidence.cargo_lock_sha256,
+            contract.derivation.cargo_lock_sha256
+        );
+        evidence
+            .validate()
+            .expect("reviewed execution identity is not a derivation identity");
+    }
+
+    #[cfg(feature = "lmdb-proof")]
+    #[test]
+    fn lmdb_prospective_runner_and_package_surface_is_frozen() {
+        assert_eq!(
+            QUALIFICATION_LMDB_PROSPECTIVE_EVIDENCE_MODE_V1,
+            "--lmdb-prospective-evidence"
+        );
+        assert_eq!(
+            QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1,
+            "--lmdb-prospective-package"
+        );
+        assert_eq!(
+            QUALIFICATION_LMDB_PROSPECTIVE_SMOKE_MODE_V1,
+            "--lmdb-prospective-smoke"
+        );
+        assert_eq!(
+            QUALIFICATION_LMDB_PROSPECTIVE_SHARD_SCHEMA_V1,
+            "pointbreak.qualification-lmdb-prospective-evidence-shard.v1"
+        );
+        assert_eq!(
+            QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_SCHEMA_V1,
+            "pointbreak.qualification-lmdb-prospective-package.v1"
+        );
+
+        let shards = QualificationLmdbProspectiveShardV1::fixtures_for_tests();
+        let package = QualificationLmdbProspectivePackageV1::assemble(&shards)
+            .expect("three exact platform shards assemble");
+        package.validate().expect("assembled package validates");
+    }
+
+    #[cfg(feature = "lmdb-proof")]
+    #[test]
+    fn lmdb_prospective_assembly_rejects_missing_duplicate_stale_mixed_and_private_inputs() {
+        let shards = QualificationLmdbProspectiveShardV1::fixtures_for_tests();
+
+        assert!(QualificationLmdbProspectivePackageV1::assemble(&shards[..2]).is_err());
+
+        let mut duplicate_platform = shards.clone();
+        duplicate_platform[2] = duplicate_platform[0].clone();
+        assert!(QualificationLmdbProspectivePackageV1::assemble(&duplicate_platform).is_err());
+
+        let mut duplicate_run = shards.clone();
+        let repeated_run = duplicate_run[0].runs[0].clone();
+        duplicate_run[0].runs.push(repeated_run);
+        duplicate_run[0].shard_sha256 = duplicate_run[0]
+            .canonical_sha256()
+            .expect("duplicate-run shard hash");
+        assert!(QualificationLmdbProspectivePackageV1::assemble(&duplicate_run).is_err());
+
+        let mut stale = shards.clone();
+        stale[0].execution.closure_manifest_sha256 = LOCK_SHA256.to_owned();
+        stale[0].shard_sha256 = stale[0].canonical_sha256().expect("stale shard hash");
+        assert!(QualificationLmdbProspectivePackageV1::assemble(&stale).is_err());
+
+        let mut different_execution = shards[0].execution.clone();
+        different_execution.source_commit = SOURCE_COMMIT.to_owned();
+        assert!(
+            QualificationLmdbProspectivePackageV1::assemble_for_execution(
+                &shards,
+                &different_execution,
+            )
+            .is_err()
+        );
+
+        let mut mixed = shards.clone();
+        mixed[0].execution.source_commit = SOURCE_COMMIT.to_owned();
+        mixed[0].shard_sha256 = mixed[0].canonical_sha256().expect("mixed shard hash");
+        assert!(QualificationLmdbProspectivePackageV1::assemble(&mixed).is_err());
+
+        let private = br#"{"rootPath":"/Users/private/qualification"}"#;
+        let error = parse_qualification_lmdb_prospective_shard_v1(private)
+            .expect_err("private marker must be rejected");
+        assert_eq!(
+            error,
+            "LMDB prospective shard contains a forbidden private marker"
+        );
+        assert!(!error.contains("/Users/"));
     }
 
     #[test]
