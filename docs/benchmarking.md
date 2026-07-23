@@ -248,6 +248,11 @@ dirty, mixed-identity, or protected-environment destinations. Neither the smoke 
 selects storage, reads external store data, migrates a store, changes production routing, or makes an
 architecture verdict.
 
+Before allocating a longitudinal evidence root, build the product release and debug binaries, the
+benchmark controller, and any external evidence driver with mutually disjoint `CARGO_TARGET_DIR`
+values. Freeze and hash each executable before materialization so a later Cargo build cannot replace
+one lane's artifact with another lane's feature set or profile.
+
 ## Loose-profile baseline evidence
 
 The foundation target has a candidate-independent loose-profile runner. Its evidence document uses

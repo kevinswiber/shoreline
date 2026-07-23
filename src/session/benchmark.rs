@@ -1221,11 +1221,7 @@ impl BlockBuilderV1 {
     fn push_signature_carriers(&mut self, count: usize) -> Result<()> {
         let targets = self.events[1..self.events.len().min(9)].to_vec();
         for ordinal in 0..count {
-            let target_index = if ordinal == 1 {
-                0
-            } else {
-                ordinal % targets.len()
-            };
+            let target_index = signature_target_index(ordinal, targets.len());
             let target = &targets[target_index];
             let signer = deterministic_signer(ordinal % 4);
             let attesting_signer = signer.signer_id().clone();
@@ -2517,6 +2513,16 @@ fn engagement_supersedes(local: usize, ids: &[RevisionId]) -> Vec<RevisionId> {
     }
 }
 
+fn signature_target_index(ordinal: usize, target_count: usize) -> usize {
+    match ordinal {
+        // The frozen workload has two distinct signers attest the first target.
+        1 => 0,
+        // The first wrapped ordinal must not repeat ordinal zero's pair.
+        ordinal if ordinal == target_count => 1,
+        ordinal => ordinal % target_count,
+    }
+}
+
 fn body_domain_owned(domain: &str) -> &'static str {
     match domain {
         "observation" => "observation",
@@ -2566,6 +2572,18 @@ mod tests {
             0,
         ))
         .unwrap();
+        let signatures = signature_carriers(&record.events);
+        let signature_pairs = signature_pairs(&signatures);
+        let signature_targets = signatures.iter().fold(
+            BTreeMap::<&str, BTreeSet<&str>>::new(),
+            |mut targets, (_, payload)| {
+                targets
+                    .entry(payload.target_event_id.as_str())
+                    .or_default()
+                    .insert(payload.attesting_signer.as_str());
+                targets
+            },
+        );
         let by_type =
             record
                 .events
@@ -2619,6 +2637,7 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(record.events.len(), 256);
+        assert_record_identity_is_unique(&record.events);
         assert_eq!(record.revision_count, 12);
         assert_eq!(record.task_attempt_count, 4);
         assert_eq!(record.body_fact_count, 180);
@@ -2639,6 +2658,22 @@ mod tests {
         assert_eq!(by_type["task_checkpoint_captured"], 12);
         assert_eq!(by_type["task_observation_recorded"], 12);
         assert_eq!(by_type["event_signature_recorded"], 8);
+        assert_eq!(signatures.len(), 8);
+        assert_eq!(signature_pairs.len(), 8);
+        assert_eq!(
+            signature_targets
+                .values()
+                .filter(|signers| signers.len() == 2)
+                .count(),
+            1
+        );
+        assert_eq!(
+            signature_targets
+                .values()
+                .filter(|signers| signers.len() == 1)
+                .count(),
+            6
+        );
         assert_eq!(by_type["artifact_removed"], 3);
         assert_eq!(actors.len(), 8);
         assert_eq!(tracks.len(), 6);
@@ -2670,6 +2705,7 @@ mod tests {
             0,
         ))
         .unwrap();
+        let signatures = signature_carriers(&record.events);
         let proposals = record
             .events
             .iter()
@@ -2688,6 +2724,17 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(record.events.len(), 1_024);
+        assert_record_identity_is_unique(&record.events);
+        assert_eq!(signatures.len(), 10);
+        assert_eq!(signature_pairs(&signatures).len(), 10);
+        assert_eq!(
+            signatures
+                .iter()
+                .map(|(event, _)| event.event_id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            10
+        );
         assert_eq!(record.revision_count, 100);
         assert_eq!(record.object_artifact_count, 100);
         assert_eq!(record.external_body_count, 329);
@@ -2816,6 +2863,92 @@ mod tests {
             crate::session::read_events(repo.path()).unwrap().len(),
             1_034
         );
+    }
+
+    #[test]
+    fn longitudinal_append_sequence_preserves_unique_signature_carriers_per_burst() {
+        let repo = initialized_repo();
+        let execution = crate::bench_support::longitudinal::LongitudinalExecutionIdentityV1 {
+            source_commit: "0".repeat(40),
+            source_tree: "1".repeat(40),
+            cargo_lock_sha256: "2".repeat(64),
+            runner_sha256: "3".repeat(64),
+            build_profile: "append-sequence-test".to_owned(),
+            operating_system: std::env::consts::OS.to_owned(),
+            architecture: std::env::consts::ARCH.to_owned(),
+            filesystem: "disposable".to_owned(),
+            parent_commit: None,
+        };
+        crate::bench_support::longitudinal::materialize_longitudinal_workload_v1(
+            crate::bench_support::longitudinal::LongitudinalMaterializeOptionsV1::new(
+                repo.path(),
+                crate::bench_support::longitudinal::LongitudinalTierV1::L1,
+                execution,
+            ),
+        )
+        .unwrap();
+
+        let sequence = prepare_longitudinal_append_sequence_v1(repo.path(), 1).unwrap();
+
+        assert_eq!(sequence.events.len(), 330);
+        assert_record_identity_is_unique(&sequence.events);
+        for burst in sequence.events[30..].chunks_exact(30) {
+            let signatures = signature_carriers(burst);
+            assert_eq!(signatures.len(), 1);
+            assert_eq!(signature_pairs(&signatures).len(), 1);
+            assert!(burst.iter().any(|event| {
+                event.event_id == signatures[0].1.target_event_id
+                    && event.event_type != EventType::EventSignatureRecorded
+            }));
+        }
+    }
+
+    fn assert_record_identity_is_unique(events: &[ShoreEvent]) {
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.event_id.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            events.len()
+        );
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.idempotency_key.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
+            events.len()
+        );
+    }
+
+    fn signature_carriers(
+        events: &[ShoreEvent],
+    ) -> Vec<(&ShoreEvent, EventSignatureRecordedPayload)> {
+        events
+            .iter()
+            .filter(|event| event.event_type == EventType::EventSignatureRecorded)
+            .map(|event| {
+                (
+                    event,
+                    serde_json::from_value(event.payload.clone()).unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    fn signature_pairs<'a>(
+        signatures: &'a [(&ShoreEvent, EventSignatureRecordedPayload)],
+    ) -> BTreeSet<(&'a str, &'a str)> {
+        signatures
+            .iter()
+            .map(|(_, payload)| {
+                (
+                    payload.target_event_id.as_str(),
+                    payload.attesting_signer.as_str(),
+                )
+            })
+            .collect()
     }
 
     fn initialized_repo() -> tempfile::TempDir {
