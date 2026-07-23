@@ -186,7 +186,12 @@
               pkgs.makeWrapper
             ];
             postFixup = ''
-              wrapProgram "$out/bin/pointbreak" --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git ]}
+              # Keep the Nix-facing launcher wrapped with Git on PATH while also
+              # exposing the real executable for the standalone VSIX payload.
+              mkdir -p "$out/libexec"
+              mv "$out/bin/pointbreak" "$out/libexec/pointbreak"
+              makeWrapper "$out/libexec/pointbreak" "$out/bin/pointbreak" \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git ]}
             '';
 
             meta.mainProgram = "pointbreak";
@@ -196,9 +201,19 @@
             pname = "pointbreak-vscode";
             inherit version;
             src = ./.;
-            sourceRoot = "source";
             npmRoot = "extensions/vscode";
-            npmDepsHash = "sha256-zoXPLpbbDHgiq5lcvaVIjuKujBa6Hfay0sDbhGaKakY=";
+            # `npmRoot` scopes the build, but the dependency fetcher needs a
+            # source whose root contains this nested project's lockfile.
+            npmDeps = pkgs.fetchNpmDeps {
+              src = ./extensions/vscode;
+              hash = "sha256-zoXPLpbbDHgiq5lcvaVIjuKujBa6Hfay0sDbhGaKakY=";
+            };
+            # Keep the packaging runtime aligned with the pinned developer Node.
+            # keytar 7.9.0 does not compile against Nixpkgs' default Node 24.
+            nodejs = pkgs.nodejs_22;
+            # VSCE packaging does not use keytar's credential API. Avoid rebuilding
+            # that optional native addon after the offline npm installation.
+            npmRebuildFlags = [ "--ignore-scripts" ];
             nativeBuildInputs = [
               cli
               pkgs.unzip
@@ -208,7 +223,7 @@
               cd "$npmRoot"
               POINTBREAK_EXTENSION_CLEAN_VERSION=1 \
                 POINTBREAK_EXTENSION_PROFILE=release \
-                POINTBREAK_EXTENSION_BINARY=${cli}/bin/pointbreak \
+                POINTBREAK_EXTENSION_BINARY=${cli}/libexec/pointbreak \
                 node scripts/package-local.mjs
               runHook postBuild
             '';
@@ -220,14 +235,14 @@
         {
           default = cli;
           inherit cli inspector vscode;
-          build-all = pkgs.symlinkJoin {
-            name = "pointbreak-build-all-${version}";
-            paths = [
-              cli
-              inspector
-              vscode
-            ];
-          };
+          # Curate the aggregate as a delivery surface. The Inspector bundle is
+          # embedded in the CLI and `libexec/pointbreak` is only the VSIX input;
+          # both remain available from their owning package outputs.
+          build-all = pkgs.runCommand "pointbreak-build-all-${version}" { } ''
+            mkdir -p "$out/bin"
+            ln -s ${cli}/bin/pointbreak "$out/bin/pointbreak"
+            ln -s ${vscode}/pointbreak.vsix "$out/pointbreak.vsix"
+          '';
         }
       );
 

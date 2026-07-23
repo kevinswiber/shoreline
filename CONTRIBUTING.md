@@ -26,7 +26,7 @@ For an immutable, host-targeted equivalent of `just build-all`, use:
 nix build .#build-all
 ```
 
-The resulting store output contains `bin/pointbreak`, `app.js`, and `pointbreak.vsix`.
+The resulting store output contains the runnable `bin/pointbreak` and installable `pointbreak.vsix`.
 
 ### mise
 
