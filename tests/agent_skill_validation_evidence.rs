@@ -152,7 +152,7 @@ fn collect_skill_dirs(repo_root: &Path, dir: &Path, found: &mut Vec<String>) {
         let path = entry.path();
         let name = entry.file_name();
         if !path.is_dir()
-            || [".git", "target", "node_modules"]
+            || [".git", ".direnv", "target", "node_modules"]
                 .map(OsStr::new)
                 .contains(&&*name)
         {
