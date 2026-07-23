@@ -12,6 +12,11 @@ export SKILLS_REF_REV := env_var_or_default("SKILLS_REF_REV", "5d4c1fda3f786fff8
 # PowerShell/cmd with "could not find the shell `sh`".
 set windows-shell := ["C:/Program Files/Git/bin/sh.exe", "-cu"]
 
+# Host executable suffix: `.exe` on Windows, empty elsewhere. Mirrors the name the
+# extension packager derives from .github/binary-targets.json, so the path handed to
+# it in `build-all` actually exists on disk.
+bin_ext := if os_family() == "windows" { ".exe" } else { "" }
+
 # List available recipes.
 [group('help')]
 default:
@@ -52,6 +57,20 @@ build *args:
 [group('core')]
 release *args:
     cargo +stable build --release {{ args }}
+
+# Reject a build profile that is not exactly `debug` or `release`, before any
+# dependency runs. Kept private so it stays out of `just --list`.
+[private]
+_require-build-profile profile:
+    @[ "{{ profile }}" = "debug" ] || [ "{{ profile }}" = "release" ] || { echo "build-all: profile must be 'debug' or 'release', got '{{ profile }}'" >&2; exit 2; }
+
+# Build every locally shippable surface for dogfood: the Inspector bundle, the CLI
+# binary, and the VS Code VSIX (with that freshly built binary bundled in). Profile
+# must be `debug` or `release` (default `release`).
+[group('core')]
+build-all profile="release": (_require-build-profile profile) web-install web-build extension-install
+    cargo +stable build {{ if profile == "release" { "--release" } else { "" } }}
+    POINTBREAK_EXTENSION_BINARY="{{ justfile_directory() }}/target/{{ profile }}/pointbreak{{ bin_ext }}" just extension-package
 
 # Self-test Cargo installation and all release archive layouts without publishing.
 [group('release')]

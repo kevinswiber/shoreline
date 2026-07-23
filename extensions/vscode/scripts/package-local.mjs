@@ -211,7 +211,10 @@ function run(command, args, cwd, capture = false, encoding = "utf8") {
   const result = spawnSync(command, args, {
     cwd,
     encoding,
-    maxBuffer: 64 * 1024 * 1024,
+    // Captured stdout has to hold a whole binary when archiveBinarySha256 pipes
+    // `unzip -p` of the bundled executable. An unstripped debug build exceeds the
+    // former 64 MiB ceiling, so double it. Revisit if release binaries approach this.
+    maxBuffer: 128 * 1024 * 1024,
     stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
   });
   if (result.error) {
