@@ -63,25 +63,70 @@ copyFileSync(sourceBinary, bundledBinary);
 const bundledEvidence = binaryEvidence(bundledBinary);
 verifyBundledBinary(approvedEvidence, bundledEvidence);
 
-for (const entry of readdirSync(extensionRoot)) {
-  if (entry.startsWith("pointbreak-") && entry.endsWith(".vsix")) {
-    rmSync(path.join(extensionRoot, entry));
+// The extension's version is derived from Git, not the checked-in package.json
+// value (automation will own that field once releases start). We describe against
+// the extension's own release tags (vscode-v<semver>) and fall back to 0.0.0 while
+// none exist yet. vsce stamps this derived version into the packaged VSIX (its
+// manifest and bundled package.json, i.e. what the Extensions UI shows) via the
+// [version] arg with --no-update-package-json, so the source package.json is never
+// modified and the worktree stays clean. Dogfood builds carry the full description
+// (0.0.0-g<sha>[-dirty]) so each build is distinguishable in the UI and the filename;
+// POINTBREAK_EXTENSION_CLEAN_VERSION=1 yields a publish-shaped, undecorated
+// Major.Minor.Patch version instead.
+const profile =
+  process.env.POINTBREAK_EXTENSION_PROFILE?.trim() ||
+  path.basename(path.dirname(sourceBinary)) ||
+  "custom";
+const identity = extensionIdentity(repoRoot);
+const baseVersion = identity.baseVersion;
+const cleanVersion = process.env.POINTBREAK_EXTENSION_CLEAN_VERSION === "1";
+let versionTag = baseVersion;
+if (!cleanVersion) {
+  if (identity.source !== "git") {
+    versionTag = `${baseVersion}-nogit`;
+  } else if (identity.baseTag) {
+    // git describe already encodes distance, short commit, and dirtiness.
+    versionTag = identity.describe.replace(/^vscode-v/, "");
+  } else {
+    versionTag = `${baseVersion}-g${identity.shortCommit}${identity.dirty ? "-dirty" : ""}`;
+  }
+}
+const outDir = path.join(repoRoot, "target", "vsix", hostLabel, profile);
+const outPath = path.join(outDir, `pointbreak-${hostLabel}-${versionTag}.vsix`);
+
+// Keep exactly one artifact per target/profile, and clear any legacy root VSIX.
+mkdirSync(outDir, { recursive: true });
+for (const dir of [extensionRoot, outDir]) {
+  for (const entry of readdirSync(dir)) {
+    if (entry.startsWith("pointbreak-") && entry.endsWith(".vsix")) {
+      rmSync(path.join(dir, entry));
+    }
   }
 }
 
 run("npm", ["run", "build"], extensionRoot);
 assertListedFiles(bundledRelative);
-run("npx", ["--no-install", "vsce", "package"], extensionRoot);
-
-const artifacts = readdirSync(extensionRoot).filter(
-  (entry) => entry.startsWith("pointbreak-") && entry.endsWith(".vsix"),
+run(
+  "npx",
+  [
+    "--no-install",
+    "vsce",
+    "package",
+    versionTag,
+    "--no-update-package-json",
+    "--no-git-tag-version",
+    "--target",
+    hostLabel,
+    "-o",
+    outPath,
+  ],
+  extensionRoot,
 );
-if (artifacts.length !== 1) {
-  throw new Error(
-    `Expected one packaged VSIX, found ${artifacts.length}: ${artifacts.join(", ")}`,
-  );
+
+if (!existsSync(outPath)) {
+  throw new Error(`vsce did not produce the expected VSIX: ${outPath}`);
 }
-const artifact = path.join(extensionRoot, artifacts[0]);
+const artifact = outPath;
 assertArchiveFiles(artifact, bundledRelative);
 const archivedEvidence = {
   sha256: archiveBinarySha256(artifact, bundledRelative),
@@ -92,6 +137,18 @@ console.log(
   JSON.stringify(
     {
       vsix: artifact,
+      target: hostLabel,
+      profile,
+      extensionVersion: baseVersion,
+      versionTag,
+      build: {
+        source: identity.source,
+        commit: identity.commit,
+        shortCommit: identity.shortCommit,
+        dirty: identity.dirty,
+        baseTag: identity.baseTag,
+        describe: identity.describe,
+      },
       bundledBinary: {
         path: bundledRelative,
         sha256: archivedEvidence.sha256,
@@ -229,4 +286,74 @@ function run(command, args, cwd, capture = false, encoding = "utf8") {
     );
   }
   return result;
+}
+
+// Snapshot the extension's Git build identity with the same rules build.rs uses for
+// the CLI -- `git describe --tags --always --dirty` at Git's default abbreviation,
+// tracked-file-only dirtiness, and the full 40-char commit -- except scoped to the
+// extension's own release tags (--match vscode-v*) rather than the CLI's v* tags.
+// baseVersion is the nearest such tag's semver, falling back to 0.0.0 before the
+// first release. Returns source "package" when the tree is not a Git repo.
+function extensionIdentity(cwd) {
+  const commit = tryGit(cwd, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (!commit || !/^[0-9a-f]{40}$/.test(commit)) {
+    return {
+      source: "package",
+      commit: null,
+      shortCommit: null,
+      dirty: false,
+      baseTag: null,
+      baseVersion: "0.0.0",
+      describe: null,
+    };
+  }
+  // Git's default abbreviation, like build.rs (no explicit --abbrev); the fallback
+  // width only applies if rev-parse --short is somehow unavailable.
+  const shortCommit =
+    tryGit(cwd, ["rev-parse", "--short", "HEAD"]) ?? commit.slice(0, 7);
+  const status = tryGit(cwd, [
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=no",
+  ]);
+  const dirty = status !== null && status.length > 0;
+  // --abbrev=0 yields the bare nearest tag (null when none match yet); the second
+  // describe keeps --always so it degrades to the short commit before any release.
+  const baseTag = tryGit(cwd, [
+    "describe",
+    "--tags",
+    "--match",
+    "vscode-v*",
+    "--abbrev=0",
+  ]);
+  const baseVersion = baseTag ? baseTag.replace(/^vscode-v/, "") : "0.0.0";
+  const describe = tryGit(cwd, [
+    "describe",
+    "--tags",
+    "--match",
+    "vscode-v*",
+    "--always",
+    "--dirty",
+  ]);
+  return {
+    source: "git",
+    commit,
+    shortCommit,
+    dirty,
+    baseTag,
+    baseVersion,
+    describe,
+  };
+}
+
+function tryGit(cwd, args) {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    return null;
+  }
+  return result.stdout.trim();
 }

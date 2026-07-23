@@ -65,12 +65,13 @@ _require-build-profile profile:
     @[ "{{ profile }}" = "debug" ] || [ "{{ profile }}" = "release" ] || { echo "build-all: profile must be 'debug' or 'release', got '{{ profile }}'" >&2; exit 2; }
 
 # Build every locally shippable surface for dogfood: the Inspector bundle, the CLI
-# binary, and the VS Code VSIX (with that freshly built binary bundled in). Profile
-# must be `debug` or `release` (default `release`).
+# binary, and a platform-targeted VS Code VSIX (with that freshly built binary
+# bundled in) written to target/vsix/<target>/<profile>/. Profile must be `debug`
+# or `release` (default `release`).
 [group('core')]
 build-all profile="release": (_require-build-profile profile) web-install web-build extension-install
     cargo +stable build {{ if profile == "release" { "--release" } else { "" } }}
-    POINTBREAK_EXTENSION_BINARY="{{ justfile_directory() }}/target/{{ profile }}/pointbreak{{ bin_ext }}" just extension-package
+    POINTBREAK_EXTENSION_PROFILE={{ profile }} POINTBREAK_EXTENSION_BINARY="{{ justfile_directory() }}/target/{{ profile }}/pointbreak{{ bin_ext }}" just extension-package
 
 # Self-test Cargo installation and all release archive layouts without publishing.
 [group('release')]
@@ -291,7 +292,9 @@ extension-install:
 extension-check:
     cd extensions/vscode && npm run check
 
-# Build a host-only VSIX with its matching pointbreak binary for local dogfood.
+# Build a platform-targeted VSIX with its matching pointbreak binary for local
+# dogfood, written to target/vsix/<target>/<profile>/. Honors POINTBREAK_EXTENSION_*
+# (BINARY, PROFILE, CLEAN_VERSION); `build-all` sets BINARY and PROFILE for you.
 [group('extension')]
 extension-package:
     node extensions/vscode/scripts/package-local.mjs
