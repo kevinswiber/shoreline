@@ -23,6 +23,7 @@ use super::event::{
     build_commit_withdrawal_id, build_ref_association_id, build_ref_withdrawal_id,
     event_signature_pre_authentication_encoding,
 };
+use super::projection::SupersessionView;
 use super::projection::freshness::event_set_hash_for_events;
 use super::store::body_artifact::{NoteBodyEnvelope, parse_note_body_artifact};
 use super::store::content::ContentArtifacts;
@@ -45,8 +46,9 @@ use super::{
 };
 use crate::bench_support::longitudinal::{
     FixedLongitudinalClockV1, LONGITUDINAL_FIXED_INGEST_RECEIVED_AT_V1,
-    LONGITUDINAL_PUBLIC_SEED_HEX_V1, LongitudinalContentKindV1, LongitudinalEventCarrierV1,
-    LongitudinalEventIdentityV1, LongitudinalInventoryEntryV1, LongitudinalStrictSemanticReceiptV1,
+    LONGITUDINAL_PUBLIC_SEED_HEX_V1, LongitudinalCapacitySelectorsV1, LongitudinalContentKindV1,
+    LongitudinalEventCarrierV1, LongitudinalEventIdentityV1, LongitudinalInventoryEntryV1,
+    LongitudinalStrictSemanticReceiptV1,
 };
 use crate::canonical_hash::{canonical_json_bytes, sha256_bytes_hex};
 use crate::crypto::EventSigner;
@@ -201,6 +203,7 @@ pub(crate) struct LongitudinalWriteReceiptV1 {
     pub(crate) content_inventory: Vec<LongitudinalInventoryEntryV1>,
     pub(crate) removed_content_sha256: Vec<String>,
     pub(crate) strict: LongitudinalStrictSemanticReceiptV1,
+    pub(crate) capacity_selectors: LongitudinalCapacitySelectorsV1,
     pub(crate) events_created: u64,
     pub(crate) events_existing: u64,
     pub(crate) event_count: u64,
@@ -212,6 +215,30 @@ pub(crate) struct LongitudinalWriteReceiptV1 {
     pub(crate) decoded_body_bytes: u64,
     pub(crate) decoded_object_target_bytes: u64,
     pub(crate) by_type: BTreeMap<String, u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LongitudinalAppendWriteReceiptV1 {
+    pub(crate) events_created: u64,
+    pub(crate) events_existing: u64,
+    pub(crate) final_event_count: u64,
+    pub(crate) event_set_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LongitudinalContentionWriterWriteReceiptV1 {
+    pub(crate) attempt_event_ids: Vec<String>,
+    pub(crate) outcomes: Vec<&'static str>,
+    pub(crate) events_created: u64,
+    pub(crate) events_existing: u64,
+    pub(crate) final_event_count: u64,
+    pub(crate) event_set_sha256: String,
+}
+
+struct PreparedLongitudinalAppendSequenceV1 {
+    events: Vec<ShoreEvent>,
+    content: Vec<PreparedContentV1>,
+    removal_by_event_id: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy)]
@@ -1254,6 +1281,22 @@ impl BlockBuilderV1 {
         Ok(())
     }
 
+    fn push_selected_removal(&mut self, content: &PreparedContentV1) -> Result<String> {
+        let event = ShoreEvent::new(
+            EventType::ArtifactRemoved,
+            ArtifactRemovedPayload::idempotency_key(content.content_hash()),
+            EventTarget::for_journal(self.journal_id.clone()),
+            self.writer(),
+            ArtifactRemovedPayload {
+                content_hash: content.content_hash().to_owned(),
+            },
+            self.occurred_at()?,
+        )?;
+        let event_id = event.event_id.as_str().to_owned();
+        self.push_unsigned(event);
+        Ok(event_id)
+    }
+
     fn finish(self) -> Result<PreparedLongitudinalRecordV1> {
         if self.events.len() as u64 != self.spec.shape.event_count()
             || self.body_ordinal != self.spec.shape.body_count()
@@ -1555,6 +1598,8 @@ pub(crate) fn write_longitudinal_records_v1(
         projection_sha256,
         content_inventory_sha256,
     };
+    let capacity_selectors =
+        capacity_selectors(&events, &event_carriers, &content_inventory, records)?;
 
     let mut by_type = BTreeMap::new();
     for event in &listed {
@@ -1569,6 +1614,7 @@ pub(crate) fn write_longitudinal_records_v1(
         content_inventory,
         removed_content_sha256,
         strict,
+        capacity_selectors,
         events_created: result.events_created as u64,
         events_existing: result.events_existing as u64,
         event_count: listed.len() as u64,
@@ -1590,6 +1636,435 @@ pub(crate) fn write_longitudinal_records_v1(
             .sum(),
         by_type,
     })
+}
+
+fn capacity_selectors(
+    events: &[ShoreEvent],
+    carriers: &[LongitudinalEventCarrierV1],
+    content_inventory: &[LongitudinalInventoryEntryV1],
+    records: &[PreparedLongitudinalRecordV1],
+) -> Result<LongitudinalCapacitySelectorsV1> {
+    let carrier_event = ranked_min(events.iter(), "capacity-carrier-hit", |event| {
+        event.idempotency_key.clone()
+    })
+    .ok_or_else(|| ShoreError::Message("longitudinal carrier selector is empty".to_owned()))?;
+    let carrier = carriers
+        .iter()
+        .find(|candidate| candidate.event_id == carrier_event.event_id.as_str())
+        .ok_or_else(|| {
+            ShoreError::Message("longitudinal carrier selector lacks an inventory row".to_owned())
+        })?;
+    if carrier.logical_key_sha256 != sha256_bytes_hex(carrier_event.idempotency_key.as_bytes()) {
+        return Err(ShoreError::Message(
+            "longitudinal carrier selector hash drifted".to_owned(),
+        ));
+    }
+
+    let removed = records
+        .iter()
+        .flat_map(|record| record.removed.iter())
+        .map(|content| content.content_hash().to_owned())
+        .collect::<BTreeSet<_>>();
+    let mut revision_objects = Vec::new();
+    for event in events {
+        if event.event_type != EventType::WorkObjectProposed {
+            continue;
+        }
+        let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        if let WorkObjectProposal::Revision {
+            revision,
+            object_artifact_content_hash,
+            ..
+        } = payload.work_object
+            && !removed.contains(&object_artifact_content_hash)
+        {
+            revision_objects.push((
+                revision.id.as_str().to_owned(),
+                revision.object_id.as_str().to_owned(),
+                object_artifact_content_hash,
+            ));
+        }
+    }
+    let selected = ranked_min(
+        revision_objects.iter(),
+        "capacity-semantic-object",
+        |(revision_id, object_id, content_hash)| {
+            format!("{revision_id}\0{object_id}\0{content_hash}")
+        },
+    );
+    let fallback_content_hash = content_inventory
+        .iter()
+        .find(|entry| entry.kind == LongitudinalContentKindV1::ObjectArtifact)
+        .map(|entry| format!("sha256:{}", entry.decoded_sha256))
+        .unwrap_or_else(|| format!("sha256:{}", sha256_bytes_hex(b"no-object-selector")));
+    let (revision_id, object_id, object_content_hash) = selected.cloned().unwrap_or_else(|| {
+        (
+            format!(
+                "{}:sha256:{}",
+                id_prefix::REVISION,
+                sha256_bytes_hex(b"fallback-revision")
+            ),
+            format!(
+                "{}:sha256:{}",
+                id_prefix::OBJECT,
+                sha256_bytes_hex(b"fallback-object")
+            ),
+            fallback_content_hash,
+        )
+    });
+    let content_hash = object_content_hash.trim_start_matches("sha256:");
+    if selected.is_some()
+        && !content_inventory
+            .iter()
+            .any(|entry| entry.logical_key.contains(content_hash))
+    {
+        return Err(ShoreError::Message(
+            "longitudinal object selector lacks present content".to_owned(),
+        ));
+    }
+    let missing = |domain: &str| {
+        sha256_bytes_hex(format!("{LONGITUDINAL_PUBLIC_SEED_HEX_V1}\0{domain}\0missing").as_bytes())
+    };
+    let window_size = 100_u16;
+    let event_count = events.len() as u64;
+    let mut selectors = LongitudinalCapacitySelectorsV1 {
+        carrier_hit_key: carrier_event.idempotency_key.clone(),
+        carrier_hit_event_id: carrier_event.event_id.as_str().to_owned(),
+        carrier_miss_key: format!("longitudinal:missing:{}", missing("carrier")),
+        semantic_revision_id: revision_id,
+        semantic_object_id: object_id.clone(),
+        semantic_missing_revision_id: format!(
+            "{}:sha256:{}",
+            id_prefix::REVISION,
+            missing("revision")
+        ),
+        semantic_missing_object_id: format!("{}:sha256:{}", id_prefix::OBJECT, missing("object")),
+        object_detail_object_id: object_id,
+        object_detail_content_hash: object_content_hash,
+        chronological_window_size: window_size,
+        chronological_head_start: 0,
+        chronological_middle_start: event_count.saturating_sub(u64::from(window_size)) / 2,
+        chronological_tail_start: event_count.saturating_sub(u64::from(window_size)),
+        selectors_sha256: String::new(),
+    };
+    selectors.selectors_sha256 = selectors
+        .canonical_sha256()
+        .map_err(|error| ShoreError::Message(error.to_string()))?;
+    if selected.is_some() {
+        selectors
+            .validate(event_count, carriers, content_inventory)
+            .map_err(|error| ShoreError::Message(error.to_string()))?;
+    }
+    Ok(selectors)
+}
+
+fn ranked_min<'a, T>(
+    values: impl Iterator<Item = &'a T>,
+    domain: &str,
+    key: impl Fn(&T) -> String,
+) -> Option<&'a T> {
+    values.min_by_key(|value| {
+        let key = key(value);
+        sha256_bytes_hex(
+            [
+                LONGITUDINAL_PUBLIC_SEED_HEX_V1.as_bytes(),
+                b"\0",
+                domain.as_bytes(),
+                b"\0",
+                key.as_bytes(),
+            ]
+            .concat()
+            .as_slice(),
+        )
+    })
+}
+
+pub(crate) fn stage_longitudinal_append_records_v1(
+    repo: &Path,
+    first_block: u64,
+    block_count: u64,
+) -> Result<()> {
+    if block_count != 2 {
+        return Err(ShoreError::Message(
+            "longitudinal append staging requires the frozen two-block allowance".to_owned(),
+        ));
+    }
+    let sequence = prepare_longitudinal_append_sequence_v1(repo, first_block)?;
+    let write_store = resolve_write_store(repo)?;
+    let storage = LocalStorage::new(write_store.store_dir());
+    prepare_write_landing(&write_store, &storage)?;
+    let content_store = ContentArtifacts::from_backend(write_store.backend());
+    for content in &sequence.content {
+        publish_content(&content_store, content)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn append_longitudinal_event_slice_v1(
+    repo: &Path,
+    first_block: u64,
+    start_ordinal: u64,
+    count: u64,
+) -> Result<LongitudinalAppendWriteReceiptV1> {
+    let end = start_ordinal
+        .checked_add(count)
+        .ok_or_else(|| ShoreError::Message("longitudinal append range overflowed".to_owned()))?;
+    let sequence = prepare_longitudinal_append_sequence_v1(repo, first_block)?;
+    if end > sequence.events.len() as u64 {
+        return Err(ShoreError::Message(
+            "longitudinal append range did not select the requested event count".to_owned(),
+        ));
+    }
+    let selected = sequence.events[start_ordinal as usize..end as usize].to_vec();
+    let removals = selected
+        .iter()
+        .filter_map(|event| sequence.removal_by_event_id.get(event.event_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let result = ingest_events_with_clock(
+        IngestEventsOptions::new(repo, selected).with_trust_set(longitudinal_trust_set()?),
+        &FixedBenchmarkIngestClock,
+    )?;
+    let write_store = resolve_write_store(repo)?;
+    let content_store = ContentArtifacts::from_backend(write_store.backend());
+    for relative_path in removals {
+        match content_store.remove(&relative_path)? {
+            RemoveOutcome::Removed | RemoveOutcome::Missing => {}
+        }
+    }
+    let listed = EventStore::from_backend(resolve_read_store(repo)?.backend()).list_events()?;
+    Ok(LongitudinalAppendWriteReceiptV1 {
+        events_created: result.events_created as u64,
+        events_existing: result.events_existing as u64,
+        final_event_count: listed.len() as u64,
+        event_set_sha256: event_set_hash_for_events(&listed)?
+            .trim_start_matches("sha256:")
+            .to_owned(),
+    })
+}
+
+pub(crate) fn read_longitudinal_carrier_by_key_v1(
+    repo: &Path,
+    idempotency_key: &str,
+) -> Result<Option<ShoreEvent>> {
+    let store = EventStore::from_backend(resolve_read_store(repo)?.backend());
+    if !store.event_exists(idempotency_key)? {
+        return Ok(None);
+    }
+    store.read_stored_event(idempotency_key).map(Some)
+}
+
+pub(crate) fn append_longitudinal_contention_writer_v1(
+    repo: &Path,
+    writer_index: u8,
+) -> Result<LongitudinalContentionWriterWriteReceiptV1> {
+    let indices: [usize; 6] = match writer_index {
+        0 => [0, 1, 2, 3, 8, 9],
+        1 => [4, 5, 6, 7, 8, 9],
+        _ => {
+            return Err(ShoreError::Message(
+                "longitudinal contention writer index must be 0 or 1".to_owned(),
+            ));
+        }
+    };
+    let sequence = prepare_longitudinal_append_sequence_v1(repo, 4_096)?;
+    let mut attempt_event_ids = Vec::with_capacity(indices.len());
+    let mut outcomes = Vec::with_capacity(indices.len());
+    let mut events_created = 0_u64;
+    let mut events_existing = 0_u64;
+    for index in indices {
+        let event =
+            sequence.events.get(index).cloned().ok_or_else(|| {
+                ShoreError::Message("contention event selector drifted".to_owned())
+            })?;
+        attempt_event_ids.push(event.event_id.as_str().to_owned());
+        let result = ingest_events_with_clock(
+            IngestEventsOptions::new(repo, vec![event]).with_trust_set(longitudinal_trust_set()?),
+            &FixedBenchmarkIngestClock,
+        )?;
+        match (result.events_created, result.events_existing) {
+            (1, 0) => {
+                events_created += 1;
+                outcomes.push("created");
+            }
+            (0, 1) => {
+                events_existing += 1;
+                outcomes.push("existing");
+            }
+            _ => {
+                return Err(ShoreError::Message(
+                    "contention append returned an invalid outcome".to_owned(),
+                ));
+            }
+        }
+    }
+    let listed = EventStore::from_backend(resolve_read_store(repo)?.backend()).list_events()?;
+    Ok(LongitudinalContentionWriterWriteReceiptV1 {
+        attempt_event_ids,
+        outcomes,
+        events_created,
+        events_existing,
+        final_event_count: listed.len() as u64,
+        event_set_sha256: event_set_hash_for_events(&listed)?
+            .trim_start_matches("sha256:")
+            .to_owned(),
+    })
+}
+
+fn prepare_longitudinal_append_sequence_v1(
+    repo: &Path,
+    first_block: u64,
+) -> Result<PreparedLongitudinalAppendSequenceV1> {
+    let listed = EventStore::from_backend(resolve_read_store(repo)?.backend()).list_events()?;
+    let heads = SupersessionView::from_events(&listed)?.heads;
+    let current_revision_id = ranked_min(heads.iter(), "append-current-head", |revision| {
+        revision.as_str().to_owned()
+    })
+    .cloned()
+    .ok_or_else(|| {
+        ShoreError::Message("longitudinal append root has no current revision".to_owned())
+    })?;
+    let task_attempt_id = listed
+        .iter()
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
+        .filter_map(|event| {
+            serde_json::from_value::<WorkObjectProposedPayload>(event.payload.clone())
+                .ok()
+                .and_then(|payload| match payload.work_object {
+                    WorkObjectProposal::TaskAttempt {
+                        task_attempt_id, ..
+                    } => Some(task_attempt_id),
+                    WorkObjectProposal::Revision { .. } => None,
+                })
+        })
+        .next()
+        .ok_or_else(|| {
+            ShoreError::Message("longitudinal append root has no task attempt".to_owned())
+        })?;
+    let base_revision = RevisionFixtureV1 {
+        revision_id: current_revision_id,
+        object_id: ObjectId::new(format!(
+            "{}:sha256:{}",
+            id_prefix::OBJECT,
+            sha256_bytes_hex(b"longitudinal-append-existing-object")
+        )),
+        object_content_hash: format!(
+            "sha256:{}",
+            sha256_bytes_hex(b"longitudinal-append-existing-content")
+        ),
+        engagement_id: EngagementId::new(format!(
+            "{}:sha256:{}",
+            id_prefix::ENGAGEMENT,
+            sha256_bytes_hex(b"longitudinal-append-existing-engagement")
+        )),
+        supersedes: Vec::new(),
+    };
+    let base_task = TaskFixtureV1 {
+        task_attempt_id,
+        predecessor: None,
+    };
+    let first_append_block = if first_block.is_multiple_of(2) {
+        first_block + 2
+    } else {
+        first_block + 1
+    };
+    let mut events = Vec::with_capacity(330);
+    let mut content = Vec::new();
+    let mut removal_by_event_id = BTreeMap::new();
+
+    for ordinal in 0..30_u64 {
+        let mut builder = BlockBuilderV1::new(LongitudinalRecordSpecV1::new(
+            LongitudinalRecordShapeV1::Workload,
+            first_append_block + ordinal * 2,
+        ));
+        builder.revisions.push(base_revision.clone());
+        builder.push_review_observations(1)?;
+        let [event] = builder.events.as_slice() else {
+            return Err(ShoreError::Message(
+                "longitudinal single append did not produce one event".to_owned(),
+            ));
+        };
+        let payload: ReviewObservationRecordedPayload =
+            serde_json::from_value(event.payload.clone())?;
+        if event.event_type != EventType::ReviewObservationRecorded
+            || payload.body.is_none()
+            || payload.body_artifact_path.is_some()
+        {
+            return Err(ShoreError::Message(
+                "longitudinal single append is not one inline observation".to_owned(),
+            ));
+        }
+        events.extend(builder.events);
+        content.extend(builder.content);
+    }
+
+    for burst in 0..10_u64 {
+        let mut builder = BlockBuilderV1::new(LongitudinalRecordSpecV1::new(
+            LongitudinalRecordShapeV1::Workload,
+            first_append_block + 60 + burst,
+        ));
+        builder.prepare_revisions(&[1])?;
+        builder.tasks.push(base_task.clone());
+        builder.push_revision_proposals()?;
+        builder.push_review_observations(8)?;
+        builder.push_assessments(4)?;
+        builder.push_validations(4)?;
+        builder.push_input_requests(4, 0)?;
+        builder.push_input_responses(3, 0)?;
+        builder.push_commit_associations(1, 0)?;
+        builder.push_ref_associations(1, 0)?;
+        builder.push_signature_carriers(1)?;
+        let removed_object = builder
+            .removed
+            .first()
+            .cloned()
+            .ok_or_else(|| ShoreError::Message("burst removal target is absent".to_owned()))?;
+        let removal_event_id = builder.push_selected_removal(&removed_object)?;
+        builder.push_task_checkpoints(1)?;
+        builder.push_task_observations(1)?;
+        validate_append_burst_mix(&builder.events)?;
+        removal_by_event_id.insert(removal_event_id, removed_object.relative_path().to_owned());
+        events.extend(builder.events);
+        content.extend(builder.content);
+    }
+    if events.len() != 330 {
+        return Err(ShoreError::Message(format!(
+            "longitudinal append schedule produced {} events instead of 330",
+            events.len()
+        )));
+    }
+    Ok(PreparedLongitudinalAppendSequenceV1 {
+        events,
+        content,
+        removal_by_event_id,
+    })
+}
+
+fn validate_append_burst_mix(events: &[ShoreEvent]) -> Result<()> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for event in events {
+        *counts.entry(event.event_type.as_str()).or_default() += 1;
+    }
+    let expected = BTreeMap::from([
+        ("work_object_proposed", 1),
+        ("review_observation_recorded", 8),
+        ("review_assessment_recorded", 4),
+        ("validation_check_recorded", 4),
+        ("input_request_opened", 4),
+        ("input_request_responded", 3),
+        ("revision_commit_associated", 1),
+        ("revision_ref_associated", 1),
+        ("event_signature_recorded", 1),
+        ("artifact_removed", 1),
+        ("task_checkpoint_captured", 1),
+        ("task_observation_recorded", 1),
+    ]);
+    if events.len() != 30 || counts != expected {
+        return Err(ShoreError::Message(format!(
+            "longitudinal 30-event append mix drifted: {counts:?}"
+        )));
+    }
+    Ok(())
 }
 
 fn publish_content(content_store: &ContentArtifacts, content: &PreparedContentV1) -> Result<()> {
@@ -1701,13 +2176,17 @@ fn inventory_entry(
         }
     };
     Ok(LongitudinalInventoryEntryV1 {
-        logical_key: content.relative_path().to_owned(),
+        logical_key: canonical_logical_key(content.relative_path()),
         kind: content.kind(),
         raw_sha256: sha256_bytes_hex(raw),
         decoded_sha256: decoded,
         raw_bytes: raw.len() as u64,
         decoded_bytes,
     })
+}
+
+fn canonical_logical_key(path: &str) -> String {
+    path.replace('\\', "/")
 }
 
 #[derive(Serialize)]
@@ -2073,6 +2552,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn longitudinal_inventory_keys_use_portable_separators() {
+        assert_eq!(
+            canonical_logical_key("artifacts\\objects\\07f9ce980915ee4a80922b2caf589e90.json"),
+            "artifacts/objects/07f9ce980915ee4a80922b2caf589e90.json"
+        );
+    }
+
+    #[test]
     fn longitudinal_materialize_one_block_has_the_frozen_topology_and_identity_mix() {
         let record = prepare_longitudinal_record_v1(LongitudinalRecordSpecV1::new(
             LongitudinalRecordShapeV1::Workload,
@@ -2280,6 +2767,54 @@ mod tests {
                 .get_if_exists(&artifact_path)
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn longitudinal_contention_schedule_selects_ten_created_and_two_existing() {
+        let repo = initialized_repo();
+        let execution = crate::bench_support::longitudinal::LongitudinalExecutionIdentityV1 {
+            source_commit: "0".repeat(40),
+            source_tree: "1".repeat(40),
+            cargo_lock_sha256: "2".repeat(64),
+            runner_sha256: "3".repeat(64),
+            build_profile: "contention-test".to_owned(),
+            operating_system: std::env::consts::OS.to_owned(),
+            architecture: std::env::consts::ARCH.to_owned(),
+            filesystem: "disposable".to_owned(),
+            parent_commit: None,
+        };
+        crate::bench_support::longitudinal::materialize_longitudinal_workload_v1(
+            crate::bench_support::longitudinal::LongitudinalMaterializeOptionsV1::new(
+                repo.path(),
+                crate::bench_support::longitudinal::LongitudinalTierV1::L1,
+                execution,
+            ),
+        )
+        .unwrap();
+        let receipts = (0..2_u8)
+            .map(|writer_index| {
+                append_longitudinal_contention_writer_v1(repo.path(), writer_index).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            receipts
+                .iter()
+                .map(|receipt| receipt.events_created)
+                .sum::<u64>(),
+            10
+        );
+        assert_eq!(
+            receipts
+                .iter()
+                .map(|receipt| receipt.events_existing)
+                .sum::<u64>(),
+            2
+        );
+        assert_eq!(
+            crate::session::read_events(repo.path()).unwrap().len(),
+            1_034
         );
     }
 

@@ -32,6 +32,8 @@ pub const LONGITUDINAL_CONTRACT_PUBLICATION_SCHEMA_V1: &str =
 pub const LONGITUDINAL_HELP_SCHEMA_V1: &str = "pointbreak.longitudinal-help.v1";
 pub const LONGITUDINAL_CONTRACT_MODE_V1: &str = "--longitudinal-contract";
 pub const LONGITUDINAL_HELP_MODE_V1: &str = "--longitudinal-help";
+pub const LONGITUDINAL_SMOKE_MODE_V1: &str = "--longitudinal-smoke";
+pub const LONGITUDINAL_VERIFY_PACKAGE_MODE_V1: &str = "--longitudinal-verify-package";
 pub const LONGITUDINAL_RUNNER_CONTRACT_SHA256_V1: &str =
     "a2182c741530317f31532c62d4b0152b228e3d85aa177f812fdca433c265ed85";
 pub const LONGITUDINAL_CAPACITY_CONTRACT_SHA256_V1: &str =
@@ -153,6 +155,14 @@ pub enum LongitudinalOperationV1 {
     RebuildFull,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LongitudinalOperationOutcomeV1 {
+    Measured,
+    UnavailableNoCurrentSurface,
+    ValidFailure,
+}
+
 impl LongitudinalOperationV1 {
     pub const ALL: [Self; 28] = [
         Self::ColdHead,
@@ -215,6 +225,18 @@ pub enum LongitudinalMemoryCheckpointV1 {
     PostBurst,
 }
 
+impl LongitudinalMemoryCheckpointV1 {
+    pub const ALL: [Self; 7] = [
+        Self::Empty,
+        Self::WarmHead,
+        Self::Search,
+        Self::DetailPeak,
+        Self::PostDetail,
+        Self::PostAppend,
+        Self::PostBurst,
+    ];
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LongitudinalCapacityMemoryCheckpointV1 {
@@ -226,6 +248,37 @@ pub enum LongitudinalCapacityMemoryCheckpointV1 {
     PostChronologicalTail,
     PostObjectDetailL100O10K,
     PostContentionQuiescence,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LongitudinalInterruptionOperationV1 {
+    ExportImport,
+    MigrateFresh,
+    RebuildFull,
+}
+
+impl LongitudinalInterruptionOperationV1 {
+    pub const ALL: [Self; 3] = [Self::ExportImport, Self::MigrateFresh, Self::RebuildFull];
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LongitudinalInterruptionPointV1 {
+    TenPercent,
+    FiftyPercent,
+    NinetyPercent,
+}
+
+impl LongitudinalInterruptionPointV1 {
+    pub const ALL: [Self; 3] = [Self::TenPercent, Self::FiftyPercent, Self::NinetyPercent];
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LongitudinalPackagePurposeV1 {
+    TerminalEvidence,
+    NonTimingSmoke,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
@@ -1284,6 +1337,7 @@ pub struct LongitudinalWorkloadManifestV1 {
     pub event_carriers: Vec<LongitudinalEventCarrierV1>,
     pub content_inventory: Vec<LongitudinalInventoryEntryV1>,
     pub removed_content_sha256: Vec<String>,
+    pub capacity_selectors: LongitudinalCapacitySelectorsV1,
     pub expected_semantic_receipts: Vec<LongitudinalExpectedSemanticReceiptV1>,
     pub schedule: Vec<LongitudinalOperationV1>,
     pub schedule_sha256: String,
@@ -1397,6 +1451,11 @@ impl LongitudinalWorkloadManifestV1 {
         for hash in &self.removed_content_sha256 {
             validate_hex(hash, 64, "removed-content SHA-256")?;
         }
+        self.capacity_selectors.validate(
+            self.event_count,
+            &self.event_carriers,
+            &self.content_inventory,
+        )?;
         for receipt in &self.expected_semantic_receipts {
             validate_hex(
                 &receipt.semantic_receipt_sha256,
@@ -1502,6 +1561,7 @@ pub struct LongitudinalOperationReceiptV1 {
     pub execution_identity_sha256: String,
     pub lane: LongitudinalLaneV1,
     pub operation: LongitudinalOperationV1,
+    pub outcome: LongitudinalOperationOutcomeV1,
     pub sample_ordinal: u32,
     pub pre_event_count: u64,
     pub post_event_count: u64,
@@ -1511,7 +1571,8 @@ pub struct LongitudinalOperationReceiptV1 {
     pub response_canonical_sha256: String,
     pub semantic_facts: LongitudinalSemanticFactsV1,
     pub semantic_receipt_sha256: String,
-    pub metrics: LongitudinalOperationMetricsV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<LongitudinalOperationMetricsV1>,
     pub receipt_sha256: String,
 }
 
@@ -1545,6 +1606,51 @@ impl LongitudinalOperationReceiptV1 {
             (&self.semantic_receipt_sha256, "semantic receipt SHA-256"),
         ] {
             validate_hex(hash, 64, name)?;
+        }
+        if self.semantic_facts.event_count != self.post_event_count
+            || self.semantic_facts.event_set_sha256 != self.post_event_set_sha256
+        {
+            return Err(LongitudinalContractError::ContractDrift {
+                field: "operation semantic state",
+            });
+        }
+        match self.outcome {
+            LongitudinalOperationOutcomeV1::Measured => {
+                let metrics =
+                    self.metrics
+                        .as_ref()
+                        .ok_or(LongitudinalContractError::ContractDrift {
+                            field: "measured operation metrics",
+                        })?;
+                if metrics.wall_nanos == 0
+                    || metrics.peak_rss_bytes < metrics.baseline_rss_bytes
+                    || metrics.peak_rss_bytes < metrics.steady_rss_bytes
+                {
+                    return Err(LongitudinalContractError::ContractDrift {
+                        field: "measured operation metrics",
+                    });
+                }
+            }
+            LongitudinalOperationOutcomeV1::UnavailableNoCurrentSurface => {
+                if self.metrics.is_some()
+                    || self.sample_ordinal != 0
+                    || self.pre_event_count != self.post_event_count
+                    || self.pre_event_set_sha256 != self.post_event_set_sha256
+                    || self.semantic_facts.diagnostics.as_slice()
+                        != ["unsupported_no_current_surface"]
+                {
+                    return Err(LongitudinalContractError::ContractDrift {
+                        field: "unavailable operation receipt",
+                    });
+                }
+            }
+            LongitudinalOperationOutcomeV1::ValidFailure => {
+                if self.metrics.is_some() || self.semantic_facts.diagnostics.is_empty() {
+                    return Err(LongitudinalContractError::ContractDrift {
+                        field: "failed operation receipt",
+                    });
+                }
+            }
         }
         validate_bound_hash(
             &self.receipt_sha256,
@@ -1666,9 +1772,112 @@ pub struct LongitudinalCapacityManifestV1 {
     pub event_carriers: Vec<LongitudinalEventCarrierV1>,
     pub content_inventory: Vec<LongitudinalInventoryEntryV1>,
     pub removed_content_sha256: Vec<String>,
+    pub selectors: LongitudinalCapacitySelectorsV1,
     pub probe_schedule: Vec<LongitudinalCapacityProbeV1>,
     pub schedule_sha256: String,
     pub manifest_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LongitudinalCapacitySelectorsV1 {
+    pub carrier_hit_key: String,
+    pub carrier_hit_event_id: String,
+    pub carrier_miss_key: String,
+    pub semantic_revision_id: String,
+    pub semantic_object_id: String,
+    pub semantic_missing_revision_id: String,
+    pub semantic_missing_object_id: String,
+    pub object_detail_object_id: String,
+    pub object_detail_content_hash: String,
+    pub chronological_window_size: u16,
+    pub chronological_head_start: u64,
+    pub chronological_middle_start: u64,
+    pub chronological_tail_start: u64,
+    pub selectors_sha256: String,
+}
+
+impl LongitudinalCapacitySelectorsV1 {
+    pub fn canonical_sha256(&self) -> Result<String, LongitudinalContractError> {
+        canonical_sha256_without(&self.selectors_sha256, |selectors_sha256| {
+            let mut preimage = self.clone();
+            preimage.selectors_sha256 = selectors_sha256;
+            preimage
+        })
+    }
+
+    pub fn validate(
+        &self,
+        event_count: u64,
+        event_carriers: &[LongitudinalEventCarrierV1],
+        content_inventory: &[LongitudinalInventoryEntryV1],
+    ) -> Result<(), LongitudinalContractError> {
+        for (value, field) in [
+            (&self.carrier_hit_key, "carrier hit key"),
+            (&self.carrier_hit_event_id, "carrier hit event id"),
+            (&self.carrier_miss_key, "carrier miss key"),
+            (&self.semantic_revision_id, "semantic revision id"),
+            (&self.semantic_object_id, "semantic object id"),
+            (
+                &self.semantic_missing_revision_id,
+                "semantic missing revision id",
+            ),
+            (
+                &self.semantic_missing_object_id,
+                "semantic missing object id",
+            ),
+            (&self.object_detail_object_id, "object detail object id"),
+        ] {
+            require_nonempty(value, field)?;
+        }
+        let carrier = event_carriers
+            .iter()
+            .find(|carrier| carrier.event_id == self.carrier_hit_event_id)
+            .ok_or(LongitudinalContractError::ContractDrift {
+                field: "carrier hit selector",
+            })?;
+        validate_bound_hash(
+            &carrier.logical_key_sha256,
+            &sha256_bytes_hex(self.carrier_hit_key.as_bytes()),
+            "carrier hit selector",
+        )?;
+        if event_carriers.iter().any(|candidate| {
+            candidate.logical_key_sha256 == sha256_bytes_hex(self.carrier_miss_key.as_bytes())
+        }) {
+            return Err(LongitudinalContractError::ContractDrift {
+                field: "carrier miss selector",
+            });
+        }
+        let content_hash = self
+            .object_detail_content_hash
+            .strip_prefix("sha256:")
+            .unwrap_or(&self.object_detail_content_hash);
+        validate_hex(content_hash, 64, "object detail content hash")?;
+        if !content_inventory
+            .iter()
+            .any(|content| content.logical_key.contains(content_hash))
+        {
+            return Err(LongitudinalContractError::ContractDrift {
+                field: "object detail selector",
+            });
+        }
+        if self.chronological_window_size != 100
+            || self.chronological_head_start != 0
+            || self.chronological_middle_start
+                != event_count.saturating_sub(u64::from(self.chronological_window_size)) / 2
+            || self.chronological_tail_start
+                != event_count.saturating_sub(u64::from(self.chronological_window_size))
+        {
+            return Err(LongitudinalContractError::ContractDrift {
+                field: "chronological selectors",
+            });
+        }
+        validate_bound_hash(
+            &self.selectors_sha256,
+            &self.canonical_sha256()?,
+            "capacity selectors",
+        )
+    }
 }
 
 impl LongitudinalCapacityManifestV1 {
@@ -1834,6 +2043,11 @@ impl LongitudinalCapacityManifestV1 {
         for hash in &self.removed_content_sha256 {
             validate_hex(hash, 64, "capacity removed-content SHA-256")?;
         }
+        self.selectors.validate(
+            self.event_count,
+            &self.event_carriers,
+            &self.content_inventory,
+        )?;
         validate_bound_hash(
             &self.schedule_sha256,
             &canonical_sha256(&self.probe_schedule)?,
@@ -1989,6 +2203,89 @@ pub struct LongitudinalCapacityMemoryReceiptV1 {
     pub receipt_sha256: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LongitudinalMemoryReceiptV1 {
+    pub schema: String,
+    pub tier: LongitudinalTierV1,
+    pub checkpoint: LongitudinalMemoryCheckpointV1,
+    pub execution_identity_sha256: String,
+    pub absolute_rss_bytes: u64,
+    pub vmmap_sha256: String,
+    pub unknown_ownership: Vec<String>,
+    pub receipt_sha256: String,
+}
+
+impl LongitudinalMemoryReceiptV1 {
+    pub fn canonical_sha256(&self) -> Result<String, LongitudinalContractError> {
+        canonical_sha256_without(&self.receipt_sha256, |receipt_sha256| {
+            let mut preimage = self.clone();
+            preimage.receipt_sha256 = receipt_sha256;
+            preimage
+        })
+    }
+
+    pub fn validate(&self) -> Result<(), LongitudinalContractError> {
+        if self.schema != "pointbreak.longitudinal-memory-receipt.v1" {
+            return Err(LongitudinalContractError::UnsupportedContract);
+        }
+        validate_hex(
+            &self.execution_identity_sha256,
+            64,
+            "memory execution identity",
+        )?;
+        validate_hex(&self.vmmap_sha256, 64, "vmmap SHA-256")?;
+        validate_bound_hash(
+            &self.receipt_sha256,
+            &self.canonical_sha256()?,
+            "memory receipt",
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LongitudinalInterruptionReceiptV1 {
+    pub operation: LongitudinalInterruptionOperationV1,
+    pub point: LongitudinalInterruptionPointV1,
+    pub available: bool,
+    pub source_unchanged: bool,
+    pub destination_disposition: String,
+    pub diagnostic: String,
+    pub receipt_sha256: String,
+}
+
+impl LongitudinalInterruptionReceiptV1 {
+    pub fn canonical_sha256(&self) -> Result<String, LongitudinalContractError> {
+        canonical_sha256_without(&self.receipt_sha256, |receipt_sha256| {
+            let mut preimage = self.clone();
+            preimage.receipt_sha256 = receipt_sha256;
+            preimage
+        })
+    }
+
+    pub fn validate(&self) -> Result<(), LongitudinalContractError> {
+        require_nonempty(
+            &self.destination_disposition,
+            "interruption destination disposition",
+        )?;
+        require_nonempty(&self.diagnostic, "interruption diagnostic")?;
+        if !self.available
+            && (self.diagnostic != "unsupported_no_current_surface"
+                || self.destination_disposition != "not_created")
+        {
+            return Err(LongitudinalContractError::ContractDrift {
+                field: "unavailable interruption receipt",
+            });
+        }
+        validate_bound_hash(
+            &self.receipt_sha256,
+            &self.canonical_sha256()?,
+            "interruption receipt",
+        )
+    }
+}
+
 impl LongitudinalCapacityMemoryReceiptV1 {
     pub fn canonical_sha256(&self) -> Result<String, LongitudinalContractError> {
         canonical_sha256_without(&self.receipt_sha256, |receipt_sha256| {
@@ -2045,6 +2342,21 @@ impl LongitudinalContentionReceiptV1 {
     pub fn validate(&self) -> Result<(), LongitudinalContractError> {
         if self.schema != "pointbreak.longitudinal-contention-receipt.v1" {
             return Err(LongitudinalContractError::UnsupportedContract);
+        }
+        let contract = longitudinal_capacity_contract_v1().contention;
+        if self.writer_attempts
+            != contract.writer_processes
+                * (contract.unique_attempts_per_writer + contract.shared_attempts_per_writer)
+            || self.created != contract.expected_created
+            || self.existing != contract.expected_existing
+            || self.conflicts != 0
+            || self.reader_cycles != contract.reader_cycles
+            || self.timed_out
+            || self.semantic_failure
+        {
+            return Err(LongitudinalContractError::ContractDrift {
+                field: "contention schedule",
+            });
         }
         validate_hex(&self.manifest_sha256, 64, "contention manifest SHA-256")?;
         validate_hex(&self.strict_replay_sha256, 64, "contention replay SHA-256")?;
@@ -2165,7 +2477,7 @@ impl LongitudinalComplexityCountsV1 {
     }
 }
 
-fn evaluate_c524_gate(
+pub(super) fn evaluate_c524_gate(
     inputs: &LongitudinalC524GateInputsV1,
 ) -> Result<(bool, Vec<String>), LongitudinalContractError> {
     let gate = longitudinal_capacity_contract_v1().c524_gate;
@@ -2281,12 +2593,15 @@ pub struct LongitudinalFailureReceiptV1 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LongitudinalEvidencePackageV1 {
     pub schema: String,
+    pub purpose: LongitudinalPackagePurposeV1,
     pub contract_sha256: String,
     pub base_execution: LongitudinalExecutionIdentityV1,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derivative_execution: Option<LongitudinalExecutionIdentityV1>,
     pub materializations: Vec<LongitudinalMaterializationReceiptV1>,
     pub operations: Vec<LongitudinalOperationReceiptV1>,
+    pub memory_receipts: Vec<LongitudinalMemoryReceiptV1>,
+    pub interruption_receipts: Vec<LongitudinalInterruptionReceiptV1>,
     pub counters: Vec<LongitudinalCounterReceiptV1>,
     pub raw_inventory: Vec<LongitudinalRawFileV1>,
     pub failures: Vec<LongitudinalFailureReceiptV1>,
@@ -2365,6 +2680,24 @@ impl LongitudinalEvidencePackageV1 {
                 });
             }
         }
+        let mut memory_keys = BTreeSet::new();
+        for receipt in &self.memory_receipts {
+            receipt.validate()?;
+            if receipt.execution_identity_sha256 != base_hash
+                || !memory_keys.insert((receipt.tier, receipt.checkpoint))
+            {
+                return Err(LongitudinalContractError::MixedRevision);
+            }
+        }
+        let mut interruption_keys = BTreeSet::new();
+        for receipt in &self.interruption_receipts {
+            receipt.validate()?;
+            if !interruption_keys.insert((receipt.operation, receipt.point)) {
+                return Err(LongitudinalContractError::DuplicateRow {
+                    field: "interruption receipts",
+                });
+            }
+        }
         let mut counter_keys = BTreeSet::new();
         for receipt in &self.counters {
             receipt.validate()?;
@@ -2391,6 +2724,21 @@ impl LongitudinalEvidencePackageV1 {
             require_nonempty(&failure.reason_code, "failure reason")?;
             validate_hex(&failure.detail_sha256, 64, "failure detail SHA-256")?;
         }
+        if self.failures.len() > 1 {
+            return Err(LongitudinalContractError::IncompleteEvidence);
+        }
+        match self.purpose {
+            LongitudinalPackagePurposeV1::NonTimingSmoke => {
+                if !self.failures.is_empty() {
+                    return Err(LongitudinalContractError::IncompleteEvidence);
+                }
+            }
+            LongitudinalPackagePurposeV1::TerminalEvidence => {
+                if self.failures.is_empty() {
+                    validate_complete_workload_package(self)?;
+                }
+            }
+        }
         validate_bound_hash(
             &self.package_sha256,
             &self.canonical_sha256()?,
@@ -2403,6 +2751,7 @@ impl LongitudinalEvidencePackageV1 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LongitudinalCapacityPackageV1 {
     pub schema: String,
+    pub purpose: LongitudinalPackagePurposeV1,
     pub contract_sha256: String,
     pub linked_v1_package_sha256: String,
     pub base_execution: LongitudinalExecutionIdentityV1,
@@ -2549,6 +2898,27 @@ impl LongitudinalCapacityPackageV1 {
             if !failure.immutable {
                 return Err(LongitudinalContractError::MutableFailure);
             }
+            require_nonempty(&failure.reason_code, "capacity failure reason")?;
+            validate_hex(
+                &failure.detail_sha256,
+                64,
+                "capacity failure detail SHA-256",
+            )?;
+        }
+        if self.failures.len() > 1 {
+            return Err(LongitudinalContractError::IncompleteEvidence);
+        }
+        match self.purpose {
+            LongitudinalPackagePurposeV1::NonTimingSmoke => {
+                if !self.failures.is_empty() {
+                    return Err(LongitudinalContractError::IncompleteEvidence);
+                }
+            }
+            LongitudinalPackagePurposeV1::TerminalEvidence => {
+                if self.failures.is_empty() {
+                    validate_complete_capacity_package(self)?;
+                }
+            }
         }
         validate_bound_hash(
             &self.package_sha256,
@@ -2556,6 +2926,340 @@ impl LongitudinalCapacityPackageV1 {
             "longitudinal capacity package",
         )
     }
+}
+
+fn validate_complete_workload_package(
+    package: &LongitudinalEvidencePackageV1,
+) -> Result<(), LongitudinalContractError> {
+    let [materialization] = package.materializations.as_slice() else {
+        return Err(LongitudinalContractError::IncompleteEvidence);
+    };
+    if package.operations.is_empty()
+        || package.operations.iter().any(|receipt| {
+            receipt.root_identity != materialization.root_identity
+                || receipt.tier != materialization.manifest.tier
+                || receipt.manifest_sha256 != materialization.manifest.manifest_sha256
+                || receipt.schedule_sha256 != materialization.manifest.schedule_sha256
+                || receipt.outcome == LongitudinalOperationOutcomeV1::ValidFailure
+        })
+    {
+        return Err(LongitudinalContractError::IncompleteEvidence);
+    }
+    let lane = package.operations[0].lane;
+    if package
+        .operations
+        .iter()
+        .any(|receipt| receipt.lane != lane)
+    {
+        return Err(LongitudinalContractError::MixedLane);
+    }
+    let samples = longitudinal_runner_contract_v1().samples;
+    let mut by_operation = BTreeSet::new();
+    for operation in LongitudinalOperationV1::ALL {
+        let rows = package
+            .operations
+            .iter()
+            .filter(|receipt| receipt.operation == operation)
+            .collect::<Vec<_>>();
+        if rows.is_empty() {
+            return Err(LongitudinalContractError::IncompleteEvidence);
+        }
+        let governed_unavailable = rows.len() == 1
+            && rows[0].sample_ordinal == 0
+            && rows[0].outcome == LongitudinalOperationOutcomeV1::UnavailableNoCurrentSurface
+            && matches!(
+                operation,
+                LongitudinalOperationV1::AuditExact
+                    | LongitudinalOperationV1::ExportExact
+                    | LongitudinalOperationV1::MigrateFresh
+                    | LongitudinalOperationV1::RebuildFull
+            );
+        let expected = expected_workload_samples(lane, operation, &samples)?;
+        let exact_measured = rows.len() == usize::from(expected)
+            && rows.iter().enumerate().all(|(ordinal, receipt)| {
+                receipt.sample_ordinal == ordinal as u32
+                    && receipt.outcome == LongitudinalOperationOutcomeV1::Measured
+            });
+        if !governed_unavailable && !exact_measured {
+            return Err(LongitudinalContractError::IncompleteEvidence);
+        }
+        by_operation.insert(operation);
+    }
+    if by_operation.len() != LongitudinalOperationV1::ALL.len() {
+        return Err(LongitudinalContractError::IncompleteEvidence);
+    }
+    validate_workload_operation_order(&package.operations)?;
+
+    match lane {
+        LongitudinalLaneV1::ReleaseUninstrumented => {
+            let checkpoints = package
+                .memory_receipts
+                .iter()
+                .map(|receipt| receipt.checkpoint)
+                .collect::<BTreeSet<_>>();
+            if checkpoints != LongitudinalMemoryCheckpointV1::ALL.into_iter().collect()
+                || package
+                    .memory_receipts
+                    .iter()
+                    .any(|receipt| receipt.tier != materialization.manifest.tier)
+            {
+                return Err(LongitudinalContractError::IncompleteEvidence);
+            }
+            let interruption_keys = package
+                .interruption_receipts
+                .iter()
+                .map(|receipt| (receipt.operation, receipt.point))
+                .collect::<BTreeSet<_>>();
+            let expected = LongitudinalInterruptionOperationV1::ALL
+                .into_iter()
+                .flat_map(|operation| {
+                    LongitudinalInterruptionPointV1::ALL
+                        .into_iter()
+                        .map(move |point| (operation, point))
+                })
+                .collect::<BTreeSet<_>>();
+            if interruption_keys != expected {
+                return Err(LongitudinalContractError::IncompleteEvidence);
+            }
+        }
+        LongitudinalLaneV1::DebugUninstrumented => {
+            if !package.memory_receipts.is_empty() || !package.interruption_receipts.is_empty() {
+                return Err(LongitudinalContractError::IncompleteEvidence);
+            }
+        }
+        LongitudinalLaneV1::AttributionCounts => {
+            return Err(LongitudinalContractError::MixedLane);
+        }
+    }
+    Ok(())
+}
+
+fn expected_workload_samples(
+    lane: LongitudinalLaneV1,
+    operation: LongitudinalOperationV1,
+    samples: &LongitudinalSamplePlanV1,
+) -> Result<u16, LongitudinalContractError> {
+    use LongitudinalOperationV1 as Operation;
+    match lane {
+        LongitudinalLaneV1::ReleaseUninstrumented => Ok(match operation {
+            Operation::ColdHead => samples.process_cold_per_release_root,
+            Operation::WarmHead
+            | Operation::WinAdjacent
+            | Operation::WinDeep
+            | Operation::WinTail
+            | Operation::AtDeep
+            | Operation::SearchStructured
+            | Operation::SearchBody
+            | Operation::SearchMiss
+            | Operation::FilterFacet
+            | Operation::Revisions
+            | Operation::Threads
+            | Operation::AttentionAll
+            | Operation::AttentionOne
+            | Operation::DetailActive
+            | Operation::SnapshotActive
+            | Operation::DetailRemoved
+            | Operation::FreshNoChange
+            | Operation::NewCountZero => samples.warm_samples_per_release_root,
+            Operation::AppendOne | Operation::PostOne => {
+                samples.append_one_samples_per_release_root
+            }
+            Operation::AppendBurst | Operation::PostBurst => {
+                samples.append_burst_samples_per_release_root
+            }
+            Operation::Restart => samples.restart_samples_per_release_root,
+            Operation::AuditExact
+            | Operation::ExportExact
+            | Operation::MigrateFresh
+            | Operation::RebuildFull => samples.maintenance_samples_per_release_root,
+        }),
+        LongitudinalLaneV1::DebugUninstrumented => Ok(match operation {
+            Operation::ColdHead => samples.debug_cold_samples,
+            Operation::WarmHead
+            | Operation::WinAdjacent
+            | Operation::WinDeep
+            | Operation::WinTail
+            | Operation::AtDeep
+            | Operation::SearchStructured
+            | Operation::SearchBody
+            | Operation::SearchMiss
+            | Operation::FilterFacet
+            | Operation::Revisions
+            | Operation::Threads
+            | Operation::AttentionAll
+            | Operation::AttentionOne
+            | Operation::DetailActive
+            | Operation::SnapshotActive
+            | Operation::DetailRemoved
+            | Operation::FreshNoChange
+            | Operation::NewCountZero => samples.debug_warm_samples,
+            _ => samples.debug_write_restart_maintenance_samples,
+        }),
+        LongitudinalLaneV1::AttributionCounts => Err(LongitudinalContractError::MixedLane),
+    }
+}
+
+fn validate_workload_operation_order(
+    operations: &[LongitudinalOperationReceiptV1],
+) -> Result<(), LongitudinalContractError> {
+    let mut expected = Vec::new();
+    append_operation_keys(&mut expected, operations, LongitudinalOperationV1::ColdHead);
+    for operation in [
+        LongitudinalOperationV1::WarmHead,
+        LongitudinalOperationV1::WinAdjacent,
+        LongitudinalOperationV1::WinDeep,
+        LongitudinalOperationV1::WinTail,
+        LongitudinalOperationV1::AtDeep,
+        LongitudinalOperationV1::SearchStructured,
+        LongitudinalOperationV1::SearchBody,
+        LongitudinalOperationV1::SearchMiss,
+        LongitudinalOperationV1::FilterFacet,
+        LongitudinalOperationV1::Revisions,
+        LongitudinalOperationV1::Threads,
+        LongitudinalOperationV1::AttentionAll,
+        LongitudinalOperationV1::AttentionOne,
+        LongitudinalOperationV1::DetailActive,
+        LongitudinalOperationV1::SnapshotActive,
+        LongitudinalOperationV1::DetailRemoved,
+        LongitudinalOperationV1::FreshNoChange,
+        LongitudinalOperationV1::NewCountZero,
+    ] {
+        append_operation_keys(&mut expected, operations, operation);
+    }
+    let append_count = operations
+        .iter()
+        .filter(|receipt| receipt.operation == LongitudinalOperationV1::AppendOne)
+        .count();
+    for ordinal in 0..append_count as u32 {
+        expected.push((LongitudinalOperationV1::AppendOne, ordinal));
+        expected.push((LongitudinalOperationV1::PostOne, ordinal));
+    }
+    let burst_count = operations
+        .iter()
+        .filter(|receipt| receipt.operation == LongitudinalOperationV1::AppendBurst)
+        .count();
+    for ordinal in 0..burst_count as u32 {
+        expected.push((LongitudinalOperationV1::AppendBurst, ordinal));
+        expected.push((LongitudinalOperationV1::PostBurst, ordinal));
+    }
+    append_operation_keys(&mut expected, operations, LongitudinalOperationV1::Restart);
+    for operation in [
+        LongitudinalOperationV1::AuditExact,
+        LongitudinalOperationV1::ExportExact,
+        LongitudinalOperationV1::MigrateFresh,
+        LongitudinalOperationV1::RebuildFull,
+    ] {
+        append_operation_keys(&mut expected, operations, operation);
+    }
+    if operations
+        .iter()
+        .map(|receipt| (receipt.operation, receipt.sample_ordinal))
+        .ne(expected)
+    {
+        return Err(LongitudinalContractError::IncompleteEvidence);
+    }
+    Ok(())
+}
+
+fn append_operation_keys(
+    output: &mut Vec<(LongitudinalOperationV1, u32)>,
+    operations: &[LongitudinalOperationReceiptV1],
+    operation: LongitudinalOperationV1,
+) {
+    output.extend(
+        operations
+            .iter()
+            .filter(|receipt| receipt.operation == operation)
+            .map(|receipt| (operation, receipt.sample_ordinal)),
+    );
+}
+
+fn validate_complete_capacity_package(
+    package: &LongitudinalCapacityPackageV1,
+) -> Result<(), LongitudinalContractError> {
+    if package.materializations.is_empty()
+        || package.generation_resources.is_empty()
+        || package.probe_receipts.is_empty()
+        || package.memory_receipts.is_empty()
+    {
+        return Err(LongitudinalContractError::IncompleteEvidence);
+    }
+    let subjects = package
+        .probe_receipts
+        .iter()
+        .map(|receipt| receipt.subject)
+        .collect::<BTreeSet<_>>();
+    for subject in subjects {
+        for probe in LongitudinalCapacityProbeV1::ALL {
+            let mut rows = package
+                .probe_receipts
+                .iter()
+                .filter(|receipt| receipt.subject == subject && receipt.probe == probe)
+                .collect::<Vec<_>>();
+            rows.sort_by_key(|receipt| receipt.sample_ordinal);
+            let valid = if probe == LongitudinalCapacityProbeV1::AppendDelta {
+                rows.len() == 1
+                    && rows[0].sample_ordinal == 0
+                    && rows[0].metrics.is_none()
+                    && rows[0].classification
+                        == LongitudinalCapacityClassificationV1::UnsupportedNoCurrentSurface
+            } else {
+                rows.len() == 6
+                    && rows.iter().enumerate().all(|(ordinal, receipt)| {
+                        receipt.sample_ordinal == ordinal as u16
+                            && receipt.cold == (ordinal == 0)
+                            && receipt.metrics.is_some()
+                            && !matches!(
+                                receipt.classification,
+                                LongitudinalCapacityClassificationV1::UnsupportedNoCurrentSurface
+                                    | LongitudinalCapacityClassificationV1::ValidFailure
+                                    | LongitudinalCapacityClassificationV1::NotRunByGate
+                            )
+                    })
+            };
+            if !valid {
+                return Err(LongitudinalContractError::IncompleteEvidence);
+            }
+        }
+        for checkpoint in [
+            LongitudinalCapacityMemoryCheckpointV1::ClosedRootReopenIdle,
+            LongitudinalCapacityMemoryCheckpointV1::PostCarrierKey,
+            LongitudinalCapacityMemoryCheckpointV1::PostSemanticId,
+            LongitudinalCapacityMemoryCheckpointV1::PostChronologicalHead,
+            LongitudinalCapacityMemoryCheckpointV1::PostChronologicalMiddle,
+            LongitudinalCapacityMemoryCheckpointV1::PostChronologicalTail,
+        ] {
+            if !package
+                .memory_receipts
+                .iter()
+                .any(|receipt| receipt.subject == subject && receipt.checkpoint == checkpoint)
+            {
+                return Err(LongitudinalContractError::IncompleteEvidence);
+            }
+        }
+        if subject
+            == LongitudinalCapacitySubjectV1::Companion(LongitudinalCapacityProfileV1::L100O10K)
+        {
+            for checkpoint in [
+                LongitudinalCapacityMemoryCheckpointV1::PostObjectDetailL100O10K,
+                LongitudinalCapacityMemoryCheckpointV1::PostContentionQuiescence,
+            ] {
+                if !package
+                    .memory_receipts
+                    .iter()
+                    .any(|receipt| receipt.subject == subject && receipt.checkpoint == checkpoint)
+                {
+                    return Err(LongitudinalContractError::IncompleteEvidence);
+                }
+            }
+            package
+                .contention
+                .as_ref()
+                .ok_or(LongitudinalContractError::IncompleteEvidence)?
+                .validate()?;
+        }
+    }
+    Ok(())
 }
 
 fn has_capacity_materialization_pair(
@@ -2671,6 +3375,7 @@ pub struct LongitudinalHelpModeV1 {
 pub struct LongitudinalHelpV1 {
     pub schema: String,
     pub modes: Vec<LongitudinalHelpModeV1>,
+    pub native_evidence_guidance: String,
     pub later_materialization_available: bool,
     pub later_evidence_available: bool,
     pub private_inputs_allowed: bool,
@@ -2694,9 +3399,28 @@ pub fn longitudinal_help_v1() -> LongitudinalHelpV1 {
                 runs_timing: false,
                 reads_private_inputs: false,
             },
+            LongitudinalHelpModeV1 {
+                flag: LONGITUDINAL_SMOKE_MODE_V1.to_owned(),
+                purpose: "exercise disposable public construction, pair, preflight, and package mechanics"
+                    .to_owned(),
+                constructs_roots: true,
+                runs_timing: false,
+                reads_private_inputs: false,
+            },
+            LongitudinalHelpModeV1 {
+                flag: LONGITUDINAL_VERIFY_PACKAGE_MODE_V1.to_owned(),
+                purpose: "read and recursively verify one completed raw-evidence package"
+                    .to_owned(),
+                constructs_roots: false,
+                runs_timing: false,
+                reads_private_inputs: false,
+            },
         ],
-        later_materialization_available: false,
-        later_evidence_available: false,
+        native_evidence_guidance:
+            "use the separately frozen explicit operator command ledger; native collection is not a public bench mode"
+                .to_owned(),
+        later_materialization_available: true,
+        later_evidence_available: true,
         private_inputs_allowed: false,
     }
 }
@@ -2739,6 +3463,8 @@ pub enum LongitudinalContractError {
     CompensationForbidden,
     #[error("a retained failure was marked mutable")]
     MutableFailure,
+    #[error("evidence package contains neither one causal failure nor a complete required matrix")]
+    IncompleteEvidence,
     #[error("raw inventory path must be relative and normalized")]
     InvalidRelativePath,
     #[error("canonical JSON failed: {message}")]
@@ -2764,6 +3490,7 @@ impl LongitudinalContractError {
             Self::MissingRawInventory => "missing_raw_inventory",
             Self::CompensationForbidden => "compensation_forbidden",
             Self::MutableFailure => "mutable_failure",
+            Self::IncompleteEvidence => "incomplete_evidence",
             Self::InvalidRelativePath => "invalid_relative_path",
             Self::CanonicalJson { .. } => "canonical_json",
         }
@@ -2950,6 +3677,32 @@ mod contract_tests {
         }
     }
 
+    fn selectors(
+        event_count: u64,
+        carrier_hit_event_id: &str,
+        carrier_hit_key: &str,
+        object_content_hash: &str,
+    ) -> LongitudinalCapacitySelectorsV1 {
+        let mut selectors = LongitudinalCapacitySelectorsV1 {
+            carrier_hit_key: carrier_hit_key.to_owned(),
+            carrier_hit_event_id: carrier_hit_event_id.to_owned(),
+            carrier_miss_key: "longitudinal:missing:test".to_owned(),
+            semantic_revision_id: format!("rev:sha256:{}", digest("revision")),
+            semantic_object_id: format!("obj:sha256:{}", digest("object")),
+            semantic_missing_revision_id: format!("rev:sha256:{}", digest("missing-revision")),
+            semantic_missing_object_id: format!("obj:sha256:{}", digest("missing-object")),
+            object_detail_object_id: format!("obj:sha256:{}", digest("object")),
+            object_detail_content_hash: format!("sha256:{object_content_hash}"),
+            chronological_window_size: 100,
+            chronological_head_start: 0,
+            chronological_middle_start: event_count.saturating_sub(100) / 2,
+            chronological_tail_start: event_count.saturating_sub(100),
+            selectors_sha256: String::new(),
+        };
+        selectors.selectors_sha256 = selectors.canonical_sha256().expect("selector hash");
+        selectors
+    }
+
     fn materialization(root_label: &str) -> LongitudinalMaterializationReceiptV1 {
         let contract = longitudinal_runner_contract_v1();
         let tier = contract
@@ -2973,7 +3726,8 @@ mod contract_tests {
                 raw_bytes: 128,
             })
             .collect::<Vec<_>>();
-        let content_inventory = (0..tier.present_content_count)
+        let object_content_hash = digest("object-content");
+        let mut content_inventory = (0..tier.present_content_count)
             .map(|ordinal| LongitudinalInventoryEntryV1 {
                 logical_key: format!("content:{ordinal:04}"),
                 kind: match ordinal % 3 {
@@ -2987,6 +3741,8 @@ mod contract_tests {
                 decoded_bytes: 512,
             })
             .collect::<Vec<_>>();
+        content_inventory[0].kind = LongitudinalContentKindV1::ObjectArtifact;
+        content_inventory[0].logical_key = format!("artifacts/objects/{object_content_hash}.json");
         let schedule = LongitudinalOperationV1::ALL.to_vec();
         let mut manifest = LongitudinalWorkloadManifestV1 {
             schema: contract.schema.clone(),
@@ -3004,6 +3760,12 @@ mod contract_tests {
             removed_content_sha256: (0..tier.removed_content_count)
                 .map(|ordinal| digest(&format!("removed-{ordinal}")))
                 .collect(),
+            capacity_selectors: selectors(
+                tier.event_count,
+                "evt:0000",
+                "event-key-0",
+                &object_content_hash,
+            ),
             expected_semantic_receipts: LongitudinalOperationV1::ALL
                 .into_iter()
                 .map(|operation| LongitudinalExpectedSemanticReceiptV1 {
@@ -3082,6 +3844,12 @@ mod contract_tests {
             event_carriers: Vec::new(),
             content_inventory: Vec::new(),
             removed_content_sha256: Vec::new(),
+            selectors: selectors(
+                profile.event_count,
+                "evt:0000",
+                "event-key-0",
+                &digest("object-content"),
+            ),
             schedule_sha256: canonical_sha256(&probe_schedule).expect("probe schedule hash"),
             probe_schedule,
             manifest_sha256: String::new(),
@@ -3103,6 +3871,7 @@ mod contract_tests {
             execution_identity_sha256,
             lane,
             operation: LongitudinalOperationV1::WarmHead,
+            outcome: LongitudinalOperationOutcomeV1::Measured,
             sample_ordinal,
             pre_event_count: 1_024,
             post_event_count: 1_024,
@@ -3115,18 +3884,18 @@ mod contract_tests {
                 fact_ids: Vec::new(),
                 diagnostics: Vec::new(),
                 event_count: 1_024,
-                event_set_sha256: digest("semantic-event-set"),
+                event_set_sha256: digest("post-set"),
                 content_state_sha256: digest("semantic-content-state"),
             },
             semantic_receipt_sha256: digest("operation-semantic"),
-            metrics: LongitudinalOperationMetricsV1 {
+            metrics: Some(LongitudinalOperationMetricsV1 {
                 wall_nanos: 1,
                 process_user_cpu_nanos: 1,
                 process_system_cpu_nanos: 1,
                 baseline_rss_bytes: 1,
                 peak_rss_bytes: 1,
                 steady_rss_bytes: 1,
-            },
+            }),
             receipt_sha256: String::new(),
         };
         receipt.receipt_sha256 = receipt.canonical_sha256().expect("operation hash");
@@ -3137,11 +3906,14 @@ mod contract_tests {
         let contract = longitudinal_runner_contract_v1();
         let mut package = LongitudinalEvidencePackageV1 {
             schema: LONGITUDINAL_EVIDENCE_PACKAGE_SCHEMA_V1.to_owned(),
+            purpose: LongitudinalPackagePurposeV1::NonTimingSmoke,
             contract_sha256: contract.contract_sha256,
             base_execution: execution(),
             derivative_execution: None,
             materializations: Vec::new(),
             operations: Vec::new(),
+            memory_receipts: Vec::new(),
+            interruption_receipts: Vec::new(),
             counters: Vec::new(),
             raw_inventory: vec![LongitudinalRawFileV1 {
                 relative_path: "raw/sample.json".to_owned(),
@@ -3271,6 +4043,38 @@ mod contract_tests {
             .expect("receipt object")
             .insert("wallNanos".to_owned(), 1_u64.into());
         assert!(serde_json::from_value::<LongitudinalCounterReceiptV1>(value).is_err());
+    }
+
+    #[test]
+    fn longitudinal_operation_outcomes_cannot_fabricate_measurements() {
+        let execution_hash = execution()
+            .canonical_sha256()
+            .expect("execution identity hash");
+        let mut unavailable =
+            operation_receipt(LongitudinalLaneV1::ReleaseUninstrumented, execution_hash, 0);
+        unavailable.outcome = LongitudinalOperationOutcomeV1::UnavailableNoCurrentSurface;
+        unavailable.metrics = None;
+        unavailable.pre_event_set_sha256 = unavailable.post_event_set_sha256.clone();
+        unavailable.semantic_facts.diagnostics = vec!["unsupported_no_current_surface".to_owned()];
+        unavailable.receipt_sha256 = unavailable
+            .canonical_sha256()
+            .expect("unavailable receipt hash");
+        unavailable
+            .validate()
+            .expect("an unavailable row carries no metrics");
+
+        unavailable.metrics = Some(LongitudinalOperationMetricsV1 {
+            wall_nanos: 1,
+            process_user_cpu_nanos: 0,
+            process_system_cpu_nanos: 0,
+            baseline_rss_bytes: 0,
+            peak_rss_bytes: 0,
+            steady_rss_bytes: 0,
+        });
+        unavailable.receipt_sha256 = unavailable
+            .canonical_sha256()
+            .expect("invalid receipt hash");
+        assert!(unavailable.validate().is_err());
     }
 
     #[test]

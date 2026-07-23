@@ -42,14 +42,18 @@ use pointbreak::bench_support::foundation::{
     run_qualification_lmdb_smoke_v1,
 };
 use pointbreak::bench_support::longitudinal::{
-    LONGITUDINAL_CONTRACT_MODE_V1, LONGITUDINAL_HELP_MODE_V1, longitudinal_contract_publication_v1,
-    longitudinal_help_v1,
+    LONGITUDINAL_CAPACITY_PACKAGE_FILE_V1, LONGITUDINAL_CONTRACT_MODE_V1,
+    LONGITUDINAL_EVIDENCE_PACKAGE_FILE_V1, LONGITUDINAL_HELP_MODE_V1, LONGITUDINAL_SMOKE_MODE_V1,
+    LONGITUDINAL_VERIFY_PACKAGE_MODE_V1, longitudinal_contract_publication_v1,
+    longitudinal_help_v1, longitudinal_non_timing_smoke_v1,
+    verify_longitudinal_capacity_package_v1, verify_longitudinal_evidence_package_v1,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--longitudinal-contract|--longitudinal-help|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--content-only-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--lmdb-smoke|--lmdb-lifecycle-smoke|--lmdb-prospective-smoke|--lmdb-prospective-evidence|--lmdb-prospective-package|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--longitudinal-contract|--longitudinal-help|--longitudinal-smoke|--longitudinal-verify-package|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--content-only-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--lmdb-smoke|--lmdb-lifecycle-smoke|--lmdb-prospective-smoke|--lmdb-prospective-evidence|--lmdb-prospective-package|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+       --longitudinal-verify-package --longitudinal-package-root=<path>\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
        --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
        --lmdb-prospective-package --lmdb-prospective-input=<path> [--lmdb-prospective-input=<path> ...]\n\
@@ -258,6 +262,8 @@ fn main() -> ExitCode {
         "--generated-workload-smoke",
         LONGITUDINAL_CONTRACT_MODE_V1,
         LONGITUDINAL_HELP_MODE_V1,
+        LONGITUDINAL_SMOKE_MODE_V1,
+        LONGITUDINAL_VERIFY_PACKAGE_MODE_V1,
         QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
         QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1,
         QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1,
@@ -298,6 +304,13 @@ fn main() -> ExitCode {
         .iter()
         .filter_map(|argument| argument.strip_prefix("--qualification-input="))
         .collect::<Vec<_>>();
+    let longitudinal_package_requested = arguments
+        .iter()
+        .any(|argument| argument == LONGITUDINAL_VERIFY_PACKAGE_MODE_V1);
+    let longitudinal_package_roots = arguments
+        .iter()
+        .filter_map(|argument| argument.strip_prefix("--longitudinal-package-root="))
+        .collect::<Vec<_>>();
     let lmdb_prospective_package_requested = arguments
         .iter()
         .any(|argument| argument == QUALIFICATION_LMDB_PROSPECTIVE_PACKAGE_MODE_V1);
@@ -310,6 +323,8 @@ fn main() -> ExitCode {
             && argument != "--generated-workload-smoke"
             && argument != LONGITUDINAL_CONTRACT_MODE_V1
             && argument != LONGITUDINAL_HELP_MODE_V1
+            && argument != LONGITUDINAL_SMOKE_MODE_V1
+            && argument != LONGITUDINAL_VERIFY_PACKAGE_MODE_V1
             && argument != QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1
             && argument != QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1
             && argument != QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1
@@ -332,11 +347,14 @@ fn main() -> ExitCode {
             && argument != "--bench"
             && !argument.starts_with("--qualification-pair-order=")
             && !argument.starts_with("--qualification-input=")
+            && !argument.starts_with("--longitudinal-package-root=")
             && !argument.starts_with("--lmdb-prospective-input=")
     }) || requested_modes > 1
         || (!diagnostics_requested && diagnostic_pair_order.is_some())
         || (!package_requested && !package_inputs.is_empty())
         || (package_requested && package_inputs.is_empty())
+        || (!longitudinal_package_requested && !longitudinal_package_roots.is_empty())
+        || (longitudinal_package_requested && longitudinal_package_roots.len() != 1)
         || (!lmdb_prospective_package_requested && !lmdb_prospective_inputs.is_empty())
         || (lmdb_prospective_package_requested && lmdb_prospective_inputs.is_empty())
     {
@@ -390,6 +408,29 @@ fn main() -> ExitCode {
             serde_json::to_string(&longitudinal_help_v1()).expect("longitudinal help serializes")
         );
         return ExitCode::SUCCESS;
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == LONGITUDINAL_SMOKE_MODE_V1)
+    {
+        return match longitudinal_non_timing_smoke_v1() {
+            Ok(receipt) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&receipt).expect("longitudinal smoke receipt serializes")
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("store foundation longitudinal smoke failed: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+
+    if longitudinal_package_requested {
+        return longitudinal_package_report(std::path::Path::new(longitudinal_package_roots[0]));
     }
 
     if arguments
@@ -581,6 +622,47 @@ fn main() -> ExitCode {
         Err(error) => {
             eprintln!("store foundation smoke failed: {error}");
             ExitCode::from(1)
+        }
+    }
+}
+
+fn longitudinal_package_report(root: &std::path::Path) -> ExitCode {
+    let workload = root.join(LONGITUDINAL_EVIDENCE_PACKAGE_FILE_V1).is_file();
+    let capacity = root.join(LONGITUDINAL_CAPACITY_PACKAGE_FILE_V1).is_file();
+    match (workload, capacity) {
+        (true, false) => match verify_longitudinal_evidence_package_v1(root) {
+            Ok(package) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&package)
+                        .expect("longitudinal evidence package serializes")
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("store foundation longitudinal package failed: {error}");
+                ExitCode::from(1)
+            }
+        },
+        (false, true) => match verify_longitudinal_capacity_package_v1(root) {
+            Ok(package) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&package)
+                        .expect("longitudinal capacity package serializes")
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("store foundation longitudinal package failed: {error}");
+                ExitCode::from(1)
+            }
+        },
+        _ => {
+            eprintln!(
+                "store foundation longitudinal package requires exactly one recognized package document"
+            );
+            ExitCode::from(2)
         }
     }
 }

@@ -5,9 +5,11 @@
 
 mod builder;
 mod contract;
+mod evidence;
 
 pub use builder::*;
 pub use contract::*;
+pub use evidence::*;
 
 #[cfg(test)]
 mod tests {

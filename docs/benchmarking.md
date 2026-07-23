@@ -219,8 +219,34 @@ List the currently available longitudinal modes and their side-effect boundary w
 cargo bench --locked --features bench --bench store_foundation -- --longitudinal-help
 ```
 
-At this source cut, both modes are non-timing publications. They expose no materializer, evidence
-run, external input, storage selector, migration, production route, or architecture verdict.
+The public surface also provides a disposable, non-timing mechanics check:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS POINTBREAK_BENCH_FIXTURE POINTBREAK_BENCH_REPO POINTBREAK_HOME
+just longitudinal-smoke
+```
+
+It creates two temporary public `L1` roots, proves their pair identity, closes and strictly
+reopens both roots, checks complete carrier/content/state/projection receipts, and exercises raw
+inventory hashing. Its receipt states that timing and terminal-evidence use are inadmissible.
+
+Completed native packages are verified read-only with:
+
+```sh
+just longitudinal-verify-package /absolute/path/to/completed-package
+```
+
+The verifier requires exactly one workload or capacity package document, validates its typed
+revision/lane/gate relationships, recursively hashes every inventoried raw file, rejects extra or
+missing files, and never regenerates evidence. The frozen operator command may add only
+`package-receipt.json`, an exact typed copy of the already-verified package; later verification
+checks that sidecar for equality and excludes it from the immutable raw inventory. Native
+materialization and collection are deliberately
+absent from routine recipes: an external operator must use the frozen explicit command ledger and a
+clean exact source revision. The public façade refuses existing, protected, synchronized, non-local,
+dirty, mixed-identity, or protected-environment destinations. Neither the smoke nor the verifier
+selects storage, reads external store data, migrates a store, changes production routing, or makes an
+architecture verdict.
 
 ## Loose-profile baseline evidence
 

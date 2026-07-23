@@ -246,6 +246,22 @@ store-foundation-qualification-smoke:
 store-foundation-qualification:
     cargo +stable bench --features bench --bench store_foundation -- --qualification-evidence
 
+# Print and validate the public longitudinal workload and capacity contracts.
+[group('quality')]
+longitudinal-contract:
+    cargo +stable bench --locked --features bench --bench store_foundation -- --longitudinal-contract
+
+# Exercise disposable longitudinal construction, pair, preflight, and package mechanics without timing.
+[group('quality')]
+longitudinal-smoke:
+    cargo +stable bench --locked --features bench --bench store_foundation -- --longitudinal-smoke
+
+# Recursively verify one completed longitudinal raw-evidence package without editing it.
+[group('quality')]
+longitudinal-verify-package root:
+    cargo +stable bench --locked --features bench --bench store_foundation -- \
+        --longitudinal-verify-package --longitudinal-package-root="{{ root }}"
+
 # Install the Visual Studio Code extension toolchain from its committed lockfile.
 [group('extension')]
 extension-install:

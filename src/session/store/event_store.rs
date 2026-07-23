@@ -157,7 +157,7 @@ impl EventStore {
     /// decoded event must carry the key it was requested under — the keyed-read
     /// equivalent of the file backend's filename/key check — so a blob tampered to
     /// hold a different key's content is rejected, not classified.
-    fn read_stored_event(&self, idempotency_key: &str) -> Result<ShoreEvent> {
+    pub(crate) fn read_stored_event(&self, idempotency_key: &str) -> Result<ShoreEvent> {
         let bytes = self
             .journal
             .read_event_bytes(idempotency_key)?
