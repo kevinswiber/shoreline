@@ -3,10 +3,14 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, fenix, ... }:
     let
       # Systems the dev shell is built for: Linux and macOS on x86_64 and arm64.
       systems = [
@@ -16,6 +20,25 @@
         "x86_64-darwin"
       ];
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # Fenix provides a fixed stable compiler for normal work and only the
+      # nightly formatter required by rustfmt.toml's `unstable_features`.
+      # Combining components avoids rustup's mutable per-user toolchains.
+      mkRustToolchains =
+        pkgs:
+        let
+          fenixPkgs = fenix.packages.${pkgs.stdenv.hostPlatform.system};
+        in
+        {
+          stable = fenixPkgs.stable.toolchain;
+          dev = fenixPkgs.combine [
+            fenixPkgs.stable.cargo
+            fenixPkgs.stable.rustc
+            fenixPkgs.stable.clippy
+            fenixPkgs.stable.rust-src
+            fenixPkgs.latest.rustfmt
+          ];
+        };
 
       # cocogitto pinned to 6.5.0 to match CI (.github/workflows/*: cargo binstall
       # cocogitto@6.5.0) and mise.toml. nixpkgs ships 7.0.0, which this repo is NOT
@@ -53,19 +76,17 @@
         pkgs:
         let
           cocogitto = mkCocogitto pkgs;
+          rustToolchains = mkRustToolchains pkgs;
         in
         {
           default = pkgs.mkShell {
             # Everything on PATH inside `nix develop`.
             packages = with pkgs; [
               # --- Rust ---
-              # rustup (not a fixed rustc) because the Justfile/CI use BOTH
-              # `cargo +stable` (build/test/clippy) and `cargo +nightly` (rustfmt,
-              # which relies on unstable_features). Pinning a single rustc in Nix
-              # can't serve both channels; rustup keeps rust-toolchain.toml as the
-              # source of truth for stable and installs each channel on demand (see
-              # RUSTUP_AUTO_INSTALL in the shellHook).
-              rustup
+              # Stable cargo/rustc/clippy plus nightly rustfmt. The direct Fenix
+              # cargo binary has no rustup `+toolchain` proxy; the shell selects
+              # direct commands for the Justfile compatibility variables below.
+              rustToolchains.dev
 
               # --- Dev tooling (mirrors mise.toml [tools]) ---
               just
@@ -86,10 +107,11 @@
             ];
 
             shellHook = ''
-              # Let `cargo +stable` and `cargo +nightly` install their toolchain on
-              # first use instead of erroring. stable comes from rust-toolchain.toml;
-              # nightly (needed by `just fmt`) is fetched the first time it's invoked.
-              export RUSTUP_AUTO_INSTALL=1
+              # Outside Nix, Justfile recipes keep using rustup's explicit stable
+              # and nightly selectors. This shell has a single Fenix toolchain, so
+              # both recipe classes invoke its direct cargo binary instead.
+              export POINTBREAK_CARGO_STABLE=cargo
+              export POINTBREAK_CARGO_NIGHTLY=cargo
 
               # Replicate mise's `[env] _.path`: prefer freshly-built binaries.
               # Guarded so re-sourcing the hook doesn't stack duplicate entries.
@@ -105,8 +127,102 @@
                   && echo "pointbreak: installed cocogitto git hooks"
               fi
 
-              echo "pointbreak dev shell — rustup $(rustup --version 2>/dev/null | awk '{print $2}'), just, nextest, cog, node $(node --version)"
+              echo "pointbreak dev shell — $(rustc --version), $(rustfmt --version), just, nextest, cog, node $(node --version)"
             '';
+          };
+        }
+      );
+
+      # `nix build .#build-all` is the store-backed counterpart of `just build-all`:
+      # it builds the Inspector asset, CLI, and host-targeted VSIX without mutating
+      # the checkout or accessing npm during a sandboxed build.
+      packages = forEachSystem (
+        pkgs:
+        let
+          version = "0.8.0";
+          rustToolchains = mkRustToolchains pkgs;
+          rustPlatform = pkgs.makeRustPlatform {
+            cargo = rustToolchains.stable;
+            rustc = rustToolchains.stable;
+          };
+
+          inspector = pkgs.buildNpmPackage {
+            pname = "pointbreak-inspector";
+            inherit version;
+            src = ./src/cli/inspect/web;
+            npmDepsHash = "sha256-5naTmTgI9JsRLe2nezLMGjkhtJmjPv/TLFNxBo0xOXU=";
+            buildPhase = ''
+              runHook preBuild
+              npm run build -- --outfile="$out/app.js"
+              runHook postBuild
+            '';
+            installPhase = "true";
+          };
+
+          # The Rust binary embeds the Inspector asset. Substitute the Nix-built
+          # bundle into a copied source tree, so its served UI is exactly the
+          # companion `inspector` package rather than a stale checked-in artifact.
+          sourceWithInspector =
+            pkgs.runCommand "pointbreak-source-with-inspector" { nativeBuildInputs = [ pkgs.coreutils ]; }
+              ''
+                cp -R ${./.} "$out"
+                chmod -R u+w "$out"
+                cp ${inspector}/app.js "$out/src/cli/inspect/assets/app.js"
+              '';
+
+          cli = rustPlatform.buildRustPackage {
+            pname = "pointbreak";
+            inherit version;
+            src = sourceWithInspector;
+            cargoLock.lockFile = ./Cargo.lock;
+
+            # Git supplies compile-time build identity and is the runtime backend.
+            nativeBuildInputs = [
+              pkgs.git
+              pkgs.makeWrapper
+            ];
+            postFixup = ''
+              wrapProgram "$out/bin/pointbreak" --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git ]}
+            '';
+
+            meta.mainProgram = "pointbreak";
+          };
+
+          vscode = pkgs.buildNpmPackage {
+            pname = "pointbreak-vscode";
+            inherit version;
+            src = ./.;
+            sourceRoot = "source";
+            npmRoot = "extensions/vscode";
+            npmDepsHash = "sha256-zoXPLpbbDHgiq5lcvaVIjuKujBa6Hfay0sDbhGaKakY=";
+            nativeBuildInputs = [
+              cli
+              pkgs.unzip
+            ];
+            buildPhase = ''
+              runHook preBuild
+              cd "$npmRoot"
+              POINTBREAK_EXTENSION_CLEAN_VERSION=1 \
+                POINTBREAK_EXTENSION_PROFILE=release \
+                POINTBREAK_EXTENSION_BINARY=${cli}/bin/pointbreak \
+                node scripts/package-local.mjs
+              runHook postBuild
+            '';
+            installPhase = ''
+              install -Dm444 ../../target/vsix/*/release/*.vsix "$out/pointbreak.vsix"
+            '';
+          };
+        in
+        {
+          default = cli;
+          inherit cli inspector vscode;
+          build-all = pkgs.symlinkJoin {
+            name = "pointbreak-build-all-${version}";
+            paths = [
+              cli
+              inspector
+              vscode
+            ];
           };
         }
       );
@@ -119,12 +235,14 @@
         pkgs:
         let
           cocogitto = mkCocogitto pkgs;
+          rustToolchains = mkRustToolchains pkgs;
         in
         {
           devshell-tools =
             pkgs.runCommand "devshell-tools-check"
               {
                 nativeBuildInputs = [
+                  rustToolchains.dev
                   cocogitto
                   pkgs.nodejs_22
                   pkgs.just
@@ -132,9 +250,9 @@
                 ];
               }
               ''
-                # rustup is intentionally excluded: it insists on a writable HOME
-                # to create ~/.rustup, which the build sandbox denies. Its presence
-                # is already covered by evaluating the devShell.
+                cargo --version >/dev/null
+                rustc --version >/dev/null
+                rustfmt --version | grep -q nightly
                 cog --version | grep -qw 6.5.0
                 node --version | grep -q '^v22\.'
                 just --version >/dev/null
