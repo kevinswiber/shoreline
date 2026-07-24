@@ -180,14 +180,16 @@
             # while marking its provenance as `nix-dev:<base-version>`.
             env.POINTBREAK_BUILD_CHANNEL = "nix-dev";
 
-            # Match `just build-all`: building an artifact does not run the full
-            # test suite. Tests remain an explicit `just test` / CI concern.
-            doCheck = false;
-
             # Git supplies compile-time build identity and is the runtime backend.
             nativeBuildInputs = [
               pkgs.git
               pkgs.makeWrapper
+            ];
+            # Integration tests invoke project scripts that require these tools;
+            # they are not part of the delivered CLI's runtime closure.
+            nativeCheckInputs = [
+              pkgs.jq
+              pkgs.nodejs_22
             ];
             postFixup = ''
               # Keep the Nix-facing launcher wrapped with Git on PATH while also
